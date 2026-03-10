@@ -7,6 +7,7 @@ import Purchasing from './pages/Purchasing'
 import Buyers from './pages/Buyers'
 import Suppliers from './pages/Suppliers'
 import Library from './pages/Library'
+import Settings from './pages/Settings'
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="buyers" element={<Buyers />} />
         <Route path="suppliers" element={<Suppliers />} />
         <Route path="library" element={<Library />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>
   )
