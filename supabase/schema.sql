@@ -446,3 +446,28 @@ CREATE TRIGGER trg_buyers_updated BEFORE UPDATE ON buyers FOR EACH ROW EXECUTE F
 CREATE TRIGGER trg_suppliers_updated BEFORE UPDATE ON suppliers FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER trg_po_updated BEFORE UPDATE ON purchase_orders FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER trg_wo_updated BEFORE UPDATE ON work_orders FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- ============================================================
+-- MIGRATION: Add base64 asset columns + missing fields
+-- ============================================================
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS style_image_base64 TEXT,
+  ADD COLUMN IF NOT EXISTS agent_name TEXT,
+  ADD COLUMN IF NOT EXISTS in_store_date DATE,
+  ADD COLUMN IF NOT EXISTS port_of_loading TEXT,
+  ADD COLUMN IF NOT EXISTS port_of_discharge TEXT,
+  ADD COLUMN IF NOT EXISTS notes TEXT,
+  ADD COLUMN IF NOT EXISTS total_qty INTEGER,
+  ADD COLUMN IF NOT EXISTS total_value_usd NUMERIC(14,2);
+
+ALTER TABLE fitting
+  ADD COLUMN IF NOT EXISTS rows JSONB;
+
+ALTER TABLE finishing
+  ADD COLUMN IF NOT EXISTS tolerance_pct NUMERIC(5,2) DEFAULT 5,
+  ADD COLUMN IF NOT EXISTS configs JSONB,
+  ADD COLUMN IF NOT EXISTS checklist JSONB;
+
+ALTER TABLE washing
+  ADD COLUMN IF NOT EXISTS turnaround_days INTEGER,
+  ADD COLUMN IF NOT EXISTS wash_image_base64 TEXT;
