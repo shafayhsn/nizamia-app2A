@@ -83,7 +83,7 @@ export default function Step6Washing({ orderId, onSaved, registerSave }) {
     }
     await supabase.from('orders').update({ step_washing: enabledRef.current }).eq('id', orderId)
     onSaved(orderId, { step_washing: enabledRef.current })
-  }, [orderId, rows, enabled])
+  }, [orderId])
 
   useEffect(() => { if (registerSave) registerSave(doSave) }, [])
 

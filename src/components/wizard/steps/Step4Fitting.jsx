@@ -54,13 +54,13 @@ export default function Step4Fitting({ orderId, onSaved, registerSave }) {
 
   const doSave = useCallback(async () => {
     if (!orderId) return
-    const payload = { order_id: orderId, comments: notesRef.current, rowsRef.current: rowsRef.current }
+    const payload = { order_id: orderId, comments: notesRef.current, rows: rowsRef.current }
     const { data: ex } = await supabase.from('fitting').select('id').eq('order_id', orderId).maybeSingle()
     if (ex) await supabase.from('fitting').update(payload).eq('order_id', orderId)
     else     await supabase.from('fitting').insert([payload])
     await supabase.from('orders').update({ step_fitting: enabledRef.current }).eq('id', orderId)
     onSaved(orderId, { step_fitting: enabledRef.current })
-  }, [orderId, notes, rows, enabled])
+  }, [orderId])
 
   useEffect(() => { if (registerSave) registerSave(doSave) }, [])
 

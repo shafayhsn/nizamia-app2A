@@ -89,15 +89,15 @@ export default function Step8Finishing({ orderId, orderData, onSaved, registerSa
       carton_height_cm: parseFloat(cartonRef.current.h)       || null,
       gross_weight_kg:  parseFloat(cartonRef.current.weight)  || null,
       tolerance_pct:    toleranceRef.current,
-      configsRef.current:          configsRef.current,
-      checklistRef.current:        checklistRef.current,
+      configs:          configsRef.current,
+      checklist:        checklistRef.current,
     }
     const { data: ex } = await supabase.from('finishing').select('id').eq('order_id', orderId).maybeSingle()
     if (ex) await supabase.from('finishing').update(payload).eq('order_id', orderId)
     else     await supabase.from('finishing').insert([payload])
     await supabase.from('orders').update({ step_finishing: enabledRef.current }).eq('id', orderId)
     onSaved(orderId, { step_finishing: enabledRef.current })
-  }, [orderId, configs, carton, tolerance, checklist, enabled])
+  }, [orderId])
 
   useEffect(() => { if (registerSave) registerSave(doSave) }, [])
 

@@ -51,7 +51,7 @@ export default function Step9Processes({ orderId, onSaved, registerSave }) {
     if (rows.length) await supabase.from('order_processes').insert(rows)
     await supabase.from('orders').update({ step_processes: true, notesRef.current }).eq('id', orderId)
     onSaved(orderId, { step_processes: true, notesRef.current })
-  }, [orderId, ticked, custom, notes])
+  }, [orderId])
 
   useEffect(() => { if (registerSave) registerSave(doSave) }, [])
 
