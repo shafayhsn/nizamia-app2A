@@ -518,7 +518,8 @@ function WOModal({ wo, orders, suppliers, onClose, onSaved }) {
 }
 
 // ── Demand Tab ────────────────────────────────────────────────────────────────
-function DemandTab({ orders, suppliers }) {
+function DemandTab({ suppliers }) {
+  const [orders, setOrders] = useState([])
   const [bomItems, setBomItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -527,16 +528,23 @@ function DemandTab({ orders, suppliers }) {
   const [selected, setSelected] = useState(new Set())
   const [showPOModal, setShowPOModal] = useState(false)
 
-  const jobAssignedOrderIds = orders.filter(o => o.job_id).map(o => o.id)
-  const idsKey = jobAssignedOrderIds.join(',')
-
+  // Fetch everything directly — avoid prop timing issues
   useEffect(() => {
-    if (!idsKey && orders.length === 0) return // parent still loading
-    if (!jobAssignedOrderIds.length) { setLoading(false); setBomItems([]); return }
-    setLoading(true)
-    supabase.from('bom_items').select('*').in('order_id', jobAssignedOrderIds).order('created_at')
-      .then(({ data }) => { setBomItems(data || []); setLoading(false) })
-  }, [idsKey])
+    const load = async () => {
+      setLoading(true)
+      const { data: ords } = await supabase.from('orders')
+        .select('id,job_id,job_number,buyer_name,style_number,description,total_qty,buyer_id')
+        .not('status', 'eq', 'Cancelled').order('job_number')
+      const jobOrders = (ords || []).filter(o => o.job_id)
+      setOrders(ords || [])
+      if (!jobOrders.length) { setLoading(false); return }
+      const { data: bom } = await supabase.from('bom_items')
+        .select('*').in('order_id', jobOrders.map(o => o.id)).order('created_at')
+      setBomItems(bom || [])
+      setLoading(false)
+    }
+    load()
+  }, [])
 
   const rows = bomItems.map(item => {
     const order = orders.find(o => o.id === item.order_id)
