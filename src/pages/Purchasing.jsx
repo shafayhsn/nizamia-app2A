@@ -215,7 +215,7 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, onClose, onSaved })
       const procIds = procs.map(p=>p.id)
       const { data:lines } = await supabase.from('work_order_items').select('order_process_id,qty,wo_id').in('order_process_id', procIds)
       const cov = {}
-      ;(lines||[]).forEach(l => {
+      const { data: bom } = await supabase.from('bom_items').select('id,order_id,name,base_qty,final_qty,unit').order('sort_order')
         if (currentWoId && l.wo_id===currentWoId) return
         cov[l.order_process_id] = (cov[l.order_process_id]||0) + (parseFloat(l.qty)||0)
       })
