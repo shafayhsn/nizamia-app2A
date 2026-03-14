@@ -438,8 +438,7 @@ function MaterialDemandTab({ suppliers }) {
     ;(bom||[]).filter(b=>idSet.has(b.order_id)).forEach(b=>{
       const ord=allOrds.find(o=>o.id===b.order_id); if (!ord) return
       const cat=b.category==='Fabric'?'Fabric':b.category==='Stitching Trim'?'S. Trim':'P. Trim'
-      built.push({ id:b.id, order_id:b.order_id, order:ord, source_type:'bom', source_id:b.id, cat, name:b.name, specification:b.specification||b.detail||'', req_qty:parseFloat(b.final_qty||b.base_qty)||0, purchased:purchasedMap[b.id]||0, unit:b.unit||'' })
-    })
+      built.push({ id:b.id, order_id:b.order_id, order:ord, source_type:'bom', source_id:b.id, cat, name:b.name, specification:b.specification||b.detail||'', req_qty:parseFloat(b.final_qty)||0, purchased:purchasedMap[b.id]||0, unit:b.unit||'' })    })
     ;(emb||[]).filter(e=>idSet.has(e.order_id)).forEach(e=>{
       const ord=allOrds.find(o=>o.id===e.order_id); if (!ord) return
       built.push({ id:e.id, order_id:e.order_id, order:ord, source_type:'embellishment', source_id:e.id, cat:'Embellishment', name:e.description||e.technique||'Embellishment', specification:[e.technique,e.placement,e.dimensions].filter(Boolean).join(' · '), req_qty:parseFloat(e.qty)||parseFloat(ord.total_qty)||0, purchased:purchasedMap[e.id]||0, unit:e.unit||'pcs' })
