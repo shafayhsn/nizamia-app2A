@@ -32,3 +32,9 @@ outputType = "webview"
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[userenv]
+
+[userenv.shared]
+VITE_SUPABASE_URL = "https://dmsplpbpnbijrfjskjcc.supabase.co"
+VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRtc3BscGJwbmJpanJmanNramNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxMTg5MTAsImV4cCI6MjA4ODY5NDkxMH0.aB_U-b8l3yyJbdWwwaiLW0ekvVcmUCJt85Vaak8M4iY"
