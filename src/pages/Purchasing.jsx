@@ -447,10 +447,10 @@ function MaterialDemandTab({ suppliers }) {
       sgBreakdown = bd||[]
     }
 
-    // Build poDataMap[order_id] = { colors, sizeGroups, allSizes } mirroring BOM wizard's poData
+    // Build poDataMap[order_id] = { colors, sizeGroups, allSizes, sgMatrix } mirroring BOM wizard's poData
     const poDataMap = {}
     for (const g of (sizeGroups||[])) {
-      if (!poDataMap[g.order_id]) poDataMap[g.order_id] = { colors:[], sizeGroups:[], allSizes:[] }
+      if (!poDataMap[g.order_id]) poDataMap[g.order_id] = { colors:[], sizeGroups:[], allSizes:[], sgMatrix:[] }
       const pd = poDataMap[g.order_id]
       const colors = sgColors.filter(c=>c.size_group_id===g.id)
       const bdMap = {}
@@ -469,6 +469,13 @@ function MaterialDemandTab({ suppliers }) {
         const ex = pd.allSizes.find(x=>x.size===sz)
         if (ex) ex.qty += szQty; else pd.allSizes.push({ size:sz, qty:szQty })
       }
+      pd.sgMatrix.push({
+        sgName: g.group_name,
+        colors: colors.map(c => ({
+          colorName: c.color_name,
+          qty: (g.sizes||[]).reduce((s,sz)=>s+(parseInt(bdMap[c.id]?.[sz])||0),0),
+        })),
+      })
     }
 
     // Compute the true required quantity using the same logic as calcFinalQty in Step3BOM
@@ -503,6 +510,13 @@ function MaterialDemandTab({ suppliers }) {
         },0)
       }
       if (rule === 'Configure Own') {
+        if (ud.__matrix) {
+          return ud.__matrix.reduce((s,m)=>{
+            const sg = (pd.sgMatrix||[]).find(x=>x.sgName===m.sgName)
+            const c  = sg?.colors.find(x=>x.colorName===m.colorName)
+            return s + (parseFloat(m.consumption)||0) * (c?.qty||0) * (1+wastage/100)
+          },0)
+        }
         const groups = ud.__groups||[]
         return groups.reduce((s,g)=>{
           const gQty = (g.sizes||[]).reduce((sq,sz)=>sq+(pd.allSizes.find(x=>x.size===sz)?.qty||0),0)

@@ -4,6 +4,7 @@ import { Plus, Trash2, Check, Library, X, Settings2, AlertTriangle, Search } fro
 
 const USAGE_RULES = ['Generic', 'By Color', 'By Size Group', 'By Individual Sizes', 'Configure Own']
 const UNITS = ['yards', 'meters', 'pcs', 'kg', 'cone', 'set', 'sht', 'ctn', 'roll', 'ltr']
+const PACKING_FORMS = ['Cone', 'Roll', 'Spool', 'Box', 'Bag', 'Carton', 'Reel', 'Bundle', 'Piece']
 const TABLES = [
   { key: 'Fabric',         label: 'Fabrics' },
   { key: 'Stitching Trim', label: 'Stitching Trims' },
@@ -29,6 +30,10 @@ function getStaleKeys(item, poData) {
     return poData.allSizes.map(s => s.size).filter(s => !(s in ud))
   }
   if (rule === 'Configure Own') {
+    if (ud.__matrix) {
+      const assigned = ud.__matrix.map(m => `${m.sgName}||${m.colorName}`)
+      return (poData.sgMatrix || []).flatMap(sg => sg.colors.map(c => `${sg.sgName}||${c.colorName}`)).filter(k => !assigned.includes(k))
+    }
     const groups = ud.__groups || []
     const assigned = groups.flatMap(g => g.sizes)
     return poData.allSizes.map(s => s.size).filter(s => !assigned.includes(s))
@@ -41,13 +46,18 @@ function UsageModal({ config, onClose, onSave, poData }) {
   const { item, rule } = config
   const wastage = parseFloat(item.wastage) || 0
 
-  const [data, setData] = useState(() => item.usage_data || {})
-  const [ownGroups, setOwnGroups] = useState(() => {
-    if (rule !== 'Configure Own' || !item.usage_data) return [{ label: 'Group A', sizes: [], consumption: '' }]
-    return item.usage_data.__groups || [{ label: 'Group A', sizes: [], consumption: '' }]
+  const [data, setData] = useState(() => (rule !== 'Configure Own') ? (item.usage_data || {}) : {})
+  const [matrixData, setMatrixData] = useState(() => {
+    if (rule !== 'Configure Own') return {}
+    const m = item.usage_data?.__matrix || []
+    const obj = {}
+    m.forEach(e => { obj[`${e.sgName}||${e.colorName}`] = e.consumption })
+    return obj
   })
+  const [packingQty, setPackingQty] = useState(() => item.usage_data?._packing_qty || '')
+  const [packingUnit, setPackingUnit] = useState(() => item.usage_data?._packing_unit || '')
 
-  const finalQty = (consumption, qty) => {
+  const fmtQty = (consumption, qty) => {
     const c = parseFloat(consumption) || 0
     const q = parseFloat(qty) || 0
     if (!c || !q) return null
@@ -55,28 +65,56 @@ function UsageModal({ config, onClose, onSave, poData }) {
   }
 
   const inp = { height: 30, padding: '0 8px', border: '1px solid #e5e7eb', borderRadius: 5, fontSize: 12, fontFamily: 'Inter,sans-serif', outline: 'none', background: '#fff', width: '100%', boxSizing: 'border-box' }
+  const TH = ({ children, right }) => <th style={{ textAlign: right ? 'right' : 'left', fontSize: 10, fontWeight: 600, color: '#9ca3af', padding: '0 8px 8px 0', textTransform: 'uppercase' }}>{children}</th>
+
+  const totalFQ = (() => {
+    if (rule === 'Generic') {
+      const totalQty = poData.allSizes.reduce((s, x) => s + x.qty, 0)
+      return (parseFloat(data.generic) || 0) * totalQty * (1 + wastage / 100) || null
+    }
+    if (rule === 'Configure Own') {
+      const total = (poData.sgMatrix || []).reduce((s, sg) =>
+        s + sg.colors.reduce((ss, c) => ss + (parseFloat(matrixData[`${sg.sgName}||${c.colorName}`]) || 0) * c.qty * (1 + wastage / 100), 0), 0)
+      return total > 0 ? total : null
+    }
+    const entries = Object.entries(data)
+    if (!entries.length) return null
+    const total = entries.reduce((s, [k, cons]) => {
+      const qty = rule === 'By Color' ? poData.colors.find(x => x.name === k)?.qty
+        : rule === 'By Size Group' ? poData.sizeGroups.find(x => x.name === k)?.qty
+        : poData.allSizes.find(x => x.size === k)?.qty
+      return s + (parseFloat(cons) || 0) * (qty || 0) * (1 + wastage / 100)
+    }, 0)
+    return total > 0 ? total : null
+  })()
+
+  const packsNeeded = totalFQ && packingQty ? Math.ceil(totalFQ / parseFloat(packingQty)) : null
 
   const handleSave = () => {
     let usageData = {}
     if (rule === 'Generic') {
       usageData = { generic: data.generic || '' }
     } else if (rule === 'Configure Own') {
-      usageData = { ...data, __groups: ownGroups }
+      const matrix = Object.entries(matrixData)
+        .filter(([, v]) => v !== '')
+        .map(([key, consumption]) => { const [sgName, colorName] = key.split('||'); return { sgName, colorName, consumption } })
+      usageData = { __matrix: matrix }
     } else {
-      usageData = data
+      usageData = { ...data }
     }
+    if (packingQty) usageData._packing_qty = packingQty
+    if (packingUnit) usageData._packing_unit = packingUnit
     onSave(config.itemIdx, usageData)
     onClose()
   }
 
-  // Merge existing data with new PO Matrix keys (stale merging)
-  const mergedColors     = poData.colors.map(c => c.name)
-  const mergedGroups     = poData.sizeGroups.map(g => g.name)
-  const mergedSizes      = poData.allSizes.map(s => s.size)
+  const mergedColors = poData.colors.map(c => c.name)
+  const mergedGroups = poData.sizeGroups.map(g => g.name)
+  const mergedSizes  = poData.allSizes.map(s => s.size)
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#fff', borderRadius: 12, width: rule === 'Configure Own' ? 640 : 500, maxHeight: '82vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(0,0,0,0.22)', overflow: 'hidden' }}>
+      <div style={{ background: '#fff', borderRadius: 12, width: 520, maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(0,0,0,0.22)', overflow: 'hidden' }}>
 
         <div style={{ padding: '14px 20px', borderBottom: '1px solid #f0f0ee', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
@@ -86,146 +124,133 @@ function UsageModal({ config, onClose, onSave, poData }) {
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', display: 'flex' }}><X size={16} /></button>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', gap: 16 }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
 
-          {rule === 'Configure Own' && (
-            <div style={{ width: 180, flexShrink: 0, borderRight: '1px solid #f0f0ee', paddingRight: 16 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 8 }}>Groups</div>
-              {ownGroups.map((g, gi) => (
-                <div key={gi} style={{ marginBottom: 8 }}>
-                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                    <input style={{ ...inp, fontSize: 11 }} value={g.label}
-                      onChange={e => setOwnGroups(gs => gs.map((x, i) => i === gi ? { ...x, label: e.target.value } : x))} />
-                    {ownGroups.length > 1 && (
-                      <button onClick={() => setOwnGroups(gs => gs.filter((_, i) => i !== gi))}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', flexShrink: 0 }}>
-                        <X size={11} />
-                      </button>
-                    )}
-                  </div>
-                  <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                    {g.sizes.map(sz => (
-                      <span key={sz} style={{ fontSize: 9, background: '#1a1a2e', color: '#fff', borderRadius: 3, padding: '1px 5px', fontWeight: 700 }}>{sz}</span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              <button onClick={() => setOwnGroups(gs => [...gs, { label: `Group ${String.fromCharCode(65 + gs.length)}`, sizes: [], consumption: '' }])}
-                style={{ fontSize: 11, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                <Plus size={11} /> Add Group
-              </button>
+          {rule === 'Generic' && (
+            <div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 12 }}>One consumption value applies to all sizes and colours.</div>
+              <label style={{ fontSize: 11, fontWeight: 500, color: '#6b7280', display: 'block', marginBottom: 4 }}>Consumption / pc</label>
+              <input style={{ ...inp, width: 140, textAlign: 'right' }} type="number" step="0.01"
+                value={data.generic || ''} onChange={e => setData({ generic: e.target.value })} placeholder="0.00" autoFocus />
             </div>
           )}
 
-          <div style={{ flex: 1 }}>
-
-            {rule === 'Generic' && (
-              <div>
-                <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 12 }}>One consumption value applies to all.</div>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  <div>
-                    <label style={{ fontSize: 11, fontWeight: 500, color: '#6b7280', display: 'block', marginBottom: 4 }}>Consumption / pc</label>
-                    <input style={{ ...inp, width: 120, textAlign: 'right' }} type="number" step="0.01"
-                      value={data.generic || ''} onChange={e => setData({ generic: e.target.value })} placeholder="0.00" autoFocus />
-                  </div>
-                </div>
+          {(rule === 'By Color' || rule === 'By Size Group' || rule === 'By Individual Sizes') && (() => {
+            const keys  = rule === 'By Color' ? mergedColors : rule === 'By Size Group' ? mergedGroups : mergedSizes
+            const qtys  = rule === 'By Color'
+              ? Object.fromEntries(poData.colors.map(c => [c.name, c.qty]))
+              : rule === 'By Size Group'
+                ? Object.fromEntries(poData.sizeGroups.map(g => [g.name, g.qty]))
+                : Object.fromEntries(poData.allSizes.map(s => [s.size, s.qty]))
+            const label = rule === 'By Color' ? 'Colour / Wash' : rule === 'By Size Group' ? 'Size Group' : 'Size'
+            if (keys.length === 0) return (
+              <div style={{ fontSize: 12, color: '#9ca3af', padding: 16, background: '#fafaf8', borderRadius: 6, textAlign: 'center' }}>
+                No {label.toLowerCase()} data in PO Matrix yet. Complete Step 2 first.
               </div>
-            )}
+            )
+            return (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr>
+                  <TH>{label}</TH>
+                  <TH right>Qty</TH>
+                  <TH right>Cons./pc</TH>
+                  <TH right>Final Qty</TH>
+                </tr></thead>
+                <tbody>
+                  {keys.map(k => {
+                    const val = data[k] || ''
+                    const fq  = fmtQty(val, qtys[k])
+                    const isNew = !(k in (item.usage_data || {}))
+                    return (
+                      <tr key={k}>
+                        <td style={{ padding: '5px 8px 5px 0', borderBottom: '1px solid #f0f0ee', fontSize: 12, fontWeight: 500 }}>
+                          {k}{isNew && <span style={{ fontSize: 9, background: '#fef3c7', color: '#92400e', borderRadius: 3, padding: '1px 5px', fontWeight: 700, marginLeft: 6 }}>NEW</span>}
+                        </td>
+                        <td style={{ padding: '5px 8px', borderBottom: '1px solid #f0f0ee', textAlign: 'right', fontSize: 11, color: '#6b7280' }}>{qtys[k]?.toLocaleString()}</td>
+                        <td style={{ padding: '5px 0 5px 8px', borderBottom: '1px solid #f0f0ee', width: 110 }}>
+                          <input style={{ ...inp, textAlign: 'right', width: 96, borderColor: isNew && !val ? '#fcd34d' : '#e5e7eb' }}
+                            type="number" step="0.01" value={val} placeholder="0.00"
+                            onChange={e => setData(d => ({ ...d, [k]: e.target.value }))} autoFocus={isNew} />
+                        </td>
+                        <td style={{ padding: '5px 0 5px 8px', borderBottom: '1px solid #f0f0ee', textAlign: 'right', fontSize: 11, fontWeight: 700, color: fq ? '#1a1a2e' : '#d1d5db' }}>
+                          {fq ? parseFloat(fq).toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )
+          })()}
 
-            {(rule === 'By Color' || rule === 'By Size Group' || rule === 'By Individual Sizes') && (() => {
-              const keys  = rule === 'By Color' ? mergedColors : rule === 'By Size Group' ? mergedGroups : mergedSizes
-              const qtys  = rule === 'By Color'
-                ? Object.fromEntries(poData.colors.map(c => [c.name, c.qty]))
-                : rule === 'By Size Group'
-                  ? Object.fromEntries(poData.sizeGroups.map(g => [g.name, g.qty]))
-                  : Object.fromEntries(poData.allSizes.map(s => [s.size, s.qty]))
-              const label = rule === 'By Color' ? 'Colour / Wash' : rule === 'By Size Group' ? 'Size Group' : 'Size'
-
-              if (keys.length === 0) return (
-                <div style={{ fontSize: 12, color: '#9ca3af', padding: 16, background: '#fafaf8', borderRadius: 6, textAlign: 'center' }}>
-                  No {label.toLowerCase()} data in PO Matrix yet. Complete Step 2 first.
-                </div>
-              )
-              return (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>
-                      <th style={{ textAlign: 'left', fontSize: 10, fontWeight: 600, color: '#9ca3af', padding: '0 8px 8px 0', textTransform: 'uppercase' }}>{label}</th>
-                      <th style={{ textAlign: 'right', fontSize: 10, fontWeight: 600, color: '#9ca3af', padding: '0 8px 8px', textTransform: 'uppercase' }}>Qty</th>
-                      <th style={{ textAlign: 'right', fontSize: 10, fontWeight: 600, color: '#9ca3af', padding: '0 0 8px 8px', textTransform: 'uppercase' }}>Cons./pc</th>
-                      <th style={{ textAlign: 'right', fontSize: 10, fontWeight: 600, color: '#9ca3af', padding: '0 0 8px 8px', textTransform: 'uppercase' }}>Final Qty</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {keys.map(k => {
-                      const val = data[k] || ''
-                      const fq  = finalQty(val, qtys[k])
-                      const isNew = !(k in (item.usage_data || {}))
-                      return (
-                        <tr key={k}>
-                          <td style={{ padding: '5px 8px 5px 0', borderBottom: '1px solid #f0f0ee', fontSize: 12, fontWeight: 500 }}>
-                            {k}
-                            {isNew && <span style={{ fontSize: 9, background: '#fef3c7', color: '#92400e', borderRadius: 3, padding: '1px 5px', fontWeight: 700, marginLeft: 6 }}>NEW</span>}
-                          </td>
-                          <td style={{ padding: '5px 8px', borderBottom: '1px solid #f0f0ee', textAlign: 'right', fontSize: 11, color: '#6b7280' }}>{qtys[k]?.toLocaleString()}</td>
-                          <td style={{ padding: '5px 0 5px 8px', borderBottom: '1px solid #f0f0ee', width: 110 }}>
-                            <input style={{ ...inp, textAlign: 'right', width: 96, borderColor: isNew && !val ? '#fcd34d' : '#e5e7eb' }}
-                              type="number" step="0.01" value={val} placeholder="0.00"
-                              onChange={e => setData(d => ({ ...d, [k]: e.target.value }))} autoFocus={isNew} />
-                          </td>
-                          <td style={{ padding: '5px 0 5px 8px', borderBottom: '1px solid #f0f0ee', textAlign: 'right', fontSize: 11, fontWeight: 700, color: fq ? '#1a1a2e' : '#d1d5db' }}>
-                            {fq ? parseFloat(fq).toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              )
-            })()}
-
-            {rule === 'Configure Own' && (
-              <div>
-                <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 12 }}>Assign sizes to custom groups, then set consumption per group.</div>
-                {poData.allSizes.length === 0
-                  ? <div style={{ fontSize: 12, color: '#9ca3af', padding: 16, background: '#fafaf8', borderRadius: 6, textAlign: 'center' }}>No sizes in PO Matrix yet.</div>
-                  : ownGroups.map((g, gi) => (
-                    <div key={gi} style={{ marginBottom: 14, padding: '12px', background: '#fafaf8', borderRadius: 8, border: '1px solid #e8e8e6' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700 }}>{g.label}</span>
-                        <div style={{ flex: 1 }} />
-                        <label style={{ fontSize: 10, color: '#6b7280', marginRight: 4 }}>Consumption / pc</label>
-                        <input style={{ ...inp, width: 90, textAlign: 'right' }} type="number" step="0.01"
-                          value={g.consumption || ''}
-                          onChange={e => setOwnGroups(gs => gs.map((x, i) => i === gi ? { ...x, consumption: e.target.value } : x))}
-                          placeholder="0.00" />
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                        {poData.allSizes.map(s => {
-                          const inThis  = g.sizes.includes(s.size)
-                          const inOther = ownGroups.some((x, i) => i !== gi && x.sizes.includes(s.size))
-                          const isNew   = !ownGroups.some(x => x.sizes.includes(s.size)) && !(item.usage_data?.__groups || []).some(x => x.sizes.includes(s.size))
+          {rule === 'Configure Own' && (
+            <div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 14 }}>Set consumption per Size Group × Colour combination.</div>
+              {!(poData.sgMatrix || []).length
+                ? <div style={{ fontSize: 12, color: '#9ca3af', padding: 16, background: '#fafaf8', borderRadius: 6, textAlign: 'center' }}>No PO Matrix data yet. Complete Step 2 first.</div>
+                : (poData.sgMatrix || []).map(sg => (
+                  <div key={sg.sgName} style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: '#1a1a2e', padding: '4px 10px', borderRadius: 5, marginBottom: 8, display: 'inline-block', letterSpacing: '0.4px', textTransform: 'uppercase' }}>
+                      {sg.sgName}
+                    </div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead><tr>
+                        <TH>Colour / Wash</TH>
+                        <TH right>Qty</TH>
+                        <TH right>Cons./pc</TH>
+                        <TH right>Final Qty</TH>
+                      </tr></thead>
+                      <tbody>
+                        {sg.colors.map(c => {
+                          const key = `${sg.sgName}||${c.colorName}`
+                          const val = matrixData[key] || ''
+                          const fq  = fmtQty(val, c.qty)
+                          const isNew = !(item.usage_data?.__matrix || []).some(m => m.sgName === sg.sgName && m.colorName === c.colorName)
                           return (
-                            <button key={s.size} disabled={inOther}
-                              onClick={() => setOwnGroups(gs => gs.map((x, i) => {
-                                if (i !== gi) return x
-                                const sizes = inThis ? x.sizes.filter(sz => sz !== s.size) : [...x.sizes, s.size]
-                                return { ...x, sizes }
-                              }))}
-                              style={{ padding: '3px 9px', borderRadius: 5, fontSize: 11, fontWeight: 600, border: isNew ? '2px solid #fcd34d' : 'none', cursor: inOther ? 'not-allowed' : 'pointer',
-                                background: inThis ? '#1a1a2e' : inOther ? '#f0f0ee' : '#e5e7eb',
-                                color: inThis ? '#fff' : inOther ? '#d1d5db' : '#374151',
-                                opacity: inOther ? 0.5 : 1 }}>
-                              {s.size}
-                              {isNew && !inThis && <span style={{ fontSize: 8, marginLeft: 3, color: '#92400e' }}>new</span>}
-                            </button>
+                            <tr key={key}>
+                              <td style={{ padding: '5px 8px 5px 0', borderBottom: '1px solid #f0f0ee', fontSize: 12, fontWeight: 500 }}>
+                                {c.colorName}{isNew && <span style={{ fontSize: 9, background: '#fef3c7', color: '#92400e', borderRadius: 3, padding: '1px 5px', fontWeight: 700, marginLeft: 6 }}>NEW</span>}
+                              </td>
+                              <td style={{ padding: '5px 8px', borderBottom: '1px solid #f0f0ee', textAlign: 'right', fontSize: 11, color: '#6b7280' }}>{c.qty?.toLocaleString()}</td>
+                              <td style={{ padding: '5px 0 5px 8px', borderBottom: '1px solid #f0f0ee', width: 110 }}>
+                                <input style={{ ...inp, textAlign: 'right', width: 96, borderColor: isNew && !val ? '#fcd34d' : '#e5e7eb' }}
+                                  type="number" step="0.01" value={val} placeholder="0.00"
+                                  onChange={e => setMatrixData(d => ({ ...d, [key]: e.target.value }))} />
+                              </td>
+                              <td style={{ padding: '5px 0 5px 8px', borderBottom: '1px solid #f0f0ee', textAlign: 'right', fontSize: 11, fontWeight: 700, color: fq ? '#1a1a2e' : '#d1d5db' }}>
+                                {fq ? parseFloat(fq).toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'}
+                              </td>
+                            </tr>
                           )
                         })}
-                      </div>
-                    </div>
-                  ))
-                }
+                      </tbody>
+                    </table>
+                  </div>
+                ))
+              }
+            </div>
+          )}
+        </div>
+
+        {/* Packing section */}
+        <div style={{ padding: '12px 20px', borderTop: '1px solid #f0f0ee', background: '#fafaf8', flexShrink: 0 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Packing</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input style={{ ...inp, width: 100, textAlign: 'right' }} type="number" step="1"
+              value={packingQty} placeholder="qty / pack"
+              onChange={e => setPackingQty(e.target.value)} />
+            <span style={{ fontSize: 11, color: '#6b7280' }}>{item.unit || 'units'} per</span>
+            <select style={{ ...inp, width: 100, cursor: 'pointer' }} value={packingUnit} onChange={e => setPackingUnit(e.target.value)}>
+              <option value="">— pack type —</option>
+              {PACKING_FORMS.map(p => <option key={p}>{p}</option>)}
+            </select>
+            {packsNeeded !== null && (
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', background: '#eff6ff', borderRadius: 6, padding: '4px 12px', border: '1px solid #bfdbfe' }}>
+                = {packsNeeded.toLocaleString()} {packingUnit || 'packs'} needed
               </div>
+            )}
+            {!packsNeeded && packingQty && !totalFQ && (
+              <span style={{ fontSize: 11, color: '#9ca3af' }}>Enter consumption above to calculate packs</span>
             )}
           </div>
         </div>
@@ -384,7 +409,7 @@ export default function Step3BOM({ orderId, orderData, onSaved, registerSave }) 
   const [showLib,     setShowLib]    = useState(false)
   const [usageConfig, setUsageConfig] = useState(null)
   const [suppliers,   setSuppliers]  = useState([])
-  const [poData,      setPoData]     = useState({ colors: [], sizeGroups: [], allSizes: [] })
+  const [poData,      setPoData]     = useState({ colors: [], sizeGroups: [], allSizes: [], sgMatrix: [] })
 
   const totalQty = orderData?.total_qty || 0
 
@@ -421,7 +446,21 @@ export default function Step3BOM({ orderId, orderData, onSaved, registerSave }) 
     sgs.forEach(g => (g.sizes || []).forEach(sz => { if (!seenSizes.includes(sz)) seenSizes.push(sz) }))
     const allSizeList = seenSizes.map(sz => ({ size: sz, qty: sizeQtyMap[sz] || 0 }))
 
-    setPoData({ colors: colorList, sizeGroups: sizeGroupList, allSizes: allSizeList })
+    // Build hierarchical sgMatrix for Configure Own (Size Group → Color)
+    const sgMatrix = sgs.map(g => {
+      const bdForGroup = bd?.filter(b => b.size_group_id === g.id) || []
+      const colorsForGroup = (colors || []).filter(c => c.size_group_id === g.id)
+      return {
+        sgName: g.group_name,
+        sizes: g.sizes || [],
+        colors: colorsForGroup.map(c => ({
+          colorName: c.color_name,
+          qty: (g.sizes || []).reduce((s, sz) => s + (bdForGroup.find(b => b.color_id === c.id && b.size === sz)?.qty || 0), 0),
+        })),
+      }
+    })
+
+    setPoData({ colors: colorList, sizeGroups: sizeGroupList, allSizes: allSizeList, sgMatrix })
   }
 
   const addBlank = (cat) => setItems(i => [...i, {
@@ -438,7 +477,8 @@ export default function Step3BOM({ orderId, orderData, onSaved, registerSave }) 
       detail: lib.category === 'Fabric'
         ? [lib.composition, lib.weight ? lib.weight : null, lib.width_inches ? `${lib.width_inches}"` : null].filter(Boolean).join(', ')
         : lib.description || '',
-      unit: lib.unit, usage_rule: 'Generic', usage_data: null,
+      unit: lib.unit, usage_rule: 'Generic',
+      usage_data: lib.packing_form ? { _packing_unit: lib.packing_form } : null,
       base_qty: '', wastage: lib.default_wastage || 5,
       notes: '', sort_order: i.length + libItems.indexOf(lib),
       _tempId: tempId(), library_item_id: lib.id,
@@ -533,6 +573,14 @@ export default function Step3BOM({ orderId, orderData, onSaved, registerSave }) 
       return total > 0 ? total.toFixed(1) : null
     }
     if (rule === 'Configure Own') {
+      if (ud.__matrix) {
+        const total = ud.__matrix.reduce((s, m) => {
+          const sg = (poData.sgMatrix || []).find(x => x.sgName === m.sgName)
+          const c  = sg?.colors.find(x => x.colorName === m.colorName)
+          return s + (parseFloat(m.consumption) || 0) * (c?.qty || 0) * (1 + wastage / 100)
+        }, 0)
+        return total > 0 ? total.toFixed(1) : null
+      }
       const groups = ud.__groups || []
       const total = groups.reduce((s, g) => {
         const gQty = g.sizes.reduce((sq, sz) => sq + (poData.allSizes.find(x => x.size === sz)?.qty || 0), 0)
@@ -663,9 +711,18 @@ export default function Step3BOM({ orderId, orderData, onSaved, registerSave }) 
                   <td style={{ padding: '4px 4px', borderBottom: '1px solid #f0f0ee', width: 64 }}>
                     <input style={{ ...inp, textAlign: 'right' }} type="number" value={item.wastage || ''} onChange={e => upd(realIdx, 'wastage', e.target.value)} />
                   </td>
-                  <td style={{ padding: '4px 4px', borderBottom: '1px solid #f0f0ee', width: 90, textAlign: 'right' }}>
-                    {fqty
-                      ? <span style={{ fontSize: 11, fontWeight: 700, color: '#1a1a2e', fontVariantNumeric: 'tabular-nums' }}>{parseFloat(fqty).toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                  <td style={{ padding: '4px 4px', borderBottom: '1px solid #f0f0ee', width: 100, textAlign: 'right' }}>
+                    {fqty ? (() => {
+                      const pQty = parseFloat(item.usage_data?._packing_qty)
+                      const pUnit = item.usage_data?._packing_unit
+                      const packs = pQty ? Math.ceil(parseFloat(fqty) / pQty) : null
+                      return (
+                        <div>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#1a1a2e', fontVariantNumeric: 'tabular-nums' }}>{parseFloat(fqty).toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                          {packs !== null && <div style={{ fontSize: 10, color: '#2563eb', fontWeight: 600 }}>→ {packs} {pUnit || 'packs'}</div>}
+                        </div>
+                      )
+                    })()
                       : <span style={{ color: '#d1d5db', fontSize: 11 }}>—</span>
                     }
                   </td>
