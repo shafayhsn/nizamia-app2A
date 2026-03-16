@@ -7,7 +7,6 @@ const WASH_TYPES = ['No Wash', 'Enzyme Wash', 'Stone Wash', 'Acid Wash', 'Bleach
 export default function Step6Washing({ orderId, onSaved, registerSave }) {
   const [enabled, setEnabled]   = useState(false)
   const [rows, setRows]         = useState([])
-  const [suppliers, setSuppliers] = useState([])
   const [saving, setSaving]     = useState(false)
   const [saved, setSaved]       = useState(false)
   const [loaded, setLoaded]     = useState(false)
