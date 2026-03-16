@@ -426,19 +426,99 @@ function MaterialDemandTab({ suppliers }) {
     setOrders(allOrds)
     if (!jobOrds.length) { setRows([]); setLoading(false); return }
     const idSet = new Set(jobOrds.map(o=>o.id))
-    const [{ data:bom }, { data:emb }, { data:wash }, { data:poItems }] = await Promise.all([
+    const idArr = Array.from(idSet)
+    const [{ data:bom }, { data:emb }, { data:wash }, { data:poItems }, { data:sizeGroups }] = await Promise.all([
       supabase.from('bom_items').select('*').order('sort_order'),
       supabase.from('embellishments').select('*'),
       supabase.from('washing').select('*'),
       supabase.from('purchase_order_items').select('qty,source_type,source_id'),
+      supabase.from('size_groups').select('*').in('order_id', idArr),
     ])
+
+    // Fetch color & size breakdown data to compute final quantities for all BOM usage rules
+    const sgIds = (sizeGroups||[]).map(g=>g.id)
+    let sgColors = [], sgBreakdown = []
+    if (sgIds.length) {
+      const [{ data:colors }, { data:bd }] = await Promise.all([
+        supabase.from('size_group_colors').select('*').in('size_group_id', sgIds),
+        supabase.from('size_group_breakdown').select('*').in('size_group_id', sgIds),
+      ])
+      sgColors = colors||[]
+      sgBreakdown = bd||[]
+    }
+
+    // Build poDataMap[order_id] = { colors, sizeGroups, allSizes } mirroring BOM wizard's poData
+    const poDataMap = {}
+    for (const g of (sizeGroups||[])) {
+      if (!poDataMap[g.order_id]) poDataMap[g.order_id] = { colors:[], sizeGroups:[], allSizes:[] }
+      const pd = poDataMap[g.order_id]
+      const colors = sgColors.filter(c=>c.size_group_id===g.id)
+      const bdMap = {}
+      sgBreakdown.filter(b=>b.size_group_id===g.id).forEach(b=>{
+        if (!bdMap[b.color_id]) bdMap[b.color_id]={}
+        bdMap[b.color_id][b.size]=(bdMap[b.color_id][b.size]||0)+b.qty
+      })
+      for (const c of colors) {
+        const cQty = (g.sizes||[]).reduce((s,sz)=>s+(parseInt(bdMap[c.id]?.[sz])||0),0)
+        pd.colors.push({ name:c.color_name, qty:cQty })
+      }
+      const sgQty = colors.reduce((s,c)=>s+(g.sizes||[]).reduce((ss,sz)=>ss+(parseInt(bdMap[c.id]?.[sz])||0),0),0)
+      pd.sizeGroups.push({ name:g.group_name, qty:sgQty })
+      for (const sz of (g.sizes||[])) {
+        const szQty = colors.reduce((s,c)=>s+(parseInt(bdMap[c.id]?.[sz])||0),0)
+        const ex = pd.allSizes.find(x=>x.size===sz)
+        if (ex) ex.qty += szQty; else pd.allSizes.push({ size:sz, qty:szQty })
+      }
+    }
+
+    // Compute the true required quantity using the same logic as calcFinalQty in Step3BOM
+    const calcReqQty = (b, ord) => {
+      const wastage = parseFloat(b.wastage) || 5
+      const rule = b.usage_rule || 'Generic'
+      const ud = b.usage_data
+      const pd = poDataMap[b.order_id]
+      if (rule === 'Generic') {
+        const base = parseFloat(b.base_qty) || 0
+        const total = parseFloat(ord.total_qty) || 0
+        if (!base || !total) return 0
+        return base * total * (1 + wastage / 100)
+      }
+      if (!ud || !pd) return parseFloat(b.base_qty) || 0
+      if (rule === 'By Color') {
+        return Object.entries(ud).reduce((s,[n,cons])=>{
+          const c = pd.colors.find(c=>c.name===n)
+          return s + (parseFloat(cons)||0) * (c?.qty||0) * (1+wastage/100)
+        },0)
+      }
+      if (rule === 'By Size Group') {
+        return Object.entries(ud).reduce((s,[n,cons])=>{
+          const g = pd.sizeGroups.find(x=>x.name===n)
+          return s + (parseFloat(cons)||0) * (g?.qty||0) * (1+wastage/100)
+        },0)
+      }
+      if (rule === 'By Individual Sizes') {
+        return Object.entries(ud).reduce((s,[sz,cons])=>{
+          const found = pd.allSizes.find(x=>x.size===sz)
+          return s + (parseFloat(cons)||0) * (found?.qty||0) * (1+wastage/100)
+        },0)
+      }
+      if (rule === 'Configure Own') {
+        const groups = ud.__groups||[]
+        return groups.reduce((s,g)=>{
+          const gQty = (g.sizes||[]).reduce((sq,sz)=>sq+(pd.allSizes.find(x=>x.size===sz)?.qty||0),0)
+          return s + (parseFloat(g.consumption)||0) * gQty * (1+wastage/100)
+        },0)
+      }
+      return parseFloat(b.base_qty) || 0
+    }
+
     const purchasedMap = {}
     ;(poItems||[]).forEach(p=>{ if (p.source_id) purchasedMap[p.source_id]=(purchasedMap[p.source_id]||0)+(parseFloat(p.qty)||0) })
     const built = []
     ;(bom||[]).filter(b=>idSet.has(b.order_id)).forEach(b=>{
       const ord=allOrds.find(o=>o.id===b.order_id); if (!ord) return
       const cat=b.category==='Fabric'?'Fabric':b.category==='Stitching Trim'?'S. Trim':'P. Trim'
-      built.push({ id:b.id, order_id:b.order_id, order:ord, source_type:'bom', source_id:b.id, cat, name:b.name, specification:b.specification||b.detail||'', req_qty:parseFloat(b.final_qty||b.base_qty)||0, purchased:purchasedMap[b.id]||0, unit:b.unit||'' })
+      built.push({ id:b.id, order_id:b.order_id, order:ord, source_type:'bom', source_id:b.id, cat, name:b.name, specification:b.specification||b.detail||'', req_qty:calcReqQty(b,ord), purchased:purchasedMap[b.id]||0, unit:b.unit||'' })
     })
     ;(emb||[]).filter(e=>idSet.has(e.order_id)).forEach(e=>{
       const ord=allOrds.find(o=>o.id===e.order_id); if (!ord) return
