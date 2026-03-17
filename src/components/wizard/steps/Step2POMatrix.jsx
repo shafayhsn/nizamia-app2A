@@ -1,15 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../../../lib/supabase'
-import { Plus, Trash2, Check, X, Star } from 'lucide-react'
-
-const PRESET_SIZES = {
-  'Tops': ['XXS','XS','S','M','L','XL','XXL','3XL'],
-  'Bottoms (numeric)': ['28','30','32','34','36','38','40','42','44'],
-  'Bottoms (alpha)': ['XS','S','M','L','XL','XXL'],
-  'Kids': ['2Y','4Y','6Y','8Y','10Y','12Y','14Y'],
-  'US Women': ['0','2','4','6','8','10','12','14','16'],
-  'EU Shoes': ['36','37','38','39','40','41','42','43','44','45'],
-}
+import { Plus, Trash2, Check, X, Star, Layers } from 'lucide-react'
 
 function tempId() { return Math.random().toString(36).slice(2) }
 
@@ -17,7 +8,7 @@ function newGroup(n) {
   return {
     _tempId: tempId(),
     group_name: `Group ${n}`, unit_price: '', currency: 'USD',
-    sizes: ['XS','S','M','L','XL'], base_size: 'M',
+    sizes: [], base_size: null,
     colors: [{ _tempId: tempId(), color_name: '' }],
     breakdown: {},
   }
@@ -27,13 +18,18 @@ export default function Step2POMatrix({ orderId, orderData, onSaved, registerSav
   const [groups, setGroups]       = useState([newGroup(1)])
   const [saving, setSaving]       = useState(false)
   const [saved,  setSaved]        = useState(false)
-  const [sizesMgr, setSizesMgr]   = useState(null) // group index or null
+  const [sizesMgr, setSizesMgr]   = useState(null)
   const [customSize, setCustomSize] = useState('')
+  const [libGroups, setLibGroups] = useState([])
 
   const groupsRef = useRef(groups)
   useEffect(() => { groupsRef.current = groups }, [groups])
 
   useEffect(() => { if (orderId) loadGroups() }, [orderId])
+
+  useEffect(() => {
+    supabase.from('size_group_templates').select('*').order('name').then(({ data }) => setLibGroups(data || []))
+  }, [])
 
   async function loadGroups() {
     const { data: sg } = await supabase.from('size_groups').select('*').eq('order_id', orderId).order('sort_order')
@@ -78,7 +74,6 @@ export default function Step2POMatrix({ orderId, orderData, onSaved, registerSav
         if (bRows.length) await supabase.from('size_group_breakdown').insert(bRows)
       }
     }
-    // Recalculate totals from breakdown
     let total_qty = 0
     let total_value_usd = 0
     for (const g of gs) {
@@ -116,7 +111,6 @@ export default function Step2POMatrix({ orderId, orderData, onSaved, registerSav
   const grandTotal = (g) => g.colors.reduce((s,c) => s + colorTotal(g, ck(c)), 0)
   const groupValue = (g) => grandTotal(g) * (parseFloat(g.unit_price)||0)
 
-  // Manage sizes helpers
   const toggleSize = (gi, sz) => setGroups(gs => gs.map((g,i) => {
     if (i !== gi) return g
     const has = g.sizes.includes(sz)
@@ -133,6 +127,15 @@ export default function Step2POMatrix({ orderId, orderData, onSaved, registerSav
       return { ...g, sizes: [...g.sizes, s] }
     }))
     setCustomSize('')
+  }
+
+  const applyLibraryGroup = (gi, libGroup) => {
+    setGroups(gs => gs.map((g,i) => {
+      if (i !== gi) return g
+      const merged = [...new Set([...g.sizes, ...libGroup.sizes])]
+      const base_size = g.base_size || libGroup.sizes[0] || null
+      return { ...g, sizes: merged, base_size }
+    }))
   }
 
   const inp  = { width:'100%', height:32, padding:'0 10px', border:'1px solid #e5e7eb', borderRadius:6, fontSize:12, fontFamily:'Inter,sans-serif', outline:'none', background:'#fff', boxSizing:'border-box' }
@@ -171,6 +174,9 @@ export default function Step2POMatrix({ orderId, orderData, onSaved, registerSav
             <div style={{ flex:1, minWidth:160 }}>
               <label style={lbl}>Sizes</label>
               <div style={{ display:'flex', gap:4, flexWrap:'wrap', alignItems:'center' }}>
+                {g.sizes.length === 0 && (
+                  <span style={{ fontSize:10, color:'#9ca3af', fontStyle:'italic' }}>No sizes added</span>
+                )}
                 {g.sizes.map(sz=>(
                   <span key={sz} style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:4, background: sz===g.base_size ? '#1a1a2e' : '#f0f0ee', color: sz===g.base_size ? '#fff' : '#374151' }}>
                     {sz}{sz===g.base_size?' ★':''}
@@ -190,69 +196,75 @@ export default function Step2POMatrix({ orderId, orderData, onSaved, registerSav
 
           {/* Matrix */}
           <div style={{ overflowX:'auto', padding:'0 16px 16px' }}>
-            <table style={{ borderCollapse:'collapse', marginTop:12, minWidth:500 }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign:'left', fontSize:10, fontWeight:600, color:'#9ca3af', padding:'6px 8px 6px 0', textTransform:'uppercase', letterSpacing:'0.8px', minWidth:160 }}>Colour / Wash</th>
-                  {g.sizes.map(sz=>(
-                    <th key={sz} style={{ textAlign:'center', fontSize:10, fontWeight:600, padding:'6px 4px', textTransform:'uppercase', letterSpacing:'0.5px', color: sz===g.base_size ? '#1a1a2e' : '#9ca3af', minWidth:58 }}>
-                      {sz}{sz===g.base_size?' ★':''}
-                    </th>
-                  ))}
-                  <th style={{ textAlign:'right', fontSize:10, fontWeight:600, color:'#9ca3af', padding:'6px 0 6px 8px', textTransform:'uppercase', minWidth:60 }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {g.colors.map((c, ci) => {
-                  const colorKey = ck(c)
-                  const tot = colorTotal(g, colorKey)
-                  return (
-                    <tr key={colorKey}>
-                      <td style={{ padding:'4px 0', borderBottom:'1px solid #f0f0ee' }}>
-                        <div style={{ display:'flex', gap:4, alignItems:'center' }}>
-                          <input style={{ ...inp, fontSize:11 }} value={c.color_name}
-                            onChange={e => setGroups(gs => gs.map((grp,i) => {
-                              if (i!==gi) return grp
-                              const colors = [...grp.colors]
-                              colors[ci] = { ...colors[ci], color_name: e.target.value }
-                              return { ...grp, colors }
-                            }))}
-                            placeholder="Colour / wash name" />
-                          {g.colors.length > 1 && (
-                            <button className="btn btn-ghost btn-sm"
-                              onClick={() => setGroups(gs => gs.map((grp,i) => i!==gi ? grp : { ...grp, colors: grp.colors.filter((_,j)=>j!==ci) }))}>
-                              <Trash2 size={10} />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      {g.sizes.map(sz=>(
-                        <td key={sz} style={cell}>
-                          <input type="number" style={{ ...inp, width:54, textAlign:'center', fontSize:11, padding:'0 4px', background: sz===g.base_size ? '#fafaf8' : '#fff' }}
-                            value={g.breakdown[colorKey]?.[sz] || ''}
-                            onChange={e => setQty(gi, colorKey, sz, e.target.value)}
-                            placeholder="0" />
+            {g.sizes.length === 0 ? (
+              <div style={{ padding:'24px', textAlign:'center', color:'#9ca3af', fontSize:12 }}>
+                Click <strong>Manage Sizes</strong> above to add sizes for this group.
+              </div>
+            ) : (
+              <table style={{ borderCollapse:'collapse', marginTop:12, minWidth:500 }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign:'left', fontSize:10, fontWeight:600, color:'#9ca3af', padding:'6px 8px 6px 0', textTransform:'uppercase', letterSpacing:'0.8px', minWidth:160 }}>Colour / Wash</th>
+                    {g.sizes.map(sz=>(
+                      <th key={sz} style={{ textAlign:'center', fontSize:10, fontWeight:600, padding:'6px 4px', textTransform:'uppercase', letterSpacing:'0.5px', color: sz===g.base_size ? '#1a1a2e' : '#9ca3af', minWidth:58 }}>
+                        {sz}{sz===g.base_size?' ★':''}
+                      </th>
+                    ))}
+                    <th style={{ textAlign:'right', fontSize:10, fontWeight:600, color:'#9ca3af', padding:'6px 0 6px 8px', textTransform:'uppercase', minWidth:60 }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {g.colors.map((c, ci) => {
+                    const colorKey = ck(c)
+                    const tot = colorTotal(g, colorKey)
+                    return (
+                      <tr key={colorKey}>
+                        <td style={{ padding:'4px 0', borderBottom:'1px solid #f0f0ee' }}>
+                          <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+                            <input style={{ ...inp, fontSize:11 }} value={c.color_name}
+                              onChange={e => setGroups(gs => gs.map((grp,i) => {
+                                if (i!==gi) return grp
+                                const colors = [...grp.colors]
+                                colors[ci] = { ...colors[ci], color_name: e.target.value }
+                                return { ...grp, colors }
+                              }))}
+                              placeholder="Colour / wash name" />
+                            {g.colors.length > 1 && (
+                              <button className="btn btn-ghost btn-sm"
+                                onClick={() => setGroups(gs => gs.map((grp,i) => i!==gi ? grp : { ...grp, colors: grp.colors.filter((_,j)=>j!==ci) }))}>
+                                <Trash2 size={10} />
+                              </button>
+                            )}
+                          </div>
                         </td>
-                      ))}
-                      <td style={{ textAlign:'right', fontWeight:700, fontSize:12, padding:'4px 0 4px 8px', borderBottom:'1px solid #f0f0ee' }}>
-                        {tot > 0 ? tot.toLocaleString() : '—'}
+                        {g.sizes.map(sz=>(
+                          <td key={sz} style={cell}>
+                            <input type="number" style={{ ...inp, width:54, textAlign:'center', fontSize:11, padding:'0 4px', background: sz===g.base_size ? '#fafaf8' : '#fff' }}
+                              value={g.breakdown[colorKey]?.[sz] || ''}
+                              onChange={e => setQty(gi, colorKey, sz, e.target.value)}
+                              placeholder="0" />
+                          </td>
+                        ))}
+                        <td style={{ textAlign:'right', fontWeight:700, fontSize:12, padding:'4px 0 4px 8px', borderBottom:'1px solid #f0f0ee' }}>
+                          {tot > 0 ? tot.toLocaleString() : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  <tr style={{ background:'#fafaf8' }}>
+                    <td style={{ fontSize:10, fontWeight:700, color:'#6b7280', padding:'8px 0' }}>TOTAL</td>
+                    {g.sizes.map(sz=>(
+                      <td key={sz} style={{ textAlign:'center', fontWeight:700, fontSize:11, padding:'8px 4px' }}>
+                        {sizeTotal(g,sz)||'—'}
                       </td>
-                    </tr>
-                  )
-                })}
-                <tr style={{ background:'#fafaf8' }}>
-                  <td style={{ fontSize:10, fontWeight:700, color:'#6b7280', padding:'8px 0' }}>TOTAL</td>
-                  {g.sizes.map(sz=>(
-                    <td key={sz} style={{ textAlign:'center', fontWeight:700, fontSize:11, padding:'8px 4px' }}>
-                      {sizeTotal(g,sz)||'—'}
+                    ))}
+                    <td style={{ textAlign:'right', fontWeight:800, fontSize:13, padding:'8px 0 8px 8px' }}>
+                      {grandTotal(g).toLocaleString()}
                     </td>
-                  ))}
-                  <td style={{ textAlign:'right', fontWeight:800, fontSize:13, padding:'8px 0 8px 8px' }}>
-                    {grandTotal(g).toLocaleString()}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                  </tr>
+                </tbody>
+              </table>
+            )}
 
             <div style={{ display:'flex', alignItems:'center', gap:12, marginTop:10 }}>
               <button className="btn btn-ghost btn-sm"
@@ -303,10 +315,14 @@ export default function Step2POMatrix({ orderId, orderData, onSaved, registerSav
 
               <div style={{ flex:1, overflowY:'auto', padding:'16px 20px' }}>
 
-                {/* Selected sizes with base size picker */}
-                {g.sizes.length > 0 && (
-                  <div style={{ marginBottom:16 }}>
-                    <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.6px', marginBottom:8 }}>Selected · click ★ to set base size</div>
+                {/* Selected sizes */}
+                <div style={{ marginBottom:18 }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.6px', marginBottom:8 }}>
+                    Selected · click ★ to set base size
+                  </div>
+                  {g.sizes.length === 0 ? (
+                    <div style={{ fontSize:11, color:'#d1d5db', fontStyle:'italic' }}>No sizes yet — pick from library or type your own below.</div>
+                  ) : (
                     <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
                       {g.sizes.map(sz => (
                         <div key={sz} style={{ display:'flex', alignItems:'center', gap:0, background: sz===g.base_size ? '#1a1a2e' : '#f0f0ee', borderRadius:6, overflow:'hidden' }}>
@@ -320,42 +336,54 @@ export default function Step2POMatrix({ orderId, orderData, onSaved, registerSav
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
-                {/* Preset size groups */}
-                {Object.entries(PRESET_SIZES).map(([label, sizes]) => (
-                  <div key={label} style={{ marginBottom:12 }}>
-                    <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.6px', marginBottom:6, display:'flex', alignItems:'center', gap:8 }}>
-                      {label}
-                      <button onClick={() => setGroups(gs => gs.map((grp,i) => {
-                        if (i!==sizesMgr) return grp
-                        const merged = [...new Set([...grp.sizes, ...sizes])]
-                        return { ...grp, sizes: merged }
-                      }))} style={{ fontSize:9, padding:'1px 6px', borderRadius:3, background:'#f0f0ee', border:'none', cursor:'pointer', color:'#6b7280', textTransform:'none', letterSpacing:0, fontWeight:500 }}>
-                        Add all
-                      </button>
-                    </div>
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
-                      {sizes.map(sz => {
-                        const on = g.sizes.includes(sz)
-                        return (
-                          <button key={sz} onClick={() => toggleSize(sizesMgr,sz)} style={{ padding:'4px 10px', borderRadius:5, fontSize:11, fontWeight:600, border:'none', cursor:'pointer', background: on ? '#1a1a2e' : '#f3f4f6', color: on ? '#fff' : '#374151', transition:'all 0.1s' }}>
-                            {sz}
-                          </button>
-                        )
-                      })}
-                    </div>
+                {/* Library size groups */}
+                <div style={{ marginBottom:18 }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.6px', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
+                    <Layers size={11}/> From Library
                   </div>
-                ))}
+                  {libGroups.length === 0 ? (
+                    <div style={{ fontSize:11, color:'#d1d5db', fontStyle:'italic', padding:'8px 0' }}>
+                      No size groups in library yet. Add some in Library → Size Groups.
+                    </div>
+                  ) : (
+                    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                      {libGroups.map(lg => (
+                        <div key={lg.id} style={{ background:'#fafaf8', border:'1px solid #e8e8e6', borderRadius:8, padding:'10px 12px', display:'flex', alignItems:'center', gap:10 }}>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:11, fontWeight:700, color:'#1a1a2e', marginBottom:5 }}>{lg.name}</div>
+                            <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                              {(lg.sizes||[]).map(sz => {
+                                const already = g.sizes.includes(sz)
+                                return (
+                                  <span key={sz} style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:4, background: already ? '#1a1a2e' : '#f0f0ee', color: already ? '#fff' : '#374151' }}>
+                                    {sz}
+                                  </span>
+                                )
+                              })}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => applyLibraryGroup(sizesMgr, lg)}
+                            style={{ flexShrink:0, fontSize:11, fontWeight:600, padding:'5px 12px', borderRadius:6, background:'#1a1a2e', color:'#fff', border:'none', cursor:'pointer', whiteSpace:'nowrap' }}
+                          >
+                            Apply
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 {/* Custom size input */}
-                <div style={{ borderTop:'1px solid #f0f0ee', paddingTop:14, marginTop:4 }}>
-                  <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.6px', marginBottom:8 }}>Add Custom Size</div>
+                <div style={{ borderTop:'1px solid #f0f0ee', paddingTop:14 }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.6px', marginBottom:8 }}>Enter Own Size</div>
                   <div style={{ display:'flex', gap:8 }}>
                     <input
                       style={{ flex:1, height:32, padding:'0 10px', border:'1px solid #e5e7eb', borderRadius:6, fontSize:12, fontFamily:'Inter,sans-serif', outline:'none' }}
-                      placeholder="e.g. 3XL, 44/46, One Size..."
+                      placeholder="Type a size and press Enter (e.g. 3XL, 44/46, One Size...)"
                       value={customSize}
                       onChange={e => setCustomSize(e.target.value)}
                       onKeyDown={e => e.key==='Enter' && addCustomSize(sizesMgr)}
