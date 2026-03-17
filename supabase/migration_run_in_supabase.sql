@@ -45,6 +45,17 @@ $$ LANGUAGE plpgsql;
 
 -- Done. All migrations applied.
 
+-- Size Group Templates (Library → Size Groups tab)
+CREATE TABLE IF NOT EXISTS size_group_templates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  buyer_id UUID REFERENCES buyers(id) ON DELETE SET NULL,
+  buyer_name TEXT,
+  sizes TEXT[] NOT NULL DEFAULT '{}',
+  base_size TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Additional columns (run if not already done)
 ALTER TABLE bom_items
   ADD COLUMN IF NOT EXISTS final_qty  NUMERIC(14,4),

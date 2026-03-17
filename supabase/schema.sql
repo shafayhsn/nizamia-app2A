@@ -54,6 +54,19 @@ CREATE TABLE library_items (
 );
 
 -- ============================================================
+-- SIZE GROUP TEMPLATES (Library → Size Groups)
+-- ============================================================
+CREATE TABLE size_group_templates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  buyer_id UUID REFERENCES buyers(id) ON DELETE SET NULL,
+  buyer_name TEXT,
+  sizes TEXT[] NOT NULL DEFAULT '{}',
+  base_size TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
 -- BOM PRESETS — Named bundles per buyer
 -- ============================================================
 CREATE TABLE bom_presets (

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { Plus, Edit2, Trash2, BookOpen, X, Layers } from 'lucide-react'
+import { Plus, Edit2, Trash2, BookOpen, X, Layers, Star } from 'lucide-react'
 import { BOM_CATEGORIES } from '../lib/utils'
 
 const FABRIC_UNITS = ['yards', 'meters']
@@ -91,27 +91,44 @@ function TrimForm({ form, set, isSewing }) {
 }
 
 function SizeGroupsTab() {
-  const [groups, setGroups]   = useState([])
-  const [modal, setModal]     = useState(false)
-  const [editing, setEditing] = useState(null)
-  const [name, setName]       = useState('')
-  const [sizes, setSizes]     = useState([])
+  const [groups, setGroups]       = useState([])
+  const [buyers, setBuyers]       = useState([])
+  const [modal, setModal]         = useState(false)
+  const [editing, setEditing]     = useState(null)
+  const [name, setName]           = useState('')
+  const [buyerId, setBuyerId]     = useState('')
+  const [buyerName, setBuyerName] = useState('')
+  const [sizes, setSizes]         = useState([])
+  const [baseSize, setBaseSize]   = useState('')
   const [sizeInput, setSizeInput] = useState('')
-  const [saving, setSaving]   = useState(false)
+  const [saving, setSaving]       = useState(false)
+  const [error, setError]         = useState('')
 
   const inp = { height: 32, padding: '0 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, fontFamily: 'Inter,sans-serif', outline: 'none', boxSizing: 'border-box' }
+  const lbl = { fontSize: 11, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.4px' }
 
-  useEffect(() => { loadGroups() }, [])
+  useEffect(() => {
+    loadGroups()
+    supabase.from('buyers').select('id,name').order('name').then(({ data }) => setBuyers(data || []))
+  }, [])
 
   async function loadGroups() {
-    const { data } = await supabase.from('size_group_templates').select('*').order('name')
-    setGroups(data || [])
+    const { data, error: err } = await supabase.from('size_group_templates').select('*').order('name')
+    if (err) {
+      setError('Table not set up yet — please run the migration SQL in your Supabase SQL Editor. See supabase/migration_run_in_supabase.sql.')
+    } else {
+      setError('')
+      setGroups(data || [])
+    }
   }
 
   const openNew = () => {
     setEditing(null)
     setName('')
+    setBuyerId('')
+    setBuyerName('')
     setSizes([])
+    setBaseSize('')
     setSizeInput('')
     setModal(true)
   }
@@ -119,7 +136,10 @@ function SizeGroupsTab() {
   const openEdit = (g) => {
     setEditing(g)
     setName(g.name)
+    setBuyerId(g.buyer_id || '')
+    setBuyerName(g.buyer_name || '')
     setSizes(g.sizes || [])
+    setBaseSize(g.base_size || '')
     setSizeInput('')
     setModal(true)
   }
@@ -127,22 +147,48 @@ function SizeGroupsTab() {
   const addSize = () => {
     const s = sizeInput.trim()
     if (!s || sizes.includes(s)) { setSizeInput(''); return }
-    setSizes(prev => [...prev, s])
+    const newSizes = [...sizes, s]
+    setSizes(newSizes)
+    if (!baseSize) setBaseSize(newSizes[0])
     setSizeInput('')
   }
 
-  const removeSize = (sz) => setSizes(prev => prev.filter(s => s !== sz))
+  const removeSize = (sz) => {
+    const newSizes = sizes.filter(s => s !== sz)
+    setSizes(newSizes)
+    if (baseSize === sz) setBaseSize(newSizes[0] || '')
+  }
+
+  const handleBuyerChange = (e) => {
+    const id = e.target.value
+    setBuyerId(id)
+    const b = buyers.find(b => b.id === id)
+    setBuyerName(b ? b.name : '')
+  }
 
   const handleSave = async () => {
     if (!name.trim() || sizes.length === 0) return
     setSaving(true)
-    const payload = { name: name.trim(), sizes }
+    const payload = {
+      name: name.trim(),
+      buyer_id: buyerId || null,
+      buyer_name: buyerName || null,
+      sizes,
+      base_size: baseSize || null,
+    }
+    let err
     if (editing) {
-      await supabase.from('size_group_templates').update(payload).eq('id', editing.id)
+      const res = await supabase.from('size_group_templates').update(payload).eq('id', editing.id)
+      err = res.error
     } else {
-      await supabase.from('size_group_templates').insert([payload])
+      const res = await supabase.from('size_group_templates').insert([payload])
+      err = res.error
     }
     setSaving(false)
+    if (err) {
+      alert(`Save failed: ${err.message}\n\nMake sure the size_group_templates table exists in Supabase. Run the SQL in supabase/migration_run_in_supabase.sql.`)
+      return
+    }
     setModal(false)
     loadGroups()
   }
@@ -160,8 +206,14 @@ function SizeGroupsTab() {
         <button className="btn btn-primary" onClick={openNew}><Plus size={14} /> Add Size Group</button>
       </div>
 
+      {error && (
+        <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '12px 16px', marginBottom: 16, fontSize: 12, color: '#92400e' }}>
+          <strong>Setup required:</strong> {error}
+        </div>
+      )}
+
       <div className="card">
-        {groups.length === 0 ? (
+        {groups.length === 0 && !error ? (
           <div className="empty-state">
             <Layers size={32} />
             <p>No size groups in library yet.</p>
@@ -173,10 +225,15 @@ function SizeGroupsTab() {
             {groups.map((g, idx) => (
               <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', borderBottom: idx < groups.length - 1 ? '1px solid var(--border)' : 'none' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>{g.name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{g.name}</span>
+                    {g.buyer_name && <span style={{ fontSize: 10, color: '#6b7280', background: '#f3f4f6', padding: '2px 7px', borderRadius: 10 }}>{g.buyer_name}</span>}
+                  </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
                     {(g.sizes || []).map(sz => (
-                      <span key={sz} style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#f0f0ee', color: '#374151' }}>{sz}</span>
+                      <span key={sz} style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: sz === g.base_size ? '#1a1a2e' : '#f0f0ee', color: sz === g.base_size ? '#fff' : '#374151' }}>
+                        {sz}{sz === g.base_size ? ' ★' : ''}
+                      </span>
                     ))}
                   </div>
                 </div>
@@ -192,31 +249,58 @@ function SizeGroupsTab() {
 
       {modal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 480, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 16px 48px rgba(0,0,0,0.18)' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 500, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 16px 48px rgba(0,0,0,0.18)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
               <div style={{ fontSize: 14, fontWeight: 700 }}>{editing ? 'Edit Size Group' : 'New Size Group'}</div>
               <button onClick={() => setModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><X size={16} /></button>
             </div>
 
-            <div className="form-group" style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Group Name *</label>
-              <input
-                style={{ ...inp, width: '100%' }}
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="e.g. Tops Standard, Bottoms Numeric, Kids..."
-                autoFocus
-              />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label style={lbl}>Group Name *</label>
+                <input
+                  style={{ ...inp, width: '100%' }}
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="e.g. Tops Standard, Bottoms Numeric, Kids..."
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label style={lbl}>Customer (Buyer)</label>
+                <select
+                  style={{ ...inp, width: '100%', cursor: 'pointer' }}
+                  value={buyerId}
+                  onChange={handleBuyerChange}
+                >
+                  <option value="">All / Not specific</option>
+                  {buyers.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label style={lbl}>Base Size</label>
+                <select
+                  style={{ ...inp, width: '100%', cursor: 'pointer' }}
+                  value={baseSize}
+                  onChange={e => setBaseSize(e.target.value)}
+                >
+                  <option value="">— None —</option>
+                  {sizes.map(sz => <option key={sz} value={sz}>{sz}</option>)}
+                </select>
+              </div>
             </div>
 
             <div className="form-group" style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Sizes *</label>
+              <label style={lbl}>Sizes *</label>
               {sizes.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
                   {sizes.map(sz => (
-                    <div key={sz} style={{ display: 'flex', alignItems: 'center', gap: 0, background: '#1a1a2e', borderRadius: 6, overflow: 'hidden' }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', padding: '4px 6px 4px 8px' }}>{sz}</span>
-                      <button onClick={() => removeSize(sz)} style={{ padding: '4px 6px', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.6)', display: 'flex' }}>
+                    <div key={sz} style={{ display: 'flex', alignItems: 'center', gap: 0, background: sz === baseSize ? '#1a1a2e' : '#f0f0ee', borderRadius: 6, overflow: 'hidden' }}>
+                      <button onClick={() => setBaseSize(sz)} title="Set as base size" style={{ padding: '4px 5px', background: 'none', border: 'none', cursor: 'pointer', color: sz === baseSize ? '#fbbf24' : '#9ca3af', display: 'flex' }}>
+                        <Star size={9} fill={sz === baseSize ? '#fbbf24' : 'none'} />
+                      </button>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: sz === baseSize ? '#fff' : '#374151', paddingRight: 4 }}>{sz}</span>
+                      <button onClick={() => removeSize(sz)} style={{ padding: '4px 6px', background: 'none', border: 'none', cursor: 'pointer', color: sz === baseSize ? 'rgba(255,255,255,0.6)' : '#9ca3af', display: 'flex' }}>
                         <X size={9} />
                       </button>
                     </div>
@@ -233,7 +317,7 @@ function SizeGroupsTab() {
                 />
                 <button className="btn btn-secondary" onClick={addSize}><Plus size={14} /> Add</button>
               </div>
-              {sizes.length === 0 && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>Add at least one size.</div>}
+              {sizes.length === 0 && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>Add at least one size. Click ★ on a size chip to mark it as the base size.</div>}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
