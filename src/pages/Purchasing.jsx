@@ -203,8 +203,7 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, onClose, onSaved })
   const [items, setItems] = useState(wo?.items||[])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
-  const [locked, setLocked] = useState(!isNew)
-  const [showPasskey, setShowPasskey] = useState(false)
+  const locked = false
   const [processesLoaded, setProcessesLoaded] = useState(false)
 
   const loadOrderProcesses = async (orderId, currentWoId) => {
@@ -300,7 +299,6 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, onClose, onSaved })
           <span style={{ fontSize:14, fontWeight:700 }}>{isNew?'New Work Order':`WO — ${wo.wo_number}`}</span>
           <div style={{ flex:1 }} />
           {!isNew&&<button className="btn btn-secondary btn-sm" onClick={handlePrint}><Printer size={12}/> Print</button>}
-          {!isNew&&<button className="btn btn-secondary btn-sm" onClick={()=>locked?setShowPasskey(true):setLocked(true)}>{locked?<><Unlock size={12}/> Edit</>:<><Lock size={12}/> Lock</>}</button>}
           <button style={{ background:'none', border:'none', cursor:'pointer', color:'#9ca3af' }} onClick={onClose}><X size={16}/></button>
         </div>
         <div style={{ flex:1, overflowY:'auto', padding:'20px 24px' }}>
@@ -398,10 +396,9 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, onClose, onSaved })
         </div>
         <div style={{padding:'12px 24px',borderTop:'1px solid #f0f0ee',display:'flex',justifyContent:'flex-end',gap:8}}>
           <button className="btn btn-secondary" onClick={onClose}>Close</button>
-          {!locked&&<button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving?'Saving...':isNew?'Create WO':'Save Changes'}</button>}
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving?'Saving...':isNew?'Create WO':'Save Changes'}</button>
         </div>
       </div>
-      {showPasskey&&<PasskeyModal onUnlock={()=>{setLocked(false);setShowPasskey(false)}} onClose={()=>setShowPasskey(false)}/>}
     </div>
   )
 }
@@ -415,6 +412,7 @@ function MaterialDemandTab({ suppliers }) {
   const [filterCat, setFilterCat] = useState('')
   const [selected, setSelected] = useState(new Set())
   const [showPOModal, setShowPOModal] = useState(false)
+  const poDataMapRef = React.useRef({})
 
   useEffect(() => { load() }, [])
 
@@ -526,13 +524,14 @@ function MaterialDemandTab({ suppliers }) {
       return parseFloat(b.base_qty) || 0
     }
 
+    poDataMapRef.current = poDataMap
     const purchasedMap = {}
     ;(poItems||[]).forEach(p=>{ if (p.source_id) purchasedMap[p.source_id]=(purchasedMap[p.source_id]||0)+(parseFloat(p.qty)||0) })
     const built = []
     ;(bom||[]).filter(b=>idSet.has(b.order_id)).forEach(b=>{
       const ord=allOrds.find(o=>o.id===b.order_id); if (!ord) return
       const cat=b.category==='Fabric'?'Fabric':b.category==='Stitching Trim'?'S. Trim':'P. Trim'
-      built.push({ id:b.id, order_id:b.order_id, order:ord, source_type:'bom', source_id:b.id, cat, name:b.name, specification:b.specification||b.detail||'', req_qty:calcReqQty(b,ord), purchased:purchasedMap[b.id]||0, unit:b.unit||'' })
+      built.push({ id:b.id, order_id:b.order_id, order:ord, source_type:'bom', source_id:b.id, cat, name:b.name, specification:b.specification||b.detail||'', req_qty:calcReqQty(b,ord), purchased:purchasedMap[b.id]||0, unit:b.unit||'', usage_rule:b.usage_rule, usage_data:b.usage_data, wastage:b.wastage, base_qty:b.base_qty })
     })
     ;(emb||[]).filter(e=>idSet.has(e.order_id)).forEach(e=>{
       const ord=allOrds.find(o=>o.id===e.order_id); if (!ord) return
@@ -554,7 +553,48 @@ function MaterialDemandTab({ suppliers }) {
   filtered.forEach(r=>{ if (!grouped[r.order_id]) grouped[r.order_id]={order:r.order,rows:[]}; grouped[r.order_id].rows.push(r) })
   const catStyle = { Fabric:{color:'#2563eb',bg:'#eff6ff'}, 'S. Trim':{color:'#d97706',bg:'#fff7ed'}, 'P. Trim':{color:'#7c3aed',bg:'#f5f3ff'}, Embellishment:{color:'#be185d',bg:'#fdf2f8'}, Wash:{color:'#0891b2',bg:'#ecfeff'} }
   const selStyle = { height:32, border:'1px solid #e5e7eb', borderRadius:7, fontSize:12, padding:'0 10px', background:'#fff', cursor:'pointer', fontFamily:'Inter,sans-serif' }
-  const buildPrefill = () => filtered.filter(r=>selected.has(r.id)).map(r=>({ _id:r.id, description:r.name, specification:r.specification, qty:r.req_qty||'', unit:r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id }))
+  const buildPrefill = () => {
+    const selectedRows = filtered.filter(r => selected.has(r.id))
+    const lines = []
+    for (const r of selectedRows) {
+      if (r.source_type === 'bom' && r.usage_rule && r.usage_rule !== 'Generic' && r.usage_data) {
+        const pd = poDataMapRef.current[r.order_id]
+        const wastage = parseFloat(r.wastage) || 5
+        const rule = r.usage_rule
+        const ud = r.usage_data
+        let expanded = []
+        if (rule === 'By Color' && pd) {
+          expanded = Object.entries(ud).map(([colorName, cons]) => {
+            const c = pd.colors.find(c => c.name === colorName)
+            const qty = Math.round((parseFloat(cons) || 0) * (c?.qty || 0) * (1 + wastage / 100) * 100) / 100
+            return { _id:`${r.id}_${colorName}`, description:r.name, specification:`${colorName}${r.specification?' · '+r.specification:''}`, qty:qty||'', unit:r.unit||'yards', unit_rate:'', amount:'', source_type:'bom', source_id:r.source_id }
+          }).filter(l => l.qty)
+        } else if (rule === 'By Size Group' && pd) {
+          expanded = Object.entries(ud).map(([sgName, cons]) => {
+            const g = pd.sizeGroups.find(x => x.name === sgName)
+            const qty = Math.round((parseFloat(cons) || 0) * (g?.qty || 0) * (1 + wastage / 100) * 100) / 100
+            return { _id:`${r.id}_${sgName}`, description:r.name, specification:`${sgName}${r.specification?' · '+r.specification:''}`, qty:qty||'', unit:r.unit||'yards', unit_rate:'', amount:'', source_type:'bom', source_id:r.source_id }
+          }).filter(l => l.qty)
+        } else if (rule === 'By Individual Sizes' && pd) {
+          expanded = Object.entries(ud).map(([sz, cons]) => {
+            const found = pd.allSizes.find(x => x.size === sz)
+            const qty = Math.round((parseFloat(cons) || 0) * (found?.qty || 0) * (1 + wastage / 100) * 100) / 100
+            return { _id:`${r.id}_${sz}`, description:r.name, specification:`Size ${sz}${r.specification?' · '+r.specification:''}`, qty:qty||'', unit:r.unit||'yards', unit_rate:'', amount:'', source_type:'bom', source_id:r.source_id }
+          }).filter(l => l.qty)
+        } else if (rule === 'Configure Own' && pd && ud.__matrix) {
+          expanded = ud.__matrix.map(m => {
+            const sg = pd.sgMatrix?.find(x => x.sgName === m.sgName)
+            const c = sg?.colors.find(x => x.colorName === m.colorName)
+            const qty = Math.round((parseFloat(m.consumption) || 0) * (c?.qty || 0) * (1 + wastage / 100) * 100) / 100
+            return { _id:`${r.id}_${m.sgName}_${m.colorName}`, description:r.name, specification:`${m.colorName} / ${m.sgName}${r.specification?' · '+r.specification:''}`, qty:qty||'', unit:r.unit||'yards', unit_rate:'', amount:'', source_type:'bom', source_id:r.source_id }
+          }).filter(l => l.qty)
+        }
+        if (expanded.length) { lines.push(...expanded); continue }
+      }
+      lines.push({ _id:r.id, description:r.name, specification:r.specification, qty:r.req_qty||'', unit:r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id })
+    }
+    return lines
+  }
   const balColor = (req,purch) => { const bal=req-purch; if (bal<=0) return '#16a34a'; if (purch>0) return '#d97706'; return '#374151' }
 
   return (
