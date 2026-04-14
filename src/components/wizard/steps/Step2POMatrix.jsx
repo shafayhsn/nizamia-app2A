@@ -384,8 +384,7 @@ export default function Step2POMatrix({ orderId, orderData, onSaved, registerSav
             <div style={{ fontSize: 10, color: '#9ca3af' }}>Auto-generates Qs</div>
           </div>
           <select value={splitRule} onChange={e => setSplitRule(e.target.value)}
-            style={{ height: 34, padding: '0 28px 0 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: 'var(--font)', outline: 'none', cursor: 'pointer', background: '#fff', appearance: 'none', backgroundImage: "url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}>
-            <option value="None">No Split</option>
+              style={{ height: 34, padding: '0 28px 0 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: 'var(--font)', outline: 'none', cursor: 'pointer', background: '#fff', appearance: 'none', backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}>            <option value="None">No Split</option>
             <option value="By Colour">By Colour / Wash</option>
             <option value="By Size Group">By Size Group</option>
             <option value="Custom">Custom</option>
