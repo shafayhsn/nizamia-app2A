@@ -234,14 +234,16 @@ export default function OrderWizard({ order, onClose }) {
             <button
               className="btn btn-primary btn-sm"
               onClick={saveAndContinue}
-              disabled={isSaving || (!orderId && step === 1)}
-              style={{ minWidth: 130, display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}
+              disabled={isSaving}
+              style={{ minWidth: 150, display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}
             >
               {isSaving
                 ? 'Saving...'
                 : isSaved
                   ? <><Check size={13} /> Saved</>
-                  : <>{orderId ? 'Save & Continue' : 'Next'} <ChevronRight size={13} /></>
+                  : !orderId && step === 1
+                    ? <>Create Order <ChevronRight size={13} /></>
+                    : <>Save & Continue <ChevronRight size={13} /></>
               }
             </button>
           ) : (
