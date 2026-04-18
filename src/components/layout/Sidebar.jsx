@@ -3,19 +3,19 @@ import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingBag, Package, Users, Truck,
   BookOpen, ChevronLeft, ChevronRight, Wrench, Settings,
-  Printer, StickyNote, UserCircle, ClipboardCheck, Send,
+  Printer, StickyNote, UserCircle, ClipboardCheck, Send, Archive,
 } from 'lucide-react'
 import ToolsTray from '../tools/ToolsTray'
 
 const NAV = [
-  { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/orders',     icon: ShoppingBag,     label: 'Orders' },
+  { to: '/dashboard',  icon: LayoutDashboard,  label: 'Dashboard' },
+  { to: '/orders',     icon: ShoppingBag,      label: 'Orders' },
   { to: '/purchasing', icon: Package,          label: 'Purchasing' },
-  { to: '/buyers',     icon: Users,            label: 'Buyers' },
-  { to: '/suppliers',  icon: Truck,            label: 'Suppliers' },
   { to: '/sampling',   icon: ClipboardCheck,   label: 'Sampling & Approvals' },
   { to: '/parcels',    icon: Send,             label: 'Parcels' },
-  { to: '/shipping',   icon: Send,             label: 'Booking & Shipping' },
+  { to: '/shipping',   icon: Archive,          label: 'Booking & Shipping' },
+  { to: '/buyers',     icon: Users,            label: 'Buyers' },
+  { to: '/suppliers',  icon: Truck,            label: 'Suppliers' },
   { to: '/library',    icon: BookOpen,         label: 'Library' },
   { to: '/settings',   icon: Settings,         label: 'Settings' },
 ]
