@@ -477,6 +477,23 @@ function QueuesTab({ onEditOrder }) {
   }
 
   const esc = (v) => String(v ?? '—').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const num = (v) => parseFloat(v) || 0
+  const gcd2 = (a, b) => b ? gcd2(b, a % b) : Math.abs(a)
+  const gcdList = (arr) => {
+    const ints = (arr || []).map(v => Math.round(num(v))).filter(v => v > 0)
+    if (!ints.length) return 1
+    return ints.reduce((g, v) => gcd2(g, v), ints[0]) || 1
+  }
+  const fmtIOSDateTime = (d = new Date()) => {
+    const dd = String(d.getDate()).padStart(2, '0')
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const yy = String(d.getFullYear()).slice(-2)
+    let hrs = d.getHours()
+    const mins = String(d.getMinutes()).padStart(2, '0')
+    const ampm = hrs >= 12 ? 'pm' : 'am'
+    hrs = hrs % 12 || 12
+    return `${dd}-${mm}-${yy} - ${hrs}:${mins} ${ampm}`
+  }
 
   async function fetchQDocData(q) {
     const ord = orderMap[q.order_id] || {}
@@ -490,7 +507,7 @@ function QueuesTab({ onEditOrder }) {
       }
     }
 
-    const [bom, washing, embellishments, processes, finishing, packs, sgs] = await Promise.all([
+    const [bom, washing, embellishments, processes, finishing, packs, sgs, fittingBlocks, libraryItems, poHeaders, poItems] = await Promise.all([
       safeQuery(supabase.from('bom_items').select('*').eq('order_id', q.order_id).order('sort_order'), []),
       safeQuery(supabase.from('washing').select('*').eq('order_id', q.order_id), []),
       safeQuery(supabase.from('embellishments').select('*').eq('order_id', q.order_id), []),
@@ -498,7 +515,12 @@ function QueuesTab({ onEditOrder }) {
       safeQuery(supabase.from('finishing').select('*').eq('order_id', q.order_id).maybeSingle(), null),
       safeQuery(supabase.from('finishing_packs').select('*').eq('order_id', q.order_id).order('sort_order'), []),
       safeQuery(supabase.from('size_groups').select('id,group_name,sizes,base_size').eq('order_id', q.order_id).order('sort_order'), []),
+      safeQuery(supabase.from('fitting_blocks').select('*').eq('order_id', q.order_id).order('sort_order'), []),
+      safeQuery(supabase.from('library_items').select('*').order('name'), []),
+      safeQuery(supabase.from('purchase_orders').select('id,po_number,status,created_at').eq('order_id', q.order_id).order('created_at', { ascending: false }), []),
+      safeQuery(supabase.from('purchase_order_items').select('po_id,description,specification,source_id,source_type').order('created_at', { ascending: false }), []),
     ])
+
     const sgIds = (sgs || []).map(x => x.id)
     let colors = [], bd = []
     if (sgIds.length) {
@@ -513,37 +535,58 @@ function QueuesTab({ onEditOrder }) {
     const sgMap = Object.fromEntries((sgs || []).map(g => [g.id, g]))
     const groupName = q.size_group_id ? (sgMap[q.size_group_id]?.group_name || null) : null
     const qSgs = q.size_group_id ? (sgs || []).filter(g => g.id === q.size_group_id) : (sgs || [])
+    const qColors = colors.filter(c => !q.size_group_id || c.size_group_id === q.size_group_id).filter(c => !q.color_name || c.color_name === q.color_name)
 
+    const sizeOrder = (qSgs[0]?.sizes || [])
     const sizeMap = {}
-    qSgs.forEach(g => {
-      const relColors = colors.filter(c => c.size_group_id === g.id).filter(c => !q.color_name || c.color_name === q.color_name)
-      relColors.forEach(c => {
-        ;(g.sizes || []).forEach(sz => {
-          const row = bd.find(b => b.size_group_id === g.id && b.color_id === c.id && b.size === sz)
-          sizeMap[sz] = (sizeMap[sz] || 0) + (parseFloat(row?.qty) || 0)
-        })
+    sizeOrder.forEach(sz => { sizeMap[sz] = 0 })
+    qColors.forEach(c => {
+      ;(sizeOrder || []).forEach(sz => {
+        const row = bd.find(b => b.size_group_id === c.size_group_id && b.color_id === c.id && b.size === sz)
+        sizeMap[sz] = (sizeMap[sz] || 0) + num(row?.qty)
       })
     })
 
-    const wastageFactor = (x) => 1 + ((parseFloat(x) || 0) / 100)
-    const totalQty = parseFloat(ord.total_qty) || 0
-    const queueQty = parseFloat(q.qty) || 0
-    const ratio = totalQty > 0 ? queueQty / totalQty : 0
+    const ratioDiv = gcdList(Object.values(sizeMap))
+    const ratioMap = {}
+    Object.keys(sizeMap).forEach(sz => { ratioMap[sz] = sizeMap[sz] > 0 ? Math.round(sizeMap[sz] / ratioDiv) : 0 })
+
+    const wastageFactor = (x) => 1 + (num(x) / 100)
+    const totalQty = num(ord.total_qty)
+    const queueQty = num(q.qty)
     function calcBomQty(item) {
       const rule = item.usage_rule || 'Generic'
       const ud = item.usage_data || {}
-      if (rule === 'Generic') return (parseFloat(item.base_qty) || 0) * queueQty * wastageFactor(item.wastage)
-      if (rule === 'By Color' && q.color_name) return (parseFloat(ud[q.color_name]) || 0) * queueQty * wastageFactor(item.wastage)
-      if (rule === 'By Size Group' && groupName) return (parseFloat(ud[groupName]) || 0) * queueQty * wastageFactor(item.wastage)
-      if (rule === 'By Individual Sizes') return Object.entries(ud).reduce((s,[sz,cons]) => s + ((parseFloat(cons)||0) * (parseFloat(sizeMap[sz])||0) * wastageFactor(item.wastage)), 0)
-      return ((parseFloat(item.base_qty) || 0) * queueQty * wastageFactor(item.wastage)) || ((parseFloat(item.final_qty) || 0) * ratio)
+      if (rule === 'Generic') return num(item.base_qty) * queueQty * wastageFactor(item.wastage)
+      if (rule === 'By Color' && q.color_name) return num(ud[q.color_name]) * queueQty * wastageFactor(item.wastage)
+      if (rule === 'By Size Group' && groupName) return num(ud[groupName]) * queueQty * wastageFactor(item.wastage)
+      if (rule === 'By Individual Sizes') return Object.entries(ud).reduce((s,[sz,cons]) => s + (num(cons) * num(sizeMap[sz]) * wastageFactor(item.wastage)), 0)
+      return (num(item.base_qty) * queueQty * wastageFactor(item.wastage)) || num(item.final_qty)
     }
-    const fabricItems = (bom || []).filter(x => x.category === 'Fabric').map(x => ({ ...x, name: x.specification ? `${x.name} — ${x.specification}` : x.name, q_qty: calcBomQty(x) }))
+
+    const libMap = Object.fromEntries((libraryItems || []).map(x => [x.id, x]))
+    const enrichFabric = (item) => {
+      const lib = item.library_item_id ? libMap[item.library_item_id] : null
+      return {
+        ...item,
+        shade: lib?.colour || item.specification || '—',
+        content: lib?.composition || item.detail || '—',
+        weight: lib?.weight || '—',
+        width: lib?.width_inches ? `${lib.width_inches}”` : '—',
+      }
+    }
+
+    const fabricItems = (bom || []).filter(x => x.category === 'Fabric').map(x => ({ ...enrichFabric(x), q_qty: calcBomQty(x) }))
     const trimItems = (bom || []).filter(x => x.category !== 'Fabric').map(x => ({ ...x, q_qty: calcBomQty(x) }))
-    const washItems = (washing || []).filter(x => !q.color_name || x.color_name === q.color_name).map(x => ({ ...x, q_qty: parseFloat(x.qty) || queueQty }))
+    const stitchItems = trimItems.filter(x => String(x.category || '').toLowerCase().includes('stitch'))
+    const packingItems = trimItems.filter(x => !String(x.category || '').toLowerCase().includes('stitch'))
+    const washItems = (washing || []).filter(x => !q.color_name || x.color_name === q.color_name).map(x => ({ ...x, q_qty: num(x.qty) || queueQty }))
     const embItems = (embellishments || []).map(x => ({ ...x, q_qty: queueQty }))
-    const cuttingPct = Number.isFinite(parseFloat(ord.excess_cutting_pct)) ? parseFloat(ord.excess_cutting_pct) : 0
+    const cuttingPct = Number.isFinite(num(ord.excess_cutting_pct)) ? num(ord.excess_cutting_pct) : 0
     const cuttingQty = queueQty * (1 + (cuttingPct / 100))
+    const sizeCutMap = {}
+    Object.keys(sizeMap).forEach(sz => { sizeCutMap[sz] = Math.round(num(sizeMap[sz]) * (1 + cuttingPct / 100)) })
+
     const finishingPacks = (packs || []).filter(pk => {
       if (!pk.pack_basis) return true
       if (pk.pack_basis === 'By Q#') return (pk.pack_name || '').includes(q.q_number) || (pk.config_json && JSON.stringify(pk.config_json).includes(q.q_number))
@@ -551,7 +594,31 @@ function QueuesTab({ onEditOrder }) {
       if (pk.pack_basis === 'Colour × Size Group') return (pk.pack_name || '').includes(q.label || '')
       return true
     })
-    return { ord, q, groupName, sizeMap, fabricItems, trimItems, washItems, embItems, processes: processes || [], finishing, finishingPacks, cuttingQty, cuttingPct }
+
+    const latestPoInfoForTrim = (item) => {
+      const matches = (poItems || []).filter(pi => {
+        const sameQueue = pi.source_type === 'queue' && pi.source_id === q.id
+        const txt = `${pi.description || ''} ${pi.specification || ''}`.toLowerCase()
+        const name = String(item.name || '').toLowerCase()
+        return sameQueue || (!!name && txt.includes(name))
+      })
+      if (!matches.length) return { po_number: '—', po_status: '—' }
+      const chosen = matches[0]
+      const po = (poHeaders || []).find(h => h.id === chosen.po_id)
+      return { po_number: po?.po_number || '—', po_status: po?.status || '—' }
+    }
+
+    const iosStitchItems = stitchItems.map(item => ({ ...item, ...latestPoInfoForTrim(item) }))
+    const iosPackingItems = packingItems.map(item => ({ ...item, ...latestPoInfoForTrim(item) }))
+
+    const fitName = fittingBlocks?.[0]?.block_name || '—'
+    const washName = washItems?.[0]?.wash_type || q.color_name || q.label || '—'
+    const blisterEach = finishing?.pieces_per_inner_pack || finishing?.inner_pieces || finishing?.blister_each || '—'
+    const cartonEach = finishing?.pcs_per_carton || finishing?.carton_each || '—'
+    const blisterTotal = finishing?.total_blisters || (blisterEach && blisterEach !== '—' ? Math.ceil(queueQty / num(blisterEach || 1)) : '—')
+    const cartonTotal = finishing?.total_cartons || (cartonEach && cartonEach !== '—' ? Math.ceil(queueQty / num(cartonEach || 1)) : '—')
+
+    return { ord, q, groupName, sizeMap, sizeOrder, ratioMap, sizeCutMap, fabricItems, trimItems, stitchItems: iosStitchItems, packingItems: iosPackingItems, washItems, washName, embItems, processes: processes || [], finishing, finishingPacks, cuttingQty, cuttingPct, fitName, blisterEach, cartonEach, blisterTotal, cartonTotal }
   }
 
   function rowsHTML(rows, columns) {
@@ -619,8 +686,154 @@ function QueuesTab({ onEditOrder }) {
       </div>`
   }
 
+  function buildIOSHTML(d) {
+    const sizes = d.sizeOrder || Object.keys(d.sizeMap || {})
+    const ratioTotal = sizes.reduce((s, sz) => s + num(d.ratioMap?.[sz]), 0)
+    const stitchRows = (d.stitchItems || []).map(r => `
+      <tr>
+        <td>${esc(r.category?.replace(' Trim','') || 'Stitching')}</td>
+        <td>${esc(r.name || '—')}</td>
+        <td>${esc(r.specification || '—')}</td>
+        <td>${esc(num(r.base_qty) || '—')}</td>
+        <td>${esc(Math.ceil(num(r.q_qty)) || '—')}</td>
+        <td>${esc(r.po_number || '—')}</td>
+        <td>${esc(r.po_status || '—')}</td>
+      </tr>`).join('')
+    const packingRows = (d.packingItems || []).map(r => `
+      <tr>
+        <td>${esc(r.category?.replace(' Trim','') || 'Packing')}</td>
+        <td>${esc(r.name || '—')}</td>
+        <td>${esc(r.specification || '—')}</td>
+        <td>${esc(num(r.base_qty) || '—')}</td>
+        <td>${esc(Math.ceil(num(r.q_qty)) || '—')}</td>
+        <td>${esc(r.po_number || '—')}</td>
+        <td>${esc(r.po_status || '—')}</td>
+      </tr>`).join('')
+    const fabricRows = (d.fabricItems || []).map(r => `
+      <tr>
+        <td>${esc(r.name || '—')}</td>
+        <td>${esc(r.shade || '—')}</td>
+        <td>${esc(r.content || '—')}</td>
+        <td>${esc(r.weight || '—')}</td>
+        <td>${esc(r.width || '—')}</td>
+        <td>${esc(num(r.base_qty) || '—')}</td>
+        <td style="text-align:right">${esc(Math.ceil(num(r.q_qty)))} ${esc(r.unit || '')}</td>
+      </tr>`).join('')
+    return `
+    <div class="page" style="padding:10mm 12mm;font-family:Arial,sans-serif;color:#111">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;font-size:11px;margin-bottom:4px">
+        <div>Document Ref#<strong>IOS-${esc(d.q.q_number || 'Queued')}</strong></div>
+        <div>Date Created: ${esc(fmtIOSDateTime(new Date()))} &nbsp; Username: <strong>admin</strong></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:4px">
+        <div style="font-size:28px;font-weight:800">${esc(d.q.q_number || 'Queued')}</div>
+        <div style="font-size:20px;font-weight:700">NIZAMIA APPARELS</div>
+      </div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:8px">Internal Order Sheet</div>
+
+      <table style="width:100%;margin-bottom:8px;border-collapse:collapse"><tbody>
+        <tr><td style="padding:2px 6px 2px 0;font-weight:700">Style Nr</td><td style="padding:2px 10px 2px 0">${esc(d.ord.style_number || '—')}</td><td style="padding:2px 6px 2px 0;font-weight:700">Fit Name</td><td style="padding:2px 10px 2px 0">${esc(d.fitName || '—')}</td><td style="padding:2px 6px 2px 0;font-weight:700">PO#</td><td style="padding:2px 10px 2px 0">${esc(d.ord.po_number || '—')}</td></tr>
+        <tr><td style="padding:2px 6px 2px 0;font-weight:700">Ship Date</td><td style="padding:2px 10px 2px 0">${esc(fmtDate(d.ord.ship_date))}</td><td style="padding:2px 6px 2px 0;font-weight:700">Brand</td><td style="padding:2px 10px 2px 0">${esc(d.ord.brand_name || d.ord.buyer_name || '—')}</td><td style="padding:2px 6px 2px 0;font-weight:700">Store</td><td style="padding:2px 10px 2px 0">${esc(d.ord.store_name || '—')}</td></tr>
+      </tbody></table>
+
+      <div style="font-weight:700;margin:6px 0 4px">Order BreakDown</div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">Size Group + Wash</th>
+            <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">Wash / Colour</th>
+            ${sizes.map(sz => `<th style="text-align:center;padding:4px;border:1px solid #111;font-size:11px">${esc(sz)}</th>`).join('')}
+            <th style="text-align:center;padding:4px;border:1px solid #111;font-size:11px">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding:4px;border:1px solid #111">${esc(d.groupName || '—')}</td>
+            <td style="padding:4px;border:1px solid #111">${esc(d.washName || '—')}</td>
+            ${sizes.map(sz => `<td style="text-align:center;padding:4px;border:1px solid #111">${esc(d.sizeMap?.[sz] || 0)}</td>`).join('')}
+            <td style="text-align:center;padding:4px;border:1px solid #111">${esc(d.q.qty || 0)}</td>
+          </tr>
+          <tr>
+            <td style="padding:4px;border:1px solid #111;font-weight:700">Ratio</td>
+            <td style="padding:4px;border:1px solid #111"></td>
+            ${sizes.map(sz => `<td style="text-align:center;padding:4px;border:1px solid #111">${esc(d.ratioMap?.[sz] || 0)}</td>`).join('')}
+            <td style="text-align:center;padding:4px;border:1px solid #111">${esc(ratioTotal)}</td>
+          </tr>
+          <tr>
+            <td style="padding:4px;border:1px solid #111;font-weight:700">Cutting Qty +${esc(d.cuttingPct)}%</td>
+            <td style="padding:4px;border:1px solid #111"></td>
+            ${sizes.map(sz => `<td style="text-align:center;padding:4px;border:1px solid #111">${esc(d.sizeCutMap?.[sz] || 0)}</td>`).join('')}
+            <td style="text-align:center;padding:4px;border:1px solid #111">${esc(Math.round(d.cuttingQty || 0))}</td>
+          </tr>
+          <tr>
+            <td style="padding:4px;border:1px solid #111;font-weight:700">Zipper Usage/Size</td>
+            <td style="padding:4px;border:1px solid #111"></td>
+            ${sizes.map(() => `<td style="text-align:center;padding:4px;border:1px solid #111"></td>`).join('')}
+            <td style="text-align:center;padding:4px;border:1px solid #111"></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="font-weight:700;margin:6px 0 4px">Fabrication Requirements</div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+        <thead><tr>
+          <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">Item</th>
+          <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">Shade</th>
+          <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">Content</th>
+          <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">Weight</th>
+          <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">Width</th>
+          <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">Consump</th>
+          <th style="text-align:right;padding:4px;border:1px solid #111;font-size:11px">Required</th>
+        </tr></thead>
+        <tbody>${fabricRows || `<tr><td colspan="7" style="padding:4px;border:1px solid #111">—</td></tr>`}</tbody>
+      </table>
+
+      <div style="font-weight:700;margin:6px 0 4px">Trims & Accessories Requirements</div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+        <thead><tr>
+          <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">Type</th>
+          <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">Item</th>
+          <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">Shade</th>
+          <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">Consump</th>
+          <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">Req</th>
+          <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">PO#</th>
+          <th style="text-align:left;padding:4px;border:1px solid #111;font-size:11px">Status</th>
+        </tr></thead>
+        <tbody>
+          ${stitchRows || `<tr><td colspan="7" style="padding:4px;border:1px solid #111">—</td></tr>`}
+          ${(stitchRows && packingRows) ? `<tr><td colspan="7" style="padding:0;border:none;height:8px"></td></tr>` : ''}
+          ${packingRows || ''}
+        </tbody>
+      </table>
+
+      <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:12px;align-items:start">
+        <div>
+          <div style="font-weight:700;margin-bottom:4px">Embellishment & Decoration</div>
+          <div style="border:1px solid #111;min-height:70px;padding:6px;font-size:11px;line-height:1.5">${(d.embItems || []).map(x => `${esc(x.technique || x.description || '—')} @${esc(x.placement || 'Placement')}`).join('<br>') || '—'}</div>
+        </div>
+        <div>
+          <div style="font-weight:700;margin-bottom:4px">Packing Instructions</div>
+          <div style="border:1px solid #111;min-height:70px;padding:6px;font-size:11px;line-height:1.8">☐ Solid Pack<br>☐ Ratio Pack</div>
+        </div>
+        <div>
+          <div style="font-weight:700;margin-bottom:4px">Merchandiser</div>
+          <div style="border:1px solid #111;min-height:70px;padding:6px"></div>
+        </div>
+      </div>
+
+      <table style="width:40%;border-collapse:collapse;margin-top:8px">
+        <thead><tr><th style="padding:4px;border:1px solid #111">Packing</th><th style="padding:4px;border:1px solid #111">Each</th><th style="padding:4px;border:1px solid #111">Total</th></tr></thead>
+        <tbody>
+          <tr><td style="padding:4px;border:1px solid #111">Blisters</td><td style="padding:4px;border:1px solid #111;text-align:center">${esc(d.blisterEach || '—')}</td><td style="padding:4px;border:1px solid #111;text-align:center">${esc(d.blisterTotal || '—')}</td></tr>
+          <tr><td style="padding:4px;border:1px solid #111">Cartons</td><td style="padding:4px;border:1px solid #111;text-align:center">${esc(d.cartonEach || '—')}</td><td style="padding:4px;border:1px solid #111;text-align:center">${esc(d.cartonTotal || '—')}</td></tr>
+        </tbody>
+      </table>
+    </div>`
+  }
+
   async function buildProgramHTML(kind, q) {
     const d = await fetchQDocData(q)
+    if (kind === 'Internal Order Sheet (IOS)') return buildIOSHTML(d)
     if (kind === 'Print Production File') {
       return [
         coverHTML(d),
@@ -705,8 +918,8 @@ function QueuesTab({ onEditOrder }) {
           {allRules.map(r => <option key={r}>{r}</option>)}
         </select>
         <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
-          <button className="btn btn-secondary btn-sm" disabled={selectedQueuedOnly.length === 0} onClick={handleActivateQueues}>Activate Q</button>
-          <button className="btn btn-secondary btn-sm" disabled={selectedOrderIds.length === 0} onClick={handleRollbackOrderQueues}>Reset Queue</button>
+          <button className="btn btn-sm" style={{ background: selectedQueuedOnly.length === 0 ? "#e5e7eb" : "#16a34a", color: selectedQueuedOnly.length === 0 ? "#9ca3af" : "#fff" }} disabled={selectedQueuedOnly.length === 0} onClick={handleActivateQueues}>Activate Q</button>
+          <button className="btn btn-sm" style={{ background: selectedOrderIds.length === 0 ? "#f3f4f6" : "#fee2e2", color: selectedOrderIds.length === 0 ? "#9ca3af" : "#dc2626" }} disabled={selectedOrderIds.length === 0} onClick={handleRollbackOrderQueues}>Reset Queue</button>
           <button className="btn btn-secondary btn-sm" disabled={selectedQueues.length === 0} onClick={() => setShowPrintModal(true)}>Print</button>
           <div style={{ position:'relative' }}>
             <button className="btn btn-secondary btn-sm" disabled={selectedQueues.length === 0} onClick={() => setShowExportMenu(v => !v)}>Export</button>
@@ -778,7 +991,7 @@ function QueuesTab({ onEditOrder }) {
           <div style={{ background:'#fff', borderRadius:10, padding:24, width:360, boxShadow:'0 16px 48px rgba(0,0,0,0.2)' }}>
             <div style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>Print Queue Reports</div>
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              {['Fabric Demand', 'Cutting Plan', 'Trims Demand', 'Washing', 'Embellishment', 'Finishing', 'Print Production File'].map(prog => (
+              {['Internal Order Sheet (IOS)', 'Fabric Demand', 'Cutting Plan', 'Trims Demand', 'Washing', 'Embellishment', 'Finishing', 'Print Production File'].map(prog => (
                 <button key={prog} className="btn btn-secondary btn-sm" style={{ justifyContent:'flex-start' }} onClick={async () => { setShowPrintModal(false); await printSelectedPrograms(prog) }}>{prog}</button>
               ))}
             </div>
