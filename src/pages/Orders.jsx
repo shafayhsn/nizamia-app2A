@@ -516,7 +516,7 @@ function QueuesTab({ onEditOrder }) {
     }
 
     const sgMap = Object.fromEntries((sgs || []).map(g => [g.id, g]))
-    const groupName = q.size_group_id ? (sgMap[q.size_group_id]?.group_name || null) : null
+    const groupName = q.size_group_id ? (sgMap[q.size_group_id]?.group_name || q.size_group_name || q.group_name || q.size_group || q.label || null) : (q.size_group_name || q.group_name || q.size_group || null)
     const fitName = (fitBlocks && fitBlocks[0]?.block_name) || '—'
     const qSgs = q.size_group_id ? (sgs || []).filter(g => g.id === q.size_group_id) : (sgs || [])
 
@@ -548,6 +548,7 @@ function QueuesTab({ onEditOrder }) {
     const queueQty = parseFloat(q.qty) || 0
     const ratio = totalQty > 0 ? queueQty / totalQty : 0
     
+    
     const normalizeUD = (ud) => {
       if (!ud) return {}
       if (typeof ud === 'string') {
@@ -562,132 +563,135 @@ function QueuesTab({ onEditOrder }) {
       if (typeof v === 'string') return parseFloat(v) || 0
       if (typeof v === 'object') {
         return parseFloat(
-          v.consumption ?? v.consump ?? v.qty ?? v.value ?? v.base_qty ?? v.required ?? 0
+          v.consumption ?? v.consump ?? v.qty ?? v.value ?? v.base_qty ?? v.required ?? v.per_piece ?? 0
         ) || 0
       }
       return 0
     }
 
     const norm = (v) => String(v ?? '').trim().toLowerCase()
+    const selectedSizes = Object.keys(sizeMap || {}).filter(sz => (parseFloat(sizeMap[sz]) || 0) > 0)
 
-    
-const selectedSizes = Object.keys(sizeMap || {}).filter(sz => (parseFloat(sizeMap[sz]) || 0) > 0)
-
-    const normRule = (v) => norm(String(v || '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim())
-    const isRule = (rule, ...candidates) => candidates.some(c => normRule(rule) === normRule(c))
-
-    const expandSizeToken = (token) => {
-      const t = String(token || '').trim()
-      if (!t) return []
-      if (/^\d+\s*-\s*\d+$/.test(t)) {
-        const [a,b] = t.split('-').map(x => parseInt(x.trim(), 10))
-        if (Number.isFinite(a) && Number.isFinite(b) && b >= a) {
-          const arr = []
-          for (let i = a; i <= b; i++) arr.push(String(i))
-          return arr
+    const expandSizeTokens = (raw) => {
+      if (raw == null) return []
+      const arr = Array.isArray(raw) ? raw : String(raw).split(',')
+      const out = []
+      arr.map(x => String(x).trim()).filter(Boolean).forEach(token => {
+        const m = token.match(/^(\d+)\s*-\s*(\d+)$/)
+        if (m) {
+          const a = parseInt(m[1], 10)
+          const b = parseInt(m[2], 10)
+          const step = a <= b ? 1 : -1
+          for (let n = a; step > 0 ? n <= b : n >= b; n += step) out.push(String(n))
+        } else {
+          out.push(token)
         }
-      }
-      return [t]
+      })
+      return [...new Set(out)]
     }
 
-    const extractRowSizes = (row) => {
-      const raw = row?.sizes ?? row?.size_group ?? row?.size ?? row?.size_name ?? row?.selectedSizes ?? row?.selected_sizes ?? row?.applies_to_sizes ?? row?.appliesToSizes ?? row?.sizeRange ?? row?.size_range ?? []
-      const tokens = Array.isArray(raw)
-        ? raw.flatMap(x => String(x).split(','))
-        : String(raw || '').split(',')
-      return [...new Set(tokens.map(s => s.trim()).filter(Boolean).flatMap(expandSizeToken))]
-    }
-
-    const rowMatchesColor = (row) => {
-      const rowColor = row?.color ?? row?.color_name ?? row?.colour ?? row?.wash ?? row?.wash_name ?? row?.variant ?? null
-      if (!rowColor) return true
-      return norm(rowColor) === norm(q.color_name)
-    }
-
-    const rowMatchesGroup = (row) => {
-      const rowGroup = row?.group ?? row?.group_name ?? row?.size_group_name ?? row?.size_group ?? row?.name ?? row?.key ?? null
-      if (!rowGroup) return true
-      const rg = norm(rowGroup)
-      return rg === norm(groupName) || rg === norm(q.label)
-    }
-
-    const rowMatchesQ = (row) => {
-      const refs = [row?.q_number, row?.q_ref, row?.q, row?.queue, row?.queue_ref, row?.queue_label, row?.label].filter(Boolean).map(norm)
-      if (!refs.length) return true
-      return refs.includes(norm(q.q_number)) || refs.includes(norm(q.label))
-    }
-
-    const rowMatchedSizes = (row) => {
-      const rowSizes = extractRowSizes(row)
-      if (!rowSizes.length) return selectedSizes
-      return rowSizes.filter(sz => selectedSizes.includes(String(sz)))
-    }
-
-    const extractRows = (ud) => {
-      if (!ud) return []
+    const pickRows = (ud) => {
       if (Array.isArray(ud)) return ud
-      const directArrays = [ud.rows, ud.items, ud.batches, ud.values, ud.lines, ud.entries].find(Array.isArray)
-      if (directArrays) return directArrays
+      if (Array.isArray(ud?.rows)) return ud.rows
+      if (Array.isArray(ud?.items)) return ud.items
+      if (Array.isArray(ud?.batches)) return ud.batches
+      if (Array.isArray(ud?.values)) return ud.values
       return []
     }
 
+    const canonicalRule = (rule) => {
+      const r = norm(rule)
+      if (!r || r === 'generic') return 'generic'
+      if (r.includes('batch')) return 'rows'
+      if (r.includes('configure')) return 'rows'
+      if (r.includes('custom')) return 'rows'
+      if ((r.includes('colour') || r.includes('color')) && r.includes('size')) return 'rows'
+      if (r.includes('individual size') || r.includes('individual sizes')) return 'perSize'
+      if (r.includes('size group')) return 'sizeGroup'
+      if (r.includes('colour') || r.includes('color')) return 'color'
+      return 'generic'
+    }
+
+    const rowMatchesQ = (row) => {
+      const rowColor = row.color || row.color_name || row.colour || row.wash || row.wash_name || null
+      if (rowColor && q.color_name && norm(rowColor) !== norm(q.color_name)) return false
+
+      const rowGroup = row.group || row.group_name || row.size_group || row.sizeGroup || row.size_group_name || null
+      if (rowGroup && groupName && norm(rowGroup) !== norm(groupName)) {
+        // sometimes group stored as token list/range like 4-7
+        const expandedGroup = expandSizeTokens(rowGroup)
+        if (!(expandedGroup.length && expandedGroup.some(sz => selectedSizes.includes(sz)))) return false
+      }
+
+      const rowSizesRaw = row.sizes || row.size || row.size_name || row.selectedSizes || row.selected_sizes || row.size_group_sizes || []
+      const rowSizes = expandSizeTokens(rowSizesRaw)
+      if (rowSizes.length && !rowSizes.some(sz => selectedSizes.includes(String(sz)))) return false
+
+      return true
+    }
+
     function getSelectedConsumption(item) {
-      const rule = item.usage_rule || 'Generic'
+      const rule = canonicalRule(item.usage_rule)
       const ud = normalizeUD(item.usage_data)
       const base = parseFloat(item.base_qty) || 0
 
-      if (isRule(rule, 'Generic')) return { mode:'single', value: base }
+      if (rule === 'generic') return { mode:'single', value: base }
 
-      if (isRule(rule, 'By Color', 'By Colour', 'By Color/Colour')) {
+      if (rule === 'color') {
         if (Array.isArray(ud)) {
-          const hit = ud.find(x => rowMatchesColor(x))
+          const hit = ud.find(x => norm(x.color || x.color_name || x.colour || x.name || x.key) === norm(q.color_name))
           const val = numVal(hit)
           return { mode:'single', value: val || base }
         }
-        const direct = ud?.[q.color_name] ?? ud?.[q.colour_name]
+        const direct = ud[q.color_name] ?? ud[norm(q.color_name)]
         const val = numVal(direct)
         return { mode:'single', value: val || base }
       }
 
-      if (isRule(rule, 'By Size Group', 'By Group')) {
+      if (rule === 'sizeGroup') {
         if (Array.isArray(ud)) {
-          const hit = ud.find(x => rowMatchesGroup(x))
+          const hit = ud.find(x => {
+            const key = x.group || x.group_name || x.size_group || x.sizeGroup || x.name || x.key
+            return norm(key) === norm(groupName) || expandSizeTokens(key).some(sz => selectedSizes.includes(sz))
+          })
           const val = numVal(hit)
           return { mode:'single', value: val || base }
         }
-        const direct = ud?.[groupName] ?? ud?.[q.label]
+        const direct = ud[groupName] ?? ud[norm(groupName)]
         const val = numVal(direct)
-        return { mode:'single', value: val || base }
+        if (val) return { mode:'single', value: val }
+        // fallback: try any key that expands to selected sizes
+        const keys = Object.keys(ud || {})
+        for (const k of keys) {
+          if (expandSizeTokens(k).some(sz => selectedSizes.includes(sz))) {
+            const v = numVal(ud[k])
+            if (v) return { mode:'single', value: v }
+          }
+        }
+        return { mode:'single', value: base }
       }
 
-      if (isRule(rule, 'By Individual Size', 'By Individual Sizes', 'By Size')) {
+      if (rule === 'perSize') {
         const perSize = {}
         if (Array.isArray(ud)) {
           ud.forEach(x => {
-            const keys = extractRowSizes(x)
-            const v = numVal(x)
-            keys.forEach(k => { perSize[String(k)] = v })
+            const keys = expandSizeTokens(x.size || x.size_name || x.label || x.key || x.group || x.size_group)
+            keys.forEach(k => { if (k != null) perSize[String(k)] = numVal(x) })
           })
         } else {
           Object.entries(ud || {}).forEach(([k,v]) => {
-            if (!String(k).startsWith('_')) expandSizeToken(k).forEach(sz => { perSize[String(sz)] = numVal(v) })
+            if (!String(k).startsWith('_')) {
+              expandSizeTokens(k).forEach(tok => { perSize[String(tok)] = numVal(v) })
+            }
           })
         }
         return { mode:'perSize', values: perSize }
       }
 
-      if (isRule(rule, 'By Batch', 'Batch')) {
-        const rows = extractRows(ud)
-        return { mode:'rows', rows }
-      }
-
-      if (isRule(rule, 'Configure Own', 'Configure Own Purchase Demand', 'Configure Own Demand')) {
-        const rows = extractRows(ud)
+      if (rule === 'rows') {
+        const rows = pickRows(ud)
         if (rows.length) return { mode:'rows', rows }
       }
-
-      const rows = extractRows(ud)
-      if (rows.length) return { mode:'rows', rows }
 
       return { mode:'single', value: base }
     }
@@ -702,23 +706,23 @@ const selectedSizes = Object.keys(sizeMap || {}).filter(sz => (parseFloat(sizeMa
       }
 
       if (selected.mode === 'perSize') {
-        const total = selectedSizes.reduce((sum, sz) => {
+        return selectedSizes.reduce((sum, sz) => {
           const perPiece = parseFloat(selected.values?.[sz]) || 0
           const qty = parseFloat(sizeMap?.[sz]) || 0
           return sum + (perPiece * qty * wf)
         }, 0)
-        return total || (base * queueQty * wf)
       }
 
       if (selected.mode === 'rows') {
         const rows = selected.rows || []
         const total = rows.reduce((sum, row) => {
-          if (!rowMatchesQ(row) || !rowMatchesColor(row) || !rowMatchesGroup(row)) return sum
+          if (!rowMatchesQ(row)) return sum
           const rowCons = numVal(row)
-          const matchedSizes = rowMatchedSizes(row)
-          const matchedQty = matchedSizes.reduce((s, sz) => s + (parseFloat(sizeMap?.[sz]) || 0), 0)
-          if (matchedQty > 0) return sum + (rowCons * matchedQty * wf)
-          return sum + (rowCons * queueQty * wf)
+          const rowSizes = expandSizeTokens(row.sizes || row.size || row.size_name || row.selectedSizes || row.selected_sizes || row.size_group || [])
+          const matchedQty = rowSizes.length
+            ? rowSizes.reduce((s, sz) => s + (parseFloat(sizeMap?.[sz]) || 0), 0)
+            : queueQty
+          return sum + (rowCons * matchedQty * wf)
         }, 0)
         return total || (base * queueQty * wf)
       }
@@ -728,6 +732,8 @@ const selectedSizes = Object.keys(sizeMap || {}).filter(sz => (parseFloat(sizeMa
 
     function getDisplayConsumption(item) {
       const base = parseFloat(item.base_qty) || 0
+      if (base > 0) return base
+
       const selected = getSelectedConsumption(item)
 
       if (selected.mode === 'single') return selected.value || base
@@ -740,12 +746,8 @@ const selectedSizes = Object.keys(sizeMap || {}).filter(sz => (parseFloat(sizeMa
       }
 
       if (selected.mode === 'rows') {
-        const rows = (selected.rows || []).filter(row => rowMatchesQ(row) && rowMatchesColor(row) && rowMatchesGroup(row))
-        const vals = rows.flatMap(row => {
-          const matchedSizes = rowMatchedSizes(row)
-          const matched = matchedSizes.length > 0 || selectedSizes.length > 0
-          return matched ? [numVal(row)] : []
-        }).filter(v => v > 0)
+        const rows = (selected.rows || []).filter(rowMatchesQ)
+        const vals = rows.map(row => numVal(row)).filter(v => v > 0)
         const uniq = [...new Set(vals.map(v => Number(v.toFixed(4))))]
         if (uniq.length === 1) return uniq[0]
         return vals.length ? uniq[0] : base
@@ -753,8 +755,7 @@ const selectedSizes = Object.keys(sizeMap || {}).filter(sz => (parseFloat(sizeMa
 
       return base
     }
-
-    const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
+const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
     const fabricItems = (bom || []).filter(x => x.category === 'Fabric').map(x => {
       const lib = x.library_item_id ? libMap[x.library_item_id] : null
       const consump = getDisplayConsumption(x)
