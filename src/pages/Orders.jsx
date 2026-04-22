@@ -489,34 +489,19 @@ function QueuesTab({ onEditOrder }) {
       }
     }
 
-    const num = (v) => {
-      if (v == null) return 0
-      if (typeof v === 'number') return v
-      if (typeof v === 'string') return parseFloat(v) || 0
-      if (typeof v === 'object') {
-        if ('value' in v) return parseFloat(v.value) || 0
-        if ('qty' in v) return parseFloat(v.qty) || 0
-        if ('consumption' in v) return parseFloat(v.consumption) || 0
-        if ('amount' in v) return parseFloat(v.amount) || 0
-        if ('required' in v) return parseFloat(v.required) || 0
-      }
-      return 0
-    }
-
-    const pickText = (...vals) => vals.find(v => String(v || '').trim()) || '—'
-
     const ord = orderMap[q.order_id] || {}
-    const [bom, washing, embellishments, finishing, packs, sgs, fitBlocks, pos, poi, libs] = await Promise.all([
+    const [bom, washing, embellishments, finishing, packs, sgs, fitBlocks, pos, poi, libs, suppliers] = await Promise.all([
       safeQuery(supabase.from('bom_items').select('*').eq('order_id', q.order_id).order('sort_order'), []),
       safeQuery(supabase.from('washing').select('*').eq('order_id', q.order_id), []),
       safeQuery(supabase.from('embellishments').select('*').eq('order_id', q.order_id), []),
       safeQuery(supabase.from('finishing').select('*').eq('order_id', q.order_id).maybeSingle(), null),
       safeQuery(supabase.from('finishing_packs').select('*').eq('order_id', q.order_id).order('sort_order'), []),
-      safeQuery(supabase.from('size_groups').select('id,group_name,sizes,base_size,sort_order').eq('order_id', q.order_id).order('sort_order'), []),
+      safeQuery(supabase.from('size_groups').select('id,group_name,sizes,base_size').eq('order_id', q.order_id).order('sort_order'), []),
       safeQuery(supabase.from('fitting_blocks').select('block_name,sort_order').eq('order_id', q.order_id).order('sort_order'), []),
       safeQuery(supabase.from('purchase_orders').select('id,po_number,status,created_at').eq('order_id', q.order_id).order('created_at', { ascending: false }), []),
       safeQuery(supabase.from('purchase_order_items').select('po_id,description,specification,source_type,source_id,sort_order').order('sort_order'), []),
       safeQuery(supabase.from('library_items').select('*'), []),
+      safeQuery(supabase.from('suppliers').select('id,name'), []),
     ])
 
     const sgIds = (sgs || []).map(x => x.id)
@@ -531,10 +516,9 @@ function QueuesTab({ onEditOrder }) {
     }
 
     const sgMap = Object.fromEntries((sgs || []).map(g => [g.id, g]))
-    const qSgs = q.size_group_id ? (sgs || []).filter(g => g.id === q.size_group_id) : (sgs || [])
-    const fallbackGroup = q.size_group_name || q.group_name || (q.label && String(q.label).includes('/') ? String(q.label).split('/').pop().trim() : q.label)
-    const groupName = q.size_group_id ? (sgMap[q.size_group_id]?.group_name || fallbackGroup || '—') : (fallbackGroup || (sgs[0]?.group_name) || '—')
+    const groupName = q.size_group_id ? (sgMap[q.size_group_id]?.group_name || null) : null
     const fitName = (fitBlocks && fitBlocks[0]?.block_name) || '—'
+    const qSgs = q.size_group_id ? (sgs || []).filter(g => g.id === q.size_group_id) : (sgs || [])
 
     const sizeMap = {}
     qSgs.forEach(g => {
@@ -559,117 +543,134 @@ function QueuesTab({ onEditOrder }) {
       ratioMap[sz] = ratioBase && val ? Math.round(val / ratioBase) : 0
     })
 
-    const queueQty = parseFloat(q.qty) || 0
-    const totalQty = parseFloat(ord.total_qty) || 0
-    const ratio = totalQty > 0 ? queueQty / totalQty : 0
     const wastageFactor = (x) => 1 + ((parseFloat(x) || 0) / 100)
+    const totalQty = parseFloat(ord.total_qty) || 0
+    const queueQty = parseFloat(q.qty) || 0
+    const ratio = totalQty > 0 ? queueQty / totalQty : 0
+    function getUsageNum(v) {
+      if (v == null) return 0
+      if (typeof v === 'number') return Number.isFinite(v) ? v : 0
+      if (typeof v === 'string') return parseFloat(v) || 0
+      if (typeof v === 'object') {
+        if (Array.isArray(v)) return v.reduce((s, x) => s + getUsageNum(x), 0)
+        if ('value' in v) return parseFloat(v.value) || 0
+        if ('qty' in v) return parseFloat(v.qty) || 0
+        if ('consumption' in v) return parseFloat(v.consumption) || 0
+      }
+      return 0
+    }
 
-    function consumpForItem(item) {
+    function calcBomConsump(item) {
       const rule = item.usage_rule || 'Generic'
-      const ud = item.usage_data || {}
-      const base = num(item.base_qty)
+      const ud   = item.usage_data || {}
+      const base = parseFloat(item.base_qty) || 0
 
       if (rule === 'Generic') return base
 
       if (rule === 'By Color' || rule === 'By Colour') {
         const key = q.color_name
-        if (key && ud[key] != null) return num(ud[key])
-        return base
+        if (key && ud[key] != null) return getUsageNum(ud[key]) || base
+        const total = Object.values(ud).reduce((s,v)=>s+getUsageNum(v),0)
+        return total || base
       }
 
       if (rule === 'By Size Group') {
-        if (groupName && ud[groupName] != null) return num(ud[groupName])
-        return base
+        const key = groupName
+        if (key && ud[key] != null) return getUsageNum(ud[key]) || base
+        const total = Object.values(ud).reduce((s,v)=>s+getUsageNum(v),0)
+        return total || base
       }
 
       if (rule === 'By Individual Sizes') {
-        const totalUnits = sizeOrder.reduce((s, sz) => s + num(sizeMap[sz]), 0)
-        if (!totalUnits) return base
-        const total = sizeOrder.reduce((s, sz) => s + (num(ud[sz]) * num(sizeMap[sz])), 0)
-        return totalUnits ? total / totalUnits : base
+        const vals = Object.entries(ud).map(([sz, cons]) => ({sz, cons: getUsageNum(cons)})).filter(x => x.cons > 0 && (parseFloat(sizeMap[x.sz])||0) > 0)
+        if (vals.length === 1) return vals[0].cons
+        if (vals.length > 1) return vals.map(v => `${v.sz}:${v.cons}`).join(', ')
+        return base
       }
 
       if (rule === 'Configure Own') {
-        if (Array.isArray(ud)) {
-          const vals = ud.map(num).filter(v => v > 0)
-          return vals.length ? vals[0] : base
-        }
-        if (typeof ud === 'object') {
-          const vals = Object.values(ud).map(num).filter(v => v > 0)
-          return vals.length ? vals[0] : base
-        }
+        const total = Object.values(ud).reduce((s,v)=>s+getUsageNum(v),0)
+        return total || base
       }
 
-      return base || num(item.final_qty) * ratio
+      return base
     }
 
     function calcBomQty(item) {
       const rule = item.usage_rule || 'Generic'
-      const ud = item.usage_data || {}
-      const wf = wastageFactor(item.wastage)
-      const base = num(item.base_qty)
+      const ud   = item.usage_data || {}
+      const wf   = wastageFactor(item.wastage)
+      const base = parseFloat(item.base_qty) || 0
 
       if (rule === 'Generic') return base * queueQty * wf
 
       if (rule === 'By Color' || rule === 'By Colour') {
         const key = q.color_name
-        if (key && ud[key] != null) return num(ud[key]) * queueQty * wf
-        const fallback = Object.values(ud).reduce((s, v) => s + num(v), 0)
-        return (fallback > 0 ? fallback : base) * queueQty * wf
+        if (key && ud[key] != null) return getUsageNum(ud[key]) * queueQty * wf
+        const total = Object.values(ud).reduce((s,v)=>s+getUsageNum(v),0)
+        return total > 0 ? total * queueQty * wf : base * queueQty * wf
       }
 
       if (rule === 'By Size Group') {
-        if (groupName && ud[groupName] != null) return num(ud[groupName]) * queueQty * wf
-        const fallback = Object.values(ud).reduce((s, v) => s + num(v), 0)
-        return (fallback > 0 ? fallback : base) * queueQty * wf
+        const key = groupName
+        if (key && ud[key] != null) return getUsageNum(ud[key]) * queueQty * wf
+        const total = Object.values(ud).reduce((s,v)=>s+getUsageNum(v),0)
+        return total > 0 ? total * queueQty * wf : base * queueQty * wf
       }
 
       if (rule === 'By Individual Sizes') {
-        const val = Object.entries(ud).reduce((s, [sz, cons]) => s + (num(cons) * num(sizeMap[sz]) * wf), 0)
-        return val > 0 ? val : ((num(item.final_qty) || base * queueQty) * wf)
+        const val = Object.entries(ud).reduce((s,[sz,cons]) => s + (getUsageNum(cons) * (parseFloat(sizeMap[sz]) || 0) * wf), 0)
+        return val > 0 ? val : base * queueQty * wf
       }
 
       if (rule === 'Configure Own') {
-        if (Array.isArray(ud)) {
-          const total = ud.reduce((s, x) => s + num(x), 0)
-          return total > 0 ? total * wf : ((num(item.final_qty) || base * queueQty) * wf)
-        }
-        if (typeof ud === 'object') {
-          const total = Object.values(ud).reduce((s, x) => s + num(x), 0)
-          return total > 0 ? total * wf : ((num(item.final_qty) || base * queueQty) * wf)
-        }
+        const total = Object.values(ud).reduce((s,v)=>s+getUsageNum(v),0)
+        return total > 0 ? total * queueQty * wf : (base * queueQty * wf || (parseFloat(item.final_qty)||0) * ratio)
       }
 
-      return (num(item.final_qty) || (base * queueQty)) * wf || 0
+      return base * queueQty * wf || (parseFloat(item.final_qty)||0) * ratio
     }
 
     const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
-
     const fabricItems = (bom || []).filter(x => x.category === 'Fabric').map(x => {
       const lib = x.library_item_id ? libMap[x.library_item_id] : null
-      const consump = consumpForItem(x)
       return {
         ...x,
         q_qty: calcBomQty(x),
-        lib_colour: pickText(lib?.colour, lib?.color, lib?.color_name),
-        content: pickText(lib?.composition, x.detail),
-        weight: pickText(lib?.weight, lib?.gsm ? `${lib.gsm} GSM` : null),
+        lib_colour: lib?.colour || lib?.color || '—',
+        shade: lib?.colour || lib?.color || x.specification || x.detail || '—',
+        content: lib?.composition || x.detail || '—',
+        weight: lib?.weight || lib?.gsm || x.weight || '—',
         width: lib?.width_inches ? `${lib.width_inches}”` : (lib?.width ? `${lib.width}”` : '—'),
-        consump,
+        consump: calcBomConsump(x),
       }
+    })
+
+    const poItemsBySource = {}
+    ;(poi || []).forEach(item => {
+      const k = `${item.source_type || ''}::${item.source_id || ''}`
+      if (!poItemsBySource[k]) poItemsBySource[k] = []
+      poItemsBySource[k].push(item)
     })
 
     const trimItems = (bom || []).filter(x => x.category !== 'Fabric').map(x => {
       let linkedItem = null
-      const itemName = String(x.name || '').toLowerCase()
-      linkedItem = (poi || []).find(it => String(it.description || '').toLowerCase().includes(itemName) && (String(it.specification || '').includes(q.q_number || '') || String(it.specification || '').includes(q.label || '')))
-      if (!linkedItem) linkedItem = (poi || []).find(it => String(it.description || '').toLowerCase().includes(itemName))
+      const sourceLinked = (poi || []).find(it => String(it.source_type || '').toLowerCase() === 'queue' && String(it.source_id || '') === String(q.id))
+      if (sourceLinked) linkedItem = sourceLinked
+      if (!linkedItem) {
+        const itemName = String(x.name || '').toLowerCase()
+        linkedItem = (poi || []).find(it => String(it.description || '').toLowerCase().includes(itemName) && (String(it.specification || '').includes(q.q_number || '') || String(it.specification || '').includes(q.label || '')))
+      }
+      if (!linkedItem) {
+        const itemName = String(x.name || '').toLowerCase()
+        linkedItem = (poi || []).find(it => String(it.description || '').toLowerCase().includes(itemName))
+      }
       const po = linkedItem ? (pos || []).find(p => p.id === linkedItem.po_id) : null
       return {
         ...x,
         q_qty: calcBomQty(x),
-        shade: pickText(x.specification, x.detail),
-        consump: consumpForItem(x),
+        shade: x.specification || x.detail || '—',
+        consump: calcBomConsump(x),
         po_number: po?.po_number || '—',
         po_status: po?.status || '—',
       }
@@ -680,7 +681,7 @@ function QueuesTab({ onEditOrder }) {
     const washName = ((washing || []).find(w => !q.color_name || w.color_name === q.color_name)?.wash_type) || q.color_name || '—'
     const cuttingPct = Number.isFinite(parseFloat(ord.excess_cutting_pct)) ? parseFloat(ord.excess_cutting_pct) : 0
     const cuttingQty = sizeOrder.reduce((s, sz) => s + Math.round((parseFloat(sizeMap[sz]) || 0) * (1 + cuttingPct / 100)), 0)
-
+    const embellishmentText = (embellishments || []).map(x => `${x.technique || 'Embellishment'} @${x.placement || '—'}`)
     const firstPack = (packs || [])[0] || {}
     const blisterEach = firstPack.pieces_per_inner_pack || firstPack.inner_pieces || '—'
     const cartonEach = firstPack.pcs_per_carton || '—'
@@ -690,13 +691,12 @@ function QueuesTab({ onEditOrder }) {
     return {
       ord, q, groupName, fitName, washName, sizeMap, sizeOrder, ratioMap,
       fabricItems, trimItems, stitchItems, packingItems,
-      embItems: embellishments || [],
-      packs,
+      embItems: embellishments, embellishmentText,
+      packs: packs,
       cuttingQty, cuttingPct,
       blisterEach, blisterTotal, cartonEach, cartonTotal,
     }
   }
-
 
   function rowsHTML(rows, columns) {
     const head = columns.map(c => `<th style="${c.align==='right'?'text-align:right;':''}">${esc(c.label)}</th>`).join('')
@@ -755,93 +755,95 @@ function QueuesTab({ onEditOrder }) {
   function buildIOSHTML(d) {
     const qRef = d.q.q_number || 'Queued'
     const sizeCols = (d.sizeOrder || []).filter(sz => (d.sizeMap[sz] || 0) > 0)
-    const th  = 'border:1px solid #000;padding:2.6px 5px;font-size:9.4px;font-weight:700;text-align:center;vertical-align:middle;white-space:nowrap;'
-    const td  = 'border:1px solid #000;padding:2.6px 5px;font-size:9.4px;vertical-align:middle;'
+    const th  = 'border:1px solid #000;padding:3px 5px;font-size:9px;font-weight:700;text-align:center;vertical-align:middle;white-space:nowrap;'
+    const td  = 'border:1px solid #000;padding:3px 5px;font-size:9px;vertical-align:middle;line-height:1.2;'
     const tdC = td + 'text-align:center;'
     const tdR = td + 'text-align:right;'
     const blk = 'background:#000;color:#fff;'
-    const shortUOM = (u='') => {
-      const x = String(u || '').toLowerCase()
-      if (x.includes('yard')) return 'yds'
-      if (x === 'y') return 'yds'
-      if (x.includes('meter')) return 'm'
-      if (x.includes('roll')) return 'roll'
-      if (x.includes('piece') || x.includes('pcs')) return 'pcs'
-      return u || ''
+    const shortUom = (u) => {
+      const s = String(u || '').toLowerCase()
+      if (!s) return ''
+      if (s.includes('yard')) return 'yds'
+      if (s.includes('meter')) return 'm'
+      if (s.includes('roll')) return 'roll'
+      if (s.includes('piece') || s.includes('pcs')) return 'pcs'
+      return u
+    }
+    const formatCons = (v, u) => {
+      if (typeof v === 'string' && v.includes(':')) return v
+      const n = parseFloat(v)
+      if (!Number.isFinite(n) || n <= 0) return '—'
+      return `${n.toFixed(2)} ${shortUom(u)}`
+    }
+    const formatReq = (v, u) => {
+      const n = Math.ceil(parseFloat(v) || 0)
+      if (!Number.isFinite(n) || n <= 0) return '—'
+      return `${n.toLocaleString()} ${shortUom(u)}`
     }
 
     const fabricRows = (d.fabricItems || []).map(r => `
       <tr>
-        <td style="${td}">${esc(r.name || '—')}</td>
-        <td style="${td}">${esc(r.lib_colour || '—')}</td>
-        <td style="${td}">${esc(r.content || '—')}</td>
-        <td style="${tdC}">${esc(r.weight || '—')}</td>
-        <td style="${tdC}">${esc(r.width || '—')}</td>
-        <td style="${tdC}">${r.consump ? `${parseFloat(r.consump).toFixed(2)} ${shortUOM(r.unit)}` : '—'}</td>
-        <td style="${tdR}">${r.q_qty ? `${Math.ceil(r.q_qty).toLocaleString()} ${shortUOM(r.unit)}` : '—'}</td>
+        <td style="${td}">${esc(r.name||'—')}</td>
+        <td style="${td}">${esc(r.lib_colour||r.shade||'—')}</td>
+        <td style="${td}">${esc(r.content||'—')}</td>
+        <td style="${tdC}">${esc(r.weight||'—')}</td>
+        <td style="${tdC}">${esc(r.width||'—')}</td>
+        <td style="${tdC}">${formatCons(r.consump, r.unit||'m')}</td>
+        <td style="${tdR}">${formatReq(r.q_qty, r.unit||'m')}</td>
       </tr>`).join('') || `<tr><td style="${tdC}" colspan="7">No fabric items</td></tr>`
 
-    const trimRow = (r) => {
-      const type = String(r.category || '').toLowerCase().includes('stitch') ? 'Stitching' : 'Packing'
-      return `<tr>
+    const trimRow = (r, type) => `
+      <tr>
         <td style="${td}">${esc(type)}</td>
-        <td style="${td}">${esc(r.name || '—')}</td>
-        <td style="${td}">${esc(r.shade || '—')}</td>
-        <td style="${tdC}">${r.consump ? `${parseFloat(r.consump).toFixed(2)} ${shortUOM(r.unit)}` : '—'}</td>
-        <td style="${tdR}">${r.q_qty ? `${Math.ceil(r.q_qty).toLocaleString()} ${shortUOM(r.unit)}` : '—'}</td>
-        <td style="${tdC}">${esc(r.po_number || '—')}</td>
-        <td style="${tdC}">${esc(r.po_status || '—')}</td>
+        <td style="${td}">${esc(r.name||'—')}</td>
+        <td style="${td}">${esc(r.shade || r.specification || r.detail || '—')}</td>
+        <td style="${tdC}">${formatCons(r.consump, r.unit||'pcs')}</td>
+        <td style="${tdR}">${formatReq(r.q_qty, r.unit||'pcs')}</td>
+        <td style="${tdC}">${esc(r.po_number||'—')}</td>
+        <td style="${tdC}">${esc(r.po_status||'—')}</td>
       </tr>`
-    }
+    const stitchRows  = (d.stitchItems||[]).map(r => trimRow(r, 'Stitching')).join('') || `<tr><td style="${tdC}" colspan="7">—</td></tr>`
+    const packingRows = (d.packingItems||[]).map(r => trimRow(r, 'Packing')).join('')
 
-    const stitchRows = (d.stitchItems || []).map(trimRow).join('') || `<tr><td style="${tdC}" colspan="7">—</td></tr>`
-    const packingRows = (d.packingItems || []).map(trimRow).join('')
-    const greyBreak = `<tr><td colspan="7" style="background:#c7c7c7;height:4px;padding:0;border-left:1px solid #000;border-right:1px solid #000;border-top:1px solid #000;border-bottom:1px solid #000;"></td></tr>`
-
-    const embText = (d.embItems || []).length
-      ? d.embItems.map(e => `${esc(e.name || 'Embellishment')} - ${esc(e.technique || e.type || '—')} @${esc(e.placement || '—')}`).join('<br/>')
+    const embText = (d.embItems||[]).length > 0
+      ? (d.embItems).map(e => `${esc(e.name || 'Embellishment')} - ${esc(e.technique || e.type || '—')} - @${esc(e.placement||'—')}`).join('<br/>')
       : '—'
 
-    const packInstrHTML = `
-      <div style="display:flex;align-items:center;gap:3px;margin-bottom:3px;">
-        <div style="width:10px;height:10px;border:1px solid #000;flex-shrink:0;"></div>
-        <span style="font-size:9px;">Solid Pack</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:3px;">
-        <div style="width:10px;height:10px;border:1px solid #000;flex-shrink:0;"></div>
-        <span style="font-size:9px;">Ratio Pack</span>
+    const blisterEach  = d.blisterEach  !== '—' ? d.blisterEach  : '—'
+    const blisterTotal = d.blisterTotal !== '—' ? d.blisterTotal : '—'
+    const cartonEach   = d.cartonEach   !== '—' ? d.cartonEach   : '—'
+    const cartonTotal  = d.cartonTotal  !== '—' ? d.cartonTotal  : '—'
+    const packInstrHTML = `<div style="display:flex;flex-direction:column;gap:6px;justify-content:center;height:100%;font-size:9px;">
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;border:1px solid #000;flex-shrink:0;"></div><span>Solid Pack</span></div>
+        <div style="display:flex;align-items:center;gap:5px;"><div style="width:10px;height:10px;border:1px solid #000;flex-shrink:0;"></div><span>Ratio Pack</span></div>
       </div>`
-
     const nowStr = new Date().toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'numeric',minute:'2-digit',hour12:true}).replace(',',' -')
 
     return `
       <div style="width:210mm;height:297mm;padding:6mm 7mm 5mm 7mm;font-family:Arial,sans-serif;color:#000;background:#fff;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;gap:1.5mm;">
-
         <div style="display:flex;justify-content:space-between;font-size:8.5px;">
           <div>Document Ref#IOS-${esc(qRef)}</div>
           <div>Date Created: ${esc(nowStr)}</div>
           <div>Username: admin</div>
         </div>
 
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;border-bottom:2px solid #000;padding-bottom:2mm;">
+        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #000;padding-bottom:2mm;">
           <div>
             <div style="font-size:20px;font-weight:900;line-height:1;">NIZAMIA APPARELS</div>
-            <div style="font-size:10px;font-weight:600;letter-spacing:0.4px;">Internal Order Sheet</div>
+            <div style="font-size:9px;font-weight:600;letter-spacing:1px;">Internal Order Sheet</div>
           </div>
-          <div style="display:flex;align-items:center;gap:4mm;">
-            <div style="border:2.5px solid #000;border-radius:999px;width:18mm;height:11mm;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;">IOS</div>
-            <div style="font-size:28px;font-weight:900;line-height:1;">${esc(qRef)}</div>
-          </div>
+          <div style="position:absolute;left:50%;transform:translateX(-50%);border:2.5px solid #000;border-radius:999px;width:22mm;height:12mm;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;">IOS</div>
+          <div style="font-size:28px;font-weight:900;line-height:1;">${esc(qRef)}</div>
         </div>
 
-        <div style="display:grid;grid-template-columns:repeat(6,1fr);column-gap:4mm;row-gap:0.4mm;">
-          ${['Brand','Style Ne','Fit Name','PO#','Ship Date','Store'].map(h => `<div style="font-size:8.8px;font-weight:700;text-transform:uppercase;">${h}</div>`).join('')}
-          <div style="font-size:10px;">${esc(d.ord.brand_name || '—')}</div>
-          <div style="font-size:10px;">${esc(d.ord.style_number || '—')}</div>
-          <div style="font-size:10px;">${esc(d.fitName || '—')}</div>
-          <div style="font-size:10px;">${esc(d.ord.po_number || '—')}</div>
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);column-gap:4mm;row-gap:0.5mm;margin-top:1mm;margin-bottom:1mm;">
+          ${['Brand','Style Nr','Fit Name','PO#','Ship Date','Store'].map(h=>`<div style="font-size:9px;font-weight:700;">${h}</div>`).join('')}
+          <div style="font-size:10px;">${esc(d.ord.brand_name||'—')}</div>
+          <div style="font-size:10px;">${esc(d.ord.style_number||'—')}</div>
+          <div style="font-size:10px;">${esc(d.fitName||'—')}</div>
+          <div style="font-size:10px;">${esc(d.ord.po_number||'—')}</div>
           <div style="font-size:10px;">${esc(fmtDate(d.ord.ship_date))}</div>
-          <div style="font-size:10px;">${esc(d.ord.store_name || '—')}</div>
+          <div style="font-size:10px;">${esc(d.ord.store_name||'—')}</div>
         </div>
 
         <div style="font-size:11px;font-weight:700;margin-bottom:0.5mm;">Order BreakDown</div>
@@ -850,28 +852,28 @@ function QueuesTab({ onEditOrder }) {
             <tr>
               <th style="${th}${blk}width:20mm;">Size Group</th>
               <th style="${th}${blk}width:24mm;">Wash / Colour</th>
-              <th style="${th}${blk}width:28mm;text-align:left;padding-left:4px;"></th>
+              <th style="${th}${blk}width:28mm;"> </th>
               ${sizeCols.map(sz=>`<th style="${th}${blk}">${esc(sz)}</th>`).join('')}
               <th style="${th}${blk}">Total</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td style="${tdC}" rowspan="4">${esc(d.groupName || '—')}</td>
-              <td style="${tdC}" rowspan="4">${esc(d.washName || '—')}</td>
+              <td style="${tdC}" rowspan="4">${esc(d.groupName||'—')}</td>
+              <td style="${tdC}" rowspan="4">${esc(d.washName||'—')}</td>
               <td style="${td};font-weight:700;">Order Quantity</td>
-              ${sizeCols.map(sz=>`<td style="${tdC}">${esc(d.sizeMap[sz] || 0)}</td>`).join('')}
-              <td style="${tdC};font-weight:700;">${esc(d.q.qty || 0)}</td>
+              ${sizeCols.map(sz=>`<td style="${tdC}">${esc(d.sizeMap[sz]||0)}</td>`).join('')}
+              <td style="${tdC};font-weight:700;">${esc(d.q.qty||0)}</td>
             </tr>
             <tr>
               <td style="${td};font-weight:700;">Ratio</td>
-              ${sizeCols.map(sz=>`<td style="${tdC}">${esc(d.ratioMap[sz] || 0)}</td>`).join('')}
-              <td style="${tdC}">${Object.values(d.ratioMap || {}).reduce((s,v)=>s+(parseFloat(v)||0),0)}</td>
+              ${sizeCols.map(sz=>`<td style="${tdC}">${esc(d.ratioMap[sz]||0)}</td>`).join('')}
+              <td style="${tdC}">${Object.values(d.ratioMap||{}).reduce((s,v)=>s+(parseFloat(v)||0),0)}</td>
             </tr>
             <tr>
-              <td style="${td};font-weight:700;">Cutting Qty +${esc(d.cuttingPct || 0)}%</td>
+              <td style="${td};font-weight:700;">Cutting Qty +${esc(d.cuttingPct||0)}%</td>
               ${sizeCols.map(sz=>`<td style="${tdC}">${Math.round((parseFloat(d.sizeMap[sz])||0)*(1+(parseFloat(d.cuttingPct)||0)/100))}</td>`).join('')}
-              <td style="${tdC};font-weight:700;">${Math.ceil(d.cuttingQty || 0)}</td>
+              <td style="${tdC};font-weight:700;">${Math.ceil(d.cuttingQty||0)}</td>
             </tr>
             <tr>
               <td style="${td};font-weight:700;color:#555;">Zipper Usage/Size</td>
@@ -882,57 +884,56 @@ function QueuesTab({ onEditOrder }) {
         </table>
 
         <div style="font-size:10.5px;font-weight:700;margin-bottom:0.5mm;">Materials &amp; Trims Requirements</div>
-        <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:1mm;">
-          <thead>
-            <tr>${['Item','Shade','Content','Weight','Width','Consump','Required'].map(h=>`<th style="${th}${blk}">${h}</th>`).join('')}</tr>
-          </thead>
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:1.2mm;">
+          <thead><tr>${['Item','Shade','Content','Weight','Width','Consump','Required'].map(h=>`<th style="${th}${blk}">${h}</th>`).join('')}</tr></thead>
           <tbody>${fabricRows}</tbody>
         </table>
 
-        <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:1.5mm;">
-          <thead>
-            <tr>${['Type','Item','Shade','Consump','Req','PO#','Status'].map(h=>`<th style="${th}${blk}">${h}</th>`).join('')}</tr>
-          </thead>
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:2mm;">
+          <thead><tr>${['Type','Item','Shade','Consump','Req','PO#','Status'].map(h=>`<th style="${th}${blk}">${h}</th>`).join('')}</tr></thead>
           <tbody>
             ${stitchRows}
-            ${packingRows ? greyBreak + packingRows : ''}
+            <tr><td colspan="7" style="background:#d6d6d6;height:4px;padding:0;border:1px solid #000;"></td></tr>
+            ${packingRows}
           </tbody>
         </table>
 
         <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:auto;">
           <thead>
             <tr>
-              <th style="${th}${blk}">Embellishment &amp; Decoration</th>
-              <th style="${th}${blk}width:26mm;">Packing Instructions</th>
-              <th style="${th}${blk}width:28mm;" colspan="3">Packing</th>
-              <th style="${th}${blk}width:22mm;">Merchandiser</th>
+              <th style="${th}${blk}width:34%;">EMBELLISHMENT &amp; DECORATION</th>
+              <th style="${th}${blk}width:26%;">PACKING INSTRUCTIONS</th>
+              <th style="${th}${blk}width:22%;" colspan="3">PACKING DATA</th>
+              <th style="${th}${blk}width:18%;">MERCHANDISER</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td style="${td};vertical-align:top;font-size:9px;height:19mm;" rowspan="3">${embText}</td>
-              <td style="${td};vertical-align:top;height:19mm;" rowspan="3">${packInstrHTML}</td>
-              <td style="${th}">Packing</td>
-              <td style="${th}">Each</td>
-              <td style="${th}">Total</td>
-              <td style="${td};vertical-align:top;height:19mm;" rowspan="3">&nbsp;</td>
+              <td style="${td};height:24mm;text-align:center;font-size:9px;line-height:1.5;">${embText}</td>
+              <td style="${td};height:24mm;vertical-align:middle;">${packInstrHTML}</td>
+              <td style="${th};background:#f7f7f7;color:#000;">Packing</td>
+              <td style="${th};background:#f7f7f7;color:#000;">Each</td>
+              <td style="${th};background:#f7f7f7;color:#000;">Total</td>
+              <td style="${td};height:24mm;vertical-align:bottom;text-align:center;" rowspan="3"><div style="height:14mm;display:flex;align-items:flex-end;justify-content:center;width:100%;"><div style="width:85%;border-top:1px solid #999;padding-top:1mm;font-size:8px;">Authorized Signature</div></div></td>
             </tr>
             <tr>
+              <td style="${td};border-top:none;border-right:1px solid #000;"></td>
+              <td style="${td};border-top:none;border-right:1px solid #000;"></td>
               <td style="${td};font-size:9px;">Blisters</td>
-              <td style="${tdC};font-size:9px;">${esc(String(d.blisterEach))}</td>
-              <td style="${tdC};font-size:9px;">${esc(String(d.blisterTotal))}</td>
+              <td style="${tdC};font-size:9px;">${esc(String(blisterEach))}</td>
+              <td style="${tdC};font-size:9px;">${esc(String(blisterTotal))}</td>
             </tr>
             <tr>
+              <td style="${td};border-top:none;border-right:1px solid #000;"></td>
+              <td style="${td};border-top:none;border-right:1px solid #000;"></td>
               <td style="${td};font-size:9px;">Cartons</td>
-              <td style="${tdC};font-size:9px;">${esc(String(d.cartonEach))}</td>
-              <td style="${tdC};font-size:9px;">${esc(String(d.cartonTotal))}</td>
+              <td style="${tdC};font-size:9px;">${esc(String(cartonEach))}</td>
+              <td style="${tdC};font-size:9px;">${esc(String(cartonTotal))}</td>
             </tr>
           </tbody>
         </table>
-
       </div>`
   }
-
 
   function sectionDocHTML(title, d, rows, columns, note='') {
     return `
