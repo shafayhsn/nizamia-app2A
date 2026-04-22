@@ -551,45 +551,54 @@ function QueuesTab({ onEditOrder }) {
       const rule = item.usage_rule || 'Generic'
       const ud   = item.usage_data || {}
       const wf   = wastageFactor(item.wastage)
-      // base_qty is per-piece; also check usage_data.generic.value for Generic rule
-      const base = parseFloat(item.base_qty) ||
-                   parseFloat(ud?.generic?.value ?? ud?.generic) || 0
+      const base = parseFloat(item.base_qty) || 0
 
-      // Generic: consumption per piece × total queue qty
+      // Generic: per-piece consumption × queue qty
       if (rule === 'Generic') return base * queueQty * wf
 
-      // By Color / By Colour: look up consumption for this queue's color
+      // By Color: usage_data is { colorName: perPieceConsumption, ... }
       if (rule === 'By Color' || rule === 'By Colour') {
         const key = q.color_name
-        const colorVal = key && ud[key] != null
-          ? parseFloat(ud[key]?.value ?? ud[key]) || 0
-          : null
-        if (colorVal != null && colorVal > 0) return colorVal * queueQty * wf
-        // fallback to base_qty per piece
+        if (key && ud[key] != null) {
+          const perPiece = parseFloat(ud[key]) || 0
+          return perPiece * queueQty * wf
+        }
+        // fallback: try fuzzy match or use average of all colors
+        const keys = Object.keys(ud).filter(k => !String(k).startsWith('_'))
+        if (keys.length > 0) {
+          const avg = keys.reduce((s, k) => s + (parseFloat(ud[k]) || 0), 0) / keys.length
+          return avg * queueQty * wf
+        }
         return base * queueQty * wf
       }
 
-      // By Size Group: look up consumption for this queue's size group name
+      // By Size Group: usage_data is { sgName: perPieceConsumption, ... }
       if (rule === 'By Size Group') {
         const key = groupName
-        const sgVal = key && ud[key] != null
-          ? parseFloat(ud[key]?.value ?? ud[key]) || 0
-          : null
-        if (sgVal != null && sgVal > 0) return sgVal * queueQty * wf
+        if (key && ud[key] != null) {
+          const perPiece = parseFloat(ud[key]) || 0
+          return perPiece * queueQty * wf
+        }
+        // fallback: average of all size groups
+        const keys = Object.keys(ud).filter(k => !String(k).startsWith('_'))
+        if (keys.length > 0) {
+          const avg = keys.reduce((s, k) => s + (parseFloat(ud[k]) || 0), 0) / keys.length
+          return avg * queueQty * wf
+        }
         return base * queueQty * wf
       }
 
-      // By Individual Sizes: sum (consumption per size × qty for that size in this queue)
+      // By Individual Sizes: usage_data is { sizeName: perPieceConsumption, ... }
       if (rule === 'By Individual Sizes') {
-        const val = Object.entries(ud).reduce((s, [sz, cons]) => {
-          if (String(sz).startsWith('_')) return s
-          const c = parseFloat(cons?.value ?? cons) || 0
-          return s + c * (parseFloat(sizeMap[sz]) || 0) * wf
+        const val = Object.entries(ud).reduce((sum, [sz, cons]) => {
+          if (String(sz).startsWith('_')) return sum
+          const perPiece = parseFloat(cons) || 0
+          const sizeQty = parseFloat(sizeMap[sz]) || 0
+          return sum + perPiece * sizeQty * wf
         }, 0)
         return val > 0 ? val : base * queueQty * wf
       }
 
-      // Configure Own or any other rule
       return base * queueQty * wf || (parseFloat(item.final_qty) || 0) * ratio
     }
 
