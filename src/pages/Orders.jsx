@@ -547,72 +547,171 @@ function QueuesTab({ onEditOrder }) {
     const totalQty = parseFloat(ord.total_qty) || 0
     const queueQty = parseFloat(q.qty) || 0
     const ratio = totalQty > 0 ? queueQty / totalQty : 0
-    function calcBomQty(item) {
+    
+    const normalizeUD = (ud) => {
+      if (!ud) return {}
+      if (typeof ud === 'string') {
+        try { return JSON.parse(ud) } catch (e) { return {} }
+      }
+      return ud
+    }
+
+    const numVal = (v) => {
+      if (v == null) return 0
+      if (typeof v === 'number') return Number.isFinite(v) ? v : 0
+      if (typeof v === 'string') return parseFloat(v) || 0
+      if (typeof v === 'object') {
+        return parseFloat(
+          v.consumption ?? v.consump ?? v.qty ?? v.value ?? v.base_qty ?? v.required ?? 0
+        ) || 0
+      }
+      return 0
+    }
+
+    const norm = (v) => String(v ?? '').trim().toLowerCase()
+
+    const selectedSizes = Object.keys(sizeMap || {}).filter(sz => (parseFloat(sizeMap[sz]) || 0) > 0)
+
+    function getSelectedConsumption(item) {
       const rule = item.usage_rule || 'Generic'
-      const ud   = item.usage_data || {}
-      const wf   = wastageFactor(item.wastage)
+      const ud = normalizeUD(item.usage_data)
       const base = parseFloat(item.base_qty) || 0
 
-      // Generic: per-piece consumption × queue qty
-      if (rule === 'Generic') return base * queueQty * wf
+      if (rule === 'Generic') return { mode:'single', value: base }
 
-      // By Color: usage_data is { colorName: perPieceConsumption, ... }
       if (rule === 'By Color' || rule === 'By Colour') {
-        const key = q.color_name
-        if (key && ud[key] != null) {
-          const perPiece = parseFloat(ud[key]) || 0
-          return perPiece * queueQty * wf
+        if (Array.isArray(ud)) {
+          const hit = ud.find(x => norm(x.color || x.color_name || x.name || x.key) === norm(q.color_name))
+          const val = numVal(hit)
+          return { mode:'single', value: val || base }
         }
-        // fallback: try fuzzy match or use average of all colors
-        const keys = Object.keys(ud).filter(k => !String(k).startsWith('_'))
-        if (keys.length > 0) {
-          const avg = keys.reduce((s, k) => s + (parseFloat(ud[k]) || 0), 0) / keys.length
-          return avg * queueQty * wf
-        }
-        return base * queueQty * wf
+        const direct = ud[q.color_name]
+        const val = numVal(direct)
+        return { mode:'single', value: val || base }
       }
 
-      // By Size Group: usage_data is { sgName: perPieceConsumption, ... }
       if (rule === 'By Size Group') {
-        const key = groupName
-        if (key && ud[key] != null) {
-          const perPiece = parseFloat(ud[key]) || 0
-          return perPiece * queueQty * wf
+        if (Array.isArray(ud)) {
+          const hit = ud.find(x => norm(x.group || x.group_name || x.size_group || x.name || x.key) === norm(groupName))
+          const val = numVal(hit)
+          return { mode:'single', value: val || base }
         }
-        // fallback: average of all size groups
-        const keys = Object.keys(ud).filter(k => !String(k).startsWith('_'))
-        if (keys.length > 0) {
-          const avg = keys.reduce((s, k) => s + (parseFloat(ud[k]) || 0), 0) / keys.length
-          return avg * queueQty * wf
-        }
-        return base * queueQty * wf
+        const direct = ud[groupName]
+        const val = numVal(direct)
+        return { mode:'single', value: val || base }
       }
 
-      // By Individual Sizes: usage_data is { sizeName: perPieceConsumption, ... }
       if (rule === 'By Individual Sizes') {
-        const val = Object.entries(ud).reduce((sum, [sz, cons]) => {
-          if (String(sz).startsWith('_')) return sum
-          const perPiece = parseFloat(cons) || 0
-          const sizeQty = parseFloat(sizeMap[sz]) || 0
-          return sum + perPiece * sizeQty * wf
+        const perSize = {}
+        if (Array.isArray(ud)) {
+          ud.forEach(x => {
+            const key = x.size || x.size_name || x.label || x.key
+            if (key != null) perSize[String(key)] = numVal(x)
+          })
+        } else {
+          Object.entries(ud || {}).forEach(([k,v]) => {
+            if (!String(k).startsWith('_')) perSize[String(k)] = numVal(v)
+          })
+        }
+        return { mode:'perSize', values: perSize }
+      }
+
+      if (rule === 'By Batch') {
+        const rows = Array.isArray(ud?.batches) ? ud.batches : (Array.isArray(ud) ? ud : [])
+        return { mode:'batches', rows }
+      }
+
+      if (rule === 'Configure Own') {
+        const rows = Array.isArray(ud?.rows) ? ud.rows : (Array.isArray(ud?.items) ? ud.items : (Array.isArray(ud) ? ud : []))
+        if (rows.length) return { mode:'rows', rows }
+      }
+
+      return { mode:'single', value: base }
+    }
+
+    function calcBomQty(item) {
+      const wf = wastageFactor(item.wastage)
+      const base = parseFloat(item.base_qty) || 0
+      const selected = getSelectedConsumption(item)
+
+      if (selected.mode === 'single') {
+        return (selected.value || base) * queueQty * wf
+      }
+
+      if (selected.mode === 'perSize') {
+        const total = selectedSizes.reduce((sum, sz) => {
+          const perPiece = parseFloat(selected.values?.[sz]) || 0
+          const qty = parseFloat(sizeMap?.[sz]) || 0
+          return sum + (perPiece * qty * wf)
         }, 0)
-        return val > 0 ? val : base * queueQty * wf
+        return total
+      }
+
+      if (selected.mode === 'batches' || selected.mode === 'rows') {
+        const rows = selected.rows || []
+        const total = rows.reduce((sum, row) => {
+          const rowCons = numVal(row)
+          const rowColor = row.color || row.color_name || row.colour || null
+          if (rowColor && norm(rowColor) !== norm(q.color_name)) return sum
+
+          const rowSizesRaw = row.sizes || row.size_group || row.size || row.size_name || row.selectedSizes || []
+          const rowSizes = Array.isArray(rowSizesRaw) ? rowSizesRaw.map(String) : String(rowSizesRaw || '').split(',').map(s => s.trim()).filter(Boolean)
+          const matchedSizes = rowSizes.length ? rowSizes.filter(sz => selectedSizes.includes(String(sz))) : selectedSizes
+
+          const matchedQty = matchedSizes.reduce((s, sz) => s + (parseFloat(sizeMap?.[sz]) || 0), 0)
+          return sum + (rowCons * matchedQty * wf)
+        }, 0)
+        return total || (base * queueQty * wf)
       }
 
       return base * queueQty * wf || (parseFloat(item.final_qty) || 0) * ratio
     }
 
+    function getDisplayConsumption(item) {
+      const base = parseFloat(item.base_qty) || 0
+      const selected = getSelectedConsumption(item)
+
+      if (selected.mode === 'single') return selected.value || base
+
+      if (selected.mode === 'perSize') {
+        const vals = selectedSizes.map(sz => parseFloat(selected.values?.[sz]) || 0).filter(v => v > 0)
+        const uniq = [...new Set(vals.map(v => Number(v.toFixed(4))))]
+        if (uniq.length === 1) return uniq[0]
+        return vals.length ? uniq[0] : base
+      }
+
+      if (selected.mode === 'batches' || selected.mode === 'rows') {
+        const rows = selected.rows || []
+        const vals = rows.flatMap(row => {
+          const rowColor = row.color || row.color_name || row.colour || null
+          if (rowColor && norm(rowColor) !== norm(q.color_name)) return []
+          const rowSizesRaw = row.sizes || row.size_group || row.size || row.size_name || row.selectedSizes || []
+          const rowSizes = Array.isArray(rowSizesRaw) ? rowSizesRaw.map(String) : String(rowSizesRaw || '').split(',').map(s => s.trim()).filter(Boolean)
+          const matched = rowSizes.length ? rowSizes.some(sz => selectedSizes.includes(String(sz))) : selectedSizes.length > 0
+          return matched ? [numVal(row)] : []
+        }).filter(v => v > 0)
+        const uniq = [...new Set(vals.map(v => Number(v.toFixed(4))))]
+        if (uniq.length === 1) return uniq[0]
+        return vals.length ? uniq[0] : base
+      }
+
+      return base
+    }
+
+
     const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
     const fabricItems = (bom || []).filter(x => x.category === 'Fabric').map(x => {
       const lib = x.library_item_id ? libMap[x.library_item_id] : null
+      const consump = getDisplayConsumption(x)
       return {
         ...x,
         q_qty: calcBomQty(x),
-        shade: x.specification || lib?.colour || '—',
+        shade: lib?.colour || lib?.color || x.specification || x.detail || '—',
+        lib_colour: lib?.colour || lib?.color || '—',
         content: lib?.composition || x.detail || '—',
         weight: lib?.weight || lib?.gsm || '—',
         width: lib?.width_inches ? `${lib.width_inches}”` : (lib?.width ? `${lib.width}”` : '—'),
-        consump: parseFloat(x.base_qty) || 0,
+        consump: consump || 0,
       }
     })
 
@@ -636,12 +735,12 @@ function QueuesTab({ onEditOrder }) {
         linkedItem = (poi || []).find(it => String(it.description || '').toLowerCase().includes(itemName))
       }
       const po = linkedItem ? (pos || []).find(p => p.id === linkedItem.po_id) : null
-      const lib = x.library_item_id ? libMap[x.library_item_id] : null
+      const consump = getDisplayConsumption(x)
       return {
         ...x,
         q_qty: calcBomQty(x),
-        shade: x.specification || lib?.colour || '—',
-        consump: (parseFloat(x.base_qty) || 0).toFixed(2),
+        shade: x.specification || x.detail || '—',
+        consump: consump || 0,
         po_number: po?.po_number || '—',
         po_status: po?.status || '—',
       }
@@ -765,7 +864,7 @@ function QueuesTab({ onEditOrder }) {
     const trimRow = (r) => {
       const type = String(r.category || '').toLowerCase().includes('stitch') ? 'Stitching' : 'Packing'
       const uom  = shortUom(r.unit)
-      const cons = parseFloat(r.base_qty) || 0
+      const cons = parseFloat(r.consump) || 0
       const req  = r.q_qty ? Math.ceil(r.q_qty) : 0
       return `<tr>
         <td style="${td}">${esc(type)}</td>
