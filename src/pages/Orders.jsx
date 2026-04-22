@@ -547,139 +547,72 @@ function QueuesTab({ onEditOrder }) {
     const totalQty = parseFloat(ord.total_qty) || 0
     const queueQty = parseFloat(q.qty) || 0
     const ratio = totalQty > 0 ? queueQty / totalQty : 0
-    
-function usageNumeric(v) {
-      if (v == null) return 0
-      if (typeof v === 'number') return Number.isFinite(v) ? v : 0
-      if (typeof v === 'string') return parseFloat(v) || 0
-      if (typeof v === 'object') {
-        if ('value' in v) return parseFloat(v.value) || 0
-        if ('consumption' in v) return parseFloat(v.consumption) || 0
-        if ('qty' in v) return parseFloat(v.qty) || 0
-      }
-      return 0
-    }
-
-    function normText(v) {
-      return String(v || '').trim().toLowerCase()
-    }
-
-    function pickKnownName(raw, knownList) {
-      const target = normText(raw)
-      if (!target) return null
-      return (knownList || []).find(x => normText(x) === target) || null
-    }
-
-    function getUsageForKey(obj, key) {
-      if (!obj || !key) return 0
-      if (obj[key] != null) return usageNumeric(obj[key])
-      const found = Object.keys(obj).find(k => normText(k) === normText(key))
-      return found ? usageNumeric(obj[found]) : 0
-    }
-
-    function queueCellQty(sgNameWanted, colorNameWanted) {
-      let total = 0
-      ;(qSgs || []).forEach(g => {
-        if (sgNameWanted && normText(g.group_name) !== normText(sgNameWanted)) return
-        const relColors = (colors || []).filter(c => c.size_group_id === g.id)
-        relColors.forEach(c => {
-          if (colorNameWanted && normText(c.color_name) !== normText(colorNameWanted)) return
-          ;(g.sizes || []).forEach(sz => {
-            const row = (bd || []).find(b => b.size_group_id === g.id && b.color_id === c.id && b.size === sz)
-            total += parseFloat(row?.qty) || 0
-          })
-        })
-      })
-      return total
-    }
-
-    function calcUsageForQueue(item) {
+    function calcBomQty(item) {
       const rule = item.usage_rule || 'Generic'
       const ud   = item.usage_data || {}
       const wf   = wastageFactor(item.wastage)
-      const base = parseFloat(item.base_qty) || 0
+      // base_qty is per-piece; also check usage_data.generic.value for Generic rule
+      const base = parseFloat(item.base_qty) ||
+                   parseFloat(ud?.generic?.value ?? ud?.generic) || 0
 
-      let req = 0
-      let per = 0
+      // Generic: consumption per piece × total queue qty
+      if (rule === 'Generic') return base * queueQty * wf
 
-      if (rule === 'Generic') {
-        per = base
-        req = base * queueQty * wf
-        return { per, req }
-      }
-
+      // By Color / By Colour: look up consumption for this queue's color
       if (rule === 'By Color' || rule === 'By Colour') {
-        per = getUsageForKey(ud, q.color_name)
-        req = per * queueQty * wf
-        return { per, req }
+        const key = q.color_name
+        const colorVal = key && ud[key] != null
+          ? parseFloat(ud[key]?.value ?? ud[key]) || 0
+          : null
+        if (colorVal != null && colorVal > 0) return colorVal * queueQty * wf
+        // fallback to base_qty per piece
+        return base * queueQty * wf
       }
 
+      // By Size Group: look up consumption for this queue's size group name
       if (rule === 'By Size Group') {
-        per = getUsageForKey(ud, groupName)
-        req = per * queueQty * wf
-        return { per, req }
+        const key = groupName
+        const sgVal = key && ud[key] != null
+          ? parseFloat(ud[key]?.value ?? ud[key]) || 0
+          : null
+        if (sgVal != null && sgVal > 0) return sgVal * queueQty * wf
+        return base * queueQty * wf
       }
 
+      // By Individual Sizes: sum (consumption per size × qty for that size in this queue)
       if (rule === 'By Individual Sizes') {
-        req = Object.entries(ud).reduce((s,[sz,cons]) => s + (usageNumeric(cons) * (parseFloat(sizeMap[sz]) || 0) * wf), 0)
-        per = queueQty > 0 ? req / (queueQty * wf) : 0
-        return { per, req }
-      }
-
-      if (rule === 'Configure Own') {
-        if (Array.isArray(ud.__matrix)) {
-          req = ud.__matrix.reduce((s, m) => {
-            const sgName = pickKnownName(m.sgName, (sgs || []).map(g => g.group_name)) || m.sgName
-            const colorName = pickKnownName(m.colorName, (colors || []).map(c => c.color_name)) || m.colorName
-            const matchesGroup = !groupName || normText(sgName) === normText(groupName)
-            const matchesColor = !q.color_name || normText(colorName) === normText(q.color_name)
-            if (!matchesGroup || !matchesColor) return s
-            const qty = queueCellQty(sgName, colorName)
-            return s + (usageNumeric(m.consumption) * qty * wf)
-          }, 0)
-          per = queueQty > 0 ? req / (queueQty * wf) : 0
-          return { per, req }
-        }
-        const groups = ud.__groups || []
-        req = groups.reduce((s, g) => {
-          const qty = (g.sizes || []).reduce((sq, sz) => sq + (parseFloat(sizeMap[sz]) || 0), 0)
-          return s + (usageNumeric(g.consumption) * qty * wf)
+        const val = Object.entries(ud).reduce((s, [sz, cons]) => {
+          if (String(sz).startsWith('_')) return s
+          const c = parseFloat(cons?.value ?? cons) || 0
+          return s + c * (parseFloat(sizeMap[sz]) || 0) * wf
         }, 0)
-        per = queueQty > 0 ? req / (queueQty * wf) : 0
-        return { per, req }
+        return val > 0 ? val : base * queueQty * wf
       }
 
-      if (rule === 'By Batch' && Array.isArray(ud.batches)) {
-        req = ud.batches.reduce((s, batch) => {
-          const colorMatch = !batch.colors?.length || !q.color_name || batch.colors.some(c => normText(c) === normText(q.color_name))
-          if (!colorMatch) return s
-          const qty = (batch.sizes || []).reduce((sq, sz) => sq + (parseFloat(sizeMap[sz]) || 0), 0)
-          return s + (usageNumeric(batch.consumption) * qty * wf)
-        }, 0)
-        per = queueQty > 0 ? req / (queueQty * wf) : 0
-        return { per, req }
-      }
-
-      per = base
-      req = base * queueQty * wf || (parseFloat(item.final_qty) || 0) * ratio
-      return { per, req }
+      // Configure Own or any other rule
+      return base * queueQty * wf || (parseFloat(item.final_qty) || 0) * ratio
     }
 
     const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
     const fabricItems = (bom || []).filter(x => x.category === 'Fabric').map(x => {
       const lib = x.library_item_id ? libMap[x.library_item_id] : null
-      const usage = calcUsageForQueue(x)
       return {
         ...x,
-        q_qty: usage.req,
-        consump: usage.per,
-        lib_colour: lib?.colour || lib?.color || x.specification || '—',
-        shade: lib?.colour || lib?.color || x.specification || '—',
+        q_qty: calcBomQty(x),
+        shade: x.specification || lib?.colour || '—',
         content: lib?.composition || x.detail || '—',
         weight: lib?.weight || lib?.gsm || '—',
         width: lib?.width_inches ? `${lib.width_inches}”` : (lib?.width ? `${lib.width}”` : '—'),
+        consump: parseFloat(x.base_qty) || 0,
       }
-    }).filter(x => (parseFloat(x.q_qty) || 0) > 0)
+    })
+
+    const poItemsBySource = {}
+    ;(poi || []).forEach(item => {
+      const k = `${item.source_type || ''}::${item.source_id || ''}`
+      if (!poItemsBySource[k]) poItemsBySource[k] = []
+      poItemsBySource[k].push(item)
+    })
 
     const trimItems = (bom || []).filter(x => x.category !== 'Fabric').map(x => {
       let linkedItem = null
@@ -694,16 +627,19 @@ function usageNumeric(v) {
         linkedItem = (poi || []).find(it => String(it.description || '').toLowerCase().includes(itemName))
       }
       const po = linkedItem ? (pos || []).find(p => p.id === linkedItem.po_id) : null
-      const usage = calcUsageForQueue(x)
+      const lib = x.library_item_id ? libMap[x.library_item_id] : null
       return {
         ...x,
-        q_qty: usage.req,
-        consump: usage.per,
-        shade: x.specification || x.detail || '—',
+        q_qty: calcBomQty(x),
+        shade: x.specification || lib?.colour || '—',
+        consump: (parseFloat(x.base_qty) || 0).toFixed(2),
         po_number: po?.po_number || '—',
         po_status: po?.status || '—',
       }
-    }).filter(x => (parseFloat(x.q_qty) || 0) > 0)
+    })
+
+    const stitchItems = trimItems.filter(x => String(x.category || '').toLowerCase().includes('stitch'))
+    const packingItems = trimItems.filter(x => !String(x.category || '').toLowerCase().includes('stitch'))
     const washName = ((washing || []).find(w => !q.color_name || w.color_name === q.color_name)?.wash_type) || q.color_name || '—'
     const cuttingPct = Number.isFinite(parseFloat(ord.excess_cutting_pct)) ? parseFloat(ord.excess_cutting_pct) : 0
     const cuttingQty = sizeOrder.reduce((s, sz) => s + Math.round((parseFloat(sizeMap[sz]) || 0) * (1 + cuttingPct / 100)), 0)
@@ -778,116 +714,139 @@ function usageNumeric(v) {
   }
 
 
-  
-function buildIOSHTML(d) {
-    const qRef = d.q.q_number || 'Queued'
+  function buildIOSHTML(d) {
+    const qRef     = d.q.q_number || 'Queued'
     const sizeCols = (d.sizeOrder || []).filter(sz => (d.sizeMap[sz] || 0) > 0)
-    const th  = 'border:1px solid #000;padding:3px 4px;font-size:9.4px;font-weight:700;text-align:center;vertical-align:middle;white-space:nowrap;'
-    const td  = 'border:1px solid #000;padding:3px 4px;font-size:9.2px;vertical-align:middle;line-height:1.15;'
+
+    // ── style shortcuts ──────────────────────────────────────────────────────
+    const th  = 'border:1px solid #000;padding:2px 4px;font-size:9px;font-weight:700;text-align:center;vertical-align:middle;white-space:nowrap;'
+    const td  = 'border:1px solid #000;padding:2px 4px;font-size:9px;vertical-align:middle;'
     const tdC = td + 'text-align:center;'
     const tdR = td + 'text-align:right;'
     const blk = 'background:#000;color:#fff;'
-    const labelCss = 'font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.2px;'
-    const valCss = 'font-size:10px;'
-    const subHead = 'font-size:12px;font-weight:700;margin:1.2mm 0 0.8mm 0;'
 
-    const shortUOM = (u) => {
-      const s = String(u || '').toLowerCase()
-      if (!s) return ''
-      if (s.includes('yard')) return 'yds'
-      if (s === 'm' || s.includes('meter')) return 'm'
-      if (s.includes('piece') || s.includes('pcs')) return 'pcs'
+    // ── UOM short forms ──────────────────────────────────────────────────────
+    const shortUom = (u) => {
+      if (!u) return 'pcs'
+      const s = String(u).toLowerCase()
+      if (s.includes('yard') || s === 'yds') return 'yds'
+      if (s.includes('meter') || s === 'm') return 'm'
       if (s.includes('roll')) return 'roll'
-      if (s.includes('inch')) return 'inch'
-      if (s.includes('gram')) return 'g'
+      if (s.includes('kg')) return 'kg'
       return u
     }
 
-    const formatCons = (v, u) => {
-      const n = parseFloat(v)
-      if (!Number.isFinite(n) || n <= 0) return '—'
-      return `${n.toFixed(2)} ${shortUOM(u)}`
-    }
-
-    const formatReq = (v, u) => {
-      const n = parseFloat(v)
-      if (!Number.isFinite(n) || n <= 0) return '—'
-      return `${Math.ceil(n).toLocaleString()} ${shortUOM(u)}`
-    }
-
-    const fabricRows = (d.fabricItems || []).map(r => `
-      <tr>
+    // ── Fabric rows ──────────────────────────────────────────────────────────
+    const fabricRows = (d.fabricItems || []).map(r => {
+      const uom  = shortUom(r.unit)
+      const cons = parseFloat(r.consump)
+      const req  = r.q_qty ? Math.ceil(r.q_qty) : 0
+      return `<tr>
         <td style="${td}">${esc(r.name || '—')}</td>
-        <td style="${td}">${esc(r.lib_colour || r.shade || '—')}</td>
+        <td style="${td}">${esc(r.shade || '—')}</td>
         <td style="${td}">${esc(r.content || '—')}</td>
         <td style="${tdC}">${esc(r.weight || '—')}</td>
         <td style="${tdC}">${esc(r.width || '—')}</td>
-        <td style="${tdC}">${formatCons(r.consump, r.unit)}</td>
-        <td style="${tdR}">${formatReq(r.q_qty, r.unit)}</td>
-      </tr>`).join('') || `<tr><td style="${tdC}" colspan="7">—</td></tr>`
+        <td style="${tdC}">${cons > 0 ? cons.toFixed(2) + ' ' + uom : '—'}</td>
+        <td style="${tdR}">${req > 0 ? req.toLocaleString() + ' ' + uom : '—'}</td>
+      </tr>`
+    }).join('') || `<tr><td style="${tdC}" colspan="7">No fabric items</td></tr>`
 
-    const trimRow = (r, type) => `
-      <tr>
-        <td style="${td}">${type}</td>
+    // ── Trim rows ────────────────────────────────────────────────────────────
+    const trimRow = (r) => {
+      const type = String(r.category || '').toLowerCase().includes('stitch') ? 'Stitching' : 'Packing'
+      const uom  = shortUom(r.unit)
+      const cons = parseFloat(r.base_qty) || 0
+      const req  = r.q_qty ? Math.ceil(r.q_qty) : 0
+      return `<tr>
+        <td style="${td}">${esc(type)}</td>
         <td style="${td}">${esc(r.name || '—')}</td>
-        <td style="${td}">${esc(r.shade || r.specification || r.detail || '—')}</td>
-        <td style="${tdC}">${formatCons(r.consump, r.unit)}</td>
-        <td style="${tdR}">${formatReq(r.q_qty, r.unit)}</td>
+        <td style="${td}">${esc(r.shade || '—')}</td>
+        <td style="${tdC}">${cons > 0 ? cons.toFixed(2) + ' ' + uom : '—'}</td>
+        <td style="${tdR}">${req > 0 ? req.toLocaleString() + ' ' + uom : '—'}</td>
         <td style="${tdC}">${esc(r.po_number || '—')}</td>
         <td style="${tdC}">${esc(r.po_status || '—')}</td>
       </tr>`
+    }
+    const stitchRows  = (d.stitchItems  || []).map(trimRow).join('') || `<tr><td style="${tdC}" colspan="7">—</td></tr>`
+    const packingRows = (d.packingItems || []).map(trimRow).join('')
 
-    const stitchRows = (d.stitchItems || []).map(r => trimRow(r, 'Stitching')).join('')
-    const packingRows = (d.packingItems || []).map(r => trimRow(r, 'Packing')).join('')
-    const divider = `<tr><td colspan="7" style="background:#d4d4d8;height:4px;padding:0;border:1px solid #000;"></td></tr>`
+    // grey divider row between stitching and packing
+    const dividerRow = packingRows
+      ? `<tr><td colspan="7" style="background:#d1d5db;height:2px;padding:0;border:1px solid #9ca3af;font-size:0;">&nbsp;</td></tr>`
+      : ''
 
-    const embText = (d.embItems || []).map(e =>
-      [e.name || 'Embellishment', e.technique || e.type || '', e.placement ? '@'+e.placement : '']
-        .filter(Boolean).join(' - ')
-    ).join('<br/>') || '—'
+    // ── Embellishment ────────────────────────────────────────────────────────
+    const embText = (d.embItems || []).length > 0
+      ? (d.embItems).map(e => {
+          const parts = [e.description, e.technique, e.placement ? '@' + e.placement : null].filter(Boolean)
+          return esc(parts.join(' · '))
+        }).join('<br/>')
+      : '—'
 
-    const headerLabels = [
-      ['Brand', d.ord.brand_name],
-      ['Style Nr', d.ord.style_number],
-      ['Fit Name', d.fitName],
-      ['PO#', d.ord.po_number],
-      ['Ship Date', fmtDate(d.ord.ship_date)],
-      ['Store', d.ord.store_name],
-    ]
+    // ── Packing ──────────────────────────────────────────────────────────────
+    const blisterEach  = d.blisterEach  !== '—' ? d.blisterEach  : '—'
+    const blisterTotal = d.blisterTotal !== '—' ? d.blisterTotal : '—'
+    const cartonEach   = d.cartonEach   !== '—' ? d.cartonEach   : '—'
+    const cartonTotal  = d.cartonTotal  !== '—' ? d.cartonTotal  : '—'
+
+    const nowStr = new Date().toLocaleString('en-GB', {
+      day: '2-digit', month: '2-digit', year: '2-digit',
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    }).replace(',', ' -')
 
     return `
-      <div style="width:210mm;height:297mm;padding:6mm 6.5mm 5mm 6.5mm;font-family:Arial,sans-serif;color:#000;background:#fff;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;">
-        <div style="display:flex;justify-content:space-between;font-size:8.4px;margin-bottom:1mm;">
+      <div style="width:210mm;height:297mm;padding:5mm 7mm 4mm 7mm;font-family:Arial,sans-serif;color:#000;background:#fff;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;gap:1mm;">
+
+        <!-- Top meta line -->
+        <div style="display:flex;justify-content:space-between;font-size:8px;color:#333;">
           <div>Document Ref#IOS-${esc(qRef)}</div>
-          <div>Date Created: ${esc(new Date().toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'numeric',minute:'2-digit',hour12:true}).replace(',',' -'))}</div>
+          <div>Date Created: ${esc(nowStr)}</div>
           <div>Username: admin</div>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:2px solid #000;padding-bottom:1.2mm;margin-bottom:1mm;">
+        <!-- Header bar: brand left | IOS circle centred | Q-ref right -->
+        <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:2px solid #000;padding-bottom:2mm;">
           <div>
-            <div style="font-size:19px;font-weight:900;line-height:1;">NIZAMIA APPARELS</div>
-            <div style="font-size:9.4px;">Internal Order Sheet</div>
+            <div style="font-size:19px;font-weight:900;line-height:1.1;">NIZAMIA APPARELS</div>
+            <div style="font-size:8px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;">Internal Order Sheet</div>
           </div>
           <div style="display:flex;justify-content:center;">
-            <div style="min-width:44px;height:28px;border:2px solid #000;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;padding:0 10px;">IOS</div>
+            <div style="border:2.5px solid #000;border-radius:50%;width:14mm;height:14mm;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;">IOS</div>
           </div>
-          <div style="text-align:right;font-size:26px;font-weight:900;line-height:1;">${esc(qRef)}</div>
+          <div style="text-align:right;font-size:28px;font-weight:900;line-height:1;">${esc(qRef)}</div>
         </div>
 
-        <div style="display:grid;grid-template-columns:repeat(6, 1fr);column-gap:6px;row-gap:1px;margin-bottom:1.2mm;">
-          ${headerLabels.map(([k]) => `<div style="${labelCss}">${esc(k)}</div>`).join('')}
-          ${headerLabels.map(([,v]) => `<div style="${valCss}">${esc(v || '—')}</div>`).join('')}
-        </div>
+        <!-- Order meta: all labels in 1 row, all values in 1 row -->
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+          <tr>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.5px;font-weight:700;width:18%">Brand</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.5px;font-weight:700;width:16%">Style Ne</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.5px;font-weight:700;width:22%">Fit Name</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.5px;font-weight:700;width:16%">PO#</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.5px;font-weight:700;width:14%">Store</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.5px;font-weight:700;width:14%">Ship Date</td>
+          </tr>
+          <tr>
+            <td style="border:none;padding:0 2px 1mm 0;font-size:10px;font-weight:700;">${esc(d.ord.brand_name || '—')}</td>
+            <td style="border:none;padding:0 2px 1mm 0;font-size:10px;">${esc(d.ord.style_number || '—')}</td>
+            <td style="border:none;padding:0 2px 1mm 0;font-size:10px;">${esc(d.fitName || '—')}</td>
+            <td style="border:none;padding:0 2px 1mm 0;font-size:10px;">${esc(d.ord.po_number || '—')}</td>
+            <td style="border:none;padding:0 2px 1mm 0;font-size:10px;">${esc(d.ord.store_name || '—')}</td>
+            <td style="border:none;padding:0 2px 1mm 0;font-size:10px;">${esc(fmtDate(d.ord.ship_date))}</td>
+          </tr>
+        </table>
 
-        <div style="${subHead}">Order BreakDown</div>
-        <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:1.2mm;">
+        <!-- Order Breakdown -->
+        <div style="font-size:10px;font-weight:700;margin-bottom:0.3mm;">Order BreakDown</div>
+        <table style="width:100%;border-collapse:collapse;table-layout:auto;margin-bottom:1mm;">
           <thead>
             <tr>
-              <th style="${th}${blk}width:13%;">Size Group</th>
-              <th style="${th}${blk}width:13%;">Wash / Colour</th>
-              <th style="${th}${blk}width:15%;">&nbsp;</th>
+              <th style="${th}${blk}width:20mm;">Size Group</th>
+              <th style="${th}${blk}width:22mm;">Wash / Colour</th>
+              <th style="${th}${blk}width:28mm;text-align:left;padding-left:4px;"></th>
               ${sizeCols.map(sz => `<th style="${th}${blk}">${esc(sz)}</th>`).join('')}
-              <th style="${th}${blk}width:12%;">Total</th>
+              <th style="${th}${blk}">Total</th>
             </tr>
           </thead>
           <tbody>
@@ -901,80 +860,94 @@ function buildIOSHTML(d) {
             <tr>
               <td style="${td};font-weight:700;">Ratio</td>
               ${sizeCols.map(sz => `<td style="${tdC}">${esc(d.ratioMap[sz] || 0)}</td>`).join('')}
-              <td style="${tdC}">${Object.values(d.ratioMap || {}).reduce((s,v)=>s+(parseFloat(v)||0),0)}</td>
+              <td style="${tdC}">${Object.values(d.ratioMap || {}).reduce((s, v) => s + (parseFloat(v) || 0), 0)}</td>
             </tr>
             <tr>
               <td style="${td};font-weight:700;">Cutting Qty +${esc(d.cuttingPct || 0)}%</td>
-              ${sizeCols.map(sz => `<td style="${tdC}">${Math.round((parseFloat(d.sizeMap[sz])||0) * (1 + (parseFloat(d.cuttingPct)||0)/100))}</td>`).join('')}
+              ${sizeCols.map(sz => `<td style="${tdC}">${Math.round((parseFloat(d.sizeMap[sz]) || 0) * (1 + (parseFloat(d.cuttingPct) || 0) / 100))}</td>`).join('')}
               <td style="${tdC};font-weight:700;">${Math.ceil(d.cuttingQty || 0)}</td>
             </tr>
             <tr>
-              <td style="${td};font-weight:700;color:#555;">Zipper Usage/Size</td>
-              ${sizeCols.map(() => `<td style="${tdC}"> </td>`).join('')}
+              <td style="${td};color:#666;">Zipper Usage/Size</td>
+              ${sizeCols.map(() => `<td style="${tdC}"></td>`).join('')}
               <td style="${tdC}"></td>
             </tr>
           </tbody>
         </table>
 
-        <div style="${subHead}">Materials &amp; Trims Requirements</div>
-        <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:1mm;">
+        <!-- Materials: Fabric -->
+        <div style="font-size:10px;font-weight:700;margin-bottom:0.3mm;">Materials &amp; Trims Requirements</div>
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:0.8mm;">
           <thead>
-            <tr>${['Item','Shade','Content','Weight','Width','Consump','Required'].map(h => `<th style="${th}${blk}">${h}</th>`).join('')}</tr>
+            <tr>${['Item', 'Shade', 'Content', 'Weight', 'Width', 'Consump', 'Required'].map(h => `<th style="${th}${blk}">${h}</th>`).join('')}</tr>
           </thead>
           <tbody>${fabricRows}</tbody>
         </table>
 
-        <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:1.2mm;">
+        <!-- Trims: Stitching + grey divider + Packing -->
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:1mm;">
           <thead>
-            <tr>${['Type','Item','Shade','Consump','Req','PO#','Status'].map(h => `<th style="${th}${blk}">${h}</th>`).join('')}</tr>
+            <tr>${['Type', 'Item', 'Shade', 'Consump', 'Req', 'PO#', 'Status'].map(h => `<th style="${th}${blk}">${h}</th>`).join('')}</tr>
           </thead>
           <tbody>
-            ${stitchRows || `<tr><td style="${tdC}" colspan="7">—</td></tr>`}
-            ${packingRows ? divider + packingRows : ''}
+            ${stitchRows}
+            ${dividerRow}
+            ${packingRows}
           </tbody>
         </table>
 
-        <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:auto;">
+        <!-- Footer 4-box row -->
+        <table style="width:100%;border-collapse:collapse;margin-top:auto;">
+          <colgroup>
+            <col style="width:38%"/>
+            <col style="width:18%"/>
+            <col style="width:14%"/>
+            <col style="width:10%"/>
+            <col style="width:10%"/>
+            <col style="width:10%"/>
+          </colgroup>
           <thead>
             <tr>
-              <th style="${th}${blk}width:34%;">EMBELLISHMENT &amp; DECORATION</th>
-              <th style="${th}${blk}width:26%;">PACKING INSTRUCTIONS</th>
-              <th style="${th}${blk}width:22%;" colspan="3">PACKING DATA</th>
-              <th style="${th}${blk}width:18%;">MERCHANDISER</th>
+              <th style="${th}${blk}">Embellishment &amp; Decoration</th>
+              <th style="${th}${blk}">Packing Instructions</th>
+              <th style="${th}${blk}" colspan="3" style="text-align:center">Packing</th>
+              <th style="${th}${blk}">Merchandiser</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td style="${td};vertical-align:top;height:16mm;" rowspan="4">${embText}</td>
-              <td style="${td};vertical-align:top;height:16mm;" rowspan="4">
-                <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;"><div style="width:10px;height:10px;border:1px solid #000;"></div><span>Solid Pack</span></div>
-                <div style="display:flex;align-items:center;gap:4px;"><div style="width:10px;height:10px;border:1px solid #000;"></div><span>Ratio Pack</span></div>
+              <td style="${td};vertical-align:top;font-size:8.5px;height:16mm;" rowspan="3">${embText}</td>
+              <td style="${td};vertical-align:top;height:16mm;" rowspan="3">
+                <div style="display:flex;align-items:center;gap:3px;margin-bottom:4px;">
+                  <div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div>
+                  <span style="font-size:8.5px;">Solid Pack</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:3px;">
+                  <div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div>
+                  <span style="font-size:8.5px;">Ratio Pack</span>
+                </div>
               </td>
-              <td style="${th.replace(blk,'')}background:#efefef;">Packing</td>
-              <td style="${th.replace(blk,'')}background:#efefef;">Each</td>
-              <td style="${th.replace(blk,'')}background:#efefef;">Total</td>
-              <td style="${td};vertical-align:top;height:16mm;position:relative;" rowspan="4">
-                <div style="position:absolute;left:8px;right:8px;bottom:12px;border-top:1px solid #999;"></div>
-                <div style="position:absolute;left:0;right:0;bottom:2px;text-align:center;font-size:8.8px;">Authorized Signature</div>
-              </td>
+              <th style="${th}">Type</th>
+              <th style="${th}">Each</th>
+              <th style="${th}">Total</th>
+              <td style="${td};vertical-align:top;height:16mm;" rowspan="3">&nbsp;</td>
             </tr>
             <tr>
-              <td style="${td}">Blisters</td>
-              <td style="${tdC}">${esc(String(d.blisterEach || '—'))}</td>
-              <td style="${tdC}">${esc(String(d.blisterTotal || '—'))}</td>
+              <td style="${td};font-size:8.5px;">Blisters</td>
+              <td style="${tdC};font-size:8.5px;">${esc(String(blisterEach))}</td>
+              <td style="${tdC};font-size:8.5px;">${esc(String(blisterTotal))}</td>
             </tr>
             <tr>
-              <td style="${td}">Cartons</td>
-              <td style="${tdC}">${esc(String(d.cartonEach || '—'))}</td>
-              <td style="${tdC}">${esc(String(d.cartonTotal || '—'))}</td>
-            </tr>
-            <tr>
-              <td style="${td}" colspan="3"></td>
+              <td style="${td};font-size:8.5px;">Cartons</td>
+              <td style="${tdC};font-size:8.5px;">${esc(String(cartonEach))}</td>
+              <td style="${tdC};font-size:8.5px;">${esc(String(cartonTotal))}</td>
             </tr>
           </tbody>
         </table>
+
       </div>`
   }
+
   function sectionDocHTML(title, d, rows, columns, note='') {
     return `
       <div class="page">
