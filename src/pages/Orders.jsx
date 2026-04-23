@@ -573,6 +573,7 @@ function QueuesTab({ onEditOrder }) {
     const queueQty = parseFloat(q.qty) || 0
     const ratio = totalQty > 0 ? queueQty / totalQty : 0
     
+    
     const normalizeUD = (ud) => {
       if (!ud) return {}
       if (typeof ud === 'string') {
@@ -581,156 +582,198 @@ function QueuesTab({ onEditOrder }) {
       return ud
     }
 
-    const numVal = (v) => {
+    const usageNumeric = (v) => {
       if (v == null) return 0
       if (typeof v === 'number') return Number.isFinite(v) ? v : 0
-      if (typeof v === 'string') return parseFloat(v) || 0
+      if (typeof v === 'string') {
+        const n = parseFloat(v)
+        return Number.isFinite(n) ? n : 0
+      }
       if (typeof v === 'object') {
-        return parseFloat(
-          v.consumption ?? v.consump ?? v.qty ?? v.value ?? v.base_qty ?? v.required ?? 0
-        ) || 0
+        if (v.na || v.disabled) return 0
+        const candidate = v.value ?? v.qty ?? v.consumption ?? v.cons ?? v.consump ?? v.amount ?? v.base_qty ?? 0
+        const n = parseFloat(candidate)
+        return Number.isFinite(n) ? n : 0
       }
       return 0
     }
 
     const norm = (v) => String(v ?? '').trim().toLowerCase()
 
-    const selectedSizes = Object.keys(sizeMap || {}).filter(sz => (parseFloat(sizeMap[sz]) || 0) > 0)
-
-    function getSelectedConsumption(item) {
-      const rule = item.usage_rule || 'Generic'
-      const ud = normalizeUD(item.usage_data)
-      const base = parseFloat(item.base_qty) || 0
-
-      if (rule === 'Generic') return { mode:'single', value: base }
-
-      if (rule === 'By Color' || rule === 'By Colour') {
-        if (Array.isArray(ud)) {
-          const hit = ud.find(x => norm(x.color || x.color_name || x.name || x.key) === norm(q.color_name))
-          const val = numVal(hit)
-          return { mode:'single', value: val || base }
-        }
-        const direct = ud[q.color_name]
-        const val = numVal(direct)
-        return { mode:'single', value: val || base }
-      }
-
-      if (rule === 'By Size Group') {
-        if (Array.isArray(ud)) {
-          const hit = ud.find(x => norm(x.group || x.group_name || x.size_group || x.name || x.key) === norm(groupName))
-          const val = numVal(hit)
-          return { mode:'single', value: val || base }
-        }
-        const direct = ud[groupName]
-        const val = numVal(direct)
-        return { mode:'single', value: val || base }
-      }
-
-      if (rule === 'By Individual Sizes') {
-        const perSize = {}
-        if (Array.isArray(ud)) {
-          ud.forEach(x => {
-            const key = x.size || x.size_name || x.label || x.key
-            if (key != null) perSize[String(key)] = numVal(x)
-          })
-        } else {
-          Object.entries(ud || {}).forEach(([k,v]) => {
-            if (!String(k).startsWith('_')) perSize[String(k)] = numVal(v)
-          })
-        }
-        return { mode:'perSize', values: perSize }
-      }
-
-      if (rule === 'By Batch') {
-        const rows = Array.isArray(ud?.batches) ? ud.batches : (Array.isArray(ud) ? ud : [])
-        return { mode:'batches', rows }
-      }
-
-      if (rule === 'Configure Own') {
-        const rows = Array.isArray(ud?.rows) ? ud.rows : (Array.isArray(ud?.items) ? ud.items : (Array.isArray(ud) ? ud : []))
-        if (rows.length) return { mode:'rows', rows }
-      }
-
-      return { mode:'single', value: base }
+    const pickKnownName = (raw, options = []) => {
+      const rawNorm = norm(raw)
+      if (!rawNorm) return null
+      const direct = options.find(opt => norm(opt) === rawNorm)
+      if (direct) return direct
+      return options.find(opt => rawNorm.includes(norm(opt)) || norm(opt).includes(rawNorm)) || null
     }
 
-    function calcBomQty(item) {
-      const wf = wastageFactor(item.wastage)
-      const base = parseFloat(item.base_qty) || 0
-      const selected = getSelectedConsumption(item)
+    const selectedSizes = Object.keys(sizeMap || {}).filter(sz => (parseFloat(sizeMap[sz]) || 0) > 0)
 
-      if (selected.mode === 'single') {
-        return (selected.value || base) * queueQty * wf
+    // Build the same order-level size/color context Purchasing uses
+    const pd = {
+      colors: [],
+      sizeGroups: [],
+      allSizes: [],
+      sgMatrix: [],
+      sgColorTotals: {},
+      sgColorSizeMatrix: {},
+      sizeGroupMap: {},
+    }
+
+    ;(sgs || []).forEach(g => {
+      pd.sizeGroupMap[g.id] = { id:g.id, name:g.group_name, sizes:g.sizes||[], base_size:g.base_size || null }
+      const groupColors = (colors || []).filter(c => c.size_group_id === g.id)
+      const groupSizes = (g.sizes || []).map(String)
+      let groupQty = 0
+      const matrixColors = []
+      pd.sgColorTotals[g.group_name] = pd.sgColorTotals[g.group_name] || {}
+      pd.sgColorSizeMatrix[g.group_name] = pd.sgColorSizeMatrix[g.group_name] || {}
+
+      groupColors.forEach(c => {
+        const sizeVals = {}
+        let colorQty = 0
+        groupSizes.forEach(sz => {
+          const row = (bd || []).find(b => b.size_group_id === g.id && b.color_id === c.id && String(b.size) === String(sz))
+          const qty = parseFloat(row?.qty) || 0
+          sizeVals[String(sz)] = qty
+          colorQty += qty
+        })
+        groupQty += colorQty
+        pd.colors.push({ name:c.color_name, qty:colorQty })
+        pd.sgColorTotals[g.group_name][c.color_name] = colorQty
+        pd.sgColorSizeMatrix[g.group_name][c.color_name] = sizeVals
+        matrixColors.push({ colorName:c.color_name, qty:colorQty, sizeMap:sizeVals })
+      })
+
+      pd.sizeGroups.push({ id:g.id, name:g.group_name, qty:groupQty })
+      pd.sgMatrix.push({ sgName:g.group_name, qty:groupQty, colors:matrixColors })
+      groupSizes.forEach(sz => {
+        const qty = matrixColors.reduce((s, c) => s + (parseFloat(c.sizeMap?.[String(sz)]) || 0), 0)
+        pd.allSizes.push({ size:String(sz), qty, sgName:g.group_name })
+      })
+    })
+
+    const getQueueContext = (queue) => {
+      const splitRule = queue.split_rule || 'None'
+      const label = String(queue.label || '').trim()
+      const splitParts = label.split('/').map(x => x.trim()).filter(Boolean)
+      const knownColors = (pd?.colors || []).map(c => c.name)
+      const knownGroups = (pd?.sizeGroups || []).map(g => g.name)
+      const inferredColor = pickKnownName(splitParts[0], knownColors)
+      const inferredGroup = pickKnownName(splitParts[splitParts.length - 1], knownGroups)
+      const queueColorName = pickKnownName(queue.color_name, knownColors) || inferredColor || null
+      const groupFromId = queue.size_group_id ? (pd?.sizeGroupMap?.[queue.size_group_id]?.name || null) : null
+      const effectiveGroupName = pickKnownName(groupFromId, knownGroups) || inferredGroup || pickKnownName(rawGroupName, knownGroups) || null
+
+      const includeCell = (sgName, colorName) => {
+        const sgMatch = !effectiveGroupName || norm(sgName) === norm(effectiveGroupName)
+        const colorMatch = !queueColorName || norm(colorName) === norm(queueColorName)
+        if (splitRule === 'By Colour' || splitRule === 'By Wash') return colorMatch
+        if (splitRule === 'By Size Group') return sgMatch
+        if (splitRule === 'Colour × Size Group' || splitRule === 'By Ratio') return sgMatch && colorMatch
+        return true
       }
 
-      if (selected.mode === 'perSize') {
-        const total = selectedSizes.reduce((sum, sz) => {
-          const perPiece = parseFloat(selected.values?.[sz]) || 0
-          const qty = parseFloat(sizeMap?.[sz]) || 0
-          return sum + (perPiece * qty * wf)
-        }, 0)
+      const sizeQtyForQueue = (size) => {
+        let total = 0
+        const matrix = pd?.sgColorSizeMatrix || {}
+        Object.entries(matrix).forEach(([sgName, colorMap]) => {
+          Object.entries(colorMap || {}).forEach(([colorName, sizes]) => {
+            if (includeCell(sgName, colorName)) total += parseFloat(sizes?.[String(size)]) || 0
+          })
+        })
         return total
       }
 
-      if (selected.mode === 'batches' || selected.mode === 'rows') {
-        const rows = selected.rows || []
-        const total = rows.reduce((sum, row) => {
-          const rowCons = numVal(row)
-          const rowColor = row.color || row.color_name || row.colour || null
-          if (rowColor && norm(rowColor) !== norm(q.color_name)) return sum
-
-          const rowSizesRaw = row.sizes || row.size_group || row.size || row.size_name || row.selectedSizes || []
-          const rowSizes = Array.isArray(rowSizesRaw) ? rowSizesRaw.map(String) : String(rowSizesRaw || '').split(',').map(s => s.trim()).filter(Boolean)
-          const matchedSizes = rowSizes.length ? rowSizes.filter(sz => selectedSizes.includes(String(sz))) : selectedSizes
-
-          const matchedQty = matchedSizes.reduce((s, sz) => s + (parseFloat(sizeMap?.[sz]) || 0), 0)
-          return sum + (rowCons * matchedQty * wf)
-        }, 0)
-        return total || (base * queueQty * wf)
+      const colorQtyForQueue = (wanted) => {
+        let total = 0
+        const matrix = pd?.sgColorTotals || {}
+        Object.entries(matrix).forEach(([sgName, colorMap]) => {
+          Object.entries(colorMap || {}).forEach(([colorName, qty]) => {
+            if (norm(colorName) !== norm(wanted)) return
+            if (includeCell(sgName, colorName)) total += parseFloat(qty) || 0
+          })
+        })
+        return total
       }
 
-      return base * queueQty * wf || (parseFloat(item.final_qty) || 0) * ratio
+      const sizeGroupQtyForQueue = (wanted) => {
+        let total = 0
+        const matrix = pd?.sgColorTotals || {}
+        Object.entries(matrix).forEach(([sgName, colorMap]) => {
+          if (norm(sgName) !== norm(wanted)) return
+          Object.entries(colorMap || {}).forEach(([colorName, qty]) => {
+            if (includeCell(sgName, colorName)) total += parseFloat(qty) || 0
+          })
+        })
+        return total
+      }
+
+      const queueQty = parseFloat(queue.qty) || 0
+      return { groupName: effectiveGroupName, splitRule, queueColorName, queueQty, sizeQtyForQueue, colorQtyForQueue, sizeGroupQtyForQueue }
     }
 
-    function getDisplayConsumption(item) {
+    const calcReqQtyForQueue = (item, queue) => {
+      const { groupName: ctxGroupName, queueColorName, queueQty, sizeQtyForQueue, colorQtyForQueue, sizeGroupQtyForQueue } = getQueueContext(queue)
+      const ruleRaw = item.usage_rule || 'Generic'
+      const rule = String(ruleRaw).trim()
+      const ud = normalizeUD(item.usage_data)
+      const wastageFactor = 1 + ((parseFloat(item.wastage) || 5) / 100)
       const base = parseFloat(item.base_qty) || 0
-      const selected = getSelectedConsumption(item)
 
-      if (selected.mode === 'single') return selected.value || base
-
-      if (selected.mode === 'perSize') {
-        const vals = selectedSizes.map(sz => parseFloat(selected.values?.[sz]) || 0).filter(v => v > 0)
-        const uniq = [...new Set(vals.map(v => Number(v.toFixed(4))))]
-        if (uniq.length === 1) return uniq[0]
-        return vals.length ? uniq[0] : base
+      if (rule === 'Generic' || !rule) return base * queueQty * wastageFactor
+      if (rule === 'By Color' || rule === 'By Colour') {
+        return Object.entries(ud || {}).reduce((s,[colorName, cons]) => s + (usageNumeric(cons) * colorQtyForQueue(colorName) * wastageFactor), 0)
       }
-
-      if (selected.mode === 'batches' || selected.mode === 'rows') {
-        const rows = selected.rows || []
-        const vals = rows.flatMap(row => {
-          const rowColor = row.color || row.color_name || row.colour || null
-          if (rowColor && norm(rowColor) !== norm(q.color_name)) return []
-          const rowSizesRaw = row.sizes || row.size_group || row.size || row.size_name || row.selectedSizes || []
-          const rowSizes = Array.isArray(rowSizesRaw) ? rowSizesRaw.map(String) : String(rowSizesRaw || '').split(',').map(s => s.trim()).filter(Boolean)
-          const matched = rowSizes.length ? rowSizes.some(sz => selectedSizes.includes(String(sz))) : selectedSizes.length > 0
-          return matched ? [numVal(row)] : []
-        }).filter(v => v > 0)
-        const uniq = [...new Set(vals.map(v => Number(v.toFixed(4))))]
-        if (uniq.length === 1) return uniq[0]
-        return vals.length ? uniq[0] : base
+      if (rule === 'By Size Group') {
+        return Object.entries(ud || {}).reduce((s,[sgName, cons]) => s + (usageNumeric(cons) * sizeGroupQtyForQueue(sgName) * wastageFactor), 0)
       }
-
-      return base
+      if (rule === 'By Individual Sizes' || rule === 'By Individual Size') {
+        return Object.entries(ud || {}).reduce((s,[size, cons]) => s + (usageNumeric(cons) * sizeQtyForQueue(size) * wastageFactor), 0)
+      }
+      if (rule === 'Configure Own') {
+        if (Array.isArray(ud.__matrix)) {
+          return ud.__matrix.reduce((s,m)=> {
+            const sgName = pickKnownName(m.sgName, pd.sizeGroups.map(g => g.name)) || m.sgName
+            const colorName = pickKnownName(m.colorName, pd.colors.map(c => c.name)) || m.colorName
+            if ((queue.split_rule === 'Colour × Size Group' || queue.split_rule === 'By Ratio') && (!ctxGroupName || !queueColorName)) return s
+            if (queue.split_rule === 'By Size Group' && !ctxGroupName) return s
+            if ((queue.split_rule === 'By Colour' || queue.split_rule === 'By Wash') && !queueColorName) return s
+            const matchesGroup = !ctxGroupName || norm(sgName) === norm(ctxGroupName) || (queue.split_rule === 'By Colour' && norm(queueColorName) === norm(colorName))
+            const matchesColor = !queueColorName || norm(colorName) === norm(queueColorName) || queue.split_rule === 'By Size Group'
+            if (!matchesGroup || !matchesColor) return s
+            const cellQty = pd.sgColorTotals?.[sgName]?.[colorName] || 0
+            return s + (usageNumeric(m.consumption) * cellQty * wastageFactor)
+          },0)
+        }
+        const groups = ud.__groups || []
+        return groups.reduce((s,g)=> {
+          const sizes = g.sizes || []
+          const qty = sizes.reduce((sq,sz)=>sq + sizeQtyForQueue(sz), 0)
+          return s + (usageNumeric(g.consumption) * qty * wastageFactor)
+        },0)
+      }
+      if (rule === 'By Batch') {
+        const rows = Array.isArray(ud?.batches) ? ud.batches : (Array.isArray(ud) ? ud : [])
+        return rows.reduce((s,row) => {
+          const colorName = row.color || row.color_name || row.colour || null
+          if (colorName && queueColorName && norm(colorName) !== norm(queueColorName)) return s
+          const rowSizesRaw = row.sizes || row.selectedSizes || row.size_group || row.size || []
+          const rowSizes = Array.isArray(rowSizesRaw) ? rowSizesRaw : String(rowSizesRaw || '').split(',').map(x=>x.trim()).filter(Boolean)
+          const matchedQty = rowSizes.length ? rowSizes.reduce((sq, sz) => sq + sizeQtyForQueue(sz), 0) : queueQty
+          return s + usageNumeric(row) * matchedQty * wastageFactor
+        },0)
+      }
+      return base * queueQty * wastageFactor
     }
-
-
-    const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
+const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
     const fabricItems = (bom || []).filter(x => x.category === 'Fabric').map(x => {
       const lib = x.library_item_id ? libMap[x.library_item_id] : null
-      const consump = getDisplayConsumption(x)
+      const consump = parseFloat(x.base_qty) || 0
       return {
         ...x,
-        q_qty: calcBomQty(x),
+        q_qty: calcReqQtyForQueue(x, q),
         shade: lib?.colour || lib?.color || x.specification || x.detail || '—',
         lib_colour: lib?.colour || lib?.color || '—',
         content: lib?.composition || x.detail || '—',
@@ -760,10 +803,10 @@ function QueuesTab({ onEditOrder }) {
         linkedItem = (poi || []).find(it => String(it.description || '').toLowerCase().includes(itemName))
       }
       const po = linkedItem ? (pos || []).find(p => p.id === linkedItem.po_id) : null
-      const consump = getDisplayConsumption(x)
+      const consump = parseFloat(x.base_qty) || 0
       return {
         ...x,
-        q_qty: calcBomQty(x),
+        q_qty: calcReqQtyForQueue(x, q),
         shade: x.specification || x.detail || '—',
         consump: consump || 0,
         po_number: po?.po_number || '—',
