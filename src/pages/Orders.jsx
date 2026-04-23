@@ -798,7 +798,6 @@ function QueuesTab({ onEditOrder }) {
     }
 
     // ── Queue-specific demand calculation ────────────────────────────────────────
-    const queueQty = parseFloat(q.qty) || 0
     const calcQueueDemand = (item) => {
       const rule = item.usage_rule || 'Generic'
       const ud = item.usage_data || {}
