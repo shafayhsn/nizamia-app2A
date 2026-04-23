@@ -926,6 +926,8 @@ function QueuesTab({ onEditOrder }) {
       packs: packs,
       cuttingQty, cuttingPct,
       blisterEach, blisterTotal, cartonEach, cartonTotal,
+      washItems: washing,
+      finishingPacks: packs,
     }
   }
 
