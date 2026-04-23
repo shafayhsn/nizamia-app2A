@@ -9,6 +9,27 @@ import { getPageTabNoticeMap, markTabSeen, markTabUpdated } from '../lib/tabNoti
 
 const LOGO_SRC = ''
 
+// ── Demand calculation helpers (from Purchasing) ──────────────────────────────
+function normText(v) {
+  return String(v || '').trim().toLowerCase()
+}
+
+function usageNumeric(v) {
+  if (v == null) return 0
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0
+  if (typeof v === 'string') {
+    const n = parseFloat(v)
+    return Number.isFinite(n) ? n : 0
+  }
+  if (typeof v === 'object') {
+    if (v.na || v.disabled) return 0
+    const candidate = v.value ?? v.qty ?? v.consumption ?? v.cons ?? v.amount ?? 0
+    const n = parseFloat(candidate)
+    return Number.isFinite(n) ? n : 0
+  }
+  return 0
+}
+
 const statusColor = { Draft: '#F59E0B', Active: '#10B981', Booked: '#3B82F6', Shipped: '#8B5CF6', Cancelled: '#9CA3AF', Confirmed: '#10B981' }
 const statusBg    = { Draft: '#FFF7ED', Active: '#ECFDF5', Booked: '#EFF6FF', Shipped: '#F5F3FF', Cancelled: '#F3F4F6', Confirmed: '#ECFDF5' }
 
@@ -490,7 +511,7 @@ function QueuesTab({ onEditOrder }) {
     }
 
     const ord = orderMap[q.order_id] || {}
-    const [bom, washing, embellishments, finishing, packs, sgs, fitBlocks, pos, poi, libs, suppliers, demands] = await Promise.all([
+    const [bom, washing, embellishments, finishing, packs, sgs, fitBlocks, pos, poi, libs, suppliers] = await Promise.all([
       safeQuery(supabase.from('bom_items').select('*').eq('order_id', q.order_id).order('sort_order'), []),
       safeQuery(supabase.from('washing').select('*').eq('order_id', q.order_id), []),
       safeQuery(supabase.from('embellishments').select('*').eq('order_id', q.order_id), []),
@@ -725,6 +746,111 @@ function QueuesTab({ onEditOrder }) {
     }
 
 
+    // ── Build poDataMap (queue-specific color/size breakdowns) ──────────────────
+    const poDataMap = {}
+    if (!poDataMap[q.order_id]) {
+      poDataMap[q.order_id] = {
+        colors: [],
+        sizeGroups: [],
+        allSizes: [],
+        sgMatrix: [],
+        sgColorTotals: {},
+        sgColorSizeMatrix: {},
+        sizeGroupMap: {},
+      }
+    }
+    const pd = poDataMap[q.order_id]
+    for (const g of (sgs || [])) {
+      pd.sizeGroupMap[g.id] = { id: g.id, name: g.group_name, sizes: g.sizes || [], base_size: g.base_size || null }
+      const relColors = colors.filter(c => c.size_group_id === g.id)
+      const bdMap = {}
+      bd.filter(b => b.size_group_id === g.id).forEach(b => {
+        if (!bdMap[b.color_id]) bdMap[b.color_id] = {}
+        bdMap[b.color_id][b.size] = (bdMap[b.color_id][b.size] || 0) + b.qty
+      })
+      pd.sgColorSizeMatrix[g.group_name] = pd.sgColorSizeMatrix[g.group_name] || {}
+      pd.sgColorTotals[g.group_name] = pd.sgColorTotals[g.group_name] || {}
+      for (const c of relColors) {
+        const sizeMapForColor = {}
+        for (const sz of (g.sizes || [])) {
+          sizeMapForColor[sz] = parseInt(bdMap[c.id]?.[sz]) || 0
+        }
+        const cQty = Object.values(sizeMapForColor).reduce((s, v) => s + v, 0)
+        pd.colors.push({ name: c.color_name, qty: cQty })
+        pd.sgColorSizeMatrix[g.group_name][c.color_name] = sizeMapForColor
+        pd.sgColorTotals[g.group_name][c.color_name] = cQty
+      }
+      const sgQty = relColors.reduce((s, c) => s + (g.sizes || []).reduce((ss, sz) => ss + (parseInt(bdMap[c.id]?.[sz]) || 0), 0), 0)
+      pd.sizeGroups.push({ id: g.id, name: g.group_name, qty: sgQty })
+      for (const sz of (g.sizes || [])) {
+        const szQty = relColors.reduce((s, c) => s + (parseInt(bdMap[c.id]?.[sz]) || 0), 0)
+        const ex = pd.allSizes.find(x => x.size === sz)
+        if (ex) ex.qty += szQty
+        else pd.allSizes.push({ size: sz, qty: szQty })
+      }
+      pd.sgMatrix.push({
+        sgName: g.group_name,
+        colors: relColors.map(c => ({
+          colorName: c.color_name,
+          qty: (g.sizes || []).reduce((s, sz) => s + (parseInt(bdMap[c.id]?.[sz]) || 0), 0),
+        })),
+      })
+    }
+
+    // ── Queue-specific demand calculation ────────────────────────────────────────
+    const queueQty = parseFloat(q.qty) || 0
+    const calcQueueDemand = (item) => {
+      const rule = item.usage_rule || 'Generic'
+      const ud = item.usage_data || {}
+      const wastage = parseFloat(item.wastage) || 5
+      const wastageFactor = 1 + (wastage / 100)
+      
+      if (rule === 'Generic') {
+        const base = parseFloat(item.base_qty) || 0
+        return base * queueQty * wastageFactor
+      }
+      
+      if (rule === 'By Color') {
+        return Object.entries(ud).reduce((s, [colorName, cons]) => {
+          const colorQty = (pd.colors || [])
+            .filter(c => normText(c.name) === normText(colorName))
+            .reduce((ss, c) => ss + (c.qty || 0), 0)
+          return s + (usageNumeric(cons) * colorQty * wastageFactor)
+        }, 0)
+      }
+      
+      if (rule === 'By Size Group') {
+        return Object.entries(ud).reduce((s, [sgName, cons]) => {
+          const sg = (pd.sizeGroups || []).find(x => normText(x.name) === normText(sgName))
+          return s + (usageNumeric(cons) * (sg?.qty || 0) * wastageFactor)
+        }, 0)
+      }
+      
+      if (rule === 'By Individual Sizes') {
+        return Object.entries(ud).reduce((s, [size, cons]) => {
+          const found = (pd.allSizes || []).find(x => x.size === size)
+          return s + (usageNumeric(cons) * (found?.qty || 0) * wastageFactor)
+        }, 0)
+      }
+      
+      if (rule === 'Configure Own') {
+        if (ud.__matrix) {
+          return ud.__matrix.reduce((s, m) => {
+            const sg = (pd.sgMatrix || []).find(x => normText(x.sgName) === normText(m.sgName))
+            const c = sg?.colors.find(x => normText(x.colorName) === normText(m.colorName))
+            return s + (usageNumeric(m.consumption) * (c?.qty || 0) * wastageFactor)
+          }, 0)
+        }
+        const groups = ud.__groups || []
+        return groups.reduce((s, g) => {
+          const gQty = (g.sizes || []).reduce((sq, sz) => sq + ((pd.allSizes || []).find(x => x.size === sz)?.qty || 0), 0)
+          return s + (usageNumeric(g.consumption) * gQty * wastageFactor)
+        }, 0)
+      }
+      
+      return parseFloat(item.base_qty) || 0
+    }
+
     const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
     const demandMap = Object.fromEntries((demands || []).map(d => [d.bom_item_id, d]))
     const fabricItems = (bom || []).filter(x => x.category === 'Fabric').map(x => {
@@ -763,11 +889,18 @@ function QueuesTab({ onEditOrder }) {
         linkedItem = (poi || []).find(it => String(it.description || '').toLowerCase().includes(itemName))
       }
       const po = linkedItem ? (pos || []).find(p => p.id === linkedItem.po_id) : null
-      const demand = demandMap[x.id] || {}
-      const consump = parseFloat(demand.consumption) || parseFloat(x.base_qty) || 0
+      const rule = x.usage_rule || 'Generic'
+      let consump = 0
+      if (rule === 'Generic') {
+        consump = parseFloat(x.base_qty) || 0
+      } else {
+        const ud = x.usage_data || {}
+        const firstVal = Object.values(ud)[0]
+        consump = usageNumeric(firstVal)
+      }
       return {
         ...x,
-        q_qty: parseFloat(demand.required_qty) || 0,
+        q_qty: calcQueueDemand(x),
         shade: x.specification || x.detail || '—',
         consump: consump || 0,
         po_number: po?.po_number || '—',
