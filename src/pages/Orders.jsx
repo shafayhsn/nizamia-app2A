@@ -767,10 +767,88 @@ function QueuesTab({ onEditOrder }) {
       }
       return base * queueQty * wastageFactor
     }
+
+    const getConsumpForQueue = (item, queue) => {
+      const { groupName: ctxGroupName, queueColorName, queueQty, sizeQtyForQueue, colorQtyForQueue, sizeGroupQtyForQueue } = getQueueContext(queue)
+      const ruleRaw = item.usage_rule || 'Generic'
+      const rule = String(ruleRaw).trim()
+      const ud = normalizeUD(item.usage_data)
+      const base = parseFloat(item.base_qty) || 0
+
+      const pickSingle = (vals) => {
+        const clean = (vals || []).map(v => parseFloat(v) || 0).filter(v => v > 0)
+        if (!clean.length) return base
+        const uniq = [...new Set(clean.map(v => Number(v.toFixed(4))))]
+        return uniq[0] || base
+      }
+
+      if (rule === 'Generic' || !rule) return base
+
+      if (rule === 'By Color' || rule === 'By Colour') {
+        const vals = Object.entries(ud || {})
+          .filter(([colorName]) => colorQtyForQueue(colorName) > 0)
+          .map(([, cons]) => usageNumeric(cons))
+        return pickSingle(vals)
+      }
+
+      if (rule === 'By Size Group') {
+        const vals = Object.entries(ud || {})
+          .filter(([sgName]) => sizeGroupQtyForQueue(sgName) > 0)
+          .map(([, cons]) => usageNumeric(cons))
+        return pickSingle(vals)
+      }
+
+      if (rule === 'By Individual Sizes' || rule === 'By Individual Size') {
+        const vals = Object.entries(ud || {})
+          .filter(([size]) => sizeQtyForQueue(size) > 0)
+          .map(([, cons]) => usageNumeric(cons))
+        return pickSingle(vals)
+      }
+
+      if (rule === 'Configure Own') {
+        if (Array.isArray(ud.__matrix)) {
+          const vals = ud.__matrix.flatMap((m) => {
+            const sgName = pickKnownName(m.sgName, pd.sizeGroups.map(g => g.name)) || m.sgName
+            const colorName = pickKnownName(m.colorName, pd.colors.map(c => c.name)) || m.colorName
+            if ((queue.split_rule === 'Colour × Size Group' || queue.split_rule === 'By Ratio') && (!ctxGroupName || !queueColorName)) return []
+            if (queue.split_rule === 'By Size Group' && !ctxGroupName) return []
+            if ((queue.split_rule === 'By Colour' || queue.split_rule === 'By Wash') && !queueColorName) return []
+            const matchesGroup = !ctxGroupName || norm(sgName) === norm(ctxGroupName) || (queue.split_rule === 'By Colour' && norm(queueColorName) === norm(colorName))
+            const matchesColor = !queueColorName || norm(colorName) === norm(queueColorName) || queue.split_rule === 'By Size Group'
+            if (!matchesGroup || !matchesColor) return []
+            const cellQty = pd.sgColorTotals?.[sgName]?.[colorName] || 0
+            return cellQty > 0 ? [usageNumeric(m.consumption)] : []
+          })
+          return pickSingle(vals)
+        }
+        const groups = ud.__groups || []
+        const vals = groups.flatMap((g) => {
+          const sizes = g.sizes || []
+          const qty = sizes.reduce((sq, sz) => sq + sizeQtyForQueue(sz), 0)
+          return qty > 0 ? [usageNumeric(g.consumption)] : []
+        })
+        return pickSingle(vals)
+      }
+
+      if (rule === 'By Batch') {
+        const rows = Array.isArray(ud?.batches) ? ud.batches : (Array.isArray(ud) ? ud : [])
+        const vals = rows.flatMap((row) => {
+          const colorName = row.color || row.color_name || row.colour || null
+          if (colorName && queueColorName && norm(colorName) !== norm(queueColorName)) return []
+          const rowSizesRaw = row.sizes || row.selectedSizes || row.size_group || row.size || []
+          const rowSizes = Array.isArray(rowSizesRaw) ? rowSizesRaw : String(rowSizesRaw || '').split(',').map(x => x.trim()).filter(Boolean)
+          const matchedQty = rowSizes.length ? rowSizes.reduce((sq, sz) => sq + sizeQtyForQueue(sz), 0) : queueQty
+          return matchedQty > 0 ? [usageNumeric(row)] : []
+        })
+        return pickSingle(vals)
+      }
+
+      return base
+    }
 const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
     const fabricItems = (bom || []).filter(x => x.category === 'Fabric').map(x => {
       const lib = x.library_item_id ? libMap[x.library_item_id] : null
-      const consump = parseFloat(x.base_qty) || 0
+      const consump = getConsumpForQueue(x, q)
       return {
         ...x,
         q_qty: calcReqQtyForQueue(x, q),
@@ -803,7 +881,7 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
         linkedItem = (poi || []).find(it => String(it.description || '').toLowerCase().includes(itemName))
       }
       const po = linkedItem ? (pos || []).find(p => p.id === linkedItem.po_id) : null
-      const consump = parseFloat(x.base_qty) || 0
+      const consump = getConsumpForQueue(x, q)
       return {
         ...x,
         q_qty: calcReqQtyForQueue(x, q),
