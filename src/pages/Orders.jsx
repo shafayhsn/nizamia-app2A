@@ -1151,7 +1151,13 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
         </table>
 
         <!-- Footer 4-box row -->
-        <table style="width:100%;border-collapse:collapse;margin-top:auto;">
+        <div style="font-size:9px;margin-bottom:1mm;margin-top:1mm;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:1mm;">
+            <div style="font-weight:700;">Factory Ref</div>
+            <div>${esc(d.ord.style_number || '—')} - ${esc(d.ord.store_name || '—')}</div>
+          </div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;margin-top:0.5mm;">
           <colgroup>
             <col style="width:38%"/>
             <col style="width:18%"/>
@@ -1172,13 +1178,21 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
             <tr>
               <td style="${td};vertical-align:top;font-size:8.5px;height:16mm;" rowspan="3">${embText}</td>
               <td style="${td};vertical-align:top;height:16mm;" rowspan="3">
-                <div style="display:flex;align-items:center;gap:3px;margin-bottom:4px;">
-                  <div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div>
+                <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px;">
+                  <input type="checkbox" style="width:10px;height:10px;margin:0;cursor:pointer;" />
                   <span style="font-size:8.5px;">Solid Pack</span>
                 </div>
-                <div style="display:flex;align-items:center;gap:3px;">
-                  <div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div>
+                <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px;">
+                  <input type="checkbox" style="width:10px;height:10px;margin:0;cursor:pointer;" />
                   <span style="font-size:8.5px;">Ratio Pack</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:4px;">
+                  <input type="checkbox" style="width:10px;height:10px;margin:0;cursor:pointer;" />
+                  <span style="font-size:8.5px;">Flat Pack</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:4px;margin-top:3px;">
+                  <input type="checkbox" style="width:10px;height:10px;margin:0;cursor:pointer;" />
+                  <span style="font-size:8.5px;">Hanger Pack</span>
                 </div>
               </td>
               <th style="${th}">Type</th>
