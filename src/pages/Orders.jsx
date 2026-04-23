@@ -972,14 +972,12 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
     const qRef     = d.q.q_number || 'Queued'
     const sizeCols = (d.sizeOrder || []).filter(sz => (d.sizeMap[sz] || 0) > 0)
 
-    // ── style shortcuts ──────────────────────────────────────────────────────
-    const th  = 'border:1px solid #000;padding:2px 4px;font-size:9px;font-weight:700;text-align:center;vertical-align:middle;white-space:nowrap;'
-    const td  = 'border:1px solid #000;padding:2px 4px;font-size:9px;vertical-align:middle;'
+    const th  = 'border:1px solid #000;padding:2px 4px;font-size:8.4px;font-weight:700;text-align:center;vertical-align:middle;white-space:nowrap;line-height:1.15;'
+    const td  = 'border:1px solid #000;padding:2px 4px;font-size:8.3px;vertical-align:middle;line-height:1.15;'
     const tdC = td + 'text-align:center;'
     const tdR = td + 'text-align:right;'
-    const blk = 'background:#000;color:#fff;'
+    const blk = 'background:#000;color:#fff;letter-spacing:1.5px;text-transform:uppercase;'
 
-    // ── UOM short forms ──────────────────────────────────────────────────────
     const shortUom = (u) => {
       if (!u) return 'pcs'
       const s = String(u).toLowerCase()
@@ -987,52 +985,79 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
       if (s.includes('meter') || s === 'm') return 'm'
       if (s.includes('roll')) return 'roll'
       if (s.includes('kg')) return 'kg'
+      if (s.includes('cone')) return 'cone'
+      if (s.includes('set')) return 'set'
+      if (s.includes('ctn')) return 'ctn'
       return u
     }
 
-    // ── Fabric rows ──────────────────────────────────────────────────────────
+    const titleCase = (v) => String(v || '').replace(/(^|\s|\/|-)([a-z])/g, (_, a, b) => `${a}${b.toUpperCase()}`)
+    const normalizePackMeta = (raw) => {
+      const ud = normalizeUD(raw)
+      const perPack = parseFloat(ud?._packing_qty ?? ud?.packing_qty ?? ud?.pack_qty ?? ud?.qty_per_pack ?? ud?.per_pack_qty ?? 0)
+      const packUnit = String(ud?._packing_unit ?? ud?.packing_unit ?? ud?.pack_unit ?? ud?.req_unit ?? '').trim()
+      const itemUnit = shortUom(ud?._packing_base_unit || ud?.base_unit || ud?.consump_unit || ud?.uom || '')
+      return { perPack, packUnit, itemUnit }
+    }
+    const formatPackLogic = (item, preferConsumpUnit = false) => {
+      const meta = normalizePackMeta(item?.usage_data)
+      if (!(meta.perPack > 0)) return '—'
+      const numeratorUnit = preferConsumpUnit ? shortUom(item?.unit) : (meta.itemUnit || shortUom(item?.unit))
+      const left = Number.isInteger(meta.perPack) ? String(Math.trunc(meta.perPack)) : meta.perPack.toFixed(2).replace(/\.00$/, '')
+      const right = meta.packUnit || 'pack'
+      return `${left}${numeratorUnit ? numeratorUnit : ''}/${right}`
+    }
+    const formatPackRequirement = (item) => {
+      const req = parseFloat(item?.q_qty) || 0
+      const meta = normalizePackMeta(item?.usage_data)
+      if (meta.perPack > 0) {
+        const packs = Math.ceil(req / meta.perPack)
+        const label = titleCase(meta.packUnit || 'packs')
+        return packs > 0 ? `${packs.toLocaleString()} ${label}${packs === 1 ? '' : 's'}` : '—'
+      }
+      const uom = shortUom(item?.unit)
+      return req > 0 ? `${Math.ceil(req).toLocaleString()} ${uom}` : '—'
+    }
+    const formatConsump = (value, uom) => {
+      const n = parseFloat(value) || 0
+      if (n <= 0) return '—'
+      const shown = Math.abs(n - Math.round(n)) < 0.0001 ? String(Math.round(n)) : n.toFixed(2)
+      return `${shown} ${uom}`
+    }
+
     const fabricRows = (d.fabricItems || []).map(r => {
-      const uom  = shortUom(r.unit)
-      const cons = parseFloat(r.consump)
-      const req  = r.q_qty ? Math.ceil(r.q_qty) : 0
+      const uom = shortUom(r.unit)
+      const req = parseFloat(r.q_qty) || 0
       return `<tr>
-        <td style="${td}">${esc(r.name || '—')}</td>
-        <td style="${td}">${esc(r.shade || '—')}</td>
+        <td style="${td};white-space:nowrap;">${esc(r.name || '—')}</td>
+        <td style="${td};white-space:nowrap;">${esc(r.shade || '—')}</td>
         <td style="${td}">${esc(r.content || '—')}</td>
-        <td style="${tdC}">${esc(r.weight || '—')}</td>
-        <td style="${tdC}">${esc(r.width || '—')}</td>
-        <td style="${tdC}">${cons > 0 ? cons.toFixed(2) + ' ' + uom : '—'}</td>
-        <td style="${tdR}">${req > 0 ? req.toLocaleString() + ' ' + uom : '—'}</td>
+        <td style="${tdC};white-space:nowrap;">${esc(r.weight || '—')}</td>
+        <td style="${tdC};white-space:nowrap;">${esc(r.width || '—')}</td>
+        <td style="${tdC};white-space:nowrap;">${formatConsump(r.consump, uom)}</td>
+        <td style="${tdR};white-space:nowrap;">${req > 0 ? `${Math.ceil(req).toLocaleString()} ${uom}` : '—'}</td>
       </tr>`
     }).join('') || `<tr><td style="${tdC}" colspan="7">No fabric items</td></tr>`
 
-    // ── Trim rows ────────────────────────────────────────────────────────────
     const trimRow = (r) => {
       const type = String(r.category || '').toLowerCase().includes('stitch') ? 'Stitching' : 'Packing'
-      const uom  = shortUom(r.unit)
-      const cons = parseFloat(r.consump) || 0
-      const req  = r.q_qty ? Math.ceil(r.q_qty) : 0
-      const packInfo = r.pack_info || `${r.unit || ''}`
+      const shade = r.specification || r.detail || r.shade || '—'
+      const packLogic = formatPackLogic(r, true)
       return `<tr>
-        <td style="${td}">${esc(type)}</td>
-        <td style="${td}">${esc(r.name || '—')}</td>
-        <td style="${td}">${esc(r.shade || '—')}</td>
-        <td style="${tdC}">${cons > 0 ? cons.toFixed(2) + ' ' + uom : '—'}</td>
-        <td style="${td};font-size:8.5px;">${esc(packInfo)}</td>
-        <td style="${tdR}">${req > 0 ? req.toLocaleString() + ' ' + uom : '—'}</td>
-        <td style="${tdC}">${esc(r.po_number || '—')}</td>
-        <td style="${tdC}">${esc(r.po_status || '—')}</td>
+        <td style="${td};white-space:nowrap;">${esc(type)}</td>
+        <td style="${td};white-space:nowrap;">${esc(r.name || '—')}</td>
+        <td style="${td}">${esc(shade)}</td>
+        <td style="${tdC};white-space:nowrap;">${formatConsump(r.consump, shortUom(r.unit))}</td>
+        <td style="${tdC};white-space:nowrap;">${esc(packLogic)}</td>
+        <td style="${tdR};white-space:nowrap;">${esc(formatPackRequirement(r))}</td>
+        <td style="${tdC};white-space:nowrap;">${esc(r.po_number || '—')}</td>
+        <td style="${tdC};white-space:nowrap;">${esc(r.po_status || '—')}</td>
       </tr>`
     }
     const stitchRows  = (d.stitchItems  || []).map(trimRow).join('') || `<tr><td style="${tdC}" colspan="8">—</td></tr>`
     const packingRows = (d.packingItems || []).map(trimRow).join('')
+    const dividerRow = packingRows ? `<tr><td colspan="8" style="background:#d7d7d7;height:2px;padding:0;border:1px solid #999;font-size:0;">&nbsp;</td></tr>` : ''
 
-    // grey divider row between stitching and packing
-    const dividerRow = packingRows
-      ? `<tr><td colspan="8" style="background:#d1d5db;height:2px;padding:0;border:1px solid #9ca3af;font-size:0;">&nbsp;</td></tr>`
-      : ''
-
-    // ── Embellishment ────────────────────────────────────────────────────────
     const embText = (d.embItems || []).length > 0
       ? (d.embItems).map(e => {
           const parts = [e.description, e.technique, e.placement ? '@' + e.placement : null].filter(Boolean)
@@ -1040,7 +1065,6 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
         }).join('<br/>')
       : '—'
 
-    // ── Packing ──────────────────────────────────────────────────────────────
     const blisterEach  = d.blisterEach  !== '—' ? d.blisterEach  : '—'
     const blisterTotal = d.blisterTotal !== '—' ? d.blisterTotal : '—'
     const cartonEach   = d.cartonEach   !== '—' ? d.cartonEach   : '—'
@@ -1052,96 +1076,125 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
     }).replace(',', ' -')
 
     return `
-      <div style="width:210mm;height:297mm;padding:5mm 7mm 4mm 7mm;font-family:Arial,sans-serif;color:#000;background:#fff;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;gap:1mm;">
+      <div style="width:210mm;height:297mm;padding:5mm 4mm 4mm 4mm;font-family:Arial,sans-serif;color:#000;background:#fff;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;gap:1mm;">
 
-        <!-- Top meta line -->
-        <div style="display:flex;justify-content:space-between;font-size:8px;color:#333;">
+        <div style="display:flex;justify-content:space-between;font-size:7.9px;color:#333;">
           <div>Document Ref#IOS-${esc(qRef)}</div>
           <div>Date Created: ${esc(nowStr)}</div>
           <div>Username: admin</div>
         </div>
 
-        <!-- Header bar: brand left | IOS circle centred | Q-ref right -->
         <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;border-bottom:2px solid #000;padding-bottom:2mm;">
           <div>
-            <div style="font-size:19px;font-weight:900;line-height:1.1;">NIZAMIA APPARELS</div>
-            <div style="font-size:8px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;">Internal Order Sheet</div>
+            <div style="font-size:18px;font-weight:900;line-height:1.05;">NIZAMIA APPARELS</div>
+            <div style="font-size:8px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;">Internal Order Sheet</div>
           </div>
           <div style="display:flex;justify-content:center;">
-            <div style="border:2.5px solid #000;border-radius:50%;width:14mm;height:14mm;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;">IOS</div>
+            <div style="border:2px solid #000;border-radius:50%;width:13mm;height:13mm;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;">IOS</div>
           </div>
-          <div style="text-align:right;font-size:28px;font-weight:900;line-height:1;">${esc(qRef)}</div>
+          <div style="text-align:right;font-size:24px;font-weight:900;line-height:1;">${esc(qRef)}</div>
         </div>
 
-        <!-- Order meta: all labels in 1 row, all values in 1 row -->
         <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+          <colgroup>
+            <col style="width:15%"/>
+            <col style="width:12%"/>
+            <col style="width:16%"/>
+            <col style="width:11%"/>
+            <col style="width:16%"/>
+            <col style="width:12%"/>
+            <col style="width:18%"/>
+          </colgroup>
           <tr>
-            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.5px;font-weight:700;width:18%">Brand</td>
-            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.5px;font-weight:700;width:16%">Style Ne</td>
-            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.5px;font-weight:700;width:22%">Fit Name</td>
-            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.5px;font-weight:700;width:16%">PO#</td>
-            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.5px;font-weight:700;width:14%">Store</td>
-            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.5px;font-weight:700;width:14%">Ship Date</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.4px;font-weight:700;">Brand</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.4px;font-weight:700;">Style Ne</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.4px;font-weight:700;">Fit Name</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.4px;font-weight:700;">PO#</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.4px;font-weight:700;">Factory Ref</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.4px;font-weight:700;">Store</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.4px;font-weight:700;">Ship Date</td>
           </tr>
           <tr>
-            <td style="border:none;padding:0 2px 1mm 0;font-size:10px;font-weight:700;">${esc(d.ord.brand_name || '—')}</td>
-            <td style="border:none;padding:0 2px 1mm 0;font-size:10px;">${esc(d.ord.style_number || '—')}</td>
-            <td style="border:none;padding:0 2px 1mm 0;font-size:10px;">${esc(d.fitName || '—')}</td>
-            <td style="border:none;padding:0 2px 1mm 0;font-size:10px;">${esc(d.ord.po_number || '—')}</td>
-            <td style="border:none;padding:0 2px 1mm 0;font-size:10px;">${esc(d.ord.store_name || '—')}</td>
-            <td style="border:none;padding:0 2px 1mm 0;font-size:10px;">${esc(fmtDate(d.ord.ship_date))}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;font-weight:700;white-space:nowrap;">${esc(d.ord.brand_name || '—')}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(d.ord.style_number || '—')}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(d.fitName || '—')}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(d.ord.po_number || '—')}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(d.ord.factory_ref || '—')}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(d.ord.store_name || '—')}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(fmtDate(d.ord.ship_date))}</td>
           </tr>
         </table>
 
-        <!-- Order Breakdown -->
-        <div style="font-size:10px;font-weight:700;margin-bottom:0.5mm;margin-top:1mm;">Order BreakDown</div>
-        <table style="width:100%;border-collapse:collapse;table-layout:auto;margin-bottom:1.5mm;">
+        <div style="font-size:9.6px;font-weight:700;margin-bottom:0.3mm;">Order BreakDown</div>
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:1mm;">
+          <colgroup>
+            <col style="width:16%"/>
+            <col style="width:14%"/>
+            <col style="width:22%"/>
+            ${sizeCols.map(() => '<col style="width:8.2%"/>').join('')}
+            <col style="width:8.8%"/>
+          </colgroup>
           <thead>
             <tr>
-              <th style="${th}${blk}width:16%;border-right:none;">Size Group</th>
-              <th style="${th}${blk}width:14%;border-left:none;border-right:none;">Wash / Colour</th>
-              <th style="${th}${blk}width:22%;border-left:none;text-align:left;padding-left:8px;"></th>
+              <th style="${th}${blk}" colspan="2">SIZE GROUP</th>
+              <th style="${th}${blk}">WASH / COLOUR</th>
               ${sizeCols.map(sz => `<th style="${th}${blk}">${esc(sz)}</th>`).join('')}
-              <th style="${th}${blk}">Total</th>
+              <th style="${th}${blk}">TOTAL</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td style="${tdC}" rowspan="4">${esc(d.groupName || '—')}</td>
-              <td style="${tdC}" rowspan="4">${esc(d.washName || '—')}</td>
-              <td style="${td};font-weight:700;text-align:left;padding-left:8px;">Order Quantity</td>
+              <td style="${tdC}" rowspan="4" colspan="2">${esc(d.groupName || '—')}</td>
+              <td style="${td};font-weight:700;white-space:nowrap;">${esc(d.washName || '—')}</td>
               ${sizeCols.map(sz => `<td style="${tdC}">${esc(d.sizeMap[sz] || 0)}</td>`).join('')}
               <td style="${tdC};font-weight:700;">${esc(d.q.qty || 0)}</td>
             </tr>
             <tr>
-              <td style="${td};font-weight:700;text-align:left;padding-left:8px;">Ratio</td>
+              <td style="${td};font-weight:700;">Ratio</td>
               ${sizeCols.map(sz => `<td style="${tdC}">${esc(d.ratioMap[sz] || 0)}</td>`).join('')}
               <td style="${tdC}">${Object.values(d.ratioMap || {}).reduce((s, v) => s + (parseFloat(v) || 0), 0)}</td>
             </tr>
             <tr>
-              <td style="${td};font-weight:700;text-align:left;padding-left:8px;">Cutting Qty +${esc(d.cuttingPct || 0)}%</td>
+              <td style="${td};font-weight:700;">Cutting Qty +${esc(d.cuttingPct || 0)}%</td>
               ${sizeCols.map(sz => `<td style="${tdC}">${Math.round((parseFloat(d.sizeMap[sz]) || 0) * (1 + (parseFloat(d.cuttingPct) || 0) / 100))}</td>`).join('')}
               <td style="${tdC};font-weight:700;">${Math.ceil(d.cuttingQty || 0)}</td>
             </tr>
             <tr>
-              <td style="${td};color:#666;text-align:left;padding-left:8px;">Zipper Usage/Size</td>
+              <td style="${td};color:#555;">Zipper Usage/Size</td>
               ${sizeCols.map(() => `<td style="${tdC}"></td>`).join('')}
               <td style="${tdC}"></td>
             </tr>
           </tbody>
         </table>
 
-        <!-- Materials: Fabric -->
-        <div style="font-size:10px;font-weight:700;margin-bottom:0.3mm;">Materials &amp; Trims Requirements</div>
+        <div style="font-size:9.6px;font-weight:700;margin-bottom:0.3mm;">Materials &amp; Trims Requirements</div>
         <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:0.8mm;">
+          <colgroup>
+            <col style="width:14%"/>
+            <col style="width:14%"/>
+            <col style="width:27%"/>
+            <col style="width:14%"/>
+            <col style="width:9%"/>
+            <col style="width:11%"/>
+            <col style="width:11%"/>
+          </colgroup>
           <thead>
             <tr>${['Item', 'Shade', 'Content', 'Weight', 'Width', 'Consump', 'Required'].map(h => `<th style="${th}${blk}">${h}</th>`).join('')}</tr>
           </thead>
           <tbody>${fabricRows}</tbody>
         </table>
 
-        <!-- Trims: Stitching + grey divider + Packing -->
         <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:1mm;">
+          <colgroup>
+            <col style="width:12%"/>
+            <col style="width:12%"/>
+            <col style="width:23%"/>
+            <col style="width:12%"/>
+            <col style="width:12%"/>
+            <col style="width:13%"/>
+            <col style="width:8%"/>
+            <col style="width:8%"/>
+          </colgroup>
           <thead>
             <tr>${['Type', 'Item', 'Shade', 'Consump', 'Pack', 'Req', 'PO#', 'Status'].map(h => `<th style="${th}${blk}">${h}</th>`).join('')}</tr>
           </thead>
@@ -1152,64 +1205,46 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
           </tbody>
         </table>
 
-        <!-- Factory Ref + Footer 4-box row -->
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:1.5mm;margin-bottom:0.5mm;">
-          <div style="font-size:10px;font-weight:700;">Embellishment &amp; Decoration</div>
-          <div style="font-size:9px;font-weight:600;">Factory Ref</div>
-          <div style="font-size:9px;">${esc(d.ord.style_number || '—')} - ${esc(d.ord.store_name || '—')}</div>
-        </div>
-        <table style="width:100%;border-collapse:collapse;margin-top:0.5mm;">
+        <table style="width:100%;border-collapse:collapse;margin-top:auto;table-layout:fixed;">
           <colgroup>
-            <col style="width:38%"/>
-            <col style="width:18%"/>
-            <col style="width:14%"/>
-            <col style="width:10%"/>
-            <col style="width:10%"/>
-            <col style="width:10%"/>
+            <col style="width:37%"/>
+            <col style="width:19%"/>
+            <col style="width:13%"/>
+            <col style="width:9%"/>
+            <col style="width:9%"/>
+            <col style="width:13%"/>
           </colgroup>
           <thead>
             <tr>
               <th style="${th}${blk}">Embellishment &amp; Decoration</th>
               <th style="${th}${blk}">Packing Instructions</th>
-              <th style="${th}${blk}" colspan="3" style="text-align:center">Packing</th>
+              <th style="${th}${blk}" colspan="3">Packing</th>
               <th style="${th}${blk}">Merchandiser</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td style="${td};vertical-align:top;font-size:8.5px;height:16mm;" rowspan="3">${embText}</td>
+              <td style="${td};vertical-align:top;font-size:8.2px;height:16mm;" rowspan="3">${embText}</td>
               <td style="${td};vertical-align:top;height:16mm;" rowspan="3">
-                <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px;">
-                  <div style="width:10px;height:10px;border:1px solid #000;flex-shrink:0;"></div>
-                  <span style="font-size:8.5px;">Solid Pack</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px;">
-                  <div style="width:10px;height:10px;border:1px solid #000;flex-shrink:0;"></div>
-                  <span style="font-size:8.5px;">Ratio Pack</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px;">
-                  <div style="width:10px;height:10px;border:1px solid #000;flex-shrink:0;"></div>
-                  <span style="font-size:8.5px;">Flat Pack</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:4px;">
-                  <div style="width:10px;height:10px;border:1px solid #000;flex-shrink:0;"></div>
-                  <span style="font-size:8.5px;">Hanger Pack</span>
-                </div>
+                <div style="display:flex;align-items:center;gap:3px;margin-bottom:3px;"><div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div><span style="font-size:8.2px;">Solid Pack</span></div>
+                <div style="display:flex;align-items:center;gap:3px;margin-bottom:3px;"><div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div><span style="font-size:8.2px;">Ratio Pack</span></div>
+                <div style="display:flex;align-items:center;gap:3px;margin-bottom:3px;"><div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div><span style="font-size:8.2px;">Flat Pack</span></div>
+                <div style="display:flex;align-items:center;gap:3px;"><div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div><span style="font-size:8.2px;">Hanger Pack</span></div>
               </td>
               <th style="${th}">Type</th>
               <th style="${th}">Each</th>
               <th style="${th}">Total</th>
-              <td style="${td};vertical-align:top;height:16mm;" rowspan="3">&nbsp;</td>
+              <td style="${td};vertical-align:top;height:16mm;" rowspan="3">${esc(d.ord.style_number || '—')} - ${esc(d.ord.store_name || '—')}</td>
             </tr>
             <tr>
-              <td style="${td};font-size:8.5px;">Blisters</td>
-              <td style="${tdC};font-size:8.5px;">${esc(String(blisterEach))}</td>
-              <td style="${tdC};font-size:8.5px;">${esc(String(blisterTotal))}</td>
+              <td style="${td};font-size:8.2px;">Blisters</td>
+              <td style="${tdC};font-size:8.2px;">${esc(String(blisterEach))}</td>
+              <td style="${tdC};font-size:8.2px;">${esc(String(blisterTotal))}</td>
             </tr>
             <tr>
-              <td style="${td};font-size:8.5px;">Cartons</td>
-              <td style="${tdC};font-size:8.5px;">${esc(String(cartonEach))}</td>
-              <td style="${tdC};font-size:8.5px;">${esc(String(cartonTotal))}</td>
+              <td style="${td};font-size:8.2px;">Cartons</td>
+              <td style="${tdC};font-size:8.2px;">${esc(String(cartonEach))}</td>
+              <td style="${tdC};font-size:8.2px;">${esc(String(cartonTotal))}</td>
             </tr>
           </tbody>
         </table>
