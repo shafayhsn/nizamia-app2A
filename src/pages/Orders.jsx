@@ -1012,22 +1012,24 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
       const uom  = shortUom(r.unit)
       const cons = parseFloat(r.consump) || 0
       const req  = r.q_qty ? Math.ceil(r.q_qty) : 0
+      const packInfo = r.pack_info || `${r.unit || ''}`
       return `<tr>
         <td style="${td}">${esc(type)}</td>
         <td style="${td}">${esc(r.name || '—')}</td>
         <td style="${td}">${esc(r.shade || '—')}</td>
         <td style="${tdC}">${cons > 0 ? cons.toFixed(2) + ' ' + uom : '—'}</td>
+        <td style="${td};font-size:8.5px;">${esc(packInfo)}</td>
         <td style="${tdR}">${req > 0 ? req.toLocaleString() + ' ' + uom : '—'}</td>
         <td style="${tdC}">${esc(r.po_number || '—')}</td>
         <td style="${tdC}">${esc(r.po_status || '—')}</td>
       </tr>`
     }
-    const stitchRows  = (d.stitchItems  || []).map(trimRow).join('') || `<tr><td style="${tdC}" colspan="7">—</td></tr>`
+    const stitchRows  = (d.stitchItems  || []).map(trimRow).join('') || `<tr><td style="${tdC}" colspan="8">—</td></tr>`
     const packingRows = (d.packingItems || []).map(trimRow).join('')
 
     // grey divider row between stitching and packing
     const dividerRow = packingRows
-      ? `<tr><td colspan="7" style="background:#d1d5db;height:2px;padding:0;border:1px solid #9ca3af;font-size:0;">&nbsp;</td></tr>`
+      ? `<tr><td colspan="8" style="background:#d1d5db;height:2px;padding:0;border:1px solid #9ca3af;font-size:0;">&nbsp;</td></tr>`
       : ''
 
     // ── Embellishment ────────────────────────────────────────────────────────
@@ -1092,13 +1094,13 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
         </table>
 
         <!-- Order Breakdown -->
-        <div style="font-size:10px;font-weight:700;margin-bottom:0.3mm;">Order BreakDown</div>
-        <table style="width:100%;border-collapse:collapse;table-layout:auto;margin-bottom:1mm;">
+        <div style="font-size:10px;font-weight:700;margin-bottom:0.5mm;margin-top:1mm;">Order BreakDown</div>
+        <table style="width:100%;border-collapse:collapse;table-layout:auto;margin-bottom:1.5mm;">
           <thead>
             <tr>
-              <th style="${th}${blk}width:20mm;">Size Group</th>
-              <th style="${th}${blk}width:22mm;">Wash / Colour</th>
-              <th style="${th}${blk}width:28mm;text-align:left;padding-left:4px;"></th>
+              <th style="${th}${blk}width:16%;border-right:none;">Size Group</th>
+              <th style="${th}${blk}width:14%;border-left:none;border-right:none;">Wash / Colour</th>
+              <th style="${th}${blk}width:22%;border-left:none;text-align:left;padding-left:8px;"></th>
               ${sizeCols.map(sz => `<th style="${th}${blk}">${esc(sz)}</th>`).join('')}
               <th style="${th}${blk}">Total</th>
             </tr>
@@ -1107,22 +1109,22 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
             <tr>
               <td style="${tdC}" rowspan="4">${esc(d.groupName || '—')}</td>
               <td style="${tdC}" rowspan="4">${esc(d.washName || '—')}</td>
-              <td style="${td};font-weight:700;">Order Quantity</td>
+              <td style="${td};font-weight:700;text-align:left;padding-left:8px;">Order Quantity</td>
               ${sizeCols.map(sz => `<td style="${tdC}">${esc(d.sizeMap[sz] || 0)}</td>`).join('')}
               <td style="${tdC};font-weight:700;">${esc(d.q.qty || 0)}</td>
             </tr>
             <tr>
-              <td style="${td};font-weight:700;">Ratio</td>
+              <td style="${td};font-weight:700;text-align:left;padding-left:8px;">Ratio</td>
               ${sizeCols.map(sz => `<td style="${tdC}">${esc(d.ratioMap[sz] || 0)}</td>`).join('')}
               <td style="${tdC}">${Object.values(d.ratioMap || {}).reduce((s, v) => s + (parseFloat(v) || 0), 0)}</td>
             </tr>
             <tr>
-              <td style="${td};font-weight:700;">Cutting Qty +${esc(d.cuttingPct || 0)}%</td>
+              <td style="${td};font-weight:700;text-align:left;padding-left:8px;">Cutting Qty +${esc(d.cuttingPct || 0)}%</td>
               ${sizeCols.map(sz => `<td style="${tdC}">${Math.round((parseFloat(d.sizeMap[sz]) || 0) * (1 + (parseFloat(d.cuttingPct) || 0) / 100))}</td>`).join('')}
               <td style="${tdC};font-weight:700;">${Math.ceil(d.cuttingQty || 0)}</td>
             </tr>
             <tr>
-              <td style="${td};color:#666;">Zipper Usage/Size</td>
+              <td style="${td};color:#666;text-align:left;padding-left:8px;">Zipper Usage/Size</td>
               ${sizeCols.map(() => `<td style="${tdC}"></td>`).join('')}
               <td style="${tdC}"></td>
             </tr>
@@ -1141,7 +1143,7 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
         <!-- Trims: Stitching + grey divider + Packing -->
         <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:1mm;">
           <thead>
-            <tr>${['Type', 'Item', 'Shade', 'Consump', 'Req', 'PO#', 'Status'].map(h => `<th style="${th}${blk}">${h}</th>`).join('')}</tr>
+            <tr>${['Type', 'Item', 'Shade', 'Consump', 'Pack', 'Req', 'PO#', 'Status'].map(h => `<th style="${th}${blk}">${h}</th>`).join('')}</tr>
           </thead>
           <tbody>
             ${stitchRows}
@@ -1150,12 +1152,11 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
           </tbody>
         </table>
 
-        <!-- Footer 4-box row -->
-        <div style="font-size:9px;margin-bottom:1mm;margin-top:1mm;">
-          <div style="display:flex;justify-content:space-between;margin-bottom:1mm;">
-            <div style="font-weight:700;">Factory Ref</div>
-            <div>${esc(d.ord.style_number || '—')} - ${esc(d.ord.store_name || '—')}</div>
-          </div>
+        <!-- Factory Ref + Footer 4-box row -->
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:1.5mm;margin-bottom:0.5mm;">
+          <div style="font-size:10px;font-weight:700;">Embellishment &amp; Decoration</div>
+          <div style="font-size:9px;font-weight:600;">Factory Ref</div>
+          <div style="font-size:9px;">${esc(d.ord.style_number || '—')} - ${esc(d.ord.store_name || '—')}</div>
         </div>
         <table style="width:100%;border-collapse:collapse;margin-top:0.5mm;">
           <colgroup>
@@ -1179,19 +1180,19 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
               <td style="${td};vertical-align:top;font-size:8.5px;height:16mm;" rowspan="3">${embText}</td>
               <td style="${td};vertical-align:top;height:16mm;" rowspan="3">
                 <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px;">
-                  <input type="checkbox" style="width:10px;height:10px;margin:0;cursor:pointer;" />
+                  <div style="width:10px;height:10px;border:1px solid #000;flex-shrink:0;"></div>
                   <span style="font-size:8.5px;">Solid Pack</span>
                 </div>
                 <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px;">
-                  <input type="checkbox" style="width:10px;height:10px;margin:0;cursor:pointer;" />
+                  <div style="width:10px;height:10px;border:1px solid #000;flex-shrink:0;"></div>
                   <span style="font-size:8.5px;">Ratio Pack</span>
                 </div>
-                <div style="display:flex;align-items:center;gap:4px;">
-                  <input type="checkbox" style="width:10px;height:10px;margin:0;cursor:pointer;" />
+                <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px;">
+                  <div style="width:10px;height:10px;border:1px solid #000;flex-shrink:0;"></div>
                   <span style="font-size:8.5px;">Flat Pack</span>
                 </div>
-                <div style="display:flex;align-items:center;gap:4px;margin-top:3px;">
-                  <input type="checkbox" style="width:10px;height:10px;margin:0;cursor:pointer;" />
+                <div style="display:flex;align-items:center;gap:4px;">
+                  <div style="width:10px;height:10px;border:1px solid #000;flex-shrink:0;"></div>
                   <span style="font-size:8.5px;">Hanger Pack</span>
                 </div>
               </td>
