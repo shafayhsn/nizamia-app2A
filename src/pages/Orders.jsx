@@ -981,8 +981,8 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
     const qRef     = d.q.q_number || 'Queued'
     const sizeCols = (d.sizeOrder || []).filter(sz => (d.sizeMap[sz] || 0) > 0)
 
-    const th  = 'border:1px solid #000;padding:2.4px 4px;font-size:8.9px;font-weight:800;text-align:center;vertical-align:middle;white-space:nowrap;line-height:1.18;'
-    const td  = 'border:1px solid #000;padding:2.35px 4px;font-size:8.75px;vertical-align:middle;line-height:1.18;'
+    const th  = 'border:1px solid #000;padding:2.7px 4px;font-size:9.15px;font-weight:800;text-align:center;vertical-align:middle;white-space:nowrap;line-height:1.22;'
+    const td  = 'border:1px solid #000;padding:2.65px 4px;font-size:9px;vertical-align:middle;line-height:1.22;'
     const tdC = td + 'text-align:center;'
     const tdR = td + 'text-align:right;'
     const blk = 'background:#000;color:#fff;letter-spacing:1.5px;text-transform:uppercase;'
@@ -1066,7 +1066,7 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
     }
     const stitchRows  = (d.stitchItems  || []).map(trimRow).join('') || `<tr><td style="${tdC}" colspan="8">—</td></tr>`
     const packingRows = (d.packingItems || []).map(trimRow).join('')
-    const dividerRow = packingRows ? `<tr><td colspan="8" style="background:#d7d7d7;height:2px;padding:0;border:1px solid #999;font-size:0;">&nbsp;</td></tr>` : ''
+    const dividerRow = packingRows ? `<tr><td colspan="8" style="background:#cfcfcf;height:5px;padding:0;border:1px solid #777;font-size:0;line-height:0;">&nbsp;</td></tr>` : ''
 
     const embText = (d.embItems || []).length > 0
       ? (d.embItems).map(e => {
@@ -1089,7 +1089,7 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
     return `
       <div style="width:210mm;height:297mm;padding:5mm 4mm 4mm 4mm;font-family:Arial,sans-serif;color:#000;background:#fff;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;gap:1mm;">
 
-        <div style="display:flex;justify-content:space-between;font-size:7.9px;color:#333;">
+        <div style="display:flex;justify-content:space-between;font-size:8.1px;color:#333;">
           <div>Document Ref#IOS-${esc(qRef)}</div>
           <div>Date Created: ${esc(nowStr)}</div>
           <div>Username: admin</div>
@@ -1101,7 +1101,7 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
             <div style="font-size:8px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;">Internal Order Sheet</div>
           </div>
           <div style="display:flex;justify-content:center;">
-            <div style="border:2px solid #000;border-radius:50%;width:13mm;height:13mm;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;">IOS</div>
+            <div style="background:#000;color:#fff;border:2px solid #000;border-radius:50%;width:13mm;height:13mm;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;">IOS</div>
           </div>
           <div style="text-align:right;font-size:24px;font-weight:900;line-height:1;">${esc(qRef)}</div>
         </div>
@@ -1117,26 +1117,26 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
             <col style="width:18%"/>
           </colgroup>
           <tr>
-            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.4px;font-weight:700;">Brand</td>
-            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.4px;font-weight:700;">Style Ne</td>
-            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.4px;font-weight:700;">Fit Name</td>
-            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.4px;font-weight:700;">PO#</td>
-            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.4px;font-weight:700;">Factory Ref</td>
-            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.4px;font-weight:700;">Store</td>
-            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.4px;font-weight:700;">Ship Date</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.7px;font-weight:700;">Brand</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.7px;font-weight:700;">Style Ne</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.7px;font-weight:700;">Fit Name</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.7px;font-weight:700;">PO#</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.7px;font-weight:700;">Factory Ref</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.7px;font-weight:700;">Store</td>
+            <td style="border:none;padding:0 2px 0.5mm 0;font-size:8.7px;font-weight:700;">Ship Date</td>
           </tr>
           <tr>
-            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;font-weight:700;white-space:nowrap;">${esc(d.ord.brand_name || '—')}</td>
-            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(d.ord.style_number || '—')}</td>
-            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(d.fitName || '—')}</td>
-            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(d.ord.po_number || '—')}</td>
-            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(factoryRef)}</td>
-            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(d.ord.store_name || '—')}</td>
-            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(fmtDate(d.ord.ship_date))}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:10px;font-weight:700;white-space:nowrap;">${esc(d.ord.brand_name || '—')}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:10px;white-space:nowrap;">${esc(d.ord.style_number || '—')}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:10px;white-space:nowrap;">${esc(d.fitName || '—')}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:10px;white-space:nowrap;">${esc(d.ord.po_number || '—')}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:10px;white-space:nowrap;">${esc(factoryRef)}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:10px;white-space:nowrap;">${esc(d.ord.store_name || '—')}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:10px;white-space:nowrap;">${esc(fmtDate(d.ord.ship_date))}</td>
           </tr>
         </table>
 
-        <div style="font-size:10.4px;font-weight:800;margin-bottom:0.6mm;">Order BreakDown</div>
+        <div style="font-size:10.8px;font-weight:800;margin-bottom:0.7mm;">Order BreakDown</div>
         <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:1mm;">
           <colgroup>
             <col style="width:16%"/>
@@ -1178,7 +1178,7 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
           </tbody>
         </table>
 
-        <div style="font-size:10.4px;font-weight:800;margin-bottom:0.6mm;">Materials &amp; Trims Requirements</div>
+        <div style="font-size:10.8px;font-weight:800;margin-bottom:0.7mm;">Materials &amp; Trims Requirements</div>
         <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:0.8mm;">
           <colgroup>
             <col style="width:13%"/>
@@ -1216,7 +1216,7 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
           </tbody>
         </table>
 
-        <table style="width:100%;border-collapse:collapse;margin-top:2mm;table-layout:fixed;">
+        <table style="width:100%;border-collapse:collapse;margin-top:auto;table-layout:fixed;">
           <colgroup>
             <col style="width:37%"/>
             <col style="width:19%"/>
@@ -1235,12 +1235,12 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
           </thead>
           <tbody>
             <tr>
-              <td style="${td};vertical-align:top;font-size:8.2px;height:16mm;" rowspan="3">${embText}</td>
+              <td style="${td};vertical-align:top;font-size:8.6px;height:16mm;" rowspan="3">${embText}</td>
               <td style="${td};vertical-align:top;height:16mm;" rowspan="3">
-                <div style="display:flex;align-items:center;gap:3px;margin-bottom:3px;"><div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div><span style="font-size:8.2px;">Solid Pack</span></div>
-                <div style="display:flex;align-items:center;gap:3px;margin-bottom:3px;"><div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div><span style="font-size:8.2px;">Ratio Pack</span></div>
-                <div style="display:flex;align-items:center;gap:3px;margin-bottom:3px;"><div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div><span style="font-size:8.2px;">Flat Pack</span></div>
-                <div style="display:flex;align-items:center;gap:3px;"><div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div><span style="font-size:8.2px;">Hanger Pack</span></div>
+                <div style="display:flex;align-items:center;gap:3px;margin-bottom:3px;"><div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div><span style="font-size:8.6px;">Solid Pack</span></div>
+                <div style="display:flex;align-items:center;gap:3px;margin-bottom:3px;"><div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div><span style="font-size:8.6px;">Ratio Pack</span></div>
+                <div style="display:flex;align-items:center;gap:3px;margin-bottom:3px;"><div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div><span style="font-size:8.6px;">Flat Pack</span></div>
+                <div style="display:flex;align-items:center;gap:3px;"><div style="width:9px;height:9px;border:1px solid #000;flex-shrink:0;"></div><span style="font-size:8.6px;">Hanger Pack</span></div>
               </td>
               <th style="${th}">Type</th>
               <th style="${th}">Each</th>
@@ -1248,14 +1248,14 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
               <td style="${td};vertical-align:top;height:16mm;" rowspan="3">&nbsp;</td>
             </tr>
             <tr>
-              <td style="${td};font-size:8.2px;">Blisters</td>
-              <td style="${tdC};font-size:8.2px;">${esc(String(blisterEach))}</td>
-              <td style="${tdC};font-size:8.2px;">${esc(String(blisterTotal))}</td>
+              <td style="${td};font-size:8.6px;">Blisters</td>
+              <td style="${tdC};font-size:8.6px;">${esc(String(blisterEach))}</td>
+              <td style="${tdC};font-size:8.6px;">${esc(String(blisterTotal))}</td>
             </tr>
             <tr>
-              <td style="${td};font-size:8.2px;">Cartons</td>
-              <td style="${tdC};font-size:8.2px;">${esc(String(cartonEach))}</td>
-              <td style="${tdC};font-size:8.2px;">${esc(String(cartonTotal))}</td>
+              <td style="${td};font-size:8.6px;">Cartons</td>
+              <td style="${tdC};font-size:8.6px;">${esc(String(cartonEach))}</td>
+              <td style="${tdC};font-size:8.6px;">${esc(String(cartonTotal))}</td>
             </tr>
           </tbody>
         </table>
