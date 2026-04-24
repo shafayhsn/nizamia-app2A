@@ -21,6 +21,15 @@ function queueRef(q) {
   return q?.q_number || q?.id || q?.label || null
 }
 
+
+function normalizeUsageData(ud) {
+  if (!ud) return {}
+  if (typeof ud === 'string') {
+    try { return JSON.parse(ud) } catch (e) { return {} }
+  }
+  return ud
+}
+
 // ── Assign Job Modal ──────────────────────────────────────────────────────────
 function AssignJobModal({ selectedOrders, onClose, onDone }) {
   const [jobs, setJobs]             = useState([])
@@ -993,7 +1002,7 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
 
     const titleCase = (v) => String(v || '').replace(/(^|\s|\/|-)([a-z])/g, (_, a, b) => `${a}${b.toUpperCase()}`)
     const normalizePackMeta = (raw) => {
-      const ud = normalizeUD(raw)
+      const ud = normalizeUsageData(raw)
       const perPack = parseFloat(ud?._packing_qty ?? ud?.packing_qty ?? ud?.pack_qty ?? ud?.qty_per_pack ?? ud?.per_pack_qty ?? 0)
       const packUnit = String(ud?._packing_unit ?? ud?.packing_unit ?? ud?.pack_unit ?? ud?.req_unit ?? '').trim()
       const itemUnit = shortUom(ud?._packing_base_unit || ud?.base_unit || ud?.consump_unit || ud?.uom || '')
