@@ -981,8 +981,8 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
     const qRef     = d.q.q_number || 'Queued'
     const sizeCols = (d.sizeOrder || []).filter(sz => (d.sizeMap[sz] || 0) > 0)
 
-    const th  = 'border:1px solid #000;padding:2px 4px;font-size:8.4px;font-weight:700;text-align:center;vertical-align:middle;white-space:nowrap;line-height:1.15;'
-    const td  = 'border:1px solid #000;padding:2px 4px;font-size:8.3px;vertical-align:middle;line-height:1.15;'
+    const th  = 'border:1px solid #000;padding:2.4px 4px;font-size:8.9px;font-weight:800;text-align:center;vertical-align:middle;white-space:nowrap;line-height:1.18;'
+    const td  = 'border:1px solid #000;padding:2.35px 4px;font-size:8.75px;vertical-align:middle;line-height:1.18;'
     const tdC = td + 'text-align:center;'
     const tdR = td + 'text-align:right;'
     const blk = 'background:#000;color:#fff;letter-spacing:1.5px;text-transform:uppercase;'
@@ -1014,15 +1014,16 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
       const numeratorUnit = preferConsumpUnit ? shortUom(item?.unit) : (meta.itemUnit || shortUom(item?.unit))
       const left = Number.isInteger(meta.perPack) ? String(Math.trunc(meta.perPack)) : meta.perPack.toFixed(2).replace(/\.00$/, '')
       const right = meta.packUnit || 'pack'
-      return `${left}${numeratorUnit ? numeratorUnit : ''}/${right}`
+      return `${left}${numeratorUnit ? ` ${numeratorUnit}` : ''}/${right}`
     }
     const formatPackRequirement = (item) => {
       const req = parseFloat(item?.q_qty) || 0
       const meta = normalizePackMeta(item?.usage_data)
       if (meta.perPack > 0) {
         const packs = Math.ceil(req / meta.perPack)
-        const label = titleCase(meta.packUnit || 'packs')
-        return packs > 0 ? `${packs.toLocaleString()} ${label}${packs === 1 ? '' : 's'}` : '—'
+        const baseLabel = String(meta.packUnit || 'pack').trim().toLowerCase().replace(/s$/, '')
+        const label = packs === 1 ? baseLabel : `${baseLabel}s`
+        return packs > 0 ? `${packs.toLocaleString()} ${label}` : '—'
       }
       const uom = shortUom(item?.unit)
       return req > 0 ? `${Math.ceil(req).toLocaleString()} ${uom}` : '—'
@@ -1083,6 +1084,7 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
       day: '2-digit', month: '2-digit', year: '2-digit',
       hour: 'numeric', minute: '2-digit', hour12: true,
     }).replace(',', ' -')
+    const factoryRef = (d.ord.factory_ref || '').trim() || [d.ord.style_number, d.ord.store_name].filter(Boolean).join(' -') || '—'
 
     return `
       <div style="width:210mm;height:297mm;padding:5mm 4mm 4mm 4mm;font-family:Arial,sans-serif;color:#000;background:#fff;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;gap:1mm;">
@@ -1128,13 +1130,13 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
             <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(d.ord.style_number || '—')}</td>
             <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(d.fitName || '—')}</td>
             <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(d.ord.po_number || '—')}</td>
-            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(d.ord.factory_ref || '—')}</td>
+            <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(factoryRef)}</td>
             <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(d.ord.store_name || '—')}</td>
             <td style="border:none;padding:0 2px 1.2mm 0;font-size:9.8px;white-space:nowrap;">${esc(fmtDate(d.ord.ship_date))}</td>
           </tr>
         </table>
 
-        <div style="font-size:9.6px;font-weight:700;margin-bottom:0.3mm;">Order BreakDown</div>
+        <div style="font-size:10.4px;font-weight:800;margin-bottom:0.6mm;">Order BreakDown</div>
         <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:1mm;">
           <colgroup>
             <col style="width:16%"/>
@@ -1145,16 +1147,16 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
           </colgroup>
           <thead>
             <tr>
-              <th style="${th}${blk}" colspan="2">SIZE GROUP</th>
-              <th style="${th}${blk}">WASH / COLOUR</th>
+              <th style="${th}${blk}" colspan="2">SIZE GROUP / WASH</th>
+              <th style="${th}${blk}">DETAILS</th>
               ${sizeCols.map(sz => `<th style="${th}${blk}">${esc(sz)}</th>`).join('')}
               <th style="${th}${blk}">TOTAL</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td style="${tdC}" rowspan="4" colspan="2">${esc(d.groupName || '—')}</td>
-              <td style="${td};font-weight:700;white-space:nowrap;">${esc(d.washName || '—')}</td>
+              <td style="${tdC};font-weight:500;" rowspan="4" colspan="2">${esc(d.groupName || d.washName || '—')}</td>
+              <td style="${td};font-weight:700;white-space:nowrap;">Order Quantity</td>
               ${sizeCols.map(sz => `<td style="${tdC}">${esc(d.sizeMap[sz] || 0)}</td>`).join('')}
               <td style="${tdC};font-weight:700;">${esc(d.q.qty || 0)}</td>
             </tr>
@@ -1176,15 +1178,15 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
           </tbody>
         </table>
 
-        <div style="font-size:9.6px;font-weight:700;margin-bottom:0.3mm;">Materials &amp; Trims Requirements</div>
+        <div style="font-size:10.4px;font-weight:800;margin-bottom:0.6mm;">Materials &amp; Trims Requirements</div>
         <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:0.8mm;">
           <colgroup>
-            <col style="width:14%"/>
-            <col style="width:14%"/>
-            <col style="width:27%"/>
-            <col style="width:14%"/>
-            <col style="width:9%"/>
+            <col style="width:13%"/>
+            <col style="width:16%"/>
+            <col style="width:31%"/>
             <col style="width:11%"/>
+            <col style="width:8%"/>
+            <col style="width:10%"/>
             <col style="width:11%"/>
           </colgroup>
           <thead>
@@ -1195,11 +1197,11 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
 
         <table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:1mm;">
           <colgroup>
+            <col style="width:10%"/>
             <col style="width:12%"/>
-            <col style="width:12%"/>
-            <col style="width:23%"/>
-            <col style="width:12%"/>
-            <col style="width:12%"/>
+            <col style="width:25%"/>
+            <col style="width:11%"/>
+            <col style="width:13%"/>
             <col style="width:13%"/>
             <col style="width:8%"/>
             <col style="width:8%"/>
@@ -1214,7 +1216,7 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
           </tbody>
         </table>
 
-        <table style="width:100%;border-collapse:collapse;margin-top:auto;table-layout:fixed;">
+        <table style="width:100%;border-collapse:collapse;margin-top:2mm;table-layout:fixed;">
           <colgroup>
             <col style="width:37%"/>
             <col style="width:19%"/>
@@ -1243,7 +1245,7 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
               <th style="${th}">Type</th>
               <th style="${th}">Each</th>
               <th style="${th}">Total</th>
-              <td style="${td};vertical-align:top;height:16mm;" rowspan="3">${esc(d.ord.style_number || '—')} - ${esc(d.ord.store_name || '—')}</td>
+              <td style="${td};vertical-align:top;height:16mm;" rowspan="3">&nbsp;</td>
             </tr>
             <tr>
               <td style="${td};font-size:8.2px;">Blisters</td>
