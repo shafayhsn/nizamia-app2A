@@ -1,2 +1,0 @@
-F5 parent trim rows are print-safe grey (#e6e6e6).
-F6 Orders view preferences persist in localStorage key app2a.orders.viewPrefs.
