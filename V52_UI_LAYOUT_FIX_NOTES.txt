@@ -1,0 +1,1 @@
+V52 UI layout fix: Orders page as master reference; Queue KPI height normalized; Export icon-only; page/tab heading tokens locked; Parcels/Sampling white background; Windows Chrome viewport zoom normalizer; sidebar width/scroll containment fixed. Workflows and placements preserved.
