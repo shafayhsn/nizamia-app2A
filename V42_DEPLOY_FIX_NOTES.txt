@@ -1,0 +1,14 @@
+App-2A v42 Deploy Fix
+
+This build is based on v41 working source and cleans Vercel dependency install:
+- package-lock.json removed because previous lock was resolving Rollup from an internal OpenAI registry URL and caused Vercel timeouts.
+- .npmrc forces public npm registry.
+- vercel.json uses npm install --no-audit --no-fund --prefer-online.
+
+Queue report actions are retained in Orders/Queue workflow:
+- Internal Order Sheet (IOS)
+- Fabric Demand / Program
+- Cutting Plan / Program
+- Trims Demand / Program
+
+No DB changes.

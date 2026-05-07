@@ -1,0 +1,19 @@
+App-2A V49 UI Governance Build
+
+Base: V48
+Scope applied:
+- Orders page used as global visual baseline
+- Typography governance added in src/index.css
+- Helvetica reserved for true page/section headings and major hierarchy
+- Fira Sans enforced for body/UI/table/forms/buttons
+- Heavy font weights reduced globally to calmer enterprise weights
+- Table density normalized across modules
+- Page padding/gap system normalized for consistent screen-size behavior
+- Empty-state whitespace reduced to avoid airy/disconnected module feel
+- Button typography normalized without moving buttons or changing workflow logic
+- No status color overhaul
+- No workflow/routing/business logic changes
+- No button placement changes
+
+Important:
+This build is intentionally CSS-governed so App-2A keeps user familiarity while improving visual consistency.
