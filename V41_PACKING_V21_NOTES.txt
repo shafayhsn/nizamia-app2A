@@ -1,0 +1,16 @@
+App-2A v41 Packing v2.1
+
+Included:
+- Packing preview still generated from Finishing config.
+- Manual carton range column retained and editable.
+- Auto-fill CTN helper added for sequential carton suggestions.
+- Configure Fields retained for show/hide/reorder/label changes.
+- Excel export now creates 3 sheets:
+  1) Operational Packing: buyer-style/yellow format foundation with PO/style blocks, CTN NO, ratio columns, TTL CTN, TTL QTY, weights, CBM.
+  2) Commercial Packing: clean official packing list foundation.
+  3) Editable Snapshot: current preview table based on configured visible fields.
+- Ratio values continue to pull from PO Matrix.
+- Build check passed: npm run build.
+
+DB changes:
+- None required for v41.
