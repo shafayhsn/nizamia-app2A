@@ -1,6 +1,0 @@
-V54 Font Weight Governance
-- Removed accidental 800/900 app UI font weights.
-- Capped bold weight at 700 for Windows/Mac consistency.
-- Preserved V52 layout stability and V53 viewport-fit behavior.
-- Standardized buttons, tabs, table headers, and global bold behavior.
-- No workflow, placement, routing, business logic, or data behavior changes.
