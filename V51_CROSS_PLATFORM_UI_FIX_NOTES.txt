@@ -1,0 +1,20 @@
+App-2A V51 — Cross-Platform UI Stability Fix
+
+Applied safely without changing workflows, business logic, or button placements.
+
+Included:
+- Switched UI font system to Inter-based cross-platform stack to reduce Mac/Windows rendering mismatch.
+- Added explicit font smoothing, font synthesis control, tabular numbers, and global typography restraint.
+- Reduced overly heavy inline font weights globally so text is calmer and more professional.
+- Fixed sidebar width mismatch: component now uses the global sidebar width token instead of hardcoded 200px.
+- Fixed sidebar vertical containment: nav section now scrolls independently while bottom tools/user panel stays pinned.
+- Added sidebar text ellipsis handling to prevent label clipping on Windows.
+- Normalized nav item font size/weight and table line-height for Windows/Mac consistency.
+- Preserved Orders page as visual reference direction.
+
+Not changed:
+- No workflow changes.
+- No button placement changes.
+- No status color changes.
+- No business logic changes.
+- No database schema changes.
