@@ -1,0 +1,11 @@
+F7 — Deadlines & Tracker Calendar
+
+Implemented:
+- Sidebar footer calendar icon opens Apple-style calendar popup.
+- Calendar is read-only and pulls deadline/date events from existing Supabase records.
+- Event categories include Orders, Purchasing PO, Work Orders, Shipping, Sampling, and Queues/Production.
+- Overdue dates are highlighted in red.
+- Clicking an event opens the related app section.
+- Topbar bell now opens notification center showing overdue and next-24-hour events.
+
+No new server tables were added. This is a read-only tracker generated from existing app data.
