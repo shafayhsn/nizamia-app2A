@@ -1,0 +1,23 @@
+App-2A V55 — True Vertical Responsive Fit
+
+Applied from V54 base.
+
+Purpose:
+- Fix screen-height responsiveness so Windows Chrome does not require zooming out to see the same ERP layout.
+- Preserve Orders-page visual standard and all V54 font-weight governance.
+
+Changes:
+- Added real viewport-height detection with normal / short / tight modes.
+- App shell now uses 100dvh and real browser viewport height.
+- Main content uses min-height:0 flex containment to prevent hidden vertical overflow.
+- Page content now fits available height and scrolls internally.
+- Tables get internal scrolling and sticky headers instead of forcing browser/page overflow.
+- Sidebar gets full-height containment, independent nav scroll, and fixed bottom panel.
+- Short/tight screen modes reduce only vertical padding, row padding, KPI height, and excess header space.
+- Removed unsafe Windows-only zoom override for height stability.
+
+Not changed:
+- No workflow changes.
+- No button placement changes.
+- No business logic changes.
+- No database changes.
