@@ -90,10 +90,10 @@ table thead th { font-size: 10px !important; font-weight: 600 !important; }
   --info-border: #BAE6FD;
 
   /* ===== BACKGROUND COLORS ===== */
-  --bg-primary: #fafafa;
-  --bg-secondary: #f5f5f5;
-  --bg-tertiary: #f0f0f0;
-  --bg-hover: #f5f5f5;
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #F9FAFB;
+  --bg-tertiary: #F3F4F6;
+  --bg-hover: #F8FAFC;
   --bg-input: #FFFFFF;
   --bg-card: #FFFFFF;
 
