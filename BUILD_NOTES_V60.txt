@@ -1,0 +1,45 @@
+App-2A V60 — Full Action Engine Coverage Pass
+
+Purpose:
+- Correct V58/V59 scope issue where action engine was not visible on every important table/tab.
+- Keep the app precise and not overdesigned.
+- No extra floating action bar added.
+- No bulk Delete action added; unsafe delete was removed from Shipping Shipments toolbar.
+
+Covered / tightened in this pass:
+1. Orders > Buyer Purchase Orders
+   - Existing multi-select / select filtered / archive / duplicate / print / export kept.
+2. Orders > Queues
+   - Added visible Multi-select control in existing action area.
+   - Added Select Filtered / Clear.
+   - Row checkboxes now appear only when multi-select is enabled.
+   - Existing Queue actions remain: Export, Print Reports, Activate Queue, Reset Queue.
+3. Shipping > Create Shipment
+   - Added Multi-select in existing action area.
+   - Added Select Filtered / Clear.
+   - Row checkboxes now appear only when multi-select is enabled.
+4. Shipping > Shipments
+   - Added Multi-select in existing action area.
+   - Added Select Filtered / Clear.
+   - Removed unsafe Delete selected action from toolbar.
+   - Print / Export / Edit remain.
+5. Shipping > Payments
+   - Added Multi-select in existing action area.
+   - Added Select Filtered / Clear.
+   - Row checkboxes now appear only when multi-select is enabled.
+6. Sampling & Approvals
+   - Added Multi-select in existing action area.
+   - Added Select Filtered / Clear.
+   - Row checkboxes now appear only when multi-select is enabled.
+7. Parcels
+   - Added Multi-select in existing action area.
+   - Added Select Filtered / Clear.
+   - Row checkboxes now appear only when multi-select is enabled.
+8. Existing V59 coverage retained
+   - Buyers
+   - Suppliers
+   - Library tabs
+   - Purchasing PO / WO tabs
+
+Build:
+- npm run build completed successfully.
