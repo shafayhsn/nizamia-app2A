@@ -1,0 +1,1 @@
+Phase 11.1 TEST: factory_ref added to Orders select for Sampling Program; piece-unit Required print quantities rounded upward without altering underlying BOM; print user resolved from Supabase auth; fixed-position print footer with reserved page margin. Browser multipage/footer/page-number behavior must be verified. No database changes.
