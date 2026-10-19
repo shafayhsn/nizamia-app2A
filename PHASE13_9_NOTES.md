@@ -1,1 +1,0 @@
-Phase 13.9 test candidate. Inline settlement table fields, compact expandable receipt/discount histories, Orders-height toolbar controls. No Supabase changes. Production build NOT verified; do not deploy live without staging testing. Historical settlements remain unchanged.
