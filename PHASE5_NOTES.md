@@ -1,0 +1,1 @@
+Phase 5 test checkpoint: Library Size Groups and Fabric/Stitching/Packing item editors use shared MinimizableModal; Library stays mounted inside existing main content column for cross-page persistence. Trim Package popup and other dialogs not yet migrated. Browser/build not verified.

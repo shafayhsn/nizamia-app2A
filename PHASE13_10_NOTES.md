@@ -1,0 +1,1 @@
+Phase 13.10 test build: count-based Payments KPIs; shared grouped toolbar borders; styled multi-status actions and dropdown layering; inline settlement totals in fixed footer; tax/rebate expected amounts based on actual PKR buyer bank credits. No database migration or live data updates. Verify against staging before production.
