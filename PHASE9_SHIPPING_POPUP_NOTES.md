@@ -1,0 +1,1 @@
+Phase 9 checkpoint based on user-tested Phase 8. Adds shared tray minimize/close to New/Edit Shipment and Record/Edit Past Shipment. Shipping remains mounted on navigation to retain form state. Not compiled or browser tested. Payment settlement and other dialogs not yet converted.
