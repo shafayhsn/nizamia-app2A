@@ -127,7 +127,7 @@ export default function Dashboard() {
   shipments.forEach(sh=>{
     let historical = {}
     try {
-      const match = String(sh.notes||'').match(/\\[\\[APP2A_SHIPPING_META:([^\\]]+)\\]\\]/)
+      const match = String(sh.notes||'').match(/\[\[APP2A_SHIPPING_META:([A-Za-z0-9+/=]+)\]\]/)
       historical = match ? (JSON.parse(atob(match[1])).historical || {}) : (JSON.parse(sh.notes||'{}').historical || {})
     } catch {}
     const dateString = sh.etd || historical.etd || sh.shipment_date
