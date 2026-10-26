@@ -19,6 +19,8 @@ export default function Dashboard() {
   const [shipments, setShipments] = useState([])
   const [shipmentLines, setShipmentLines] = useState([])
   const [chartYear, setChartYear] = useState(new Date().getFullYear())
+  const [otdPeriod,setOtdPeriod] = useState('year')
+  const [buyerPeriod,setBuyerPeriod] = useState('year')
   const [dataError, setDataError] = useState('')
   const navigate = useNavigate()
 
@@ -51,16 +53,27 @@ export default function Dashboard() {
   const totalQty = active.reduce((sum,o)=>sum+(Number(o.total_qty)||0),0)
   const totalValue = active.reduce((sum,o)=>sum+(Number(o.total_value_usd)||0),0)
 
-  // Top buyers
+  const inPeriod=(value,period)=>{
+    if(!value)return false
+    const d=new Date(String(value).slice(0,10)+'T12:00:00')
+    if(isNaN(d))return false
+    if(period==='all')return true
+    if(period==='last')return d.getFullYear()===today.getFullYear()-1
+    if(d.getFullYear()!==today.getFullYear())return false
+    if(period==='month')return d.getMonth()===today.getMonth()
+    if(period==='quarter')return Math.floor(d.getMonth()/3)===Math.floor(today.getMonth()/3)
+    return true
+  }
+  const periodSelect=(value,onChange)=><select value={value} onChange={e=>onChange(e.target.value)} style={{border:'1px solid var(--border)',borderRadius:6,padding:'4px 5px',fontSize:10,background:'#fff',maxWidth:105}}>
+    <option value="month">This Month</option><option value="quarter">This Quarter</option><option value="year">This Year</option><option value="last">Last Year</option><option value="all">All Time</option>
+  </select>
   const buyerMap = {}
-  active.forEach(o => {
-    if (!o.buyer_name) return
-    buyerMap[o.buyer_name] = (buyerMap[o.buyer_name] || 0) + (parseFloat(o.total_value_usd) || 0)
+  orders.filter(o=>o.status!=='Cancelled' && inPeriod(o.po_date,buyerPeriod)).forEach(o=>{
+    if(!o.buyer_name)return
+    buyerMap[o.buyer_name]=(buyerMap[o.buyer_name]||0)+(Number(o.total_value_usd)||0)
   })
-  const topBuyers = Object.entries(buyerMap).sort((a, b) => b[1] - a[1]).slice(0, 5)
-  const maxBuyerVal = topBuyers[0]?.[1] || 1
-
-  const recentOrders = [...orders].sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||''))).slice(0,8)
+  const topBuyers=Object.entries(buyerMap).sort((a,b)=>b[1]-a[1]).slice(0,5)
+  const maxBuyerVal=topBuyers[0]?.[1]||1
 
   function fmtDate(d) { return appFormatDate(d) }
   function dateColor(d) {
@@ -152,7 +165,7 @@ export default function Dashboard() {
   const chartPath=chartPoints.map((p,i)=>(i?'L':'M')+p.x+' '+p.y).join(' ')
 
   return (
-    <div style={{ padding: '20px 28px', overflowY: 'auto', height: '100%' }}>
+    <div style={{ padding: '20px 28px', overflowY: 'hidden', height: '100%', display:'flex', flexDirection:'column', boxSizing:'border-box' }}>
 
       {/* Greeting */}
       <div style={{ marginBottom: 18 }}>
@@ -208,10 +221,10 @@ export default function Dashboard() {
       </div>
 
       {/* Charts row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 220px 220px', gap: 14, marginBottom: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 220px 220px', gap: 14, marginBottom: 0, flex:'1 1 0', minHeight:0 }}>
 
         {/* Monthly shipped quantity */}
-        <div style={{background:'#fff',border:'1px solid var(--border)',borderRadius:10,padding:'16px 20px',minWidth:0}}>
+        <div style={{background:'#fff',border:'1px solid var(--border)',borderRadius:10,padding:'16px 20px',minWidth:0,display:'flex',flexDirection:'column'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,marginBottom:12}}>
             <div style={{display:'flex',alignItems:'center',gap:16,flexWrap:'wrap'}}>
               <span style={{fontSize:10,fontWeight:700,color:'var(--text-light)',textTransform:'uppercase',letterSpacing:'.7px'}}>Monthly Shipped Quantity</span>
@@ -223,8 +236,8 @@ export default function Dashboard() {
             </select>
           </div>
           {loading?<div style={{height:150,display:'grid',placeItems:'center',fontSize:12,color:'var(--text-light)'}}>Loading shipments…</div>:
-          <div style={{position:'relative',height:154}}>
-            <div style={{display:'flex',height:130,alignItems:'flex-end',gap:8}}>
+          <div style={{position:'relative',height:'100%',minHeight:140,flex:1}}>
+            <div style={{display:'flex',height:'calc(100% - 10px)',alignItems:'flex-end',gap:8}}>
               {monthlyShipments.map(d=>{
                 const closed=isClosedMonth(d.month)
                 const total=closed?d.actual:d.actual+d.remaining
@@ -242,11 +255,13 @@ export default function Dashboard() {
 
         {/* OTD donut */}
         <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '16px' }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.7px', marginBottom: 12 }}>
-            On-Time Delivery (OTD)
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:5,marginBottom:12}}>
+            <span style={{fontSize:10,fontWeight:700,color:'var(--text-light)',textTransform:'uppercase'}}>On-Time Delivery (OTD)</span>
+            {periodSelect(otdPeriod,setOtdPeriod)}
           </div>
           {(() => {
-            const onTime = active.length > 0 ? active.length - overdue.length : 0
+            const periodShipments = shipments.filter(sh=>inPeriod(sh.etd || sh.shipment_date,otdPeriod))
+            const onTime = periodShipments.length
             const pct = 0 // Actual on-time delivery requires confirmed shipment dates
             const r = 40, circ = 2 * Math.PI * r
             const dash = (pct / 100) * circ
@@ -283,8 +298,9 @@ export default function Dashboard() {
 
         {/* Top buyers */}
         <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '16px' }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.7px', marginBottom: 12 }}>
-            Top Buyers
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:5,marginBottom:12}}>
+            <span style={{fontSize:10,fontWeight:700,color:'var(--text-light)',textTransform:'uppercase'}}>Top Buyers</span>
+            {periodSelect(buyerPeriod,setBuyerPeriod)}
           </div>
           {topBuyers.length === 0 ? (
             <div style={{ fontSize: 12, color: 'var(--text-light)', textAlign: 'center', padding: '20px 0' }}>No data yet</div>
@@ -307,83 +323,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Recent orders table */}
-      <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.7px' }}>
-            Recent Orders
-          </div>
-          <button onClick={() => navigate('/orders')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 2 }}>
-            See all <ChevronRight size={13} />
-          </button>
-        </div>
-
-        {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-light)', fontSize: 12 }}>Loading...</div>
-        ) : recentOrders.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: 'var(--text-light)' }}>
-            No orders yet.
-            <button className="btn btn-primary" style={{ marginLeft: 12 }} onClick={() => navigate('/orders')}>+ New Order</button>
-          </div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: '#fafafa' }}>
-                {['', 'Job #', 'Buyer', 'Style', 'Season', 'Qty', 'Value (USD)', 'Ex-Factory', 'Status'].map(h => (
-                  <th key={h} style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.4px', padding: '9px 12px', textAlign: 'left', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {recentOrders.map(o => (
-                <tr key={o.id} onClick={() => navigate('/orders')} style={{ cursor: 'pointer' }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
-                  onMouseLeave={e => e.currentTarget.style.background = ''}
-                >
-                  <td style={{ padding: '9px 12px', borderBottom: '1px solid #f9fafb', width: 32 }}>
-                    <div style={{ width: 28, height: 28, background: '#f3f4f6', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Layers size={12} color="#9ca3af" />
-                    </div>
-                  </td>
-                  <td style={{ padding: '9px 12px', borderBottom: '1px solid #f9fafb', fontFamily: 'monospace', fontWeight: 700, fontSize: 12, color: '#1a1a2e', whiteSpace: 'nowrap' }}>
-                    {o.job_number || '—'}
-                  </td>
-                  <td style={{ padding: '9px 12px', borderBottom: '1px solid #f9fafb', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                    {o.buyer_name}
-                  </td>
-                  <td style={{ padding: '9px 12px', borderBottom: '1px solid #f9fafb' }}>
-                    <div style={{ fontSize: 12, fontWeight: 600 }}>{o.style_number}</div>
-                    {o.description && <div style={{ fontSize: 11, color: 'var(--text-light)', marginTop: 1 }}>{o.description}</div>}
-                  </td>
-                  <td style={{ padding: '9px 12px', borderBottom: '1px solid #f9fafb' }}>
-                    {o.season && (
-                      <span style={{ background: '#eff6ff', color: '#3b82f6', fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4 }}>
-                        {o.season}
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ padding: '9px 12px', borderBottom: '1px solid #f9fafb', fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                    {o.total_qty ? o.total_qty.toLocaleString() : '—'}
-                  </td>
-                  <td style={{ padding: '9px 12px', borderBottom: '1px solid #f9fafb', fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                    {o.total_value_usd ? `$${parseFloat(o.total_value_usd).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
-                  </td>
-                  <td style={{ padding: '9px 12px', borderBottom: '1px solid #f9fafb', fontSize: 11, color: dateColor(o.ship_date) || 'var(--text-light)', fontWeight: dateColor(o.ship_date) ? 600 : 400, whiteSpace: 'nowrap' }}>
-                    {fmtDate(o.ship_date)}
-                  </td>
-                  <td style={{ padding: '9px 12px', borderBottom: '1px solid #f9fafb' }}>
-                    <span style={statusBadgeStyle(o.status)}>
-                      {o.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
     </div>
   )
 }
