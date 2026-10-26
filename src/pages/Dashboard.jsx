@@ -16,6 +16,9 @@ export default function Dashboard() {
   const [orders, setOrders]   = useState([])
   const [loading, setLoading] = useState(true)
   const [samples, setSamples] = useState([])
+  const [shipments, setShipments] = useState([])
+  const [shipmentLines, setShipmentLines] = useState([])
+  const [chartYear, setChartYear] = useState(new Date().getFullYear())
   const [dataError, setDataError] = useState('')
   const navigate = useNavigate()
 
@@ -23,13 +26,17 @@ export default function Dashboard() {
 
   async function loadData() {
     setLoading(true)
-    const [orderResult, sampleResult] = await Promise.all([
+    const [orderResult, sampleResult, shipmentResult, lineResult] = await Promise.all([
       supabase.from('orders').select('*').order('created_at', {ascending:false}).range(0, 9999),
-      supabase.from('samples').select('id,order_id,due_date,status,approval_status').range(0,9999)
+      supabase.from('samples').select('id,order_id,due_date,status,approval_status').range(0,9999),
+      supabase.from('shipments').select('id,shipment_date,notes').range(0,9999),
+      supabase.from('shipment_lines').select('shipment_id,order_id,shipped_qty').range(0,9999)
     ])
     setDataError(orderResult.error?.message || sampleResult.error?.message || '')
     setOrders(orderResult.data || [])
     setSamples(sampleResult.data || [])
+    setShipments(shipmentResult.data || [])
+    setShipmentLines(lineResult.data || [])
     setLoading(false)
   }
 
@@ -108,10 +115,35 @@ export default function Dashboard() {
     { label: 'Send Parcel',         primary: false, action: () => {} },
   ]
 
-  // Actual booked order value by PO date. Targets are not stored in this module.
-  const quarters = ['Q1','Q2','Q3','Q4']
-  const qData = quarters.map((q,i)=>({q,actual:orders.filter(o=>o.po_date && new Date(o.po_date).getFullYear()===today.getFullYear() && Math.floor(new Date(o.po_date).getMonth()/3)===i && o.status!=='Cancelled').reduce((sum,o)=>sum+(Number(o.total_value_usd)||0),0),target:0}))
-  const maxQ = Math.max(...qData.map(d=>d.actual),1)
+  // Closed months show actual shipments; open months show actual + remaining scheduled.
+  const monthlyShipments = Array.from({length:12},(_,month)=>({month,actual:0,remaining:0}))
+  const shippedByOrder = {}
+  const linesByShipment = {}
+  shipmentLines.forEach(line=>{
+    const qty = Math.max(0,Number(line.shipped_qty)||0)
+    linesByShipment[line.shipment_id]=(linesByShipment[line.shipment_id]||0)+qty
+    if(line.order_id) shippedByOrder[line.order_id]=(shippedByOrder[line.order_id]||0)+qty
+  })
+  shipments.forEach(sh=>{
+    const date = sh.shipment_date ? new Date(sh.shipment_date+'T12:00:00') : null
+    if(!date || isNaN(date) || date.getFullYear()!==chartYear) return
+    let historicalQty = 0
+    try { const meta=JSON.parse(sh.notes||'{}'); historicalQty=Number(meta?.historical?.qty)||0 } catch {}
+    monthlyShipments[date.getMonth()].actual += linesByShipment[sh.id] || historicalQty
+  })
+  orders.forEach(order=>{
+    if(['Cancelled','Shipped','Completed'].includes(order.status)) return
+    const dateString=order.ship_date || order.planned_date
+    const date=dateString ? new Date(dateString+'T12:00:00') : null
+    if(!date || isNaN(date) || date.getFullYear()!==chartYear) return
+    const remaining=Math.max(0,(Number(order.total_qty)||0)-(shippedByOrder[order.id]||0))
+    monthlyShipments[date.getMonth()].remaining+=remaining
+  })
+  const now=new Date()
+  const isClosedMonth=month=>chartYear<now.getFullYear() || (chartYear===now.getFullYear() && month<now.getMonth())
+  const chartMax=Math.max(1,...monthlyShipments.map(d=>isClosedMonth(d.month)?d.actual:d.actual+d.remaining))
+  const chartPoints=monthlyShipments.filter(d=>isClosedMonth(d.month)).map(d=>({x:20+d.month*46,y:112-(d.actual/chartMax)*94}))
+  const chartPath=chartPoints.map((p,i)=>(i?'L':'M')+p.x+' '+p.y).join(' ')
 
   return (
     <div style={{ padding: '20px 28px', overflowY: 'auto', height: '100%' }}>
@@ -172,36 +204,34 @@ export default function Dashboard() {
       {/* Charts row */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 220px 220px', gap: 14, marginBottom: 14 }}>
 
-        {/* Quarterly performance */}
-        <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 20px' }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.7px', marginBottom: 14 }}>
-            Quarterly Booked Order Value (Actual)
-          </div>
-          {loading || totalValue === 0 ? (
-            <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-light)', fontSize: 12 }}>
-              No data yet
+        {/* Monthly shipped quantity */}
+        <div style={{background:'#fff',border:'1px solid var(--border)',borderRadius:10,padding:'16px 20px',minWidth:0}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,marginBottom:12}}>
+            <div style={{display:'flex',alignItems:'center',gap:16,flexWrap:'wrap'}}>
+              <span style={{fontSize:10,fontWeight:700,color:'var(--text-light)',textTransform:'uppercase',letterSpacing:'.7px'}}>Monthly Shipped Quantity</span>
+              <span style={{fontSize:10,color:'var(--text-light)'}}><span style={{color:'#bfe8a9'}}>■</span> Closed / Actual</span>
+              <span style={{fontSize:10,color:'var(--text-light)'}}><span style={{color:'#e4d2f5'}}>■</span> Open / Planned</span>
             </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, height: 120 }}>
-              {qData.map(({ q, actual, target }) => (
-                <div key={q} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                  <div style={{ width: '100%', display: 'flex', gap: 3, alignItems: 'flex-end', height: 90 }}>
-                    <div style={{ flex: 1, background: '#e5e7eb', borderRadius: '3px 3px 0 0', height: `${(actual / maxQ) * 100}%`, minHeight: 4 }} />
-                    
-                  </div>
-                  <span style={{ fontSize: 10, color: 'var(--text-light)' }}>{q}</span>
+            <select value={chartYear} onChange={e=>setChartYear(Number(e.target.value))} style={{border:'1px solid var(--border)',borderRadius:6,padding:'4px 7px',fontSize:10,background:'#fff'}}>
+              {Array.from({length:5},(_,i)=>now.getFullYear()+1-i).map(y=><option key={y} value={y}>{y===now.getFullYear()?'This Year':y}</option>)}
+            </select>
+          </div>
+          {loading?<div style={{height:150,display:'grid',placeItems:'center',fontSize:12,color:'var(--text-light)'}}>Loading shipments…</div>:
+          <div style={{position:'relative',height:154}}>
+            <div style={{display:'flex',height:130,alignItems:'flex-end',gap:8}}>
+              {monthlyShipments.map(d=>{
+                const closed=isClosedMonth(d.month)
+                const total=closed?d.actual:d.actual+d.remaining
+                return <div key={d.month} title={new Date(chartYear,d.month,1).toLocaleString('en',{month:'long'})+' — Shipped: '+d.actual.toLocaleString()+' pcs; Remaining planned: '+d.remaining.toLocaleString()+' pcs'} style={{flex:1,minWidth:0,height:'100%',display:'flex',flexDirection:'column',justifyContent:'flex-end',alignItems:'center',gap:6}}>
+                  <div style={{width:'75%',height:Math.max(total?3:0,(total/chartMax)*112),background:closed?'#d8efc7':'#e9dcf8',borderRadius:'2px 2px 0 0'}}/>
+                  <span style={{fontSize:10,fontWeight:600,color:'#333'}}>{new Date(chartYear,d.month,1).toLocaleString('en',{month:'short'}).toUpperCase()}</span>
                 </div>
-              ))}
+              })}
             </div>
-          )}
-          <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-            {[['#e5e7eb', 'Actual']].map(([bg, lbl]) => (
-              <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <div style={{ width: 10, height: 10, background: bg, borderRadius: 2 }} />
-                <span style={{ fontSize: 10, color: 'var(--text-light)' }}>{lbl}</span>
-              </div>
-            ))}
-          </div>
+            <svg viewBox="0 0 546 130" preserveAspectRatio="none" style={{position:'absolute',top:0,left:0,width:'100%',height:130,pointerEvents:'none',overflow:'visible'}}>
+              <path d={chartPath} fill="none" stroke="#00a34b" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>}
         </div>
 
         {/* OTD donut */}
