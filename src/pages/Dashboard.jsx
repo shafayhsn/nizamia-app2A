@@ -125,11 +125,17 @@ export default function Dashboard() {
     if(line.order_id) shippedByOrder[line.order_id]=(shippedByOrder[line.order_id]||0)+qty
   })
   shipments.forEach(sh=>{
-    const date = sh.shipment_date ? new Date(sh.shipment_date+'T12:00:00') : null
+    let historical = {}
+    try {
+      const match = String(sh.notes||'').match(/\\[\\[APP2A_SHIPPING_META:([^\\]]+)\\]\\]/)
+      historical = match ? (JSON.parse(atob(match[1])).historical || {}) : (JSON.parse(sh.notes||'{}').historical || {})
+    } catch {}
+    const dateString = sh.etd || historical.etd || sh.shipment_date
+    const date = dateString ? new Date(String(dateString).slice(0,10)+'T12:00:00') : null
     if(!date || isNaN(date) || date.getFullYear()!==chartYear) return
-    let historicalQty = 0
-    try { const meta=JSON.parse(sh.notes||'{}'); historicalQty=Number(meta?.historical?.qty)||0 } catch {}
-    monthlyShipments[date.getMonth()].actual += linesByShipment[sh.id] || historicalQty
+    const lineQty = linesByShipment[sh.id] || 0
+    const historicalQty = Number(historical.qty)||0
+    monthlyShipments[date.getMonth()].actual += historicalQty || lineQty
   })
   orders.forEach(order=>{
     if(['Cancelled','Shipped','Completed'].includes(order.status)) return
