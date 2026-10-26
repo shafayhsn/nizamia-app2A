@@ -68,9 +68,10 @@ export default function Dashboard() {
     <option value="month">This Month</option><option value="quarter">This Quarter</option><option value="year">This Year</option><option value="last">Last Year</option><option value="all">All Time</option>
   </select>
   const buyerMap = {}
-  orders.filter(o=>o.status!=='Cancelled' && inPeriod(o.po_date,buyerPeriod)).forEach(o=>{
+  orders.filter(o=>o.status!=='Cancelled' && inPeriod(o.po_date || o.ship_date || o.planned_date,buyerPeriod)).forEach(o=>{
     if(!o.buyer_name)return
-    buyerMap[o.buyer_name]=(buyerMap[o.buyer_name]||0)+(Number(o.total_value_usd)||0)
+    const buyer=o.buyer_name.trim()
+    buyerMap[buyer]=(buyerMap[buyer]||0)+(Number(o.total_value_usd)||0)
   })
   const topBuyers=Object.entries(buyerMap).sort((a,b)=>b[1]-a[1]).slice(0,5)
   const maxBuyerVal=topBuyers[0]?.[1]||1
@@ -161,7 +162,7 @@ export default function Dashboard() {
   const now=new Date()
   const isClosedMonth=month=>chartYear<now.getFullYear() || (chartYear===now.getFullYear() && month<now.getMonth())
   const chartMax=Math.max(1,...monthlyShipments.map(d=>isClosedMonth(d.month)?d.actual:d.actual+d.remaining))
-  const chartPoints=monthlyShipments.filter(d=>isClosedMonth(d.month)).map(d=>({x:20+d.month*46,y:112-(d.actual/chartMax)*94}))
+  const chartPoints=monthlyShipments.filter(d=>isClosedMonth(d.month)).map(d=>({x:20+d.month*46,y:112-(d.actual/chartMax)*112}))
   const chartPath=chartPoints.map((p,i)=>(i?'L':'M')+p.x+' '+p.y).join(' ')
 
   return (
@@ -247,7 +248,7 @@ export default function Dashboard() {
                 </div>
               })}
             </div>
-            <svg viewBox="0 0 546 130" preserveAspectRatio="none" style={{position:'absolute',top:0,left:0,width:'100%',height:130,pointerEvents:'none',overflow:'visible'}}>
+            <svg viewBox="0 0 546 130" preserveAspectRatio="none" style={{position:'absolute',bottom:24,left:0,width:'100%',height:'calc(100% - 24px)',pointerEvents:'none',overflow:'visible'}}>
               <path d={chartPath} fill="none" stroke="#00a34b" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>}
