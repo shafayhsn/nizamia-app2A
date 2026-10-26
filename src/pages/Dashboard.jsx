@@ -186,8 +186,27 @@ export default function Dashboard() {
   const now=new Date()
   const isClosedMonth=month=>chartYear<now.getFullYear() || (chartYear===now.getFullYear() && month<now.getMonth())
   const chartMax=Math.max(1,monthlyTarget,...monthlyShipments.map(d=>isClosedMonth(d.month)?d.actual:d.actual+d.remaining))
-  const chartPoints=monthlyShipments.filter(d=>isClosedMonth(d.month)).map(d=>({x:((d.month+0.5)/12)*546,y:130-(d.actual/chartMax)*130}))
-  const chartPath=chartPoints.map((p,i)=>(i?'L':'M')+p.x+' '+p.y).join(' ')
+  const monthlyValues=monthlyShipments.map(d=>isClosedMonth(d.month)?d.actual:d.actual+d.remaining)
+  const chartLow=Math.min(...monthlyValues)
+  const chartHigh=Math.max(...monthlyValues)
+  const chartAverage=Math.round(monthlyValues.reduce((a,b)=>a+b,0)/12)
+  const chartPoints=monthlyValues.map((value,month)=>({x:((month+0.5)/12)*546,y:130-(value/chartMax)*130}))
+  const smoothPath=points=>{
+    if(!points.length)return ''
+    if(points.length===1)return `M${points[0].x} ${points[0].y}`
+    let path=`M${points[0].x} ${points[0].y}`
+    for(let i=0;i<points.length-1;i++){
+      const p0=points[Math.max(0,i-1)],p1=points[i],p2=points[i+1],p3=points[Math.min(points.length-1,i+2)]
+      const dx=(p2.x-p1.x)/6
+      const c1y=Math.max(0,Math.min(130,p1.y+(p2.y-p0.y)/6))
+      const c2y=Math.max(0,Math.min(130,p2.y-(p3.y-p1.y)/6))
+      path+=` C${p1.x+dx} ${c1y} ${p2.x-dx} ${c2y} ${p2.x} ${p2.y}`
+    }
+    return path
+  }
+  const firstOpen=monthlyShipments.findIndex(d=>!isClosedMonth(d.month))
+  const actualPath=smoothPath(firstOpen<0?chartPoints:chartPoints.slice(0,firstOpen))
+  const plannedPath=firstOpen<0?'':smoothPath(chartPoints.slice(Math.max(0,firstOpen-1)))
 
   return (
     <div style={{ padding: '20px 28px', overflowY: 'hidden', height: '100%', display:'flex', flexDirection:'column', boxSizing:'border-box' }}>
@@ -255,6 +274,7 @@ export default function Dashboard() {
               <span style={{fontSize:10,fontWeight:700,color:'var(--text-light)',textTransform:'uppercase',letterSpacing:'.7px'}}>Monthly Shipped Quantity</span>
               <span style={{fontSize:10,color:'var(--text-light)'}}><span style={{color:'#bfe8a9'}}>■</span> Closed / Actual</span>
               <span style={{fontSize:10,color:'var(--text-light)'}}><span style={{color:'#e4d2f5'}}>■</span> Open / Planned</span>
+              <span style={{fontSize:10,color:'var(--text-light)',whiteSpace:'nowrap'}}>● Low: {chartLow.toLocaleString()} | Avg: {chartAverage.toLocaleString()} | High: {chartHigh.toLocaleString()} pcs</span>
             </div>
             <select value={chartYear} onChange={e=>setChartYear(Number(e.target.value))} style={{border:'1px solid var(--border)',borderRadius:6,padding:'4px 7px',fontSize:10,background:'#fff'}}>
               {Array.from({length:5},(_,i)=>now.getFullYear()+1-i).map(y=><option key={y} value={y}>{y===now.getFullYear()?'This Year':y}</option>)}
@@ -279,7 +299,8 @@ export default function Dashboard() {
             </div>
             <div style={{position:'absolute',top:`calc((100% - 24px) * ${1-monthlyTarget/chartMax})`,left:0,right:0,borderTop:'1.5px dashed #f97316',pointerEvents:'none',zIndex:2}}/>
             <svg viewBox="0 0 546 130" preserveAspectRatio="none" style={{position:'absolute',top:0,left:0,width:'100%',height:'calc(100% - 24px)',pointerEvents:'none',overflow:'visible'}}>
-              <path d={chartPath} fill="none" stroke="#00a34b" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d={actualPath} fill="none" stroke="#00a34b" strokeWidth="2.2" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d={plannedPath} fill="none" stroke="#8b5ab5" strokeWidth="2.2" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>}
         </div>
