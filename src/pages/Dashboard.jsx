@@ -24,14 +24,33 @@ export default function Dashboard() {
   const [dataError, setDataError] = useState('')
   const navigate = useNavigate()
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => { loadData(); loadMonthlyTarget() }, [])
+
+  async function loadMonthlyTarget() {
+    const {data,error}=await supabase.from('app_settings').select('value').eq('key','dashboard_monthly_shipment_target').maybeSingle()
+    if(!error && data?.value != null) {
+      const n=Number(data.value)
+      if(Number.isFinite(n) && n>=0){setMonthlyTarget(n);setTargetDraft(String(n))}
+    }
+  }
+  async function saveMonthlyTarget() {
+    const n=Number(targetDraft)
+    if(!Number.isFinite(n)||n<0||!Number.isInteger(n)){setTargetError('Enter a valid whole number of pieces.');return}
+    setTargetSaving(true);setTargetError('')
+    const {data:existing,error:lookupError}=await supabase.from('app_settings').select('id').eq('key','dashboard_monthly_shipment_target').maybeSingle()
+    if(lookupError){setTargetError(lookupError.message);setTargetSaving(false);return}
+    const result=existing ? await supabase.from('app_settings').update({value:n,updated_at:new Date().toISOString()}).eq('id',existing.id).select('id').single() : await supabase.from('app_settings').insert({key:'dashboard_monthly_shipment_target',value:n}).select('id').single()
+    setTargetSaving(false)
+    if(result.error){setTargetError(result.error.message);return}
+    setMonthlyTarget(n);setEditingTarget(false)
+  }
 
   async function loadData() {
     setLoading(true)
     const [orderResult, sampleResult, shipmentResult, lineResult] = await Promise.all([
       supabase.from('orders').select('*').order('created_at', {ascending:false}).range(0, 9999),
       supabase.from('samples').select('id,order_id,due_date,status,approval_status').range(0,9999),
-      supabase.from('shipments').select('id,shipment_date,notes').range(0,9999),
+      supabase.from('shipments').select('id,shipment_date,etd,notes').range(0,9999),
       supabase.from('shipment_lines').select('shipment_id,order_id,shipped_qty').range(0,9999)
     ])
     setDataError(orderResult.error?.message || sampleResult.error?.message || '')
@@ -161,8 +180,8 @@ export default function Dashboard() {
   })
   const now=new Date()
   const isClosedMonth=month=>chartYear<now.getFullYear() || (chartYear===now.getFullYear() && month<now.getMonth())
-  const chartMax=Math.max(1,...monthlyShipments.map(d=>isClosedMonth(d.month)?d.actual:d.actual+d.remaining))
-  const chartPoints=monthlyShipments.filter(d=>isClosedMonth(d.month)).map(d=>({x:20+d.month*46,y:130-(d.actual/chartMax)*130}))
+  const chartMax=Math.max(1,monthlyTarget,...monthlyShipments.map(d=>isClosedMonth(d.month)?d.actual:d.actual+d.remaining))
+  const chartPoints=monthlyShipments.filter(d=>isClosedMonth(d.month)).map(d=>({x:((d.month+0.5)/12)*546,y:130-(d.actual/chartMax)*130}))
   const chartPath=chartPoints.map((p,i)=>(i?'L':'M')+p.x+' '+p.y).join(' ')
 
   return (
@@ -236,6 +255,11 @@ export default function Dashboard() {
               {Array.from({length:5},(_,i)=>now.getFullYear()+1-i).map(y=><option key={y} value={y}>{y===now.getFullYear()?'This Year':y}</option>)}
             </select>
           </div>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:5,fontSize:10,color:'#ea580c'}}>
+            <button type="button" onClick={()=>{setTargetDraft(String(monthlyTarget));setTargetError('');setEditingTarget(v=>!v)}} title="Edit shared monthly shipment target" style={{border:'1px dashed #fb923c',background:'#fff7ed',color:'#c2410c',borderRadius:5,padding:'3px 7px',cursor:'pointer',fontSize:10,fontWeight:700}}>Target: {monthlyTarget.toLocaleString()} pcs ✎</button>
+            {editingTarget && <><input aria-label="Monthly shipment target in pieces" type="number" min="0" step="1" value={targetDraft} onChange={e=>setTargetDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')saveMonthlyTarget();if(e.key==='Escape')setEditingTarget(false)}} style={{width:100,padding:'3px 5px',border:'1px solid var(--border)',borderRadius:4,fontSize:11}}/><button type="button" disabled={targetSaving} onClick={saveMonthlyTarget} style={{fontSize:11,cursor:'pointer'}}>Save</button><button type="button" onClick={()=>setEditingTarget(false)} style={{fontSize:11,cursor:'pointer'}}>Cancel</button></>}
+            {targetError && <span role="alert" style={{color:'#dc2626'}}>{targetError}</span>}
+          </div>
           {loading?<div style={{height:150,display:'grid',placeItems:'center',fontSize:12,color:'var(--text-light)'}}>Loading shipments…</div>:
           <div style={{position:'relative',height:'100%',minHeight:140,flex:1}}>
             <div style={{display:'flex',height:'100%',alignItems:'flex-end',gap:8}}>
@@ -248,6 +272,7 @@ export default function Dashboard() {
                 </div>
               })}
             </div>
+            <div style={{position:'absolute',top:`calc((100% - 24px) * ${1-monthlyTarget/chartMax})`,left:0,right:0,borderTop:'1.5px dashed #f97316',pointerEvents:'none',zIndex:2}}/>
             <svg viewBox="0 0 546 130" preserveAspectRatio="none" style={{position:'absolute',top:0,left:0,width:'100%',height:'calc(100% - 24px)',pointerEvents:'none',overflow:'visible'}}>
               <path d={chartPath} fill="none" stroke="#00a34b" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
