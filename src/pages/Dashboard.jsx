@@ -162,7 +162,7 @@ export default function Dashboard() {
   const now=new Date()
   const isClosedMonth=month=>chartYear<now.getFullYear() || (chartYear===now.getFullYear() && month<now.getMonth())
   const chartMax=Math.max(1,...monthlyShipments.map(d=>isClosedMonth(d.month)?d.actual:d.actual+d.remaining))
-  const chartPoints=monthlyShipments.filter(d=>isClosedMonth(d.month)).map(d=>({x:20+d.month*46,y:112-(d.actual/chartMax)*112}))
+  const chartPoints=monthlyShipments.filter(d=>isClosedMonth(d.month)).map(d=>({x:20+d.month*46,y:130-(d.actual/chartMax)*130}))
   const chartPath=chartPoints.map((p,i)=>(i?'L':'M')+p.x+' '+p.y).join(' ')
 
   return (
@@ -238,24 +238,24 @@ export default function Dashboard() {
           </div>
           {loading?<div style={{height:150,display:'grid',placeItems:'center',fontSize:12,color:'var(--text-light)'}}>Loading shipments…</div>:
           <div style={{position:'relative',height:'100%',minHeight:140,flex:1}}>
-            <div style={{display:'flex',height:'calc(100% - 10px)',alignItems:'flex-end',gap:8}}>
+            <div style={{display:'flex',height:'100%',alignItems:'flex-end',gap:8}}>
               {monthlyShipments.map(d=>{
                 const closed=isClosedMonth(d.month)
                 const total=closed?d.actual:d.actual+d.remaining
                 return <div key={d.month} title={new Date(chartYear,d.month,1).toLocaleString('en',{month:'long'})+' — Shipped: '+d.actual.toLocaleString()+' pcs; Remaining planned: '+d.remaining.toLocaleString()+' pcs'} style={{flex:1,minWidth:0,height:'100%',display:'flex',flexDirection:'column',justifyContent:'flex-end',alignItems:'center',gap:6}}>
-                  <div style={{width:'75%',height:Math.max(total?3:0,(total/chartMax)*112),background:closed?'#d8efc7':'#e9dcf8',borderRadius:'2px 2px 0 0'}}/>
+                  <div style={{width:'75%',height:total ? `max(3px, calc((100% - 24px) * ${total/chartMax}))` : 0,background:closed?'#d8efc7':'#e9dcf8',borderRadius:'2px 2px 0 0'}}/>
                   <span style={{fontSize:10,fontWeight:600,color:'#333'}}>{new Date(chartYear,d.month,1).toLocaleString('en',{month:'short'}).toUpperCase()}</span>
                 </div>
               })}
             </div>
-            <svg viewBox="0 0 546 130" preserveAspectRatio="none" style={{position:'absolute',bottom:24,left:0,width:'100%',height:'calc(100% - 24px)',pointerEvents:'none',overflow:'visible'}}>
+            <svg viewBox="0 0 546 130" preserveAspectRatio="none" style={{position:'absolute',top:0,left:0,width:'100%',height:'calc(100% - 24px)',pointerEvents:'none',overflow:'visible'}}>
               <path d={chartPath} fill="none" stroke="#00a34b" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>}
         </div>
 
         {/* OTD donut */}
-        <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '16px' }}>
+        <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '16px',display:'flex',flexDirection:'column',minHeight:0 }}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:5,marginBottom:12}}>
             <span style={{fontSize:10,fontWeight:700,color:'var(--text-light)',textTransform:'uppercase'}}>On-Time Delivery (OTD)</span>
             {periodSelect(otdPeriod,setOtdPeriod)}
@@ -267,16 +267,16 @@ export default function Dashboard() {
             const r = 40, circ = 2 * Math.PI * r
             const dash = (pct / 100) * circ
             return (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-                <div style={{ position: 'relative', width: 100, height: 100 }}>
-                  <svg width="100" height="100" viewBox="0 0 100 100">
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent:'center', gap: 24, flex:1, minHeight:0 }}>
+                <div style={{ position: 'relative', width: 152, height: 152 }}>
+                  <svg width="152" height="152" viewBox="0 0 100 100">
                     <circle cx="50" cy="50" r={r} fill="none" stroke="#e5e7eb" strokeWidth="12" />
                     <circle cx="50" cy="50" r={r} fill="none" stroke="#1a1a2e" strokeWidth="12"
                       strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
                       transform="rotate(-90 50 50)" />
                   </svg>
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ fontSize: 18, fontWeight: 700 }}>—</span>
+                    <span style={{ fontSize: 24, fontWeight: 700 }}>—</span>
                     <span style={{ fontSize: 9, color: 'var(--text-light)' }}>NO DATA</span>
                   </div>
                 </div>
