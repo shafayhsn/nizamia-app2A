@@ -920,7 +920,7 @@ function PaymentsTab({ shipments, shipmentLines, rows, isAdmin=false }) {
       if (qQty && matrixValue && shipQty) return a + ((matrixValue / qQty) * shipQty)
       return a + num(firstNonEmpty(l.value, lm(l).value))
     },0)
-    const value = lines.length ? valueFromLines : num(meta.historical?.value)
+    const value = meta.historical?.value !== undefined && meta.historical?.value !== null && meta.historical?.value !== '' ? num(meta.historical.value) : valueFromLines
     const purchaseTaxPkr = lines.reduce((a,l)=>{ const q=rowMap[l.queue_id]||{}; const shipQty=num(firstNonEmpty(l.shipped_qty,l.ship_qty,lm(l).qty)); const ratio=num(q.qty)?shipQty/num(q.qty):1; return a + (num(q.purchase_tax_pkr)*ratio) },0)
     const buyers = [...new Set(lines.map(l=>rowMap[l.queue_id]?.buyer_name).filter(Boolean))]
     const currency = meta.currency || lines.map(l=>rowMap[l.queue_id]?.currency).find(Boolean) || 'USD'
