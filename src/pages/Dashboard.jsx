@@ -136,10 +136,9 @@ export default function Dashboard() {
       icon: ClipboardList, iconColor: '#3b82f6', iconBg: '#eff6ff',
     },
     {
-      label: 'Samples Due (Week)', value: samplesWeek.length,
-      sub: overdue.length > 0 ? `${overdue.length} overdue` : 'On track',
-      subColor: overdue.length > 0 ? '#d97706' : undefined,
-      icon: AlertTriangle, iconColor: '#f59e0b', iconBg: '#fffbeb',
+      label: 'Units in Production', value: totalQty >= 1000 ? `${Math.round(totalQty / 1000)}K` : totalQty,
+      sub: 'Active order volume',
+      icon: Layers, iconColor: '#8b5cf6', iconBg: '#f5f3ff',
     },
     {
       label: 'Shipments Due (Week)', value: shipmentsWeek.length,
@@ -147,14 +146,15 @@ export default function Dashboard() {
       icon: Ship, iconColor: '#10b981', iconBg: '#ecfdf5',
     },
     {
-      label: 'Units in Production', value: totalQty >= 1000 ? `${Math.round(totalQty / 1000)}K` : totalQty,
-      sub: 'Active order volume',
-      icon: Layers, iconColor: '#8b5cf6', iconBg: '#f5f3ff',
+      label: 'Sample Room WIP', value: String(samples.filter(x=>['requested','pending'].includes(String(x.status||'').toLowerCase())).length).padStart(2,'0'),
+      sub: 'Requested + pending samples',
+      icon: Scissors, iconColor: '#ef4444', iconBg: '#fff0ed',
     },
     {
-      label: 'Sample Room WIP', value: String(samples.filter(x=>String(x.status||'').toLowerCase()==='requested').length).padStart(2,'0'),
-      sub: 'Samples in-process',
-      icon: Scissors, iconColor: '#ef4444', iconBg: '#fff0ed',
+      label: 'Samples Due (Week)', value: samplesWeek.length,
+      sub: overdue.length > 0 ? `${overdue.length} overdue` : 'On track',
+      subColor: overdue.length > 0 ? '#d97706' : undefined,
+      icon: AlertTriangle, iconColor: '#f59e0b', iconBg: '#fffbeb',
     },
   ]
 
