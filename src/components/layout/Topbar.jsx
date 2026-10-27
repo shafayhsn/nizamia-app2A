@@ -53,6 +53,38 @@ function getWeekNumber(d) {
   return Math.ceil((((date - yearStart) / 86400000) + 1) / 7)
 }
 
+// Cotton boll: same 1.8px stroke weight as the surrounding compact topbar icons.
+function CottonBoll({size=15}) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 19v3M12 19c-3-1-5-3-5-6M12 19c3-1 5-3 5-6"/>
+    <path d="M7 14c-3.5.2-5-2.4-4-5 0-2 1.6-3.5 3.6-3.5C6 2.5 10 1.5 12 4c2-2.5 6-1.5 5.4 1.5 2 0 3.6 1.5 3.6 3.5 1 2.6-.5 5.2-4 5-1.1 2.6-3 3.5-5 2-2 1.5-3.9.6-5-2Z"/>
+  </svg>
+}
+const MARKET_CACHE_KEY='app2a-market-quotes-v1'
+function useMarketQuotes(){
+  const [market,setMarket]=useState(()=>{try{return JSON.parse(localStorage.getItem(MARKET_CACHE_KEY)||'null')}catch{return null}})
+  useEffect(()=>{
+    let active=true
+    const load=async()=>{
+      try{
+        const stored=JSON.parse(localStorage.getItem(MARKET_CACHE_KEY)||'null')
+        if(stored?.checkedAt && Date.now()-stored.checkedAt<6*60*60*1000){if(active)setMarket(stored);return}
+        const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),8000)
+        let response
+        try{response=await fetch('/api/market-rates',{signal:controller.signal})}finally{clearTimeout(timeout)}
+        if(!response.ok)throw Error('Quote service unavailable')
+        const next=await response.json()
+        const merged={fx:{...(stored?.fx||{}),...(next.fx||{})},cotton:next.cotton||stored?.cotton||null,checkedAt:Date.now()}
+        localStorage.setItem(MARKET_CACHE_KEY,JSON.stringify(merged))
+        if(active)setMarket(merged)
+      }catch{/* Keep last verified values; never block the topbar. */}
+    }
+    load()
+    const timer=setInterval(load,60*60*1000)
+    return()=>{active=false;clearInterval(timer)}
+  },[])
+  return market
+}
 const ICONS={ClipboardCheck,CalendarDays,Package,FilePlus2,ListTodo,PlusCircle,Scissors,Ship,BarChart3,ShoppingCart,Users,Truck,BookOpen,Settings}
 export default function Topbar({onOpenDeadlines}) {
   const { user, userRole } = useAuth()
@@ -175,10 +207,116 @@ export default function Topbar({onOpenDeadlines}) {
     error:   { icon: AlertCircle,  color: '#dc2626', bg: '#fef2f2', label: 'Sync Error' },
   }[syncStatus] || { icon: Cloud, color: '#16a34a', bg: '#f0fdf4', label: 'Online' }
 
+  const market=useMarketQuotes()
   const rates = [
-    { sym: '$', rate: 278.50 },
-    { sym: '€', rate: 302.10 },
-    { sym: '£', rate: 355.00 },
+    { sym: '
+
+  const dayStr = now.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Karachi' })
+
+  return (
+    <header style={{
+      height: 'var(--topbar-h)', background: '#fff',
+      borderBottom: '1px solid var(--border)',
+      display: 'flex', alignItems: 'center',
+      padding: '0 20px', flexShrink: 0,
+    }}>
+      <div style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
+        {CITIES.map(({ label, tz }) => {
+          const time = now.toLocaleTimeString('en-US', {
+            timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false,
+          })
+          return (
+            <div key={label} style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e' }}>{label}</span>
+              <span style={{ fontSize: 12, fontWeight: 400, fontVariantNumeric: 'tabular-nums', color: '#1a1a2e' }}>{time}</span>
+            </div>
+          )
+        })}
+      </div>
+
+      <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 16px' }} />
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        {rates.map(({ sym, code }) => {
+          const quote=market?.fx?.[code]
+          return <div key={code} title={quote?.date?`${code}/PKR · Reference rate dated ${quote.date} · Frankfurter (official-source blend)`:`${code}/PKR · Waiting for reference rate`} style={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+            <span style={{ fontSize: 11, color: '#1a1a2e', fontWeight: 700 }}>{sym}</span>
+            <span style={{ fontSize: 12, fontWeight: 400, color: '#1a1a2e', fontVariantNumeric: 'tabular-nums' }}>{Number.isFinite(Number(quote?.value))&&quote?.value!=null?Number(quote.value).toFixed(2):'—'}</span>
+          </div>
+        })}
+        <div title={market?.cotton?`USDA AMS seven-market upland cotton spot average · ${market.cotton.value} US cents/lb · Quotation: ${market.cotton.date} · via Cotton Grower`:'USDA seven-market cotton spot quotation currently unavailable'} style={{display:'flex',alignItems:'center',gap:3,color:'#1a1a2e'}}>
+          <CottonBoll size={15}/>
+          <span style={{fontSize:12,fontWeight:400,fontVariantNumeric:'tabular-nums'}}>{market?.cotton?Number(market.cotton.value).toFixed(2)+'¢':'—'}</span>
+        </div>
+      </div>
+
+      <div style={{flex:1}} />
+      <div style={{position:'relative',marginRight:6}}>
+        <button onClick={()=>setSyncOpen(v=>!v)} aria-expanded={syncOpen} aria-label="Database sync status" style={{display:'flex',alignItems:'center',gap:5,padding:'3px 8px',borderRadius:6,background:syncConfig.bg,border:'none',cursor:'pointer'}}>
+          <syncConfig.icon size={13} color={syncConfig.color} style={syncStatus==='syncing'?{animation:'spin 1s linear infinite'}:{}}/>
+          <span style={{fontSize:10,fontWeight:700,color:syncConfig.color}}>{syncConfig.label}</span>
+        </button>
+        {syncOpen&&<>
+          <div onClick={()=>setSyncOpen(false)} style={{position:'fixed',inset:0,zIndex:90}}/>
+          <div role="dialog" aria-label="Database Sync Status" style={{position:'absolute',top:35,right:0,zIndex:91,width:275,padding:15,background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,boxShadow:'0 12px 35px #0002',fontSize:12}}>
+            <div style={{fontWeight:750,marginBottom:12}}>Database Sync Status</div>
+            <div style={{display:'flex',alignItems:'center',gap:7,color:syncConfig.color,fontWeight:700,marginBottom:12}}><syncConfig.icon size={15}/>{syncConfig.label}</div>
+            <div style={{background:'#f8fafc',padding:10,borderRadius:7}}>
+              <div style={{color:'#64748b',fontSize:11,marginBottom:4}}>Last successful save (this browser session)</div>
+              <div style={{fontSize:15,fontWeight:750}}>{syncInfo.lastSaved ? (()=>{const secs=Math.max(0,Math.floor((syncNow-new Date(syncInfo.lastSaved).getTime())/1000));return secs<60?'Just now':secs<3600?`${Math.floor(secs/60)} min ago`:`${Math.floor(secs/3600)} hr ago`})():'No recent save recorded'}</div>
+              {syncInfo.lastSaved&&<div style={{fontSize:10,color:'#64748b',marginTop:4}}>{new Date(syncInfo.lastSaved).toLocaleTimeString()}</div>}
+            </div>
+            <div style={{borderTop:'1px solid #e5e7eb',marginTop:12,paddingTop:12}}>
+              <div style={{color:'#64748b',fontSize:11,marginBottom:4}}>Last database update · All users</div>
+              <div style={{fontSize:15,fontWeight:750}}>{globalSaveError?'Unavailable':globalSave?(()=>{const secs=Math.max(0,Math.floor((syncNow-new Date(globalSave).getTime())/1000));return secs<60?'Just now':secs<3600?`${Math.floor(secs/60)} min ago`:`${Math.floor(secs/3600)} hr ago`})():'No save recorded yet'}</div>
+              {globalSave&&!globalSaveError&&<div style={{fontSize:10,color:'#64748b',marginTop:4}}>{new Date(globalSave).toLocaleTimeString()}</div>}
+            </div>
+            {syncStatus==='error'&&<button onClick={()=>{resetSyncError();setSyncOpen(false)}} style={{marginTop:10,border:'1px solid #e5e7eb',borderRadius:6,padding:7,background:'#fff',cursor:'pointer'}}>Dismiss warning</button>}
+            <div style={{color:'#94a3b8',fontSize:10,marginTop:10}}>Browser time shows local confirmed writes. Database time shows the latest tracked write from any user; refreshed every 30 seconds.</div>
+          </div>
+        </>}
+      </div>
+
+      <div style={{ position: 'relative' }}>
+        <button onClick={() => setNotificationsOpen(v => !v)} title="Deadline notifications" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', padding: 6, position: 'relative', display: 'flex', borderRadius: 6 }}
+          onMouseEnter={e => e.currentTarget.style.background = '#f3f4f6'}
+          onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+          <Bell size={18} strokeWidth={1.9} />
+          {notificationCount > 0 && <span style={{ position: 'absolute', top: 1, right: 1, minWidth: 14, height: 14, background: '#dc2626', borderRadius: 999, border: '1.5px solid #fff', color: '#fff', fontSize: 8.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>{notificationCount > 9 ? '9+' : notificationCount}</span>}
+        </button>
+        <NotificationCenter open={notificationsOpen} onClose={() => setNotificationsOpen(false)} onEventViewed={markNotificationRead} onMarkAllRead={() => markNotificationsRead(notificationRows.map(e => e.id))} readIds={readNotificationIds} view={notificationView} onViewChange={setNotificationView} />
+      </div>
+      {shortcutIds.slice(0,5).map(id=>{
+        const entry=SHORTCUT_CATALOG.find(x=>x.id===id)
+        if(!entry || (entry.module&&!can(userRole,entry.module,entry.permission||'view')))return null
+        const Icon=ICONS[entry.icon]||Package
+        if(id==='tasks')return <div key={id} style={{position:'relative'}}><button title="My tasks" aria-label="Open assigned tasks" onClick={()=>{setTasksOpen(v=>!v);setNotificationsOpen(false);setCalculatorOpen(false)}} style={{background:'none',border:0,cursor:'pointer',color:'#6b7280',padding:6,display:'flex',borderRadius:6}}><ClipboardCheck size={18} strokeWidth={1.9}/></button>
+        {tasksOpen&&<>
+          <div onClick={()=>setTasksOpen(false)} style={{position:'fixed',inset:0,zIndex:90}} />
+          <div style={{position:'absolute',top:38,right:0,width:345,maxWidth:'calc(100vw - 24px)',background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,boxShadow:'0 12px 35px #0002',zIndex:91,overflow:'hidden'}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 14px',borderBottom:'1px solid #eee'}}><strong style={{fontSize:13}}>Assigned to Me</strong><button onClick={()=>setTasksOpen(false)} aria-label="Close" style={{background:'none',border:0,cursor:'pointer'}}><X size={15}/></button></div>
+            {taskError&&<div style={{padding:12,fontSize:11,color:'#b91c1c'}}>{taskError}</div>}
+            <div style={{maxHeight:325,overflowY:'auto'}}>{!assignedTasks.length&&!taskError&&<div style={{padding:18,fontSize:12,color:'#6b7280'}}>No open tasks assigned to you.</div>}
+              {assignedTasks.map(t=><div key={t.id} style={{display:'flex',alignItems:'center',gap:8,padding:'10px 13px',borderBottom:'1px solid #f3f4f6',background:taskReadIds.includes(t.id)?'#fff':'#f8fafc'}}>
+                <div style={{flex:1,minWidth:0,cursor:'pointer'}} onClick={()=>{markTaskRead([t.id]);setTasksOpen(false);navigate('/tasks')}}><div style={{fontSize:12,fontWeight:taskReadIds.includes(t.id)?500:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.title}</div><div style={{fontSize:10,color:'#64748b',marginTop:3}}>Due {t.due_date} · {t.status}</div></div>
+                {!taskReadIds.includes(t.id)&&<button title="Mark as read" onClick={()=>markTaskRead([t.id])} style={{border:'1px solid #e5e7eb',background:'#fff',borderRadius:6,padding:5,cursor:'pointer'}}><Check size={13}/></button>}
+              </div>)}
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between',gap:8,padding:'9px 12px',borderTop:'1px solid #eee'}}><button onClick={()=>markTaskRead(assignedTasks.map(t=>t.id))} style={{border:0,background:'none',fontSize:11,cursor:'pointer',color:'#475569'}}>Mark all read</button><button onClick={()=>{setTasksOpen(false);navigate('/tasks')}} style={{border:0,background:'none',fontSize:11,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>View All Tasks <ExternalLink size={12}/></button></div>
+          </div>
+        </>}
+      </div>
+        return <button key={id} title={entry.label} aria-label={entry.label} onClick={()=>openShortcut(entry)} style={{background:'none',border:0,cursor:'pointer',color:'#6b7280',padding:6,display:'flex',borderRadius:6}}><Icon size={18} strokeWidth={1.9}/></button>
+      })}
+      <div style={{position:'relative'}}><button title="Calculator" aria-label="Open calculator" onClick={()=>{setCalculatorOpen(v=>!v);setTasksOpen(false);setNotificationsOpen(false)}} style={{background:'none',border:0,cursor:'pointer',color:'#6b7280',padding:6,display:'flex'}}><Calculator size={18}/></button>{calculatorOpen&&<QuickCalculator onClose={()=>setCalculatorOpen(false)}/>}</div>
+      <div style={{width:1,height:20,background:'var(--border)',margin:'0 8px'}} />
+      <div style={{display:'flex',alignItems:'center',gap:9,whiteSpace:'nowrap'}}><span style={{fontSize:11,fontWeight:700,background:'#dc2626',padding:'3px 9px',borderRadius:5,color:'#fff'}}>W{week}</span><span style={{fontSize:12,color:'#1a1a2e',fontWeight:700}}>{dayStr}</span><span style={{fontSize:13,fontWeight:700,color:'#1a1a2e',fontVariantNumeric:'tabular-nums'}}>{timeStr}</span></div>
+    </header>
+  )
+}
+, code:'USD' },
+    { sym: '€', code:'EUR' },
+    { sym: '£', code:'GBP' },
   ]
 
   const dayStr = now.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })
