@@ -14,9 +14,9 @@ export default async function handler(req,res) {
     (async()=>{try{
       // USDA AMS seven-market spot quotation, republished with source attribution.
       const html=await (await get('https://www.cottongrower.com/markets/')).text()
-      const plain=html.replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi,' ').replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;/g,' ').replace(/\\s+/g,' ')
-      const match=plain.match(/7[\\s-]*market average\\s*([0-9]{2,3}\\.[0-9]{1,2})/i)
-      const date=plain.match(/Base quality quotations reported\\s+([A-Za-z]+\\s+\\d{1,2}(?:,?\\s+\\d{4})?)/i)
+      const plain=html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;/g,' ').replace(/\s+/g,' ')
+      const match=plain.match(/7[\s-]*market average\s*([0-9]{2,3}\.[0-9]{1,2})/i)
+      const date=plain.match(/Base quality quotations reported\s+([A-Za-z]+\s+\d{1,2}(?:,?\s+\d{4})?)/i)
       if(match&&date){const value=Number(match[1]);if(value>20&&value<250)result.cotton={value,date:date[1],source:'USDA AMS seven-market average (via Cotton Grower)'}}
     }catch(e){/* Leave unavailable rather than show an unverified price. */}})()
   ])
