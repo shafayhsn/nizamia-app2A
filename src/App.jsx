@@ -19,6 +19,7 @@ const Shipping = lazy(() => import('./pages/Shipping'))
 const Reports = lazy(() => import('./pages/Reports'))
 const Tasks = lazy(() => import('./pages/Tasks'))
 const Production = lazy(() => import('./pages/Production'))
+const Features = lazy(() => import('./pages/Features'))
 import { loadSetting } from './lib/settingsStore'
 
 class ErrorBoundary extends React.Component {
@@ -105,6 +106,7 @@ export default function App() {
             <Route path="suppliers" element={<RequireRight module="suppliers">{null}</RequireRight>} />
             <Route path="sampling" element={<RequireRight module="sampling"><SamplingApprovals /></RequireRight>} />
             <Route path="parcels" element={<RequireRight module="parcels"><Parcels /></RequireRight>} />
+            <Route path="features" element={<Features />} />
             <Route path="production" element={<RequireRight module="orders"><Production /></RequireRight>} />
             <Route path="tasks" element={<RequireRight module="tasks"><Tasks /></RequireRight>} />
             <Route path="reports" element={<RequireRight module="reports"><Reports /></RequireRight>} />
