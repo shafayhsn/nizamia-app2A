@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { statusBadgeStyle } from '../lib/statusColors'
 import { useNavigate } from 'react-router-dom'
-import { ClipboardList, AlertTriangle, Ship, Layers, DollarSign, ChevronRight, Printer } from 'lucide-react'
+import { ClipboardList, AlertTriangle, Ship, Layers, Scissors, ChevronRight, Printer } from 'lucide-react'
 import { buildBusinessOverview, printHTML, openPrintWindow } from '../components/PrintReports'
 import { useAuth } from '../lib/authContext'
 
@@ -97,6 +97,21 @@ export default function Dashboard() {
     const buyer=o.buyer_name.trim()
     buyerMap[buyer]=(buyerMap[buyer]||0)+(Number(o.total_value_usd)||0)
   })
+  // OTS: one result per shipment/order pair. Standalone historical shipments
+  // have no committed order date and cannot be classified reliably.
+  const orderById=Object.fromEntries(orders.map(o=>[o.id,o]))
+  const shipmentById=Object.fromEntries(shipments.map(sh=>[sh.id,sh]))
+  const otsPairs=new Set()
+  const otsRecords=[]
+  shipmentLines.forEach(line=>{
+    if(!line.order_id || !line.shipment_id)return
+    const key=line.shipment_id+':'+line.order_id
+    if(otsPairs.has(key))return
+    otsPairs.add(key)
+    const sh=shipmentById[line.shipment_id],order=orderById[line.order_id]
+    if(!sh?.shipment_date || !order?.ship_date || order.status==='Cancelled')return
+    otsRecords.push({actual:sh.shipment_date,committed:order.ship_date,delay:Math.max(0,Math.round((new Date(sh.shipment_date+'T12:00:00')-new Date(order.ship_date+'T12:00:00'))/86400000))})
+  })
   const topBuyers=Object.entries(buyerMap).sort((a,b)=>b[1]-a[1]).slice(0,5)
   const maxBuyerVal=topBuyers[0]?.[1]||1
 
@@ -137,10 +152,9 @@ export default function Dashboard() {
       icon: Layers, iconColor: '#8b5cf6', iconBg: '#f5f3ff',
     },
     {
-      label: 'Projected Revenue', value: fmtK(totalValue),
-      sub: 'Based on active POs',
-      subColor: '#16a34a',
-      icon: DollarSign, iconColor: '#16a34a', iconBg: '#f0fdf4',
+      label: 'Sample Room WIP', value: String(samples.filter(x=>String(x.status||'').toLowerCase()==='requested').length).padStart(2,'0'),
+      sub: 'Samples in-process',
+      icon: Scissors, iconColor: '#ef4444', iconBg: '#fff0ed',
     },
   ]
 
@@ -308,13 +322,15 @@ export default function Dashboard() {
         {/* OTD donut */}
         <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: '16px',display:'flex',flexDirection:'column',minHeight:0 }}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:5,marginBottom:12}}>
-            <span style={{fontSize:10,fontWeight:700,color:'var(--text-light)',textTransform:'uppercase'}}>On-Time Delivery (OTD)</span>
+            <span style={{fontSize:10,fontWeight:700,color:'var(--text-light)',textTransform:'uppercase'}}>On-Time Shipment (OTS)</span>
             {periodSelect(otdPeriod,setOtdPeriod)}
           </div>
           {(() => {
-            const periodShipments = shipments.filter(sh=>inPeriod(sh.etd || sh.shipment_date,otdPeriod))
-            const onTime = periodShipments.length
-            const pct = 0 // Actual on-time delivery requires confirmed shipment dates
+            const periodRecords = otsRecords.filter(rec=>inPeriod(rec.actual,otdPeriod))
+            const onTime = periodRecords.filter(rec=>rec.delay===0).length
+            const pct = periodRecords.length ? Math.round(100*onTime/periodRecords.length) : 0
+            const late = periodRecords.filter(rec=>rec.delay>0)
+            const averageDelay = late.length ? (late.reduce((sum,rec)=>sum+rec.delay,0)/late.length).toFixed(1) : '0'
             const r = 40, circ = 2 * Math.PI * r
             const dash = (pct / 100) * circ
             return (
@@ -327,19 +343,19 @@ export default function Dashboard() {
                       transform="rotate(-90 50 50)" />
                   </svg>
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ fontSize: 24, fontWeight: 700 }}>—</span>
-                    <span style={{ fontSize: 9, color: 'var(--text-light)' }}>NO DATA</span>
+                    <span style={{ fontSize: 24, fontWeight: 700 }}>{periodRecords.length ? pct+'%' : '—'}</span>
+                    <span style={{ fontSize: 9, color: 'var(--text-light)' }}>{periodRecords.length ? 'ON TIME' : 'NO DATA'}</span>
                   </div>
                 </div>
                 <div style={{ width: '100%', fontSize: 11 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ color: 'var(--text-light)' }}>Orders on track</span>
-                    <span style={{ fontWeight: 600 }}>Not measured</span>
+                    <span style={{ color: 'var(--text-light)' }}>On-time shipments</span>
+                    <span style={{ fontWeight: 600 }}>{onTime} / {periodRecords.length}</span>
                   </div>
-                  {overdue.length > 0 && (
+                  {periodRecords.length > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--text-light)' }}>Average delivery delay</span>
-                      <span style={{ fontWeight: 600, color: '#d97706' }}>Not measured</span>
+                      <span style={{ color: 'var(--text-light)' }}>Avg. late dispatch</span>
+                      <span style={{ fontWeight: 600, color: '#d97706' }}>{averageDelay} days</span>
                     </div>
                   )}
                 </div>
