@@ -217,7 +217,7 @@ export default function Sidebar({ onOpenDeadlines }) {
               {[
                 { icon: CalendarDays, label: 'Deadlines', action: onOpenDeadlines },
                 { icon: Settings, label: 'Settings', action: () => navigate('/settings'), module: 'settings' },
-                { icon: Blocks, label: 'Features', action: () => setToolsOpen(true) },
+                { icon: Blocks, label: 'Features', action: () => navigate('/features') },
               ].map(({ icon: Icon, label, action, module }) => {
                 const allowed = !module || can(userRole, module, 'view')
                 return (
@@ -241,7 +241,7 @@ export default function Sidebar({ onOpenDeadlines }) {
               {[
                 { icon: CalendarDays, label: 'Deadlines', action: onOpenDeadlines },
                 { icon: Settings, label: 'Settings', action: () => navigate('/settings'), module: 'settings' },
-                { icon: Blocks, label: 'Features', action: () => setToolsOpen(true) },
+                { icon: Blocks, label: 'Features', action: () => navigate('/features') },
                 { icon: LogOut, label: 'Logout', action: logout },
               ].map(({ icon: Icon, label, action, module }) => {
                 const allowed = !module || can(userRole, module, 'view')
