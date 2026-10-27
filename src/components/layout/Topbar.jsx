@@ -209,7 +209,10 @@ export default function Topbar({onOpenDeadlines}) {
 
   const market=useMarketQuotes()
   const rates = [
-    { sym: '
+    { sym: String.fromCharCode(36), code: 'USD' },
+    { sym: '€', code: 'EUR' },
+    { sym: '£', code: 'GBP' },
+  ]
 
   const dayStr = now.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Karachi' })
