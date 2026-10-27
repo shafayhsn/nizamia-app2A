@@ -13,7 +13,7 @@ const TOOLS = [
   { id: 'catalogue', icon: BookImage, label: 'Catalogue Maker', soon: true },
 ]
 
-function ThreadCalc() {
+export function ThreadCalc() {
   const FACTORS = {
     'Lockstitch': 2.5, 'Overlock': 3.5, 'Double Needle': 4.0,
     'Coverstitch': 4.0, 'Flatlock': 4.5, 'Bartack': 10.0, 'Zigzag': 2.8,
@@ -51,7 +51,7 @@ function ThreadCalc() {
   )
 }
 
-function CBMCalc() {
+export function CBMCalc() {
   const [unit, setUnit] = useState('cm')
   const [dims, setDims] = useState({ l: '', w: '', h: '', qty: '' })
   const set = (k, v) => setDims({ ...dims, [k]: v })
@@ -82,7 +82,7 @@ function CBMCalc() {
   )
 }
 
-function PantoneConverter() {
+export function PantoneConverter() {
   const [code, setCode] = useState('')
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -134,7 +134,7 @@ function PantoneConverter() {
   )
 }
 
-function GSMFinder() {
+export function GSMFinder() {
   const [gsm, setGsm] = useState('')
   const [oz, setOz] = useState('')
   const [query, setQuery] = useState('')
