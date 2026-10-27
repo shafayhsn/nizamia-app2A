@@ -7,7 +7,6 @@ import {
   BookOpen, ChevronLeft, ChevronRight, Blocks, Settings,
   UserCircle, ClipboardCheck, Send, CalendarCheck, CalendarDays, LogOut,
 } from 'lucide-react'
-import ToolsTray from '../tools/ToolsTray'
 import nizamiaLogoFull from '../../assets/nizamia-logo-full.png'
 import nizamiaLogoMark from '../../assets/nizamia-logo-mark.png'
 
@@ -43,7 +42,6 @@ const SB_BORDER = '#ebebeb'
 
 export default function Sidebar({ onOpenDeadlines }) {
   const [collapsed, setCollapsed] = useState(false)
-  const [toolsOpen, setToolsOpen] = useState(false)
   const navigate = useNavigate()
   const { user, userRole, logout } = useAuth()
   const currentName = user?.username || user?.displayName || user?.email || 'User'
@@ -162,7 +160,7 @@ export default function Sidebar({ onOpenDeadlines }) {
                 const allowed = !module || can(userRole, module, 'view')
 
                 if (action === 'tools') {
-                  return allowed ? navBtn(Icon, label, () => setToolsOpen(true)) : disabledItem(Icon, label)
+                  return allowed ? navBtn(Icon, label, () => navigate('/features')) : disabledItem(Icon, label)
                 }
 
                 return allowed ? (
@@ -276,7 +274,6 @@ export default function Sidebar({ onOpenDeadlines }) {
         </div>
       </aside>
 
-      <ToolsTray open={toolsOpen} onClose={() => setToolsOpen(false)} />
     </>
   )
 }
