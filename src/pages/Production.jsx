@@ -12,9 +12,10 @@ const button={...field,cursor:'pointer',fontWeight:650,display:'inline-flex',ali
 const fmt=n=>Number(n||0).toLocaleString()
 const today=()=>new Date().toLocaleDateString('en-CA')
 let variantCache=null
+let variantCacheAt=0
+let variantRequest=null
 const variantKey=r=>`${r.order_id}:${r.size_group_id}:${r.color_id}`
-async function getVariants(){
-  if(variantCache)return variantCache
+async function fetchVariants(){
   const {data:orders,error}=await supabase.from('orders').select('id,job_number,buyer_name,style_number,po_number,store_name,ship_date,status,total_qty,description,factory_ref').not('job_number','is',null).order('ship_date')
   if(error)throw error
   const active=(orders||[]).filter(o=>String(o.job_number||'').trim()&&!/cancelled|canceled/i.test(o.status||''))
@@ -36,7 +37,14 @@ async function getVariants(){
   const orderMap=new Map(active.map(o=>[o.id,o]));const groupMap=new Map(groups.map(g=>[g.id,g]));const qtyMap=new Map()
   breakdown.forEach(b=>{const k=`${b.size_group_id}:${b.color_id}`;qtyMap.set(k,(qtyMap.get(k)||0)+Number(b.qty||0))})
   variantCache=colors.map(c=>{const g=groupMap.get(c.size_group_id),o=orderMap.get(g?.order_id);return o?{...o,order_id:o.id,size_group_id:g.id,color_id:c.id,wash:c.color_name||'—',size_group:g.group_name||'—',variant_qty:qtyMap.get(`${g.id}:${c.id}`)||0}:null}).filter(Boolean)
+  variantCacheAt=Date.now()
   return variantCache
+}
+async function getVariants(){
+  if(variantCache && Date.now()-variantCacheAt<30000)return variantCache
+  if(variantRequest)return variantRequest
+  variantRequest=fetchVariants().finally(()=>{variantRequest=null})
+  return variantRequest
 }
 export default function Production(){
   const [rows,setRows]=useState([]),[entries,setEntries]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState(''),[query,setQuery]=useState(''),[group,setGroup]=useState(()=>{try{return localStorage.getItem('app2a-production-group')||'job_number'}catch{return 'job_number'}}),[closed,setClosed]=useState([]),[selected,setSelected]=useState([])
