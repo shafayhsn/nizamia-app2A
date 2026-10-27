@@ -19,10 +19,20 @@ async function getVariants(){
   if(error)throw error
   const active=(orders||[]).filter(o=>String(o.job_number||'').trim()&&!/cancelled|canceled/i.test(o.status||''))
   if(!active.length)return []
-  const ids=active.map(o=>o.id),groups=[]
-  for(let i=0;i<ids.length;i+=150){const {data,error:e}=await supabase.from('size_groups').select('id,order_id,group_name').in('order_id',ids.slice(i,i+150));if(e)throw e;groups.push(...(data||[]))}
-  const groupIds=groups.map(g=>g.id),colors=[],breakdown=[]
-  for(let i=0;i<groupIds.length;i+=150){const batch=groupIds.slice(i,i+150);const [c,b]=await Promise.all([supabase.from('size_group_colors').select('id,size_group_id,color_name').in('size_group_id',batch),supabase.from('size_group_breakdown').select('size_group_id,color_id,qty').in('size_group_id',batch)]);if(c.error)throw c.error;if(b.error)throw b.error;colors.push(...(c.data||[]));breakdown.push(...(b.data||[]))}
+  const ids=active.map(o=>o.id)
+  const groupResults=await Promise.all(Array.from({length:Math.ceil(ids.length/150)},(_,i)=>supabase.from('size_groups').select('id,order_id,group_name').in('order_id',ids.slice(i*150,(i+1)*150))))
+  const groupError=groupResults.find(r=>r.error)?.error
+  if(groupError)throw groupError
+  const groups=groupResults.flatMap(r=>r.data||[])
+  const groupIds=groups.map(g=>g.id)
+  const variantResults=await Promise.all(Array.from({length:Math.ceil(groupIds.length/150)},(_,i)=>{
+    const batch=groupIds.slice(i*150,(i+1)*150)
+    return Promise.all([supabase.from('size_group_colors').select('id,size_group_id,color_name').in('size_group_id',batch),supabase.from('size_group_breakdown').select('size_group_id,color_id,qty').in('size_group_id',batch)])
+  }))
+  const variantError=variantResults.flat().find(r=>r.error)?.error
+  if(variantError)throw variantError
+  const colors=variantResults.flatMap(pair=>pair[0].data||[])
+  const breakdown=variantResults.flatMap(pair=>pair[1].data||[])
   const orderMap=new Map(active.map(o=>[o.id,o]));const groupMap=new Map(groups.map(g=>[g.id,g]));const qtyMap=new Map()
   breakdown.forEach(b=>{const k=`${b.size_group_id}:${b.color_id}`;qtyMap.set(k,(qtyMap.get(k)||0)+Number(b.qty||0))})
   variantCache=colors.map(c=>{const g=groupMap.get(c.size_group_id),o=orderMap.get(g?.order_id);return o?{...o,order_id:o.id,size_group_id:g.id,color_id:c.id,wash:c.color_name||'—',size_group:g.group_name||'—',variant_qty:qtyMap.get(`${g.id}:${c.id}`)||0}:null}).filter(Boolean)
