@@ -1,4 +1,4 @@
-import React,{useState} from 'react'
+import React,{useState,useEffect} from 'react'
 import * as XLSX from 'xlsx'
 
 const TYPES=['Jeans','Trousers','Shorts','Jacket','Shirt','Other']
@@ -73,6 +73,7 @@ export default function SewingThreadSmart(){
   }catch(err){setStatus('Could not read file: '+err.message+'. You can enter measurements manually.')}
   e.target.value=''
  }
+ useEffect(()=>()=>{if(sketch)URL.revokeObjectURL(sketch)},[sketch])
  const rules=RULES[type],present=Object.entries(rules).filter(([k])=>k!=='extra'&&number(measure[k])>0)
  // Seam length in cm; a transparent, intentionally approximate garment construction model.
  const seamCm=present.reduce((s,[k,f])=>s+number(measure[k])*f,0)
@@ -81,7 +82,7 @@ export default function SewingThreadSmart(){
  const complexityFactor={basic:.85,standard:1,detailed:1.2}[complexity]
  const totalMetres=(baseline/100)*3.15*complexityFactor*(1+number(waste)/100)
  const overlock=threads.find(t=>t.use==='Overlock')
- const overlockShare=overlock?.count?.trim()?.22:0
+ const overlockShare=overlock?.count?.trim()?0.22:0
  const topShare=overlockShare? .49:.62
  const bottomShare=1-overlockShare-topShare
  const portions=threads.map(t=>({ ...t,metres:totalMetres*(t.use==='Overlock'?overlockShare:t.use==='Top'?topShare:bottomShare)}))
