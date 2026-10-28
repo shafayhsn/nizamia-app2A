@@ -155,8 +155,8 @@ export default function SewingThreadSmart(){
  const portions=threads.map(t=>({...t,metres:calculationSets.reduce((sum,ops)=>sum+ops.reduce((n,op)=>n+((useFor(op,'needle')===t.use?op.needleYd:0)+(useFor(op,'looper')===t.use?op.looperYd:0)),0),0)*.9144/calculationSets.length+(t===threads[0]?number(factoryAllowance):0)}))
  const estimateQuality=coverage>=.75?'More measurements supplied':coverage>=.45?'Several dimensions assumed':'Many dimensions assumed'
  const canCalculate=present.length>=2&&threads.length>=2&&threads.every(t=>t.count.trim())&&new Set(threads.map(t=>t.use)).size===threads.length
- return <div style={{fontSize:13,color:'#344054'}}>
-  <p style={{fontSize:12,color:'#667085',margin:'0 0 14px'}}>A rough estimate using denim/twill seam stitch factors (8–10 SPI). No files are sent to or saved in the database.</p>
+ return <div className="thread-smart-layout" style={{fontSize:12,color:'#344054',display:'grid',gridTemplateColumns:'minmax(0,1.4fr) minmax(330px,1fr)',gap:12,height:'100%',minHeight:0}}><style>{`@media(max-width:800px){.thread-smart-layout{grid-template-columns:1fr!important;overflow-y:auto}.thread-smart-inputs,.thread-smart-results{overflow:visible!important;max-height:none!important}} .thread-smart-inputs .input,.thread-smart-inputs .select{min-height:30px!important;height:32px!important;padding:4px 8px!important;font-size:12px!important}.thread-smart-inputs label{font-size:11px!important;margin-bottom:2px!important;display:block}.thread-smart-inputs input[type=file]{font-size:11px}.thread-smart-inputs strong{font-size:12px}`}</style><div className="thread-smart-inputs" style={{overflowY:'auto',minHeight:0,padding:'2px 10px 10px 2px'}}>
+
   <label>Measurement sheet (Excel or text-based PDF)</label>
   <input type="file" accept=".xlsx,.xls,.pdf" onChange={upload} style={{display:'block',margin:'6px 0 8px',maxWidth:'100%'}}/>
   {file&&<div style={{fontSize:11,color:'#047857'}}>Loaded: {file}</div>}
@@ -172,17 +172,17 @@ export default function SewingThreadSmart(){
    <div><label>Stitching detail</label><select className="select" value={complexity} onChange={e=>{setComplexity(e.target.value);setShow(false)}}><option value="basic">Basic</option><option value="standard">Standard</option><option value="detailed">Detailed</option></select></div>
   </div>
   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginBottom:6}}><strong>Measurements</strong><select aria-label="Measurement unit" className="select" style={{width:130}} value={inputUnit} onChange={e=>{setInputUnit(e.target.value);setShow(false)}}><option value="cm">Centimetres</option><option value="in">Inches</option></select></div><div style={{fontSize:11,color:'#667085',marginBottom:8}}>Confirm the unit used in your spec sheet. <span style={{fontSize:11,fontWeight:400,color:'#667085'}}>— review or fill missing values</span></div>
-  <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8,marginBottom:14}}>
+  <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:6,marginBottom:9}}>
    {Object.keys(rules).filter(k=>k!=='extra').map(k=><div key={k}><label style={{textTransform:'capitalize'}}>{k}</label><input className="input" type="number" min="0" step=".1" placeholder="cm" value={measure[k]??''} onChange={e=>{setMeasure(m=>({...m,[k]:e.target.value}));setShow(false)}}/></div>)}
   </div>
-  <div style={{fontWeight:650,marginBottom:8}}>Garment construction <span style={{fontSize:11,fontWeight:400,color:'#667085'}}>— adjust only what differs from standard</span></div>
-  <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:9,marginBottom:12}}>
+  <div style={{fontWeight:650,marginBottom:5}}>Construction</div>
+  <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:6,marginBottom:8}}>
    <div><label>Waistband</label><select className="select" value={details.waistband} onChange={e=>{const v=e.target.value;setDetails(d=>({...d,waistband:v,waistbandRows:v==='elastic'?3:1,beltLoops:v==='elastic'?0:5}));setShow(false)}}><option value="regular">Regular</option><option value="elastic">Elasticated</option></select></div>
    <div><label>Topstitch lines</label><select className="select" value={details.topstitchLines} onChange={e=>{setDetails(d=>({...d,topstitchLines:Number(e.target.value)}));setShow(false)}}><option value="1">Single</option><option value="2">Double</option></select></div>
    {['frontPockets','backPockets','extraPockets','beltLoops','hammerLoops','waistbandRows'].map(k=><div key={k}><label style={{textTransform:'capitalize'}}>{({frontPockets:'Front pockets',backPockets:'Back pockets',extraPockets:'Extra / cargo pockets',beltLoops:'Belt loops',hammerLoops:'Hammer loops',waistbandRows:'Waistband stitch rows'})[k]}</label><input className="input" type="number" min="0" max="30" step="1" value={details[k]} onChange={e=>{setDetails(d=>({...d,[k]:Math.max(0,Math.min(30,Number(e.target.value)||0))}));setShow(false)}}/></div>)}
   </div>
   <details style={{marginBottom:14}}><summary style={{cursor:'pointer',fontSize:12}}>Measurement interpretation (advanced)</summary><p style={{fontSize:11,color:'#667085'}}>Most garment spec sheets give flat widths. Select circumference only when the sheet explicitly gives the full measurement.</p><div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:7}}>{[['waistMeasure','Waist'],['hipMeasure','Hip'],['hemMeasure','Leg opening']].map(([key,label])=><div key={key}><label>{label}</label><select className="select" value={details[key]} onChange={e=>{setDetails(d=>({...d,[key]:e.target.value}));setShow(false)}}><option value="flat">Flat width</option><option value="circumference">Circumference</option></select></div>)}</div></details>
-  <div style={{fontWeight:650,marginBottom:8}}>Thread counts <span style={{fontWeight:400,color:'#667085'}}>(2–3)</span></div>
+  <div style={{fontWeight:650,marginBottom:5}}>Thread counts (2–3)</div>
   {threads.map((t,i)=><div key={i} style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:8,marginBottom:8,alignItems:'end'}}>
    <div><label>Thread {i+1}</label><input className="input" value={t.count} placeholder="e.g. 20/3" onChange={e=>{setThreads(a=>a.map((v,j)=>j===i?{...v,count:e.target.value}:v));setShow(false)}}/></div>
    <div><label>Used for</label><select className="select" value={t.use} onChange={e=>{setThreads(a=>a.map((v,j)=>j===i?{...v,use:e.target.value}:v));setShow(false)}}>{['Top','Bobbin','Overlock'].map(x=><option key={x} disabled={threads.some((v,j)=>j!==i&&v.use===x)}>{x}</option>)}</select></div>
@@ -194,16 +194,21 @@ export default function SewingThreadSmart(){
    <div><label>Wastage %</label><input className="input" type="number" min="0" max="50" value={waste} onChange={e=>{setWaste(e.target.value);setShow(false)}}/></div>
    <div><label>Order quantity (pcs)</label><input className="input" type="number" min="1" value={qty} onChange={e=>setQty(e.target.value)}/></div>
   </div>
-  <div style={{marginBottom:12}}><label>Consumption unit</label><select className="select" value={unit} onChange={e=>setUnit(e.target.value)}><option value="m">Metres</option><option value="yd">Yards</option></select></div>
+  <div style={{marginBottom:7}}><label>Consumption unit</label><select className="select" value={unit} onChange={e=>setUnit(e.target.value)}><option value="m">Metres</option><option value="yd">Yards</option></select></div>
   <button className="btn btn-primary" disabled={!canCalculate} onClick={()=>setShow(true)}>Calculate estimate</button>
   {!canCalculate&&<p style={{fontSize:11,color:'#9a6700'}}>Enter at least two garment measurements and two different thread uses to calculate.</p>}
-  {show&&canCalculate&&<div style={{marginTop:16,padding:14,background:'#f7f8fa',borderRadius:9}}>
-   <div style={{fontSize:11,color:'#667085'}}>Approximate thread per garment · {estimateQuality}</div>
-   <div style={{fontSize:25,fontWeight:750}}>{(totalMetres*(unit==='yd'?1.0936133:1)).toFixed(1)} {unit} / pc</div>
-   <table style={{width:'100%',fontSize:12,marginTop:10,borderCollapse:'collapse'}}><thead><tr><th align="left">Count</th><th align="left">Use</th><th align="right">{unit} / pc</th><th align="right">{unit} / order</th></tr></thead><tbody>{portions.map((t,i)=><tr key={i}><td>{t.count}</td><td>{t.use}</td><td align="right">{(t.metres*(unit==='yd'?1.0936133:1)).toFixed(1)}</td><td align="right">{Math.round(t.metres*(unit==='yd'?1.0936133:1)*number(qty)).toLocaleString()}</td></tr>)}</tbody></table>
-   <div style={{fontSize:11,color:"#667085",marginTop:10}}>Estimated seams: {seamMetres.toFixed(1)} m/pc · Factory allowance: {number(factoryAllowance).toFixed(1)} m/pc</div>
-   <details style={{marginTop:12}}><summary style={{cursor:'pointer',fontWeight:600}}>How this was estimated</summary><div style={{overflowX:'auto'}}><table style={{width:'100%',fontSize:11,marginTop:8}}><thead><tr><th align="left">Operation</th><th align="left">Stitch</th><th align="right">Needle {unit}</th><th align="right">Bobbin/looper {unit}</th></tr></thead><tbody>{operations.map(op=><tr key={op.name}><td>{op.name}</td><td>{op.stitchName}</td><td align="right">{(op.needleYd*(unit==='m'?.9144:1)).toFixed(1)}</td><td align="right">{(op.looperYd*(unit==='m'?.9144:1)).toFixed(1)}</td></tr>)}</tbody></table></div><p style={{fontSize:11,color:'#667085'}}>Seam lengths are estimated from garment measurements and component quantities. Stitch types are assumed; bartacks, buttonholes and other fixed-per-piece operations are not included.</p></details>
-   <p style={{fontSize:11,color:'#667085',marginBottom:0}}>Rough estimate {averageSizes?'averaged across available sizes ':selectedSize?'for size '+selectedSize+' ':''}using {present.length} measurements, {complexity} construction and {waste}% wastage. Stitch factors are reference estimates for heavier denim/twill at 8–10 SPI. Seam lengths and construction are assumed. Top = needle; Bobbin = bobbin/chain looper; Overlock = overlock needle and loopers. If only two thread counts are supplied, overlock thread is assigned to an available count. This is not factory-validated. Validate with factory consumption before ordering. {coverage<.65?'Several measurements are missing; confidence is low.':''}</p>
-  </div>}
+  </div>
+  <aside className="thread-smart-results" style={{minHeight:0,overflowY:'auto',background:'#f7f8fa',border:'1px solid #e7e9ed',borderRadius:9,padding:12}}>
+   <div style={{fontSize:13,fontWeight:750,marginBottom:10}}>How this was estimated</div>
+   {show&&canCalculate?<div>
+    <div style={{fontSize:11,color:'#667085'}}>Approximate consumption / piece</div>
+    <div style={{fontSize:27,fontWeight:750,marginBottom:10}}>{(totalMetres*(unit==='yd'?1.0936133:1)).toFixed(1)} {unit}</div>
+    <table style={{width:'100%',fontSize:11,borderCollapse:'collapse'}}><thead><tr><th align="left">Count</th><th align="left">Use</th><th align="right">{unit}/pc</th><th align="right">{unit}/order</th></tr></thead><tbody>{portions.map((t,i)=><tr key={i} style={{borderTop:'1px solid #e3e5e9'}}><td style={{padding:'6px 0'}}>{t.count}</td><td>{t.use}</td><td align="right">{(t.metres*(unit==='yd'?1.0936133:1)).toFixed(1)}</td><td align="right">{Math.round(t.metres*(unit==='yd'?1.0936133:1)*number(qty)).toLocaleString()}</td></tr>)}</tbody></table>
+    <div style={{fontSize:11,color:'#667085',margin:'10px 0'}}>Seams {seamMetres.toFixed(1)} m · Allowance {number(factoryAllowance).toFixed(1)} m</div>
+    <div style={{fontSize:12,fontWeight:650,margin:'12px 0 6px'}}>Operation breakdown</div>
+    <table style={{width:'100%',fontSize:10,borderCollapse:'collapse'}}><thead><tr><th align="left">Operation / stitch</th><th align="right">Needle</th><th align="right">Looper</th></tr></thead><tbody>{operations.map((op,i)=><tr key={i} style={{borderTop:'1px solid #e2e5ea'}}><td style={{padding:'6px 5px 6px 0'}}>{op.name}<div style={{color:'#98a2b3',fontSize:10}}>{op.stitchName}</div></td><td align="right">{(op.needleYd*(unit==='m'?.9144:1)).toFixed(1)}</td><td align="right">{(op.looperYd*(unit==='m'?.9144:1)).toFixed(1)}</td></tr>)}</tbody></table>
+   </div>:<div style={{fontSize:12,color:'#667085',paddingTop:16}}>Enter measurements and select Calculate estimate to see the breakdown.</div>}
+  </aside>
+
  </div>
 }
