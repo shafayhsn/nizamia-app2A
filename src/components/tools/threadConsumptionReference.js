@@ -95,8 +95,8 @@ export function estimateThread(operations,wastage=10,spi=9){
   const inches=op.length*op.qty
   const coats=COATS_18_SPI[op.stitch]
   const useCoats=Number(spi)===18&&coats
-  const needleFactor=useCoats?coats.ratio*coats.needleShare/2.54/0.9144:f.needle
-  const looperFactor=useCoats?coats.ratio*(1-coats.needleShare)/2.54/0.9144:f.looper
+  const needleFactor=useCoats?coats.ratio*coats.needleShare/36:f.needle
+  const looperFactor=useCoats?coats.ratio*(1-coats.needleShare)/36:f.looper
   return {...op,needleYd:inches*needleFactor*multiplier,looperYd:inches*looperFactor*multiplier,stitchName:f.name}
  })
 }
