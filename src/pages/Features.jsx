@@ -4,11 +4,12 @@ import { ThreadCalc, CBMCalc, GSMFinder, PantoneConverter } from '../components/
 import FeatureResource from '../components/tools/FeatureResource'
 import CreateParcelFeature from '../components/tools/CreateParcelFeature'
 import TrimsCalculator from '../components/tools/TrimsCalculator'
+import FabricConsumption from '../components/tools/FabricConsumption'
 
 const FEATURES = [
   {id:'costing',label:'Costing Sheet',icon:Calculator,color:'#16a34a',ready:false},
   {id:'dispatch',label:'Parcel Dispatch',icon:Truck,color:'#4f46e5',ready:true},
-  {id:'fabric',label:'Fabric Consumption',icon:Layers,color:'#2563eb',ready:false},
+  {id:'fabric',label:'Fabric Consumption',icon:Layers,color:'#2563eb',ready:true},
   {id:'thread',label:'Sewing Thread',icon:Activity,color:'#db2777',ready:true},
   {id:'accessories',label:'Trims Calculator',icon:Tag,color:'#ea580c',ready:true},
   {id:'cbm',label:'CBM Calculator',icon:Box,color:'#0d9488',ready:true},
@@ -16,7 +17,7 @@ const FEATURES = [
   {id:'pantone',label:'Pantone Converter',icon:Palette,color:'#e11d48',ready:true,partial:true},
   {id:'catalogue',label:'Catalogue Maker',icon:BookImage,color:'#d97706',ready:false},
 ]
-const COMPONENTS={thread:ThreadCalc,cbm:CBMCalc,gsm:GSMFinder,pantone:PantoneConverter,accessories:TrimsCalculator}
+const COMPONENTS={thread:ThreadCalc,cbm:CBMCalc,gsm:GSMFinder,pantone:PantoneConverter,accessories:TrimsCalculator,fabric:FabricConsumption}
 const card={border:'1px solid #e1e5eb',borderRadius:12,background:'#fff',boxShadow:'0 1px 3px #1018280b'}
 export default function Features(){
   const [active,setActive]=useState(null)
