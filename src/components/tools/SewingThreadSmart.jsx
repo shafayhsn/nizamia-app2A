@@ -66,7 +66,7 @@ function extractMeasurements(lines){
     const parsed=measurementNumber(raw)
     if(!parsed)return null
     // Measurement unit is set from sheet metadata or user confirmation.
-    return Number((parsed.value*(parsed.inch?2.54:1)).toFixed(2))
+    return Number(parsed.value.toFixed(3))
    }
    if(header){
     for(const size of sizes){
@@ -117,7 +117,7 @@ export default function SewingThreadSmart(){
  useEffect(()=>()=>{if(sketch)URL.revokeObjectURL(sketch)},[sketch])
  const rules=RULES[type],present=Object.entries(rules).filter(([k])=>k!=='extra'&&number(measure[k])>0)
  // Seam length in cm; a transparent, intentionally approximate garment construction model.
- const seamCm=present.reduce((s,[k,f])=>s+number(measure[k])*f,0)
+ const seamCm=present.reduce((s,[k,f])=>s+number(measure[k])*(inputUnit==='in'?2.54:1)*f,0)
  const coverage=present.length/Object.keys(rules).filter(k=>k!=='extra').length
  const featureCm=(details.cargo?900:0)+(details.topstitch?550:0)+(details.reinforced?250:0)
  const baseline=seamCm+(present.length?rules.extra*100:0)+featureCm
@@ -146,7 +146,7 @@ export default function SewingThreadSmart(){
    <div><label>Garment type</label><select className="select" value={type} onChange={e=>{setType(e.target.value);setShow(false)}}>{TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
    <div><label>Stitching detail</label><select className="select" value={complexity} onChange={e=>{setComplexity(e.target.value);setShow(false)}}><option value="basic">Basic</option><option value="standard">Standard</option><option value="detailed">Detailed</option></select></div>
   </div>
-  <div style={{fontWeight:650,marginBottom:6}}>Measurements (cm) <span style={{fontSize:11,fontWeight:400,color:'#667085'}}>— review or fill missing values</span></div>
+  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginBottom:6}}><strong>Measurements</strong><select aria-label="Measurement unit" className="select" style={{width:130}} value={inputUnit} onChange={e=>{setInputUnit(e.target.value);setShow(false)}}><option value="cm">Centimetres</option><option value="in">Inches</option></select></div><div style={{fontSize:11,color:'#667085',marginBottom:8}}>Confirm the unit used in your spec sheet. <span style={{fontSize:11,fontWeight:400,color:'#667085'}}>— review or fill missing values</span></div>
   <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8,marginBottom:14}}>
    {Object.keys(rules).filter(k=>k!=='extra').map(k=><div key={k}><label style={{textTransform:'capitalize'}}>{k}</label><input className="input" type="number" min="0" step=".1" placeholder="cm" value={measure[k]??''} onChange={e=>{setMeasure(m=>({...m,[k]:e.target.value}));setShow(false)}}/></div>)}
   </div>
