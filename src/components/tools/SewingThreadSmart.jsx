@@ -23,22 +23,54 @@ const ALIASES={
  shoulder:['shoulder width','across shoulder']
 }
 const clean=s=>String(s||'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim()
+function identifySize(value){
+ const raw=String(value??'').trim()
+ if(!raw||raw.length>22)return null
+ const v=raw.replace(/\s+/g,' ').trim()
+ if(/^(?:size|sz)\s*[:#-]?\s*/i.test(v))return v.replace(/^(?:size|sz)\s*[:#-]?\s*/i,'').trim()||null
+ if(/^(?:\d{1,2}\s*\/\s*\d{1,2}|\d{1,2}\s*[-–]\s*\d{1,2})(?:\s*(?:yrs?|years?|months?|mos?))?$/i.test(v))return v
+ if(/^(?:XXS|XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL)$/i.test(v))return v
+ if(/^(?:\d{1,2})\s*(?:yrs?|years?|months?|mos?)$/i.test(v))return v
+ return null
+}
 function extractMeasurements(lines){
- const found={}
- for(const line of lines){
-  const cells=line.map(x=>String(x??'').trim()).filter(Boolean)
-  for(let i=0;i<cells.length;i++){
-   const key=clean(cells[i])
-   for(const [field,aliases] of Object.entries(ALIASES)){
-    if(found[field]!==undefined||!aliases.some(a=>key===a||key.startsWith(a+' ')||key.endsWith(' '+a)))continue
-    const inline=cells[i].match(/(?:^|\s)(\d+(?:\.\d+)?)\s*(cm|inch|inches|in)?$/i)
-    const near=cells.slice(i+1,i+5).map(s=>s.match(/^\s*(\d+(?:\.\d+)?)\s*(cm|inch|inches|in)?\s*$/i)).find(Boolean)
-    const match=near||inline
-    if(match){const value=Number(match[1]);if(value>0&&value<300)found[field]=value*(/^(in|inch|inches)$/i.test(match[2]||'')?2.54:1)}
+ // Keep original column positions. Never mix sizes or silently choose the first column.
+ const rows=lines.map(row=>row.map(v=>String(v??'').trim()))
+ const candidates=[]
+ for(let i=0;i<rows.length;i++){
+  const row=rows[i]
+  const matched=row.map((v,j)=>({label:identifySize(v),j})).filter(x=>x.label)
+  if(matched.length>=2&&matched.length<=24)candidates.push({row:i,matched})
+ }
+ const header=candidates.sort((a,b)=>b.matched.length-a.matched.length)[0]
+ const sizes=header?header.matched.map(x=>({label:x.label,column:x.j})):[]
+ const values={}
+ for(const size of sizes)values[size.label]={}
+ const fallback={}
+ for(let i=0;i<rows.length;i++){
+  const row=rows[i]
+  for(let j=0;j<row.length;j++){
+   const key=clean(row[j])
+   const field=Object.keys(ALIASES).find(k=>ALIASES[k].some(a=>key===a||key.startsWith(a+' ')||key.endsWith(' '+a)))
+   if(!field)continue
+   const parse=(raw)=>{
+    const match=String(raw??'').trim().match(/^(\d+(?:\.\d+)?)\s*(cm|inch|inches|in)?$/i)
+    if(!match)return null
+    const v=Number(match[1])*(/^(in|inch|inches)$/i.test(match[2]||'')?2.54:1)
+    return v>0&&v<300?Number(v.toFixed(2)):null
+   }
+   if(header){
+    for(const size of sizes){
+     const v=parse(row[size.column])
+     if(v!==null&&values[size.label][field]===undefined)values[size.label][field]=v
+    }
+   }else{
+    const v=row.slice(j+1,j+5).map(parse).find(x=>x!==null&&x!==undefined)
+    if(v!==undefined&&fallback[field]===undefined)fallback[field]=v
    }
   }
  }
- return found
+ return {sizes:sizes.map(x=>x.label),values, fallback:header?{}:fallback}
 }
 async function readPdf(file){
  // PDF.js is loaded only when a PDF is selected. Processing stays in this browser.
@@ -56,20 +88,20 @@ async function readPdf(file){
 }
 const number=v=>Math.max(0,Number(v)||0)
 export default function SewingThreadSmart(){
- const [file,setFile]=useState(null),[sketch,setSketch]=useState(null),[measure,setMeasure]=useState({}),[status,setStatus]=useState(''),[type,setType]=useState('Jeans'),[complexity,setComplexity]=useState('standard'),[threads,setThreads]=useState([{count:'20/3',use:'Top'},{count:'20/2',use:'Bobbin'}]),[waste,setWaste]=useState(10),[qty,setQty]=useState(1000),[show,setShow]=useState(false)
+ const [sizeData,setSizeData]=useState(null),[selectedSize,setSelectedSize]=useState(''),[unit,setUnit]=useState('m'),[sketchError,setSketchError]=useState(''),[file,setFile]=useState(null),[sketch,setSketch]=useState(null),[measure,setMeasure]=useState({}),[status,setStatus]=useState(''),[type,setType]=useState('Jeans'),[complexity,setComplexity]=useState('standard'),[threads,setThreads]=useState([{count:'20/3',use:'Top'},{count:'20/2',use:'Bobbin'}]),[waste,setWaste]=useState(10),[qty,setQty]=useState(1000),[show,setShow]=useState(false)
  async function upload(e){
   const f=e.target.files?.[0];if(!f)return
-  setFile(null);setMeasure({});setShow(false);setStatus('Reading file locally…')
+  setFile(null);setMeasure({});setSizeData(null);setSelectedSize('');setShow(false);setStatus('Reading file locally…')
   try{
    if(f.size>8*1024*1024)throw Error('Maximum file size is 8 MB.')
    let lines=[]
    if(/\.pdf$/i.test(f.name))lines=await readPdf(f)
    else if(/\.xlsx?$/i.test(f.name)){
     const wb=XLSX.read(await f.arrayBuffer(),{type:'array'})
-    for(const name of wb.SheetNames.slice(0,5)){const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,defval:''});lines.push(...rows.slice(0,300))}
+    for(const name of wb.SheetNames.slice(0,5)){const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,defval:''});lines.push(...rows.slice(0,300));lines.push([])}
    }else throw Error('Choose an Excel or PDF file.')
    const result=extractMeasurements(lines)
-   setMeasure(result);setFile(f.name);setStatus(Object.keys(result).length?Object.keys(result).length+' measurements found. Please check the values and units (cm).':'No measurements confidently identified. Enter them below. Scanned PDFs are not supported.')
+   setSizeData(result);setFile(f.name);if(result.sizes.length){setStatus(result.sizes.length+' sizes detected. Select the size to calculate; no size has been chosen automatically.')}else{setMeasure(result.fallback);setStatus(Object.keys(result.fallback).length?Object.keys(result.fallback).length+' measurements found, but size headings were not identified. Verify these values manually.':'No measurements confidently identified. Enter them below. Scanned PDFs are not supported.')}
   }catch(err){setStatus('Could not read file: '+err.message+'. You can enter measurements manually.')}
   e.target.value=''
  }
@@ -93,8 +125,10 @@ export default function SewingThreadSmart(){
   <input type="file" accept=".xlsx,.xls,.pdf" onChange={upload} style={{display:'block',margin:'6px 0 8px',maxWidth:'100%'}}/>
   {file&&<div style={{fontSize:11,color:'#047857'}}>Loaded: {file}</div>}
   {status&&<p style={{fontSize:11,color:'#667085',margin:'4px 0 10px'}}>{status}</p>}
-  <label>Garment sketch (optional JPG)</label>
-  <input type="file" accept=".jpg,.jpeg" onChange={e=>{const f=e.target.files?.[0];if(f&&f.size<=5*1024*1024){if(sketch)URL.revokeObjectURL(sketch);setSketch(URL.createObjectURL(f))}else if(f)setStatus('Sketch must be under 5 MB.');e.target.value=''}} style={{display:'block',margin:'6px 0 12px',maxWidth:'100%'}}/>
+  {sizeData?.sizes?.length>0&&<div style={{margin:'12px 0'}}><label>Select measurement size</label><select className="select" value={selectedSize} onChange={e=>{const v=e.target.value;setSelectedSize(v);setMeasure(v?{...sizeData.values[v]}:{});setShow(false)}}><option value="">Choose a size…</option>{sizeData.sizes.map(v=><option key={v} value={v}>{v}</option>)}</select>{selectedSize&&<div style={{fontSize:11,color:'#667085',marginTop:5}}>{Object.keys(sizeData.values[selectedSize]||{}).length} measurements read for size {selectedSize}. Check the values below.</div>}</div>}
+  <label>Garment sketch (optional JPG, PNG or WebP)</label>
+  <input type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" onChange={e=>{const f=e.target.files?.[0];if(!f)return;setSketchError('');if(!/\.(jpg|jpeg|png|webp)$/i.test(f.name)&&!['image/jpeg','image/png','image/webp'].includes(f.type)){setSketchError('Please choose JPG, PNG or WebP.')}else if(f.size>10*1024*1024){setSketchError('Image exceeds 10 MB. Please use a smaller image.')}else{setSketch(URL.createObjectURL(f))}e.target.value=''}} style={{display:'block',margin:'6px 0 12px',maxWidth:'100%'}}/>
+  {sketchError&&<p style={{fontSize:11,color:'#b42318'}}>{sketchError}</p>}
   {sketch&&<div style={{display:'flex',alignItems:'start',gap:8,marginBottom:12}}><img src={sketch} alt="Uploaded garment sketch" style={{maxHeight:140,maxWidth:160,objectFit:'contain',border:'1px solid #ddd',borderRadius:6}}/><button className="btn btn-secondary btn-sm" onClick={()=>{URL.revokeObjectURL(sketch);setSketch(null)}}>Remove sketch</button></div>}
   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
    <div><label>Garment type</label><select className="select" value={type} onChange={e=>{setType(e.target.value);setShow(false)}}>{TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
@@ -115,13 +149,14 @@ export default function SewingThreadSmart(){
    <div><label>Wastage %</label><input className="input" type="number" min="0" max="50" value={waste} onChange={e=>{setWaste(e.target.value);setShow(false)}}/></div>
    <div><label>Order quantity (pcs)</label><input className="input" type="number" min="1" value={qty} onChange={e=>setQty(e.target.value)}/></div>
   </div>
+  <div style={{marginBottom:12}}><label>Consumption unit</label><select className="select" value={unit} onChange={e=>setUnit(e.target.value)}><option value="m">Metres</option><option value="yd">Yards</option></select></div>
   <button className="btn btn-primary" disabled={!canCalculate} onClick={()=>setShow(true)}>Calculate estimate</button>
   {!canCalculate&&<p style={{fontSize:11,color:'#9a6700'}}>Enter at least two garment measurements and two different thread uses to calculate.</p>}
   {show&&canCalculate&&<div style={{marginTop:16,padding:14,background:'#f7f8fa',borderRadius:9}}>
    <div style={{fontSize:11,color:'#667085'}}>Approximate thread per garment</div>
-   <div style={{fontSize:25,fontWeight:750}}>{totalMetres.toFixed(1)} m / pc</div>
-   <table style={{width:'100%',fontSize:12,marginTop:10,borderCollapse:'collapse'}}><thead><tr><th align="left">Count</th><th align="left">Use</th><th align="right">m / pc</th><th align="right">m / order</th></tr></thead><tbody>{portions.map((t,i)=><tr key={i}><td>{t.count}</td><td>{t.use}</td><td align="right">{t.metres.toFixed(1)}</td><td align="right">{Math.round(t.metres*number(qty)).toLocaleString()}</td></tr>)}</tbody></table>
-   <p style={{fontSize:11,color:'#667085',marginBottom:0}}>Rough estimate using {present.length} measurements, {complexity} construction and {waste}% wastage. Thread allocation is assumed, not derived from thread count. Validate with factory consumption before ordering. {coverage<.65?'Several measurements are missing; confidence is low.':''}</p>
+   <div style={{fontSize:25,fontWeight:750}}>{(totalMetres*(unit==='yd'?1.0936133:1)).toFixed(1)} {unit} / pc</div>
+   <table style={{width:'100%',fontSize:12,marginTop:10,borderCollapse:'collapse'}}><thead><tr><th align="left">Count</th><th align="left">Use</th><th align="right">{unit} / pc</th><th align="right">{unit} / order</th></tr></thead><tbody>{portions.map((t,i)=><tr key={i}><td>{t.count}</td><td>{t.use}</td><td align="right">{(t.metres*(unit==='yd'?1.0936133:1)).toFixed(1)}</td><td align="right">{Math.round(t.metres*(unit==='yd'?1.0936133:1)*number(qty)).toLocaleString()}</td></tr>)}</tbody></table>
+   <p style={{fontSize:11,color:'#667085',marginBottom:0}}>Rough estimate {selectedSize?'for size '+selectedSize+' ':''}using {present.length} measurements, {complexity} construction and {waste}% wastage. Thread allocation is assumed, not derived from thread count. Validate with factory consumption before ordering. {coverage<.65?'Several measurements are missing; confidence is low.':''}</p>
   </div>}
  </div>
 }
