@@ -5,6 +5,8 @@ import FeatureResource from '../components/tools/FeatureResource'
 import CreateParcelFeature from '../components/tools/CreateParcelFeature'
 import TrimsCalculator from '../components/tools/TrimsCalculator'
 import FabricConsumption from '../components/tools/FabricConsumption'
+import FabricConstructionFinder from '../components/tools/FabricConstructionFinder'
+import ShadeFinder from '../components/tools/ShadeFinder'
 
 const FEATURES = [
   {id:'costing',label:'Costing Sheet',icon:Calculator,color:'#16a34a',ready:false},
@@ -13,11 +15,11 @@ const FEATURES = [
   {id:'thread',label:'Sewing Thread',icon:Activity,color:'#db2777',ready:true},
   {id:'accessories',label:'Trims Calculator',icon:Tag,color:'#ea580c',ready:true},
   {id:'cbm',label:'CBM Calculator',icon:Box,color:'#0d9488',ready:true},
-  {id:'gsm',label:'Fabric GSM',icon:Scale,color:'#dc2626',ready:true,partial:true},
-  {id:'pantone',label:'Pantone Converter',icon:Palette,color:'#e11d48',ready:true,partial:true},
+  {id:'gsm',label:'Fabric Construction Finder',icon:Scale,color:'#dc2626',ready:true},
+  {id:'pantone',label:'Shade Finder — Pantone · Coats · YKK',icon:Palette,color:'#e11d48',ready:true},
   {id:'catalogue',label:'Catalogue Maker',icon:BookImage,color:'#d97706',ready:false},
 ]
-const COMPONENTS={thread:ThreadCalc,cbm:CBMCalc,gsm:GSMFinder,pantone:PantoneConverter,accessories:TrimsCalculator,fabric:FabricConsumption}
+const COMPONENTS={thread:ThreadCalc,cbm:CBMCalc,gsm:FabricConstructionFinder,pantone:ShadeFinder,accessories:TrimsCalculator,fabric:FabricConsumption}
 const card={border:'1px solid #e1e5eb',borderRadius:12,background:'#fff',boxShadow:'0 1px 3px #1018280b'}
 export default function Features(){
   const [active,setActive]=useState(null)
