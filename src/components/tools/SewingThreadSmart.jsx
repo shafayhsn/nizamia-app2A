@@ -49,9 +49,21 @@ function extractMeasurements(lines){
  for(let i=0;i<rows.length;i++){
   const row=rows[i]
   const matched=row.map((v,j)=>({label:identifySize(v),j})).filter(x=>x.label)
-  if(matched.length>=2&&matched.length<=24)candidates.push({row:i,matched})
+  if(matched.length<2||matched.length>24)continue
+  // Size headers are column labels above a measurement table, not a long row of values.
+  // Require nearby textual size context or measurement labels beneath these columns.
+  const nearby=rows.slice(Math.max(0,i-3),i+1).flat().map(clean).join(' ')
+  const context=/\b(size|sizes|measurement|specification|spec sheet|sample description)\b/.test(nearby)
+  const below=rows.slice(i+1,i+35)
+  const measured=below.filter(r=>r.some(v=>Object.values(ALIASES).flat().some(a=>{const t=clean(v);return t===a||t.startsWith(a+' ')}))).length
+  const numericOnly=matched.every(x=>/^\d{1,2}$/.test(x.label))
+  const contiguous=matched.every((x,k)=>k===0||x.j===matched[k-1].j+1)
+  // Bare numeric runs without a clear header label are unsafe: they are often measurements.
+  if(numericOnly&&!context)continue
+  if(measured<2||!contiguous)continue
+  candidates.push({row:i,matched,score:measured*3+(context?10:0)+(numericOnly?-8:5)})
  }
- const header=candidates.sort((a,b)=>b.matched.length-a.matched.length)[0]
+ const header=candidates.sort((a,b)=>b.score-a.score)[0]
  const sizes=header?header.matched.map(x=>({label:x.label,column:x.j})):[]
  const values={}
  for(const size of sizes)values[size.label]={}
