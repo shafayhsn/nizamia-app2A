@@ -137,19 +137,21 @@ export default function SewingThreadSmart(){
  const baseOperations=buildThreadOperations({type,dimensions,details})
  const complexityFactor={basic:.85,standard:1,detailed:1.2}[complexity]
  const operations=estimateThread(baseOperations.map(op=>({...op,length:op.length*complexityFactor})),waste)
- const totalYards=operations.reduce((sum,op)=>sum+op.needleYd+op.looperYd,0)
- const totalMetres=totalYards*.9144
+ const operationSets=averageSizes&&sizeData?.sizes?.length
+  ?Object.values(sizeData.values).filter(v=>Object.keys(v).length>=2).map(v=>{
+    const dims=Object.fromEntries(Object.entries(v).map(([k,n])=>[k,number(n)*inchesPerUnit]))
+    return estimateThread(buildThreadOperations({type,dimensions:dims,details}).map(op=>({...op,length:op.length*complexityFactor})),waste)
+   }):[]
+ const calculationSets=operationSets.length?operationSets:[operations]
+ const totalMetres=calculationSets.reduce((sum,ops)=>sum+ops.reduce((n,op)=>n+op.needleYd+op.looperYd,0),0)*.9144/calculationSets.length
  const assignedUses=new Set(threads.map(t=>t.use))
  const overlockThread=threads.find(t=>t.count===overlockCount)||threads.find(t=>t.use==='Overlock')||threads.find(t=>t.use==='Bobbin')||threads[0]
- // Top represents needle thread; Bobbin represents lockstitch bobbin or
- // chainstitch looper; Overlock represents both needle and looper on overlock seams.
- // With only two counts, overlock usage is assigned to Bobbin (or Top if absent).
  const useFor=(op,side)=>{
   if(op.channel==='overlock')return overlockThread.use
   if(side==='needle')return assignedUses.has('Top')?'Top':'Bobbin'
   return assignedUses.has('Bobbin')?'Bobbin':assignedUses.has('Overlock')?'Overlock':'Top'
  }
- const portions=threads.map(t=>({...t,metres:operations.reduce((sum,op)=>sum+((useFor(op,'needle')===t.use?op.needleYd:0)+(useFor(op,'looper')===t.use?op.looperYd:0))*.9144,0)}))
+ const portions=threads.map(t=>({...t,metres:calculationSets.reduce((sum,ops)=>sum+ops.reduce((n,op)=>n+((useFor(op,'needle')===t.use?op.needleYd:0)+(useFor(op,'looper')===t.use?op.looperYd:0)),0),0)*.9144/calculationSets.length}))
  const estimateQuality=coverage>=.75?'More measurements supplied':coverage>=.45?'Several dimensions assumed':'Many dimensions assumed'
  const canCalculate=present.length>=2&&threads.length>=2&&threads.every(t=>t.count.trim())&&new Set(threads.map(t=>t.use)).size===threads.length
  return <div style={{fontSize:13,color:'#344054'}}>
