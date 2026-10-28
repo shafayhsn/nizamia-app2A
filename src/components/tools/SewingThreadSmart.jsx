@@ -1,5 +1,6 @@
 import React,{useState,useEffect} from 'react'
 import * as XLSX from 'xlsx'
+import {buildThreadOperations,estimateThread} from './threadConsumptionReference'
 
 const TYPES=['Jeans','Trousers','Shorts','Jacket','Shirt','Other']
 const RULES={
@@ -130,38 +131,27 @@ export default function SewingThreadSmart(){
  }
  useEffect(()=>()=>{if(sketch)URL.revokeObjectURL(sketch)},[sketch])
  const rules=RULES[type],present=Object.entries(rules).filter(([k])=>k!=='extra'&&number(measure[k])>0)
- // Seam length in cm; a transparent, intentionally approximate garment construction model.
- const seamCm=present.reduce((s,[k,f])=>s+number(measure[k])*(inputUnit==='in'?2.54:1)*f,0)
  const coverage=present.length/Object.keys(rules).filter(k=>k!=='extra').length
- // Operation-based approximation. Each category uses its own estimated stitch length
- // and consumption factor, rather than splitting one grand total by fixed percentages.
- const cm=inputUnit==='in'?2.54:1
- const m=k=>number(measure[k])*cm
- const bodyLength=(m('inseam')||m('length')||m('outseam')||55)
- const waist=m('waist')||35
- const hip=m('hip')||waist*1.15
- const hem=m('hem')||hip*.6
- const hasLegs=['Jeans','Trousers','Shorts'].includes(type)
- const operationLengths=[
-  {name:'Main seams',length:seamCm/100,stitches:3.8,use:'Bobbin'},
-  {name:'Topstitching / hems',length:(hasLegs?(2*bodyLength+2*hem+2*waist):2*bodyLength+2*hem)/100,stitches:3.2,use:'Top'},
-  {name:'Waistband, pockets & fly',length:(hasLegs?(3*waist+2*hip+110):hip+waist+150)/100,stitches:3.5,use:'Top'},
-  {name:'Overlock / safety',length:(hasLegs?(4*bodyLength+2*hip+150):3*bodyLength+2*hip)/100,stitches:6.5,use:'Overlock'},
-  {name:'Extra pockets',length:details.cargo?9:0,stitches:3.7,use:'Top'},
-  {name:'Decorative topstitch',length:details.topstitch?5.5:0,stitches:3.4,use:'Top'},
-  {name:'Bartacks / loops',length:details.reinforced?3.5:1.2,stitches:7.5,use:'Overlock'}
- ]
+ const inchesPerUnit=inputUnit==='in'?1:1/2.54
+ const dimensions=Object.fromEntries(Object.entries(measure).map(([k,v])=>[k,number(v)*inchesPerUnit]))
+ const baseOperations=buildThreadOperations({type,dimensions,details})
  const complexityFactor={basic:.85,standard:1,detailed:1.2}[complexity]
- const operations=operationLengths.map(op=>({...op,metres:op.length*op.stitches*complexityFactor*(1+number(waste)/100)}))
- const totalMetres=operations.reduce((sum,op)=>sum+op.metres,0)
+ const operations=estimateThread(baseOperations.map(op=>({...op,length:op.length*complexityFactor})),waste)
+ const totalYards=operations.reduce((sum,op)=>sum+op.needleYd+op.looperYd,0)
+ const totalMetres=totalYards*.9144
  const assignedUses=new Set(threads.map(t=>t.use))
- // When only two thread counts are supplied, fold unassigned operation usage into
- // the nearest available category. This is explicitly an assumption.
- const resolvedUse=use=>assignedUses.has(use)?use:use==='Overlock'?(assignedUses.has('Bobbin')?'Bobbin':'Top'):(assignedUses.has('Top')?'Top':'Bobbin')
- const portions=threads.map(t=>({...t,metres:operations.filter(op=>resolvedUse(op.use)===t.use).reduce((sum,op)=>sum+op.metres,0)}))
+ // Top represents needle thread; Bobbin represents lockstitch bobbin or
+ // chainstitch looper; Overlock represents both needle and looper on overlock seams.
+ // With only two counts, overlock usage is assigned to Bobbin (or Top if absent).
+ const useFor=(op,side)=>{
+  if(op.channel==='overlock'&&assignedUses.has('Overlock'))return 'Overlock'
+  if(side==='needle')return assignedUses.has('Top')?'Top':'Bobbin'
+  return assignedUses.has('Bobbin')?'Bobbin':assignedUses.has('Overlock')?'Overlock':'Top'
+ }
+ const portions=threads.map(t=>({...t,metres:operations.reduce((sum,op)=>sum+((useFor(op,'needle')===t.use?op.needleYd:0)+(useFor(op,'looper')===t.use?op.looperYd:0))*.9144,0)}))
  const canCalculate=present.length>=2&&threads.length>=2&&threads.every(t=>t.count.trim())&&new Set(threads.map(t=>t.use)).size===threads.length
  return <div style={{fontSize:13,color:'#344054'}}>
-  <p style={{fontSize:12,color:'#667085',margin:'0 0 14px'}}>A quick costing estimate using garment operations. No files are sent to or saved in the database.</p>
+  <p style={{fontSize:12,color:'#667085',margin:'0 0 14px'}}>A rough estimate using denim/twill seam stitch factors (8–10 SPI). No files are sent to or saved in the database.</p>
   <label>Measurement sheet (Excel or text-based PDF)</label>
   <input type="file" accept=".xlsx,.xls,.pdf" onChange={upload} style={{display:'block',margin:'6px 0 8px',maxWidth:'100%'}}/>
   {file&&<div style={{fontSize:11,color:'#047857'}}>Loaded: {file}</div>}
@@ -200,8 +190,8 @@ export default function SewingThreadSmart(){
    <div style={{fontSize:11,color:'#667085'}}>Approximate thread per garment</div>
    <div style={{fontSize:25,fontWeight:750}}>{(totalMetres*(unit==='yd'?1.0936133:1)).toFixed(1)} {unit} / pc</div>
    <table style={{width:'100%',fontSize:12,marginTop:10,borderCollapse:'collapse'}}><thead><tr><th align="left">Count</th><th align="left">Use</th><th align="right">{unit} / pc</th><th align="right">{unit} / order</th></tr></thead><tbody>{portions.map((t,i)=><tr key={i}><td>{t.count}</td><td>{t.use}</td><td align="right">{(t.metres*(unit==='yd'?1.0936133:1)).toFixed(1)}</td><td align="right">{Math.round(t.metres*(unit==='yd'?1.0936133:1)*number(qty)).toLocaleString()}</td></tr>)}</tbody></table>
-   <details style={{marginTop:12}}><summary style={{cursor:'pointer',fontWeight:600}}>How this was estimated</summary><table style={{width:'100%',fontSize:11,marginTop:8}}><tbody>{operations.map(op=><tr key={op.name}><td>{op.name}</td><td>{resolvedUse(op.use)}</td><td style={{textAlign:'right'}}>{(op.metres*(unit==='yd'?1.0936133:1)).toFixed(1)} {unit}</td></tr>)}</tbody></table></details>
-   <p style={{fontSize:11,color:'#667085',marginBottom:0}}>Rough estimate {averageSizes?'averaged across available sizes ':selectedSize?'for size '+selectedSize+' ':''}using {present.length} measurements, {complexity} construction and {waste}% wastage. Operation lengths, stitch factors and thread-use assignments are approximate, not verified from the sketch. If a thread use is omitted, its consumption is reassigned to an available count. Two production references are not enough to establish accuracy. Validate with factory consumption before ordering. {coverage<.65?'Several measurements are missing; confidence is low.':''}</p>
+   <details style={{marginTop:12}}><summary style={{cursor:'pointer',fontWeight:600}}>How this was estimated</summary><div style={{overflowX:'auto'}}><table style={{width:'100%',fontSize:11,marginTop:8}}><thead><tr><th align="left">Operation</th><th align="left">Stitch</th><th align="right">Needle {unit}</th><th align="right">Bobbin/looper {unit}</th></tr></thead><tbody>{operations.map(op=><tr key={op.name}><td>{op.name}</td><td>{op.stitchName}</td><td align="right">{(op.needleYd*(unit==='m'?.9144:1)).toFixed(1)}</td><td align="right">{(op.looperYd*(unit==='m'?.9144:1)).toFixed(1)}</td></tr>)}</tbody></table></div><p style={{fontSize:11,color:'#667085'}}>Seam lengths are estimated from garment measurements. Stitch types are assumed; bartacks, buttonholes and other fixed-per-piece operations are not included.</p></details>
+   <p style={{fontSize:11,color:'#667085',marginBottom:0}}>Rough estimate {averageSizes?'averaged across available sizes ':selectedSize?'for size '+selectedSize+' ':''}using {present.length} measurements, {complexity} construction and {waste}% wastage. Stitch factors are reference estimates for heavier denim/twill at 8–10 SPI. Seam lengths and construction are assumed. Top = needle; Bobbin = bobbin/chain looper; Overlock = overlock needle and loopers. If only two thread counts are supplied, overlock thread is assigned to an available count. This is not factory-validated. Validate with factory consumption before ordering. {coverage<.65?'Several measurements are missing; confidence is low.':''}</p>
   </div>}
  </div>
 }
