@@ -88,15 +88,24 @@ export function buildThreadOperations({type,dimensions,details={}}){
  // Fixed short operations remain excluded until validated factory rates exist.
  return rows
 }
-export function estimateThread(operations,wastage=10,spi=9){
+// ANECALC workbooks distinguish light/medium/heavy by reference seam thickness.
+// Thickness adjustment below is a conservative engineering approximation,
+// NOT a transcription of the proprietary workbook lookup formulas.
+export const FABRIC_THICKNESS_MM={light:1.2,medium:1.9,heavy:2.9}
+export function estimateThread(operations,wastage=10,spi=9,fabricWeight='medium'){
  const multiplier=1+Math.max(0,Number(wastage)||0)/100
  return operations.map(op=>{
   const f=STITCH_FACTORS[op.stitch]
   const inches=op.length*op.qty
   const coats=COATS_18_SPI[op.stitch]
   const useCoats=Number(spi)===18&&coats
-  const needleFactor=useCoats?coats.ratio*coats.needleShare/36:f.needle
-  const looperFactor=useCoats?coats.ratio*(1-coats.needleShare)/36:f.looper
+  // Thread wrapped around thicker fabric increases consumption; stitch density
+  // also affects loop formation. Retain existing 9 SPI factors as baseline.
+  const thickness=FABRIC_THICKNESS_MM[fabricWeight]??1.9
+  const weightFactor=Math.max(.8,Math.min(1.3,1+0.12*(thickness-1.9)))
+  const densityFactor=useCoats?1:Math.max(.8,Math.min(1.25,1+0.025*(Number(spi)-9)))
+  const needleFactor=(useCoats?coats.ratio*coats.needleShare/36:f.needle)*weightFactor*densityFactor
+  const looperFactor=(useCoats?coats.ratio*(1-coats.needleShare)/36:f.looper)*weightFactor*densityFactor
   return {...op,needleYd:inches*needleFactor*multiplier,looperYd:inches*looperFactor*multiplier,stitchName:f.name}
  })
 }
