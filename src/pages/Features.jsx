@@ -8,6 +8,7 @@ import FabricConsumption from '../components/tools/FabricConsumption'
 import FabricConstructionFinder from '../components/tools/FabricConstructionFinder'
 import ShadeFinder from '../components/tools/ShadeFinder'
 import CatalogueMaker from '../components/tools/CatalogueMaker'
+import SewingThreadSmart from '../components/tools/SewingThreadSmart'
 
 const FEATURES = [
   {id:'costing',label:'Costing Sheet',icon:Calculator,color:'#16a34a',ready:false},
@@ -17,10 +18,11 @@ const FEATURES = [
   {id:'accessories',label:'Trims Calculator',icon:Tag,color:'#ea580c',ready:true},
   {id:'cbm',label:'CBM Calculator',icon:Box,color:'#0d9488',ready:true},
   {id:'gsm',label:'Fabric Construction Finder',icon:Scale,color:'#dc2626',ready:true},
-  {id:'pantone',label:'Shade Finder — Pantone · Coats · YKK',icon:Palette,color:'#e11d48',ready:true},
+  {id:'pantone',label:'Shade Finder',icon:Palette,color:'#e11d48',ready:true},
   {id:'catalogue',label:'Catalogue Maker',icon:BookImage,color:'#d97706',ready:true},
 ]
-const COMPONENTS={thread:ThreadCalc,cbm:CBMCalc,gsm:FabricConstructionFinder,pantone:ShadeFinder,accessories:TrimsCalculator,fabric:FabricConsumption}
+const COMPONENTS={thread:SewingThreadTool,cbm:CBMCalc,gsm:FabricConstructionFinder,pantone:ShadeFinder,accessories:TrimsCalculator,fabric:FabricConsumption}
+function SewingThreadTool(){const [mode,setMode]=useState('manual');return <div><div style={{display:'flex',gap:8,marginBottom:16}}><button className={mode==='manual'?'btn btn-primary btn-sm':'btn btn-secondary btn-sm'} onClick={()=>setMode('manual')}>Manual Calculator</button><button className={mode==='smart'?'btn btn-primary btn-sm':'btn btn-secondary btn-sm'} onClick={()=>setMode('smart')}>Smart Calculator</button></div>{mode==='manual'?<ThreadCalc/>:<SewingThreadSmart/>}</div>}
 const card={border:'1px solid #e1e5eb',borderRadius:12,background:'#fff',boxShadow:'0 1px 3px #1018280b'}
 export default function Features(){
   const [active,setActive]=useState(null)
