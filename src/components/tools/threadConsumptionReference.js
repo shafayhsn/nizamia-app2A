@@ -12,47 +12,68 @@ export const STITCH_FACTORS={
 }
 // All lengths in inches; quantity is the number of equivalent seam lines.
 // Additional lengths are explicitly estimates, not extracted from spec sheets.
-export function buildThreadOperations({type,dimensions,details}){
+// Generic garment construction model. All dimensions are inches.
+// Flat widths are converted to full circumferences where required.
+// Quantities and stitch lines are explicit; user options override defaults.
+export function buildThreadOperations({type,dimensions,details={}}){
  const d=k=>Math.max(0,Number(dimensions[k])||0)
- const waist=d('waist')||32,hip=d('hip')||waist*1.12
- const leg=d('outseam')||d('inseam')||d('length')||32
- const inseam=d('inseam')||leg*.75
- const rise=d('rise')||Math.max(7,leg*.27)
- const hem=d('hem')||hip*.55
- const sleeve=d('sleeve')||22,chest=d('chest')||hip*.65,shoulder=d('shoulder')||17
- const isJacket=type==='Jacket'
- const isTwill=type==='Trousers'||type==='Shorts'
+ const lower=['Jeans','Trousers','Shorts'].includes(type)
+ const waist=(d('waist')||16)*(details.waistMeasure==='circumference'?1:2)
+ const hip=(d('hip')||d('waist')*1.12||18)*(details.hipMeasure==='circumference'?1:2)
+ const hem=(d('hem')||d('hip')*.55||9)*(details.hemMeasure==='circumference'?1:2)
+ const leg=d('outseam')||d('length')||32
+ const rise=d('rise')||leg*.27
+ const inseam=d('inseam')||Math.max(1,leg-rise)
+ const chest=(d('chest')||d('hip')||19)*2
+ const length=d('length')||leg
+ const sleeve=d('sleeve')||length*.65
+ const shoulder=d('shoulder')||chest*.45
+ const frontPockets=lower?Math.max(0,Number(details.frontPockets??2)):Math.max(0,Number(details.frontPockets??0))
+ const backPockets=lower?Math.max(0,Number(details.backPockets??2)):Math.max(0,Number(details.backPockets??0))
+ const extraPockets=Math.max(0,Number(details.extraPockets??(details.cargo?2:0)))
+ const loops=Math.max(0,Number(details.beltLoops??(lower&&details.waistband!=='elastic'?5:0)))
+ const hammerLoops=Math.max(0,Number(details.hammerLoops??0))
+ const waistbandRows=Math.max(0,Number(details.waistbandRows??(details.waistband==='elastic'?3:1)))
+ const topstitchLines=Math.max(1,Number(details.topstitchLines??(details.topstitch?2:1)))
  const rows=[]
  const add=(name,stitch,length,qty=1,channel='normal',assumed=true)=>{
-  if(length>0&&qty>0)rows.push({name,stitch,length,qty,channel,assumed})
+  if(Number.isFinite(length)&&length>0&&qty>0)rows.push({name,stitch,length,qty,channel,assumed})
  }
- if(isJacket){
-  add('Side and sleeve seams','chainDouble',leg+sleeve,2)
-  add('Armhole setting','chainDouble',chest*1.3,2)
-  add('Shoulders','chainSingle',shoulder,2)
-  add('Collar / cuffs / placket','lockSingle',chest*2+sleeve*1.2)
-  add('Chest pockets / flaps','lockDouble',chest*.8,2)
-  add('Hem / waistband','lockSingle',chest*2)
-  if(details.cargo)add('Additional pockets','lockDouble',chest*.9,2)
-  if(details.reinforced)add('Raw-edge finish','overlock3',leg+chest*2,1,'overlock')
+ if(lower){
+  // Two legs, each with one inseam, one outseam and one hem.
+  add('Inseams (2 legs)','chainSingle',inseam,2)
+  add('Outseams (2 legs)','chainDouble',leg,2)
+  add('Seam edge finishing','overlock3',inseam+leg,2,'overlock')
+  add('Front / back rise','chainSingle',rise*2.1,1)
+  add('Waistband attachment','chainSingle',waist,1)
+  add('Waistband topstitch rows','lockSingle',waist,waistbandRows)
+  add('Leg hems (2 openings)','lockSingle',hem,2)
+  add('Front pocket openings','lockSingle',hip*.28,frontPockets*topstitchLines)
+  add('Front pocket bags','overlock3',hip*.45,frontPockets,'overlock')
+  add('Back pocket attachment','lockSingle',hip*.38,backPockets)
+  add('Back pocket topstitch','lockDouble',hip*.3,backPockets)
+  add('Fly / mock fly','lockSingle',rise*.8,1)
+  add('Belt loop making / attachment','lockSingle',4,loops)
+  add('Hammer loop attachment','lockDouble',8,hammerLoops)
+  add('Additional pocket attachment','lockDouble',hip*.55,extraPockets)
+  add('Additional pocket finishing','overlock3',hip*.35,extraPockets,'overlock')
+  if(details.topstitch)add('Additional leg topstitch','lockDouble',leg*.7,2)
  }else{
-  add('Inseams',isTwill?'overlock4':'chainSingle',inseam,2,isTwill?'overlock':'normal',false)
-  add('Outseams',isTwill?'overlock4':'chainDouble',leg,2,isTwill?'overlock':'normal',false)
-  add('Back rise and yoke','chainDouble',rise*1.7,1)
-  add('Front rise / crotch',isTwill?'safety5':'chainSingle',rise*1.5,1,isTwill?'overlock':'normal')
-  add('Waistband attach and topstitch','lockSingle',waist,2)
-  add('Hems','lockSingle',hem,2)
-  add('Back pocket decorative stitch','lockDouble',hip*.5,2)
-  add('Back pocket attach and hem','lockSingle',hip*.7,2)
-  add('Pocket bag finishing','overlock3',hip*.75,2,'overlock')
-  if(details.cargo){
-   add('Cargo pocket and flap attach','lockDouble',hip*.85,4)
-   add('Extra pocket edge finish','overlock3',hip*.7,2,'overlock')
-  }
+  add('Side seams','chainSingle',length,2)
+  add('Shoulder seams','chainSingle',shoulder,2)
+  add('Sleeve seams','chainSingle',sleeve,2)
+  add('Armhole setting','chainSingle',chest*.55,2)
+  add('Collar / neckline','lockSingle',chest*.6,1)
+  add('Cuffs / sleeve hems','lockSingle',chest*.32,2)
+  add('Body hem','lockSingle',chest,1)
+  add('Placket / front opening','lockSingle',length,2)
+  add('Front pockets','lockSingle',chest*.32,frontPockets)
+  add('Back pockets','lockSingle',chest*.32,backPockets)
+  add('Additional pockets','lockDouble',chest*.32,extraPockets)
+  add('Raw edge finishing','overlock3',length+sleeve,2,'overlock')
+  if(details.topstitch)add('Extra decorative topstitch','lockDouble',length*.6,2)
  }
- if(details.topstitch)add('Additional decorative topstitch','lockDouble',leg*.65,2)
- // Bartacks and buttonholes require fixed yards-per-piece reference data.
- // Do not fabricate a stitch-per-inch estimate for those short operations.
+ // Fixed short operations remain excluded until validated factory rates exist.
  return rows
 }
 export function estimateThread(operations,wastage=10){
