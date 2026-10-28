@@ -22,6 +22,14 @@ const ALIASES={
  sleeve:['sleeve length','sleeve'],
  shoulder:['shoulder width','across shoulder']
 }
+// Parse decimal, simple fraction and mixed fraction measurements (e.g. 23 3/4).
+function measurementNumber(raw){
+ const m=String(raw??'').trim().replace(/[″”]/g,'"').match(/^(\d+(?:\.\d+)?)(?:\s+(\d+)\s*\/\s*(\d+)|\s*\/\s*(\d+))?\s*(cm|inch|inches|in|")?$/i)
+ if(!m)return null
+ const value=Number(m[1])+(m[2]?Number(m[2])/Number(m[3]):m[4]?0:0)
+ const actual=m[4]?Number(m[1])/Number(m[4]):value
+ return actual>0&&actual<300?{value:actual,inch:/^(in|inch|inches|")$/i.test(m[5]||'')}:null
+}
 const clean=s=>String(s||'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim()
 function identifySize(value){
  const raw=String(value??'').trim()
@@ -31,6 +39,7 @@ function identifySize(value){
  if(/^(?:\d{1,2}\s*\/\s*\d{1,2}|\d{1,2}\s*[-–]\s*\d{1,2})(?:\s*(?:yrs?|years?|months?|mos?))?$/i.test(v))return v
  if(/^(?:XXS|XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL)$/i.test(v))return v
  if(/^(?:\d{1,2})\s*(?:yrs?|years?|months?|mos?)$/i.test(v))return v
+ if(/^(?:\d{1,2}|\d{1,2}T)$/i.test(v))return v
  return null
 }
 function extractMeasurements(lines){
@@ -54,10 +63,10 @@ function extractMeasurements(lines){
    const field=Object.keys(ALIASES).find(k=>ALIASES[k].some(a=>key===a||key.startsWith(a+' ')||key.endsWith(' '+a)))
    if(!field)continue
    const parse=(raw)=>{
-    const match=String(raw??'').trim().match(/^(\d+(?:\.\d+)?)\s*(cm|inch|inches|in)?$/i)
-    if(!match)return null
-    const v=Number(match[1])*(/^(in|inch|inches)$/i.test(match[2]||'')?2.54:1)
-    return v>0&&v<300?Number(v.toFixed(2)):null
+    const parsed=measurementNumber(raw)
+    if(!parsed)return null
+    // Measurement unit is set from sheet metadata or user confirmation.
+    return Number((parsed.value*(parsed.inch?2.54:1)).toFixed(2))
    }
    if(header){
     for(const size of sizes){
@@ -88,10 +97,10 @@ async function readPdf(file){
 }
 const number=v=>Math.max(0,Number(v)||0)
 export default function SewingThreadSmart(){
- const [sizeData,setSizeData]=useState(null),[selectedSize,setSelectedSize]=useState(''),[unit,setUnit]=useState('m'),[sketchError,setSketchError]=useState(''),[file,setFile]=useState(null),[sketch,setSketch]=useState(null),[measure,setMeasure]=useState({}),[status,setStatus]=useState(''),[type,setType]=useState('Jeans'),[complexity,setComplexity]=useState('standard'),[threads,setThreads]=useState([{count:'20/3',use:'Top'},{count:'20/2',use:'Bobbin'}]),[waste,setWaste]=useState(10),[qty,setQty]=useState(1000),[show,setShow]=useState(false)
+ const [sourceUnit,setSourceUnit]=useState('cm'),[averageSizes,setAverageSizes]=useState(false),[details,setDetails]=useState({cargo:false,topstitch:false,reinforced:false}),[sizeData,setSizeData]=useState(null),[selectedSize,setSelectedSize]=useState(''),[unit,setUnit]=useState('m'),[sketchError,setSketchError]=useState(''),[file,setFile]=useState(null),[sketch,setSketch]=useState(null),[measure,setMeasure]=useState({}),[status,setStatus]=useState(''),[type,setType]=useState('Jeans'),[complexity,setComplexity]=useState('standard'),[threads,setThreads]=useState([{count:'20/3',use:'Top'},{count:'20/2',use:'Bobbin'}]),[waste,setWaste]=useState(10),[qty,setQty]=useState(1000),[show,setShow]=useState(false)
  async function upload(e){
   const f=e.target.files?.[0];if(!f)return
-  setFile(null);setMeasure({});setSizeData(null);setSelectedSize('');setShow(false);setStatus('Reading file locally…')
+  setFile(null);setMeasure({});setSizeData(null);setSelectedSize('');setAverageSizes(false);setShow(false);setStatus('Reading file locally…')
   try{
    if(f.size>8*1024*1024)throw Error('Maximum file size is 8 MB.')
    let lines=[]
@@ -110,12 +119,14 @@ export default function SewingThreadSmart(){
  // Seam length in cm; a transparent, intentionally approximate garment construction model.
  const seamCm=present.reduce((s,[k,f])=>s+number(measure[k])*f,0)
  const coverage=present.length/Object.keys(rules).filter(k=>k!=='extra').length
- const baseline=seamCm+(present.length?rules.extra*100:0)
+ const featureCm=(details.cargo?900:0)+(details.topstitch?550:0)+(details.reinforced?250:0)
+ const baseline=seamCm+(present.length?rules.extra*100:0)+featureCm
  const complexityFactor={basic:.85,standard:1,detailed:1.2}[complexity]
  const totalMetres=(baseline/100)*3.15*complexityFactor*(1+number(waste)/100)
  const overlock=threads.find(t=>t.use==='Overlock')
- const overlockShare=overlock?.count?.trim()?0.22:0
- const topShare=overlockShare? .49:.62
+ // Approximate construction-based allocation. The one production reference is NOT used as a universal ratio.
+ const overlockShare=overlock?.count?.trim()?(details.cargo?.28:.25):0
+ const topShare=overlockShare?(details.topstitch?.42:.38):.52
  const bottomShare=1-overlockShare-topShare
  const portions=threads.map(t=>({ ...t,metres:totalMetres*(t.use==='Overlock'?overlockShare:t.use==='Top'?topShare:bottomShare)}))
  const canCalculate=present.length>=2&&threads.length>=2&&threads.every(t=>t.count.trim())&&new Set(threads.map(t=>t.use)).size===threads.length
@@ -125,7 +136,8 @@ export default function SewingThreadSmart(){
   <input type="file" accept=".xlsx,.xls,.pdf" onChange={upload} style={{display:'block',margin:'6px 0 8px',maxWidth:'100%'}}/>
   {file&&<div style={{fontSize:11,color:'#047857'}}>Loaded: {file}</div>}
   {status&&<p style={{fontSize:11,color:'#667085',margin:'4px 0 10px'}}>{status}</p>}
-  {sizeData?.sizes?.length>0&&<div style={{margin:'12px 0'}}><label>Select measurement size</label><select className="select" value={selectedSize} onChange={e=>{const v=e.target.value;setSelectedSize(v);setMeasure(v?{...sizeData.values[v]}:{});setShow(false)}}><option value="">Choose a size…</option>{sizeData.sizes.map(v=><option key={v} value={v}>{v}</option>)}</select>{selectedSize&&<div style={{fontSize:11,color:'#667085',marginTop:5}}>{Object.keys(sizeData.values[selectedSize]||{}).length} measurements read for size {selectedSize}. Check the values below.</div>}</div>}
+  {sizeData?.sizes?.length>0&&<div style={{margin:'12px 0'}}><label>Select measurement size</label><select className="select" value={selectedSize} onChange={e=>{const v=e.target.value;setSelectedSize(v);setAverageSizes(false);setMeasure(v?{...sizeData.values[v]}:{});setShow(false)}}><option value="">Choose a size…</option>{sizeData.sizes.map(v=><option key={v} value={v}>{v}</option>)}</select>{selectedSize&&<div style={{fontSize:11,color:'#667085',marginTop:5}}>{Object.keys(sizeData.values[selectedSize]||{}).length} measurements read for size {selectedSize}. Check the values below.</div>}</div>}
+  {sizeData?.sizes?.length>1&&<label style={{display:'flex',gap:7,alignItems:'center',margin:'8px 0 12px'}}><input type="checkbox" checked={averageSizes} onChange={e=>{const yes=e.target.checked;setAverageSizes(yes);if(yes){const rows=Object.values(sizeData.values).filter(x=>Object.keys(x).length);const fields=Object.keys(ALIASES);const avg={};fields.forEach(k=>{const nums=rows.map(x=>x[k]).filter(x=>Number(x)>0);if(nums.length)avg[k]=Number((nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(2))});setMeasure(avg);setSelectedSize('')}else setMeasure(selectedSize?{...sizeData.values[selectedSize]}:{});setShow(false)}}/>Use simple average across available sizes</label>}
   <label>Garment sketch (optional JPG, PNG or WebP)</label>
   <input type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" onChange={e=>{const f=e.target.files?.[0];if(!f)return;setSketchError('');if(!/\.(jpg|jpeg|png|webp)$/i.test(f.name)&&!['image/jpeg','image/png','image/webp'].includes(f.type)){setSketchError('Please choose JPG, PNG or WebP.')}else if(f.size>10*1024*1024){setSketchError('Image exceeds 10 MB. Please use a smaller image.')}else{setSketch(URL.createObjectURL(f))}e.target.value=''}} style={{display:'block',margin:'6px 0 12px',maxWidth:'100%'}}/>
   {sketchError&&<p style={{fontSize:11,color:'#b42318'}}>{sketchError}</p>}
@@ -138,6 +150,8 @@ export default function SewingThreadSmart(){
   <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8,marginBottom:14}}>
    {Object.keys(rules).filter(k=>k!=='extra').map(k=><div key={k}><label style={{textTransform:'capitalize'}}>{k}</label><input className="input" type="number" min="0" step=".1" placeholder="cm" value={measure[k]??''} onChange={e=>{setMeasure(m=>({...m,[k]:e.target.value}));setShow(false)}}/></div>)}
   </div>
+  <div style={{fontWeight:650,marginBottom:7}}>Extra garment details <span style={{fontSize:11,fontWeight:400,color:'#667085'}}>— optional, select what applies</span></div>
+  <div style={{display:'flex',flexWrap:'wrap',gap:12,marginBottom:14}}>{[['cargo','Cargo / extra pockets'],['topstitch','Extra topstitching'],['reinforced','Bartacks / reinforcement']].map(([k,label])=><label key={k} style={{display:'flex',alignItems:'center',gap:5,fontSize:12}}><input type="checkbox" checked={details[k]} onChange={e=>{setDetails(d=>({...d,[k]:e.target.checked}));setShow(false)}}/>{label}</label>)}</div>
   <div style={{fontWeight:650,marginBottom:8}}>Thread counts <span style={{fontWeight:400,color:'#667085'}}>(2–3)</span></div>
   {threads.map((t,i)=><div key={i} style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:8,marginBottom:8,alignItems:'end'}}>
    <div><label>Thread {i+1}</label><input className="input" value={t.count} placeholder="e.g. 20/3" onChange={e=>{setThreads(a=>a.map((v,j)=>j===i?{...v,count:e.target.value}:v));setShow(false)}}/></div>
@@ -156,7 +170,7 @@ export default function SewingThreadSmart(){
    <div style={{fontSize:11,color:'#667085'}}>Approximate thread per garment</div>
    <div style={{fontSize:25,fontWeight:750}}>{(totalMetres*(unit==='yd'?1.0936133:1)).toFixed(1)} {unit} / pc</div>
    <table style={{width:'100%',fontSize:12,marginTop:10,borderCollapse:'collapse'}}><thead><tr><th align="left">Count</th><th align="left">Use</th><th align="right">{unit} / pc</th><th align="right">{unit} / order</th></tr></thead><tbody>{portions.map((t,i)=><tr key={i}><td>{t.count}</td><td>{t.use}</td><td align="right">{(t.metres*(unit==='yd'?1.0936133:1)).toFixed(1)}</td><td align="right">{Math.round(t.metres*(unit==='yd'?1.0936133:1)*number(qty)).toLocaleString()}</td></tr>)}</tbody></table>
-   <p style={{fontSize:11,color:'#667085',marginBottom:0}}>Rough estimate {selectedSize?'for size '+selectedSize+' ':''}using {present.length} measurements, {complexity} construction and {waste}% wastage. Thread allocation is assumed, not derived from thread count. Validate with factory consumption before ordering. {coverage<.65?'Several measurements are missing; confidence is low.':''}</p>
+   <p style={{fontSize:11,color:'#667085',marginBottom:0}}>Rough estimate {averageSizes?'averaged across available sizes ':selectedSize?'for size '+selectedSize+' ':''}using {present.length} measurements, {complexity} construction and {waste}% wastage. Thread allocation is an approximate construction assumption, not a verified operation-level breakdown. One production reference is not sufficient to validate accuracy. Validate with factory consumption before ordering. {coverage<.65?'Several measurements are missing; confidence is low.':''}</p>
   </div>}
  </div>
 }
