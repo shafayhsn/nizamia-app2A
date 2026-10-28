@@ -6,9 +6,21 @@ export const STITCH_FACTORS={
  chainDouble:{name:'401 double needle chainstitch',needle:0.156,looper:0.183},
  lockSingle:{name:'301 single needle lockstitch',needle:0.083,looper:0.050},
  lockDouble:{name:'301 double needle lockstitch',needle:0.153,looper:0.092},
- overlock4:{name:'504 four-thread overlock',needle:0.181,looper:0.264},
+ overlock4:{name:'512 four-thread mock safety stitch',needle:0.181,looper:0.264},
  safety5:{name:'516 five-thread safety stitch',needle:0.194,looper:0.333},
- overlock3:{name:'503/504 three-thread overlock',needle:0.097,looper:0.236}
+ overlock3:{name:'504 three-thread overlock',needle:0.097,looper:0.236}
+}
+// Coats Sewing Solutions Thread Consumption Guide (2014), pp. 2–3.
+// Ratios are total metres of thread per metre of seam at 18 SPI,
+// split into needle and under/looper components. Do not apply at 8–10 SPI.
+export const COATS_18_SPI={
+ lockSingle:{ratio:2.5,needleShare:.50},
+ lockDouble:{ratio:5.0,needleShare:.50}, // two parallel 301 rows (derived)
+ chainSingle:{ratio:5.5,needleShare:.25},
+ chainDouble:{ratio:11,needleShare:.25}, // two parallel 401 rows (derived)
+ overlock3:{ratio:14,needleShare:.20}, // 504 three-thread overedge
+ overlock4:{ratio:18,needleShare:.25}, // 512 four-thread mock safety
+ safety5:{ratio:20,needleShare:.20} // 516 five-thread safety
 }
 // All lengths in inches; quantity is the number of equivalent seam lines.
 // Additional lengths are explicitly estimates, not extracted from spec sheets.
@@ -76,11 +88,15 @@ export function buildThreadOperations({type,dimensions,details={}}){
  // Fixed short operations remain excluded until validated factory rates exist.
  return rows
 }
-export function estimateThread(operations,wastage=10){
+export function estimateThread(operations,wastage=10,spi=9){
  const multiplier=1+Math.max(0,Number(wastage)||0)/100
  return operations.map(op=>{
   const f=STITCH_FACTORS[op.stitch]
   const inches=op.length*op.qty
-  return {...op,needleYd:inches*f.needle*multiplier,looperYd:inches*f.looper*multiplier,stitchName:f.name}
+  const coats=COATS_18_SPI[op.stitch]
+  const useCoats=Number(spi)===18&&coats
+  const needleFactor=useCoats?coats.ratio*coats.needleShare/2.54/0.9144:f.needle
+  const looperFactor=useCoats?coats.ratio*(1-coats.needleShare)/2.54/0.9144:f.looper
+  return {...op,needleYd:inches*needleFactor*multiplier,looperYd:inches*looperFactor*multiplier,stitchName:f.name}
  })
 }
