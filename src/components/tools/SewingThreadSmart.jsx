@@ -112,7 +112,7 @@ async function readPdf(file){
 }
 const number=v=>Math.max(0,Number(v)||0)
 export default function SewingThreadSmart(){
- const [overlockCount,setOverlockCount]=useState(''),[inputUnit,setInputUnit]=useState('cm'),[averageSizes,setAverageSizes]=useState(false),[details,setDetails]=useState({topstitch:false,waistband:'regular',waistMeasure:'flat',hipMeasure:'flat',hemMeasure:'flat',frontPockets:2,backPockets:2,extraPockets:0,beltLoops:5,hammerLoops:0,waistbandRows:1,topstitchLines:1}),[sizeData,setSizeData]=useState(null),[selectedSize,setSelectedSize]=useState(''),[unit,setUnit]=useState('m'),[sketchError,setSketchError]=useState(''),[file,setFile]=useState(null),[sketch,setSketch]=useState(null),[measure,setMeasure]=useState({}),[status,setStatus]=useState(''),[type,setType]=useState('Jeans'),[complexity,setComplexity]=useState('standard'),[threads,setThreads]=useState([{count:'20/3',use:'Top'},{count:'20/2',use:'Bobbin'}]),[waste,setWaste]=useState(10),[qty,setQty]=useState(1000),[show,setShow]=useState(false)
+ const [factoryAllowance,setFactoryAllowance]=useState(0),[overlockCount,setOverlockCount]=useState(''),[inputUnit,setInputUnit]=useState('cm'),[averageSizes,setAverageSizes]=useState(false),[details,setDetails]=useState({topstitch:false,waistband:'regular',waistMeasure:'flat',hipMeasure:'flat',hemMeasure:'flat',frontPockets:2,backPockets:2,extraPockets:0,beltLoops:5,hammerLoops:0,waistbandRows:1,topstitchLines:1}),[sizeData,setSizeData]=useState(null),[selectedSize,setSelectedSize]=useState(''),[unit,setUnit]=useState('m'),[sketchError,setSketchError]=useState(''),[file,setFile]=useState(null),[sketch,setSketch]=useState(null),[measure,setMeasure]=useState({}),[status,setStatus]=useState(''),[type,setType]=useState('Jeans'),[complexity,setComplexity]=useState('standard'),[threads,setThreads]=useState([{count:'20/3',use:'Top'},{count:'20/2',use:'Bobbin'}]),[waste,setWaste]=useState(10),[qty,setQty]=useState(1000),[show,setShow]=useState(false)
  async function upload(e){
   const f=e.target.files?.[0];if(!f)return
   setFile(null);setMeasure({});setSizeData(null);setSelectedSize('');setAverageSizes(false);setShow(false);setStatus('Reading file locally…')
@@ -143,7 +143,8 @@ export default function SewingThreadSmart(){
     return estimateThread(buildThreadOperations({type,dimensions:dims,details}).map(op=>({...op,length:op.length*complexityFactor})),waste)
    }):[]
  const calculationSets=operationSets.length?operationSets:[operations]
- const totalMetres=calculationSets.reduce((sum,ops)=>sum+ops.reduce((n,op)=>n+op.needleYd+op.looperYd,0),0)*.9144/calculationSets.length
+ const seamMetres=calculationSets.reduce((sum,ops)=>sum+ops.reduce((n,op)=>n+op.needleYd+op.looperYd,0),0)*.9144/calculationSets.length
+ const totalMetres=seamMetres+number(factoryAllowance)
  const assignedUses=new Set(threads.map(t=>t.use))
  const overlockThread=threads.find(t=>t.count===overlockCount)||threads.find(t=>t.use==='Overlock')||threads.find(t=>t.use==='Bobbin')||threads[0]
  const useFor=(op,side)=>{
@@ -151,7 +152,7 @@ export default function SewingThreadSmart(){
   if(side==='needle')return assignedUses.has('Top')?'Top':'Bobbin'
   return assignedUses.has('Bobbin')?'Bobbin':assignedUses.has('Overlock')?'Overlock':'Top'
  }
- const portions=threads.map(t=>({...t,metres:calculationSets.reduce((sum,ops)=>sum+ops.reduce((n,op)=>n+((useFor(op,'needle')===t.use?op.needleYd:0)+(useFor(op,'looper')===t.use?op.looperYd:0)),0),0)*.9144/calculationSets.length}))
+ const portions=threads.map(t=>({...t,metres:calculationSets.reduce((sum,ops)=>sum+ops.reduce((n,op)=>n+((useFor(op,'needle')===t.use?op.needleYd:0)+(useFor(op,'looper')===t.use?op.looperYd:0)),0),0)*.9144/calculationSets.length+(t===threads[0]?number(factoryAllowance):0)}))
  const estimateQuality=coverage>=.75?'More measurements supplied':coverage>=.45?'Several dimensions assumed':'Many dimensions assumed'
  const canCalculate=present.length>=2&&threads.length>=2&&threads.every(t=>t.count.trim())&&new Set(threads.map(t=>t.use)).size===threads.length
  return <div style={{fontSize:13,color:'#344054'}}>
@@ -188,6 +189,7 @@ export default function SewingThreadSmart(){
    <button className="btn btn-secondary btn-sm" disabled={threads.length<=2} onClick={()=>{setThreads(a=>a.filter((_,j)=>j!==i));setShow(false)}}>×</button>
   </div>)}
   {threads.length<3&&<button className="btn btn-secondary btn-sm" onClick={()=>{setThreads(a=>[...a,{count:'50/3',use:['Top','Bobbin','Overlock'].find(x=>!a.some(t=>t.use===x))}]);setShow(false)}}>+ Add third count</button>}
+  <details style={{margin:'10px 0 14px'}}><summary style={{cursor:'pointer',fontWeight:600}}>Factory operation allowance (optional)</summary><p style={{fontSize:11,color:'#667085'}}>Bartacks, buttonholes, automation and special operations are not yet fully included. Enter their known combined thread consumption in metres per piece, or leave zero. This allowance is assigned to the first thread count.</p><label>Additional consumption (metres / pc)</label><input className="input" type="number" min="0" step=".5" value={factoryAllowance} onChange={e=>{setFactoryAllowance(e.target.value);setShow(false)}}/></details>
   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,margin:'14px 0'}}>
    <div><label>Wastage %</label><input className="input" type="number" min="0" max="50" value={waste} onChange={e=>{setWaste(e.target.value);setShow(false)}}/></div>
    <div><label>Order quantity (pcs)</label><input className="input" type="number" min="1" value={qty} onChange={e=>setQty(e.target.value)}/></div>
@@ -199,6 +201,7 @@ export default function SewingThreadSmart(){
    <div style={{fontSize:11,color:'#667085'}}>Approximate thread per garment · {estimateQuality}</div>
    <div style={{fontSize:25,fontWeight:750}}>{(totalMetres*(unit==='yd'?1.0936133:1)).toFixed(1)} {unit} / pc</div>
    <table style={{width:'100%',fontSize:12,marginTop:10,borderCollapse:'collapse'}}><thead><tr><th align="left">Count</th><th align="left">Use</th><th align="right">{unit} / pc</th><th align="right">{unit} / order</th></tr></thead><tbody>{portions.map((t,i)=><tr key={i}><td>{t.count}</td><td>{t.use}</td><td align="right">{(t.metres*(unit==='yd'?1.0936133:1)).toFixed(1)}</td><td align="right">{Math.round(t.metres*(unit==='yd'?1.0936133:1)*number(qty)).toLocaleString()}</td></tr>)}</tbody></table>
+   <div style={{fontSize:11,color:"#667085",marginTop:10}}>Estimated seams: {seamMetres.toFixed(1)} m/pc · Factory allowance: {number(factoryAllowance).toFixed(1)} m/pc</div>
    <details style={{marginTop:12}}><summary style={{cursor:'pointer',fontWeight:600}}>How this was estimated</summary><div style={{overflowX:'auto'}}><table style={{width:'100%',fontSize:11,marginTop:8}}><thead><tr><th align="left">Operation</th><th align="left">Stitch</th><th align="right">Needle {unit}</th><th align="right">Bobbin/looper {unit}</th></tr></thead><tbody>{operations.map(op=><tr key={op.name}><td>{op.name}</td><td>{op.stitchName}</td><td align="right">{(op.needleYd*(unit==='m'?.9144:1)).toFixed(1)}</td><td align="right">{(op.looperYd*(unit==='m'?.9144:1)).toFixed(1)}</td></tr>)}</tbody></table></div><p style={{fontSize:11,color:'#667085'}}>Seam lengths are estimated from garment measurements and component quantities. Stitch types are assumed; bartacks, buttonholes and other fixed-per-piece operations are not included.</p></details>
    <p style={{fontSize:11,color:'#667085',marginBottom:0}}>Rough estimate {averageSizes?'averaged across available sizes ':selectedSize?'for size '+selectedSize+' ':''}using {present.length} measurements, {complexity} construction and {waste}% wastage. Stitch factors are reference estimates for heavier denim/twill at 8–10 SPI. Seam lengths and construction are assumed. Top = needle; Bobbin = bobbin/chain looper; Overlock = overlock needle and loopers. If only two thread counts are supplied, overlock thread is assigned to an available count. This is not factory-validated. Validate with factory consumption before ordering. {coverage<.65?'Several measurements are missing; confidence is low.':''}</p>
   </div>}
