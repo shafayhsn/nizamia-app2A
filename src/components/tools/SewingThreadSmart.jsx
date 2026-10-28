@@ -12,9 +12,9 @@ const RULES={
 }
 const ALIASES={
  inseam:['inseam','inside leg','inside seam'],
- outseam:['outseam','outside leg','side length','side seam'],
+ outseam:['outseam','outside leg','side length','side seam','o leg len','o leg length','outer leg length'],
  rise:['front rise','front crotch','rise'],
- waist:['waist','waist width','waist circumference'],
+ waist:['waist relaxed','waist','waist width','waist circumference'],
  hip:['hip','seat'],
  hem:['leg opening','bottom opening','hem opening','hem width'],
  length:['body length','garment length','center back length','total length','length'],
@@ -57,11 +57,13 @@ function extractMeasurements(lines){
   const below=rows.slice(i+1,i+35)
   const measured=below.filter(r=>r.some(v=>Object.values(ALIASES).flat().some(a=>{const t=clean(v);return t===a||t.startsWith(a+' ')}))).length
   const numericOnly=matched.every(x=>/^\d{1,2}$/.test(x.label))
+  const explicitSizes=matched.filter(x=>/yrs?|years?|months?|mos?|T$|\/|[-–]/i.test(x.label)).length
   const contiguous=matched.every((x,k)=>k===0||x.j===matched[k-1].j+1)
   // Bare numeric runs without a clear header label are unsafe: they are often measurements.
   if(numericOnly&&!context)continue
+  if(!numericOnly&&explicitSizes<2&&!context)continue
   if(measured<2||!contiguous)continue
-  candidates.push({row:i,matched,score:measured*3+(context?10:0)+(numericOnly?-8:5)})
+  candidates.push({row:i,matched,score:measured*3+(context?10:0)+(numericOnly?-8:5)+explicitSizes*8})
  }
  const header=candidates.sort((a,b)=>b.score-a.score)[0]
  const sizes=header?header.matched.map(x=>({label:x.label,column:x.j})):[]
