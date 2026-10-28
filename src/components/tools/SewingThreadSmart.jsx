@@ -112,7 +112,7 @@ async function readPdf(file){
 }
 const number=v=>Math.max(0,Number(v)||0)
 export default function SewingThreadSmart(){
- const [inputUnit,setInputUnit]=useState('cm'),[averageSizes,setAverageSizes]=useState(false),[details,setDetails]=useState({topstitch:false,waistband:'regular',waistMeasure:'flat',hipMeasure:'flat',hemMeasure:'flat',frontPockets:2,backPockets:2,extraPockets:0,beltLoops:5,hammerLoops:0,waistbandRows:1,topstitchLines:1}),[sizeData,setSizeData]=useState(null),[selectedSize,setSelectedSize]=useState(''),[unit,setUnit]=useState('m'),[sketchError,setSketchError]=useState(''),[file,setFile]=useState(null),[sketch,setSketch]=useState(null),[measure,setMeasure]=useState({}),[status,setStatus]=useState(''),[type,setType]=useState('Jeans'),[complexity,setComplexity]=useState('standard'),[threads,setThreads]=useState([{count:'20/3',use:'Top'},{count:'20/2',use:'Bobbin'}]),[waste,setWaste]=useState(10),[qty,setQty]=useState(1000),[show,setShow]=useState(false)
+ const [overlockCount,setOverlockCount]=useState(''),[inputUnit,setInputUnit]=useState('cm'),[averageSizes,setAverageSizes]=useState(false),[details,setDetails]=useState({topstitch:false,waistband:'regular',waistMeasure:'flat',hipMeasure:'flat',hemMeasure:'flat',frontPockets:2,backPockets:2,extraPockets:0,beltLoops:5,hammerLoops:0,waistbandRows:1,topstitchLines:1}),[sizeData,setSizeData]=useState(null),[selectedSize,setSelectedSize]=useState(''),[unit,setUnit]=useState('m'),[sketchError,setSketchError]=useState(''),[file,setFile]=useState(null),[sketch,setSketch]=useState(null),[measure,setMeasure]=useState({}),[status,setStatus]=useState(''),[type,setType]=useState('Jeans'),[complexity,setComplexity]=useState('standard'),[threads,setThreads]=useState([{count:'20/3',use:'Top'},{count:'20/2',use:'Bobbin'}]),[waste,setWaste]=useState(10),[qty,setQty]=useState(1000),[show,setShow]=useState(false)
  async function upload(e){
   const f=e.target.files?.[0];if(!f)return
   setFile(null);setMeasure({});setSizeData(null);setSelectedSize('');setAverageSizes(false);setShow(false);setStatus('Reading file locally…')
@@ -140,11 +140,12 @@ export default function SewingThreadSmart(){
  const totalYards=operations.reduce((sum,op)=>sum+op.needleYd+op.looperYd,0)
  const totalMetres=totalYards*.9144
  const assignedUses=new Set(threads.map(t=>t.use))
+ const overlockThread=threads.find(t=>t.count===overlockCount)||threads.find(t=>t.use==='Overlock')||threads.find(t=>t.use==='Bobbin')||threads[0]
  // Top represents needle thread; Bobbin represents lockstitch bobbin or
  // chainstitch looper; Overlock represents both needle and looper on overlock seams.
  // With only two counts, overlock usage is assigned to Bobbin (or Top if absent).
  const useFor=(op,side)=>{
-  if(op.channel==='overlock'&&assignedUses.has('Overlock'))return 'Overlock'
+  if(op.channel==='overlock')return overlockThread.use
   if(side==='needle')return assignedUses.has('Top')?'Top':'Bobbin'
   return assignedUses.has('Bobbin')?'Bobbin':assignedUses.has('Overlock')?'Overlock':'Top'
  }
