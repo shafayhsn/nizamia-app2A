@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Calculator, Truck, Layers, Activity, Tag, Box, Scale, Palette, BookImage, BookOpen, ShieldCheck, X, Construction } from 'lucide-react'
 import { ThreadCalc, CBMCalc, GSMFinder, PantoneConverter } from '../components/tools/ToolsTray'
+import FeatureResource from '../components/tools/FeatureResource'
 
 const FEATURES = [
   {id:'costing',label:'Costing Sheet',icon:Calculator,color:'#16a34a',ready:false},
@@ -31,10 +32,8 @@ export default function Features(){
       </button>)}
     </div>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(320px,1fr))',gap:16,flex:'1 1 0',minHeight:0}}>
-      {[{name:'Company Assets',icon:BookOpen,color:'#2563eb',empty:'No documents added yet'},{name:'Compliance & Certs',icon:ShieldCheck,color:'#16a34a',empty:'No certificates added yet'}].map(section=><section key={section.name} style={{...card,minHeight:0,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-        <div style={{background:'#f8f9fb',borderBottom:'1px solid #edf0f3',padding:'14px 18px',flexShrink:0,display:'flex',alignItems:'center',gap:10,fontSize:16,fontWeight:700,color:'#344054'}}><section.icon size={20} color={section.color}/>{section.name}</div>
-        <div style={{flex:'1 1 0',minHeight:0,overflowY:'auto',display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',gap:10,color:'#a0a8b5'}}><section.icon size={26} strokeWidth={1.5}/><span style={{fontSize:12}}>{section.empty}</span></div>
-      </section>)}
+      <FeatureResource />
+      <FeatureResource certificates />
     </div>
     {feature&&<div role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setActive(null)}} style={{position:'fixed',inset:0,zIndex:1100,background:'rgba(15,23,42,.52)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
       <div role="dialog" aria-modal="true" aria-label={feature.label} style={{background:'#fff',width:'min(620px,95vw)',maxHeight:'min(760px,90vh)',borderRadius:13,boxShadow:'0 20px 70px #0003',display:'flex',flexDirection:'column',overflow:'hidden'}}>
