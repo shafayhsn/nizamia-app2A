@@ -133,19 +133,35 @@ export default function SewingThreadSmart(){
  // Seam length in cm; a transparent, intentionally approximate garment construction model.
  const seamCm=present.reduce((s,[k,f])=>s+number(measure[k])*(inputUnit==='in'?2.54:1)*f,0)
  const coverage=present.length/Object.keys(rules).filter(k=>k!=='extra').length
- const featureCm=(details.cargo?900:0)+(details.topstitch?550:0)+(details.reinforced?250:0)
- const baseline=seamCm+(present.length?rules.extra*100:0)+featureCm
+ // Operation-based approximation. Each category uses its own estimated stitch length
+ // and consumption factor, rather than splitting one grand total by fixed percentages.
+ const cm=inputUnit==='in'?2.54:1
+ const m=k=>number(measure[k])*cm
+ const bodyLength=(m('inseam')||m('length')||m('outseam')||55)
+ const waist=m('waist')||35
+ const hip=m('hip')||waist*1.15
+ const hem=m('hem')||hip*.6
+ const hasLegs=['Jeans','Trousers','Shorts'].includes(type)
+ const operationLengths=[
+  {name:'Main seams',length:seamCm/100,stitches:3.8,use:'Bobbin'},
+  {name:'Topstitching / hems',length:(hasLegs?(2*bodyLength+2*hem+2*waist):2*bodyLength+2*hem)/100,stitches:3.2,use:'Top'},
+  {name:'Waistband, pockets & fly',length:(hasLegs?(3*waist+2*hip+110):hip+waist+150)/100,stitches:3.5,use:'Top'},
+  {name:'Overlock / safety',length:(hasLegs?(4*bodyLength+2*hip+150):3*bodyLength+2*hip)/100,stitches:6.5,use:'Overlock'},
+  {name:'Extra pockets',length:details.cargo?9:0,stitches:3.7,use:'Top'},
+  {name:'Decorative topstitch',length:details.topstitch?5.5:0,stitches:3.4,use:'Top'},
+  {name:'Bartacks / loops',length:details.reinforced?3.5:1.2,stitches:7.5,use:'Overlock'}
+ ]
  const complexityFactor={basic:.85,standard:1,detailed:1.2}[complexity]
- const totalMetres=(baseline/100)*3.15*complexityFactor*(1+number(waste)/100)
- const overlock=threads.find(t=>t.use==='Overlock')
- // Approximate construction-based allocation. The one production reference is NOT used as a universal ratio.
- const overlockShare=overlock?.count?.trim()?(details.cargo?.28:.25):0
- const topShare=overlockShare?(details.topstitch?.42:.38):.52
- const bottomShare=1-overlockShare-topShare
- const portions=threads.map(t=>({ ...t,metres:totalMetres*(t.use==='Overlock'?overlockShare:t.use==='Top'?topShare:bottomShare)}))
+ const operations=operationLengths.map(op=>({...op,metres:op.length*op.stitches*complexityFactor*(1+number(waste)/100)}))
+ const totalMetres=operations.reduce((sum,op)=>sum+op.metres,0)
+ const assignedUses=new Set(threads.map(t=>t.use))
+ // When only two thread counts are supplied, fold unassigned operation usage into
+ // the nearest available category. This is explicitly an assumption.
+ const resolvedUse=use=>assignedUses.has(use)?use:use==='Overlock'?(assignedUses.has('Bobbin')?'Bobbin':'Top'):(assignedUses.has('Top')?'Top':'Bobbin')
+ const portions=threads.map(t=>({...t,metres:operations.filter(op=>resolvedUse(op.use)===t.use).reduce((sum,op)=>sum+op.metres,0)}))
  const canCalculate=present.length>=2&&threads.length>=2&&threads.every(t=>t.count.trim())&&new Set(threads.map(t=>t.use)).size===threads.length
  return <div style={{fontSize:13,color:'#344054'}}>
-  <p style={{fontSize:12,color:'#667085',margin:'0 0 14px'}}>A quick costing estimate, not a technical thread audit. No files are sent to or saved in the database.</p>
+  <p style={{fontSize:12,color:'#667085',margin:'0 0 14px'}}>A quick costing estimate using garment operations. No files are sent to or saved in the database.</p>
   <label>Measurement sheet (Excel or text-based PDF)</label>
   <input type="file" accept=".xlsx,.xls,.pdf" onChange={upload} style={{display:'block',margin:'6px 0 8px',maxWidth:'100%'}}/>
   {file&&<div style={{fontSize:11,color:'#047857'}}>Loaded: {file}</div>}
@@ -184,7 +200,8 @@ export default function SewingThreadSmart(){
    <div style={{fontSize:11,color:'#667085'}}>Approximate thread per garment</div>
    <div style={{fontSize:25,fontWeight:750}}>{(totalMetres*(unit==='yd'?1.0936133:1)).toFixed(1)} {unit} / pc</div>
    <table style={{width:'100%',fontSize:12,marginTop:10,borderCollapse:'collapse'}}><thead><tr><th align="left">Count</th><th align="left">Use</th><th align="right">{unit} / pc</th><th align="right">{unit} / order</th></tr></thead><tbody>{portions.map((t,i)=><tr key={i}><td>{t.count}</td><td>{t.use}</td><td align="right">{(t.metres*(unit==='yd'?1.0936133:1)).toFixed(1)}</td><td align="right">{Math.round(t.metres*(unit==='yd'?1.0936133:1)*number(qty)).toLocaleString()}</td></tr>)}</tbody></table>
-   <p style={{fontSize:11,color:'#667085',marginBottom:0}}>Rough estimate {averageSizes?'averaged across available sizes ':selectedSize?'for size '+selectedSize+' ':''}using {present.length} measurements, {complexity} construction and {waste}% wastage. Thread allocation is an approximate construction assumption, not a verified operation-level breakdown. One production reference is not sufficient to validate accuracy. Validate with factory consumption before ordering. {coverage<.65?'Several measurements are missing; confidence is low.':''}</p>
+   <details style={{marginTop:12}}><summary style={{cursor:'pointer',fontWeight:600}}>How this was estimated</summary><table style={{width:'100%',fontSize:11,marginTop:8}}><tbody>{operations.map(op=><tr key={op.name}><td>{op.name}</td><td>{resolvedUse(op.use)}</td><td style={{textAlign:'right'}}>{(op.metres*(unit==='yd'?1.0936133:1)).toFixed(1)} {unit}</td></tr>)}</tbody></table></details>
+   <p style={{fontSize:11,color:'#667085',marginBottom:0}}>Rough estimate {averageSizes?'averaged across available sizes ':selectedSize?'for size '+selectedSize+' ':''}using {present.length} measurements, {complexity} construction and {waste}% wastage. Operation lengths, stitch factors and thread-use assignments are approximate, not verified from the sketch. If a thread use is omitted, its consumption is reassigned to an available count. Two production references are not enough to establish accuracy. Validate with factory consumption before ordering. {coverage<.65?'Several measurements are missing; confidence is low.':''}</p>
   </div>}
  </div>
 }
