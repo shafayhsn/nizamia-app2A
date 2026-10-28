@@ -97,7 +97,7 @@ async function readPdf(file){
 }
 const number=v=>Math.max(0,Number(v)||0)
 export default function SewingThreadSmart(){
- [averageSizes,setAverageSizes]=useState(false),[details,setDetails]=useState({cargo:false,topstitch:false,reinforced:false}),[sizeData,setSizeData]=useState(null),[selectedSize,setSelectedSize]=useState(''),[unit,setUnit]=useState('m'),[sketchError,setSketchError]=useState(''),[file,setFile]=useState(null),[sketch,setSketch]=useState(null),[measure,setMeasure]=useState({}),[status,setStatus]=useState(''),[type,setType]=useState('Jeans'),[complexity,setComplexity]=useState('standard'),[threads,setThreads]=useState([{count:'20/3',use:'Top'},{count:'20/2',use:'Bobbin'}]),[waste,setWaste]=useState(10),[qty,setQty]=useState(1000),[show,setShow]=useState(false)
+ const [inputUnit,setInputUnit]=useState('cm'),[averageSizes,setAverageSizes]=useState(false),[details,setDetails]=useState({cargo:false,topstitch:false,reinforced:false}),[sizeData,setSizeData]=useState(null),[selectedSize,setSelectedSize]=useState(''),[unit,setUnit]=useState('m'),[sketchError,setSketchError]=useState(''),[file,setFile]=useState(null),[sketch,setSketch]=useState(null),[measure,setMeasure]=useState({}),[status,setStatus]=useState(''),[type,setType]=useState('Jeans'),[complexity,setComplexity]=useState('standard'),[threads,setThreads]=useState([{count:'20/3',use:'Top'},{count:'20/2',use:'Bobbin'}]),[waste,setWaste]=useState(10),[qty,setQty]=useState(1000),[show,setShow]=useState(false)
  async function upload(e){
   const f=e.target.files?.[0];if(!f)return
   setFile(null);setMeasure({});setSizeData(null);setSelectedSize('');setAverageSizes(false);setShow(false);setStatus('Reading file locally…')
