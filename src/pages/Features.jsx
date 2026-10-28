@@ -20,20 +20,20 @@ export default function Features(){
   const feature=FEATURES.find(x=>x.id===active)
   const Tool=COMPONENTS[active]
   useEffect(()=>{if(!active)return;const onKey=e=>{if(e.key==='Escape')setActive(null)};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey)},[active])
-  return <div style={{padding:'24px 28px 36px',height:'100%',overflowY:'auto',background:'#fafbfc'}}>
-    <div style={{marginBottom:22}}><h1 style={{fontSize:24,fontWeight:750,margin:'0 0 5px',color:'#1a1a2e'}}>Features</h1><div style={{fontSize:12,color:'#8b95a5'}}>Production tools, calculators and resources</div></div>
-    <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:14,color:'#667085',fontSize:13,fontWeight:750,letterSpacing:'.35px'}}><Calculator size={17}/> PRODUCTION UTILITIES</div>
-    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:16,marginBottom:30}}>
-      {FEATURES.map(f=><button key={f.id} onClick={()=>setActive(f.id)} style={{...card,cursor:'pointer',minHeight:132,padding:'19px 12px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:12,fontFamily:'inherit',position:'relative'}} title={f.ready?'Open '+f.label:f.label+' · Not configured yet'}>
-        <span style={{width:46,height:46,borderRadius:'50%',display:'grid',placeItems:'center',background:f.color+'12',color:f.color}}><f.icon size={23} strokeWidth={1.9}/></span>
+  return <div style={{padding:'18px 28px 18px',height:'100%',minHeight:0,overflow:'hidden',display:'flex',flexDirection:'column',boxSizing:'border-box',background:'#fafbfc'}}>
+    <div style={{marginBottom:16,flexShrink:0}}><h1 style={{fontSize:24,fontWeight:750,margin:0,color:'#1a1a2e'}}>Features</h1></div>
+    <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:10,flexShrink:0,color:'#667085',fontSize:13,fontWeight:750,letterSpacing:'.35px'}}><Calculator size={17}/> PRODUCTION UTILITIES</div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:12,marginBottom:18,flexShrink:0}}>
+      {FEATURES.map(f=><button key={f.id} onClick={()=>setActive(f.id)} style={{...card,cursor:'pointer',minHeight:96,padding:'10px 10px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:7,fontFamily:'inherit',position:'relative'}} title={f.ready?'Open '+f.label:f.label+' · Not configured yet'}>
+        <span style={{width:35,height:35,borderRadius:'50%',display:'grid',placeItems:'center',background:f.color+'12',color:f.color}}><f.icon size={19} strokeWidth={1.9}/></span>
         <span style={{fontSize:13,fontWeight:650,color:'#344054',textAlign:'center'}}>{f.label}</span>
         {!f.ready&&<span style={{position:'absolute',right:9,top:9,fontSize:9,color:'#98a2b3'}}>Coming soon</span>}
       </button>)}
     </div>
-    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(320px,1fr))',gap:20}}>
-      {[{name:'Knowledge Base',icon:BookOpen,color:'#2563eb',empty:'No documents added yet'},{name:'Compliance & Certs',icon:ShieldCheck,color:'#16a34a',empty:'No certificates added yet'}].map(section=><section key={section.name} style={{...card,minHeight:245,overflow:'hidden'}}>
-        <div style={{background:'#f8f9fb',borderBottom:'1px solid #edf0f3',padding:'17px 20px',display:'flex',alignItems:'center',gap:10,fontSize:16,fontWeight:700,color:'#344054'}}><section.icon size={20} color={section.color}/>{section.name}</div>
-        <div style={{height:180,display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',gap:10,color:'#a0a8b5'}}><section.icon size={26} strokeWidth={1.5}/><span style={{fontSize:12}}>{section.empty}</span></div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(320px,1fr))',gap:16,flex:'1 1 0',minHeight:0}}>
+      {[{name:'Company Assets',icon:BookOpen,color:'#2563eb',empty:'No documents added yet'},{name:'Compliance & Certs',icon:ShieldCheck,color:'#16a34a',empty:'No certificates added yet'}].map(section=><section key={section.name} style={{...card,minHeight:0,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+        <div style={{background:'#f8f9fb',borderBottom:'1px solid #edf0f3',padding:'14px 18px',flexShrink:0,display:'flex',alignItems:'center',gap:10,fontSize:16,fontWeight:700,color:'#344054'}}><section.icon size={20} color={section.color}/>{section.name}</div>
+        <div style={{flex:'1 1 0',minHeight:0,overflowY:'auto',display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',gap:10,color:'#a0a8b5'}}><section.icon size={26} strokeWidth={1.5}/><span style={{fontSize:12}}>{section.empty}</span></div>
       </section>)}
     </div>
     {feature&&<div role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setActive(null)}} style={{position:'fixed',inset:0,zIndex:1100,background:'rgba(15,23,42,.52)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
