@@ -57,7 +57,16 @@ export function CBMCalc() {
   const set = (k, v) => setDims({ ...dims, [k]: v })
   const factor = unit === 'cm' ? 1 / 1000000 : 0.0254 ** 3
   const cbm = (parseFloat(dims.l) || 0) * (parseFloat(dims.w) || 0) * (parseFloat(dims.h) || 0) * factor * (parseFloat(dims.qty) || 1)
-  const container = cbm <= 15 ? 'LCL' : cbm <= 28 ? "20' FCL" : cbm <= 58 ? "40' FCL" : cbm <= 68 ? "40' HC" : 'Multiple containers'
+  const combos = []
+  const maxCount = Math.ceil(cbm / 28)
+  for (let a=0;a<=maxCount;a++) for (let b=0;b<=maxCount-a;b++) for (let d=0;d<=maxCount-a-b;d++) {
+    const count=a+b+d, capacity=a*28+b*58+d*68
+    if (count && capacity+1e-9>=cbm) combos.push({count,unused:capacity-cbm,label:[[a,'20FT'],[b,'40FT'],[d,'40HQ']].filter(x=>x[0]).map(x=>x.join(' × ')).join(' + ')})
+  }
+  combos.sort((a,b)=>a.count-b.count||a.unused-b.unused)
+  const container = cbm <= 15 ? 'LCL' : combos[0]?.label || 'Check load plan'
+  const [copied,setCopied] = useState(false)
+  const copyCbm = async () => { try { await navigator.clipboard.writeText(cbm.toFixed(3));setCopied(true) } catch { setCopied(false) } }
 
   return (
     <div>
@@ -74,8 +83,8 @@ export function CBMCalc() {
       </div>
       {cbm > 0 && (
         <div style={{ background: '#f7f7f5', borderRadius: 6, padding: '10px 14px' }}>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>{cbm.toFixed(3)} m³</div>
-          <div style={{ fontSize: 11, color: 'var(--text-mid)', marginTop: 4 }}>Recommended: <strong>{container}</strong></div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{cbm.toFixed(3)} m³ <button className="btn btn-secondary btn-sm" onClick={copyCbm} aria-label="Copy CBM">{copied?'Copied':'Copy'}</button></div>
+          <div style={{ fontSize: 11, color: 'var(--text-mid)', marginTop: 4 }}>Estimated loading: <strong>{container}</strong> · usable CBM: 20FT 28, 40FT 58, 40HQ 68. Confirm actual fit with forwarder.</div>
         </div>
       )}
     </div>

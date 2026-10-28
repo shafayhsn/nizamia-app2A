@@ -30,7 +30,7 @@ function openPrint(html, title, onBlocked) {
   w.document.close(); w.focus(); setTimeout(()=>w.print(), 350)
 }
 
-function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
+export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
   const { Dialogs } = useAppDialogs()
   const [selected, setSelected] = useState(poolRows.map(r => r.sampleId))
   const [customItems, setCustomItems] = useState([{ description:'', qty:1, unitValue:1 }])
