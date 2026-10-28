@@ -155,7 +155,7 @@ export default function SewingThreadSmart(){
  const portions=threads.map(t=>({...t,metres:calculationSets.reduce((sum,ops)=>sum+ops.reduce((n,op)=>n+((useFor(op,'needle')===t.use?op.needleYd:0)+(useFor(op,'looper')===t.use?op.looperYd:0)),0),0)*.9144/calculationSets.length+(t===threads[0]?number(factoryAllowance):0)}))
  const estimateQuality=coverage>=.75?'More measurements supplied':coverage>=.45?'Several dimensions assumed':'Many dimensions assumed'
  const canCalculate=present.length>=2&&threads.length>=2&&threads.every(t=>t.count.trim())&&new Set(threads.map(t=>t.use)).size===threads.length
- return <div className="thread-smart-layout" style={{fontSize:12,color:'#344054',display:'grid',gridTemplateColumns:'minmax(0,1.4fr) minmax(330px,1fr)',gap:12,height:'100%',minHeight:0}}><style>{`@media(max-width:800px){.thread-smart-layout{grid-template-columns:1fr!important;overflow-y:auto}.thread-smart-inputs,.thread-smart-results{overflow:visible!important;max-height:none!important}} .thread-smart-inputs .input,.thread-smart-inputs .select{min-height:30px!important;height:32px!important;padding:4px 8px!important;font-size:12px!important}.thread-smart-inputs label{font-size:11px!important;margin-bottom:2px!important;display:block}.thread-smart-inputs input[type=file]{font-size:11px}.thread-smart-inputs strong{font-size:12px}`}</style><div className="thread-smart-inputs" style={{overflowY:'auto',minHeight:0,padding:'2px 10px 10px 2px'}}>
+ return <div className="thread-smart-layout" style={{fontSize:12,color:'#344054',display:'grid',gridTemplateColumns:'minmax(0,1.4fr) minmax(330px,1fr)',gap:12,height:'auto',minHeight:0,alignItems:'start'}}><style>{`@media(max-width:800px){.thread-smart-layout{grid-template-columns:1fr!important;overflow-y:auto}.thread-smart-inputs,.thread-smart-results{overflow:visible!important;max-height:none!important}} .thread-smart-inputs .input,.thread-smart-inputs .select{min-height:30px!important;height:32px!important;padding:4px 8px!important;font-size:12px!important}.thread-smart-inputs label{font-size:11px!important;margin-bottom:2px!important;display:block}.thread-smart-inputs input[type=file]{font-size:11px}.thread-smart-inputs strong{font-size:12px}`}</style><div className="thread-smart-inputs" style={{overflowY:'visible',minHeight:0,padding:'2px 10px 10px 2px'}}>
 
   <label>Measurement sheet (Excel or text-based PDF)</label>
   <input type="file" accept=".xlsx,.xls,.pdf" onChange={upload} style={{display:'block',margin:'6px 0 8px',maxWidth:'100%'}}/>
@@ -198,7 +198,7 @@ export default function SewingThreadSmart(){
   <button className="btn btn-primary" disabled={!canCalculate} onClick={()=>setShow(true)}>Calculate estimate</button>
   {!canCalculate&&<p style={{fontSize:11,color:'#9a6700'}}>Enter at least two garment measurements and two different thread uses to calculate.</p>}
   </div>
-  <aside className="thread-smart-results" style={{minHeight:0,overflowY:'auto',background:'#f7f8fa',border:'1px solid #e7e9ed',borderRadius:9,padding:12}}>
+  <aside className="thread-smart-results" style={{minHeight:0,overflowY:'auto',position:'sticky',top:0,maxHeight:'calc(100dvh - 150px)',background:'#f7f8fa',border:'1px solid #e7e9ed',borderRadius:9,padding:12}}>
    <div style={{fontSize:13,fontWeight:750,marginBottom:10}}>How this was estimated</div>
    {show&&canCalculate?<div>
     <div style={{fontSize:11,color:'#667085'}}>Approximate consumption / piece</div>
