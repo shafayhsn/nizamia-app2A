@@ -12,6 +12,7 @@ export default function FeatureResource({certificates=false}){
  const [rows,setRows]=useState([]),[checked,setChecked]=useState([]),[modal,setModal]=useState(''),[form,setForm]=useState(empty),[error,setError]=useState(''),[busy,setBusy]=useState(false)
  const load=async()=>{const {data,error}=await supabase.from(table).select('*').order('created_at',{ascending:false});if(error)setError(error.message);else {setRows(data||[]);setError('')}}
  useEffect(()=>{load()},[table])
+ const days=d=>Math.ceil((new Date(d+'T00:00:00')-new Date(new Date().toDateString()))/86400000)
  const sortedRows=certificates?[...rows].sort((a,b)=>{const x=sort.key==='days'?days(a.expires_on):a[sort.key]||'',y=sort.key==='days'?days(b.expires_on):b[sort.key]||'';const cmp=typeof x==='number'?x-y:String(x).localeCompare(String(y),undefined,{numeric:true,sensitivity:'base'});return sort.asc?cmp:-cmp}):rows
  const changeSort=key=>setSort(s=>({key,asc:s.key===key?!s.asc:true}))
  const selected=rows.filter(r=>checked.includes(r.id))
@@ -21,7 +22,6 @@ export default function FeatureResource({certificates=false}){
  const upload=async e=>{if(!admin)return;const files=Array.from(e.target.files||[]);e.target.value='';await run(async()=>{for(const file of files){if(file.size>25*1024*1024)throw Error('25 MB maximum per file');const path=crypto.randomUUID()+'/'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');const {error:up}=await supabase.storage.from('company-assets').upload(path,file);if(up)throw up;const {error:db}=await supabase.from('feature_assets').insert({file_name:file.name,storage_path:path,mime_type:file.type,file_size:file.size});if(db){await supabase.storage.from('company-assets').remove([path]);throw db}}})}
  const download=async r=>{await run(async()=>{const {data,error}=await supabase.storage.from('company-assets').download(r.storage_path);if(error)throw error;const url=URL.createObjectURL(data),a=document.createElement('a');a.href=url;a.download=r.file_name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)})}
  const remove=async()=>{if(!admin||selected.length!==1||!confirm('Delete selected file?'))return;await run(async()=>{const r=selected[0];const {error:st}=await supabase.storage.from('company-assets').remove([r.storage_path]);if(st)throw st;const {error}=await supabase.from(table).delete().eq('id',r.id);if(error)throw error})}
- const days=d=>Math.ceil((new Date(d+'T00:00:00')-new Date(new Date().toDateString()))/86400000)
  return <section style={{border:'1px solid #e1e5eb',borderRadius:12,background:'#fff',minHeight:0,overflow:'hidden',display:'flex',flexDirection:'column'}}>
  <div style={{background:'#f8f9fb',borderBottom:'1px solid #edf0f3',padding:'12px 14px',display:'flex',alignItems:'center',gap:8,minHeight:43,flexShrink:0}}>
  {certificates?<ShieldCheck size={20} color="#16a34a"/>:<BookOpen size={20} color="#2563eb"/>}
