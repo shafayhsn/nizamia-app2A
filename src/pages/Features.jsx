@@ -22,7 +22,7 @@ const FEATURES = [
   {id:'catalogue',label:'Catalogue Maker',icon:BookImage,color:'#d97706',ready:true},
 ]
 const COMPONENTS={thread:SewingThreadTool,cbm:CBMCalc,gsm:FabricConstructionFinder,pantone:ShadeFinder,accessories:TrimsCalculator,fabric:FabricConsumption}
-function SewingThreadTool(){const [mode,setMode]=useState('manual');return <div style={{height:'100%',display:'flex',flexDirection:'column',minHeight:0}}><div style={{display:'flex',gap:8,marginBottom:8,flexShrink:0}}><button className={mode==='manual'?'btn btn-primary btn-sm':'btn btn-secondary btn-sm'} onClick={()=>setMode('manual')}>Manual Calculator</button><button className={mode==='smart'?'btn btn-primary btn-sm':'btn btn-secondary btn-sm'} onClick={()=>setMode('smart')}>Smart Calculator</button></div><div style={{flex:1,minHeight:0,overflowY:'auto'}}>{mode==='manual'?<ThreadCalc/>:<SewingThreadSmart/>}</div></div>}
+function SewingThreadTool(){const [mode,setMode]=useState('manual');return <div style={{height:'100%',display:'flex',flexDirection:'column',minHeight:0}}><div style={{display:'flex',gap:8,marginBottom:8,flexShrink:0}}><button className={mode==='manual'?'btn btn-primary btn-sm':'btn btn-secondary btn-sm'} onClick={()=>setMode('manual')}>Manual Calculator</button><button className={mode==='smart'?'btn btn-primary btn-sm':'btn btn-secondary btn-sm'} onClick={()=>setMode('smart')}>Smart Calculator</button></div><div style={{flex:1,minHeight:0,overflowY:mode==='manual'?'auto':'hidden'}}>{mode==='manual'?<ThreadCalc/>:<SewingThreadSmart/>}</div></div>}
 const card={border:'1px solid #e1e5eb',borderRadius:12,background:'#fff',boxShadow:'0 1px 3px #1018280b'}
 export default function Features(){
   const [active,setActive]=useState(null)
@@ -46,9 +46,9 @@ export default function Features(){
     {active==='catalogue'&&<CatalogueMaker onClose={()=>setActive(null)}/>}
     {active==='dispatch'&&<CreateParcelFeature onClose={()=>setActive(null)}/>}
     {feature&&active!=='dispatch'&&active!=='catalogue'&&<div role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setActive(null)}} style={{position:'fixed',inset:0,zIndex:1100,background:'rgba(15,23,42,.52)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
-      <div role="dialog" aria-modal="true" aria-label={feature.label} style={{background:'#fff',width:active==='thread'?'min(1080px,calc(100vw - 24px))':'min(620px,95vw)',maxHeight:active==='thread'?'calc(100dvh - 24px)':'min(760px,90vh)',borderRadius:13,boxShadow:'0 20px 70px #0003',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div role="dialog" aria-modal="true" aria-label={feature.label} style={{background:'#fff',width:active==='thread'?'min(1200px,calc(100vw - 24px))':'min(620px,95vw)',height:active==='thread'?'calc(100dvh - 24px)':undefined,maxHeight:active==='thread'?'calc(100dvh - 24px)':'min(760px,90vh)',borderRadius:13,boxShadow:'0 20px 70px #0003',display:'flex',flexDirection:'column',overflow:'hidden'}}>
         <div style={{padding:'19px 22px',borderBottom:'1px solid #e9edf1',display:'flex',alignItems:'center',gap:11,flexShrink:0}}><feature.icon size={21} color={feature.color}/><strong style={{fontSize:17,flex:1,color:'#252b35'}}>{feature.label}</strong><button aria-label="Close feature" onClick={()=>setActive(null)} style={{background:'none',border:0,cursor:'pointer',color:'#98a2b3',padding:5}}><X size={21}/></button></div>
-        <div style={{padding:active==='thread'?12:24,overflowY:'auto',minHeight:160,flex:1,minHeight:0}}>
+        <div style={{padding:active==='thread'?12:24,overflowY:active==='thread'?'hidden':'auto',minHeight:160,flex:1,minHeight:0}}>
           {Tool?<><Tool/>{feature.partial&&<p style={{marginTop:20,fontSize:11,color:'#98a2b3'}}>Some advanced lookup functions are not yet configured.</p>}</>:<div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minHeight:170,gap:12,color:'#98a2b3'}}><Construction size={30}/><strong style={{color:'#667085'}}>Not configured yet</strong><span style={{fontSize:12}}>This utility will be added in a future update.</span></div>}
         </div>
       </div>
