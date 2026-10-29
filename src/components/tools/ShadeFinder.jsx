@@ -16,7 +16,7 @@ export default function ShadeFinder(){
  return <div style={{display:'grid',gap:12}}>
  <p style={{fontSize:12,color:'#667085'}}>Includes 2,100 TPX and 1,930 TC references from your uploaded books, plus Coats and provisional YKK shades. Pantone digital colours are approximate, not official calibrated values.</p>
  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
- <label style={{fontSize:12}}>HEX colour<input className="input" value={hex} onChange={e=>H(e.target.value)}/></label>
+ <label style={{fontSize:12}}>HEX colour<div style={{position:'relative',display:'flex',alignItems:'center'}}><input className="input" value={hex} onChange={e=>H(e.target.value)} style={{paddingRight:44,width:'100%',boxSizing:'border-box'}}/><label title="Pick a colour" aria-label="Pick a colour" style={{position:'absolute',right:7,top:'50%',transform:'translateY(-50%)',height:26,width:28,border:'1px solid #d0d5dd',borderRadius:5,background:color||'#506A88',cursor:'pointer',overflow:'hidden'}}><input type="color" aria-label="Choose HEX colour" value={color||'#506A88'} onChange={e=>H(e.target.value.toUpperCase())} style={{position:'absolute',inset:0,width:'100%',height:'100%',opacity:0,cursor:'pointer'}}/></label></div></label>
  <label style={{fontSize:12}}>Look up shade code<input className="input" placeholder="e.g. 11-0103 / C1740 / 099" value={lookup} onChange={e=>L(e.target.value)}/></label>
  </div>
  {color&&<div style={{display:'flex',gap:12,alignItems:'center'}}><div style={{background:color,width:90,height:90,borderRadius:9,border:'1px solid #d0d5dd'}}/><div><strong>{color}</strong><div>RGB {rgb(color).join(', ')}</div><button className="btn btn-secondary btn-sm" onClick={()=>navigator.clipboard?.writeText(color)}>Copy HEX</button></div></div>}
