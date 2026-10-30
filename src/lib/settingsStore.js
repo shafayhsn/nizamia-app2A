@@ -77,20 +77,24 @@ export async function loadSetting(section, fallback = {}) {
 }
 
 export async function saveSetting(section, value) {
-  lsSet(section, value)
+  // Only report success after the shared database accepts the change.
+  let res
   try {
-    // Current live DB uses `key`; fallback to `section` only if needed.
-    let res = await supabase.from('app_settings').upsert(
+    res = await supabase.from('app_settings').upsert(
       { key: section, value, updated_at: new Date().toISOString() },
       { onConflict: 'key' }
     )
     if (res?.error) {
-      await supabase.from('app_settings').upsert(
+      res = await supabase.from('app_settings').upsert(
         { section, value, updated_at: new Date().toISOString() },
         { onConflict: 'section' }
       )
     }
-  } catch (_) {}
+  } catch (error) {
+    throw new Error(`Unable to save ${section}: ${error.message}`)
+  }
+  if (res?.error) throw new Error(`Unable to save ${section}: ${res.error.message}`)
+  lsSet(section, value)
   return value
 }
 
