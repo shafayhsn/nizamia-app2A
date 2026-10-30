@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
 import OrderWizard from '../components/wizard/OrderWizard'
 import PrintPopup, { printHTML, openPrintWindow, buildFabricPlan, buildTrimsPlan, buildSampleCards } from '../components/PrintReports'
-import { Search, Printer, Layers, Plus, X, Check, AlertCircle, Copy, Upload, Download, FileText, Table, Trash2, RefreshCcw, Settings, Lock, GripVertical, CheckCircle2, Pencil, ListChecks, FolderPlus, FolderInput } from 'lucide-react'
+import { Search, Printer, Layers, Plus, X, Check, AlertCircle, Copy, Upload, Download, FileText, Table, Trash2, RefreshCcw, Settings, Lock, GripVertical, CheckCircle2, Pencil, ListChecks, FolderPlus, FolderInput, ListFilter } from 'lucide-react'
 import { generateJobNumber } from '../lib/utils'
 import { useAppDialogs } from '../components/ui/AppDialogs'
 import { getPageTabNoticeMap, markTabSeen, markTabUpdated } from '../lib/tabNotices'
@@ -4104,6 +4104,8 @@ export default function Orders() {
   const [dragColumnKey, setDragColumnKey] = useState(null)
   const [sort, setSort] = useState(viewPrefs.sort && viewPrefs.sort.col ? viewPrefs.sort : { col: 'ship_date', dir: 'asc' })
   const [groupBy, setGroupBy] = useState(viewPrefs.groupBy || 'none')
+  const [uniqueStylesOnly,setUniqueStylesOnly] = useState(()=>{try{return sessionStorage.getItem('app2a.orders.uniqueStylesOnly')==='true'}catch{return false}})
+  useEffect(()=>{try{sessionStorage.setItem('app2a.orders.uniqueStylesOnly',String(uniqueStylesOnly))}catch{}},[uniqueStylesOnly])
   const [tabNotices, setTabNotices] = useState({ orders:false, queues:false })
 
   useEffect(() => {
@@ -4524,6 +4526,19 @@ export default function Orders() {
     return comparePrimitive(sortValue(a, 'style_number'), sortValue(b, 'style_number'), 'asc')
   })
 
+  // Presentation-only deduplication after the existing search/buyer/status/batch filters.
+  // The full filtered collection remains authoritative for financial and quantity totals.
+  const displayFiltered = uniqueStylesOnly ? (()=>{
+    const winners=new Map()
+    filtered.forEach(o=>{
+      const key=(o.style_number||'').trim().toLocaleLowerCase() || '__missing_style__'+o.id
+      const previous=winners.get(key)
+      if(!previous || (Number(o.total_qty)||0)>(Number(previous.total_qty)||0)) winners.set(key,o)
+    })
+    const ids=new Set([...winners.values()].map(o=>o.id))
+    return filtered.filter(o=>ids.has(o.id))
+  })() : filtered
+
   const groupLabel = (key, value) => {
     const clean = value || 'Unassigned'
     if (key === 'batch') return clean
@@ -4547,7 +4562,7 @@ export default function Orders() {
     return ''
   }
 
-  const displayedRows = groupBy === 'none' ? filtered.map(o => ({ type:'order', order:o })) : (() => {
+  const displayedRows = groupBy === 'none' ? displayFiltered.map(o => ({ type:'order', order:o })) : (() => {
     const groups = new Map()
     const accumulate = (g, o) => {
       g.lineCount += 1
@@ -4558,7 +4573,7 @@ export default function Orders() {
       g.value += Number(o.total_value_usd || 0)
     }
     const makeGroup = (key, label, level) => ({type:'group',key,label,level,count:0,lineCount:0,poKeys:new Set(),qty:0,value:0})
-    filtered.forEach(o => {
+    displayFiltered.forEach(o => {
       const value = groupValue(o)
       if (!groups.has(value)) groups.set(value,{...makeGroup(groupBy === 'batch' ? `batch:${value}` : value,groupLabel(groupBy,value),0),orders:[],styles:new Map(),styleKeys:new Set()})
       const g = groups.get(value)
@@ -4647,7 +4662,7 @@ export default function Orders() {
     setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
   }
   function toggleAll() {
-    setSelected(selected.size === filtered.length && filtered.length > 0 ? new Set() : new Set(filtered.map(o => o.id)))
+    setSelected(selected.size === displayFiltered.length && displayFiltered.length > 0 ? new Set() : new Set(displayFiltered.map(o => o.id)))
   }
   function groupOrderIds(groupKey) {
     return filtered.filter(o => groupValue(o) === groupKey).map(o => o.id)
@@ -4884,6 +4899,7 @@ export default function Orders() {
                 <button className="order-action-button" disabled={!selected.size || !batchReady} onClick={() => setShowBatchDialog('new')} title="New Batch"><FolderPlus size={16}/></button>
                 <button className="order-action-button" disabled={!selected.size || !batchReady} onClick={() => setShowBatchDialog('choose')} title="Change Batch"><FolderInput size={16}/></button>
               </div>
+              <div className="order-action-cluster"><button type="button" className="order-action-button" aria-label="View Unique Style Numbers" aria-pressed={uniqueStylesOnly} title={uniqueStylesOnly?'Show All Orders':'View Unique Style Numbers (highest quantity per style)'} onClick={()=>{setSelected(new Set());setUniqueStylesOnly(v=>!v)}} style={uniqueStylesOnly?{background:'#e8f1ff',color:'#2563eb'}:{}}><ListFilter size={16}/></button></div>
               <div className="order-action-cluster">
                 <button className="order-action-button" disabled={selected.size !== 1} onClick={e => selectedOrderObjs[0] && duplicateOrder(selectedOrderObjs[0],e)} title="Duplicate Order"><Copy size={16}/></button>
                 <button className="order-action-button" disabled={!selected.size} onClick={() => setShowChangeStatus(true)} title="Change Order Status"><RefreshCcw size={16}/></button>
