@@ -81,3 +81,11 @@ export function statusDisplay(status, module = 'orders') {
     return hit?.label || hit?.status_value || status
   } catch { return status }
 }
+
+export function configuredStatusOptions(module, defaults = []) {
+  try {
+    const rows = JSON.parse(localStorage.getItem('app2a_setting_ui_status_colors') || '[]')
+    const saved = Array.isArray(rows) ? rows.filter(r=>String(r.module).toLowerCase()===String(module).toLowerCase() && String(r.status_value||'').trim()) : []
+    return [...new Set([...defaults.map(v=>typeof v==='string'?v:v.value),...saved.map(r=>r.status_value)])]
+  } catch { return defaults.map(v=>typeof v==='string'?v:v.value) }
+}
