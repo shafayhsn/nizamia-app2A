@@ -32,22 +32,21 @@ export const DEFAULT_NUMBERING = [
 ]
 
 export const DEFAULT_STATUS_COLORS = [
-  { module: 'orders', status_value: 'Draft', color: 'yellow' },
-  { module: 'orders', status_value: 'Active', color: 'green' },
-  { module: 'orders', status_value: 'Booked', color: 'blue' },
-  { module: 'orders', status_value: 'Shipped', color: 'purple' },
-  { module: 'orders', status_value: 'Cancelled', color: 'red' },
-  { module: 'queues', status_value: 'Pending', color: 'gray' },
-  { module: 'queues', status_value: 'Active', color: 'blue' },
-  { module: 'queues', status_value: 'Completed', color: 'green' },
-  { module: 'shipments', status_value: 'Open', color: 'blue' },
-  { module: 'shipments', status_value: 'Draft', color: 'gray' },
-  { module: 'shipments', status_value: 'Completed', color: 'green' },
-  { module: 'payments', status_value: 'Pipeline', color: 'gray' },
-  { module: 'payments', status_value: 'Partial', color: 'yellow' },
-  { module: 'payments', status_value: 'Complete', color: 'green' },
-  { module: 'payments', status_value: 'Overdue', color: 'red' },
+  ...[['Draft','yellow'],['Active','green'],['Booked','blue'],['Shipped','purple'],['Cancelled','red']].map(([status_value,color])=>({module:'orders',status_value,color})),
+  ...[['Queued','gray'],['Pending','yellow'],['In Progress','blue'],['Partially Shipped','yellow'],['Completed','green']].map(([status_value,color])=>({module:'queues',status_value,color})),
+  ...[['Requested','yellow'],['Confirmed','green'],['Cancelled','red']].map(([status_value,color])=>({module:'bookings',status_value,color})),
+  ...[['Open','blue'],['Draft','gray'],['Completed','green']].map(([status_value,color])=>({module:'shipments',status_value,color})),
+  ...[['Settled','green'],['Partial','yellow'],['Overdue','red']].map(([status_value,color])=>({module:'payments',status_value,color})),
+  ...[['Draft','gray'],['Issued','blue'],['Received','green'],['Cancelled','red']].map(([status_value,color])=>({module:'purchasing',status_value,color})),
+  ...[['Requested','blue'],['Pending','yellow'],['Received','blue'],['Approved','green'],['Rejected','red']].map(([status_value,color])=>({module:'samples',status_value,color})),
+  ...[['Dispatched','green'],['Pending','yellow'],['Delivered','green']].map(([status_value,color])=>({module:'parcels',status_value,color})),
+  ...[['Pending','gray'],['In Progress','blue'],['Completed','green']].map(([status_value,color])=>({module:'tasks',status_value,color})),
 ]
+export function mergeStatusDefinitions(saved = []) {
+ const entries = Array.isArray(saved) ? saved : []
+ const keys = new Set(entries.map(r=>String(r.module||'').toLowerCase()+'::'+String(r.status_value||'').toLowerCase()))
+ return [...entries,...DEFAULT_STATUS_COLORS.filter(r=>!keys.has(r.module.toLowerCase()+'::'+r.status_value.toLowerCase()))]
+}
 
 const LS_PREFIX = 'app2a_setting_'
 
