@@ -41,6 +41,12 @@ export const DEFAULT_STATUS_COLORS = [
   ...[['Requested','blue'],['Pending','yellow'],['Received','blue'],['Approved','green'],['Rejected','red']].map(([status_value,color])=>({module:'samples',status_value,color})),
   ...[['Dispatched','green'],['Pending','yellow'],['Delivered','green']].map(([status_value,color])=>({module:'parcels',status_value,color})),
   ...[['Pending','gray'],['In Progress','blue'],['Completed','green']].map(([status_value,color])=>({module:'tasks',status_value,color})),
+  ...[['Gate-In','blue'],['In-Transit','blue'],['Discharged','yellow'],['Gate-Out','purple'],['Delivered','green']].map(([status_value,color])=>({module:'shipments',status_value,color})),
+  ...[['Not Due','gray'],['Due','yellow'],['Partial Paid','yellow'],['Buyer Paid','blue']].map(([status_value,color])=>({module:'payments',status_value,color})),
+  ...[['Draft','gray'],['Partially Shipped','yellow'],['Shipped','purple']].map(([status_value,color])=>({module:'bookings',status_value,color})),
+  ...[['Acknowledged','blue'],['Delivered','green']].map(([status_value,color])=>({module:'purchasing',status_value,color})),
+  ...[['Draft','gray'],['Issued','blue'],['In Progress','yellow'],['Completed','green'],['Cancelled','red']].map(([status_value,color])=>({module:'work_orders',status_value,color})),
+  ...[['In Development','blue'],['Dispatched','purple'],['Comments Received','yellow'],['Revision Required','red'],['Ready','green']].map(([status_value,color])=>({module:'samples',status_value,color})),
 ]
 export function mergeStatusDefinitions(saved = []) {
  const entries = Array.isArray(saved) ? saved : []
