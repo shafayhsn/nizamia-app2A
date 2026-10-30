@@ -22,7 +22,7 @@ function savedUiColorForStatus(status, module = 'orders') {
   try {
     const rows = JSON.parse(localStorage.getItem('app2a_setting_ui_status_colors') || '[]')
     const raw = String(status || '').trim().toLowerCase()
-    const hit = Array.isArray(rows) ? rows.find(r => String(r.status_value || '').trim().toLowerCase() === raw && String(r.module || '').toLowerCase() === module.toLowerCase()) : null
+    const hit = Array.isArray(rows) ? rows.find(r => String(r.status_value || '').trim().toLowerCase() === raw && String(r.module || '').toLowerCase() === String(module).toLowerCase()) : null
     return hit?.color || null
   } catch (_) { return null }
 }
@@ -77,7 +77,7 @@ export function statusDotStyle(status, extra = {}, module = 'orders') {
 export function statusDisplay(status, module = 'orders') {
   try {
     const rows = JSON.parse(localStorage.getItem('app2a_setting_ui_status_colors') || '[]')
-    const hit = rows.find(r => String(r.module).toLowerCase() === module && String(r.status_value || r.status_key).toLowerCase() === String(status).toLowerCase())
+    const hit = Array.isArray(rows) ? rows.find(r => String(r.module).toLowerCase() === String(module).toLowerCase() && String(r.status_value || r.status_key).toLowerCase() === String(status).toLowerCase()) : null
     return hit?.label || hit?.status_value || status
   } catch { return status }
 }
