@@ -7,7 +7,7 @@ import RolesPermissions from './RolesPermissions'
 import BackupExport from './BackupExport'
 import { supabase } from '../lib/supabase'
 import { statusBadgeStyle, PALETTE } from '../lib/statusColors'
-import { DEFAULT_NUMBERING, DEFAULT_SETTINGS, DEFAULT_STATUS_COLORS, DEFAULT_UOMS, loadList, loadSetting, renderNumberFromConfig, saveList, saveSetting } from '../lib/settingsStore'
+import { DEFAULT_NUMBERING, DEFAULT_SETTINGS, DEFAULT_STATUS_COLORS, mergeStatusDefinitions, DEFAULT_UOMS, loadList, loadSetting, renderNumberFromConfig, saveList, saveSetting } from '../lib/settingsStore'
 
 const PO_TAX_RATE_KEY = 'nizamia_po_sales_tax_rate'
 const PO_TERMS_KEY = 'nizamia_po_terms_conditions'
@@ -70,7 +70,7 @@ export default function Settings() {
     loadList('document_numbering', DEFAULT_NUMBERING).then(rows => setNumbering(mergeNumberingDefaults(rows)))
     loadList('uoms', DEFAULT_UOMS).then(setUoms)
     loadSetting(TOPBAR_SHORTCUTS_KEY,DEFAULT_SHORTCUTS).then(v=>setTopShortcuts(Array.isArray(v)?v:DEFAULT_SHORTCUTS))
-    loadSetting('ui_status_colors', DEFAULT_STATUS_COLORS).then(v=>setUiStatusColors(Array.isArray(v)?v:DEFAULT_STATUS_COLORS))
+    loadSetting('ui_status_colors', DEFAULT_STATUS_COLORS).then(v=>setUiStatusColors(mergeStatusDefinitions(v)))
     loadSetting('ui_group_row', DEFAULT_GROUP_ROW).then(v => { const merged = { ...DEFAULT_GROUP_ROW, ...(v || {}) }; setGroupRow(merged); applyGroupRowVars(merged) })
   }, [])
 
@@ -149,12 +149,12 @@ function UISettings({ rows, setRows, groupRow, setGroupRow, onSave, onSaveGroup 
  const [error,setError]=useState('')
  const update=(i,k,v)=>setRows(old=>old.map((r,idx)=>idx===i?{...r,[k]:v}:r))
  const modules=[...new Set(rows.map(r=>r.module||'custom'))]
- const add=module=>setRows(old=>[...old,{module,status_value:'New Status',label:'New Status',color:'gray'}])
- const save=async()=>{setSaving(true);setError('');try{await onSave(rows)}catch(e){setError(e.message||'Unable to save UI settings')}finally{setSaving(false)}}
+ const add=module=>{const value=window.prompt('New status key for '+module+' (must be unique):');if(!value?.trim())return;const key=value.trim();if(rows.some(r=>r.module===module&&r.status_value?.toLowerCase()===key.toLowerCase())){setError('This status already exists in '+module);return}setError('');setRows(old=>[...old,{module,status_value:key,label:key,color:'gray',custom:true}])}
+ const save=async()=>{setSaving(true);setError('');try{const seen=new Set();for(const r of rows){const key=String(r.module||'').trim()+'::'+String(r.status_value||'').trim().toLowerCase();if(!r.module||!String(r.status_value||'').trim()||seen.has(key))throw new Error('Status keys must be nonempty and unique within each module');seen.add(key)}await onSave(rows)}catch(e){setError(e.message||'Unable to save UI settings')}finally{setSaving(false)}}
  const input={...cellInput,width:'100%',height:32,boxSizing:'border-box',minWidth:0}
  const th={padding:'8px 10px',textAlign:'left',fontSize:10,color:'#667085',fontWeight:700,background:'#f9fafb',borderBottom:'1px solid #eaecf0'}
  return <div>
-  <Help text="Configure status labels and badge colours by module. Status keys stay unchanged, so existing workflow records are not renamed. Only components using the shared status colour utility follow these settings."/>
+  <Help text="Configure status labels and badge colours by module. Status keys stay unchanged, so existing workflow records are not renamed. Custom statuses are available in supported workflow selectors (currently Orders); other modules require workflow-specific integration."/>
   <div style={{border:'1px solid #eaecf0',borderRadius:10,padding:12,marginBottom:14,background:'#fafafa'}}>
    <div style={{fontWeight:700,fontSize:12,marginBottom:10}}>Grouped parent rows</div>
    <div style={{display:'grid',gridTemplateColumns:'minmax(120px,1fr) minmax(120px,1fr) auto',gap:12,alignItems:'end'}}>
