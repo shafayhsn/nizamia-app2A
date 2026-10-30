@@ -7,7 +7,7 @@ import { usageObject, usageNumber } from '../lib/usageMath'
 import {buildSampleProgramHTML} from '../lib/sampleProgramPrint'
 import { loadSamplingStore, getSampleComments, updateSampleMeta, addSampleComment, sendSampleToParcelPool } from '../lib/samplingStore'
 import { ClipboardCheck, MessageSquarePlus, PackagePlus, Printer, RefreshCw, Search, ChevronDown } from 'lucide-react'
-import { statusBadgeStyle } from '../lib/statusColors'
+import { statusBadgeStyle, statusDisplay } from '../lib/statusColors'
 import { useWindowManager } from '../components/ui/WindowManager'
 import { Minus, X } from 'lucide-react'
 
@@ -80,7 +80,7 @@ function MultiFilter({title,options,value,onChange}) {
 }
 
 function statusPill(bg, color, text) {
-  return <span style={statusBadgeStyle(text)}>{text}</span>
+  return <span style={statusBadgeStyle(text,{},'samples')}>{statusDisplay(text,'samples')}</span>
 }
 
 function PrintWindow({ html, title }) {
