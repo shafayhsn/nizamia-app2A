@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { Download, AlertCircle, Upload, RotateCcw, ShieldAlert } from 'lucide-react'
 import JSZip from 'jszip'
 import * as XLSX from 'xlsx'
-import { exportAppData, generateExcelSheets, restoreAppData, validateBackupPayload, BACKUP_TABLES } from '../lib/backupData'
+import { exportAppData, generateExcelSheets, validateBackupPayload, BACKUP_TABLES, exportStorageFiles, BACKUP_STORAGE_BUCKETS } from '../lib/backupData'
 import { useAuth } from '../lib/authContext'
 
 export default function Backup() {
@@ -42,7 +42,11 @@ export default function Backup() {
         JSON.stringify(backupData, null, 2)
       )
 
-      // 3. Generate and add Excel sheets
+      // 3. Include private storage files and manifest; abort if any file is unreadable
+      const storageFiles = await exportStorageFiles(zip)
+      zip.file('storage-manifest.json', JSON.stringify({ buckets: BACKUP_STORAGE_BUCKETS, files: storageFiles }, null, 2))
+
+      // 4. Generate and add Excel sheets
       const excelSheets = generateExcelSheets(backupData)
 
       // Create Excel workbook
@@ -108,24 +112,6 @@ export default function Backup() {
     }
   }
 
-  const handleRestore = async () => {
-    if (!canRestore) return
-    setRestoreLoading(true)
-    setRestoreError('')
-    setProgress('Starting restore...')
-
-    try {
-      const result = await restoreAppData(restorePayload, {
-        onProgress: p => setProgress(`${p.message} (${p.step}/${p.totalSteps})`),
-      })
-      setProgress(`Restore completed: ${result.restoredTables} tables, ${result.restoredRows} rows.`)
-      window.setTimeout(() => window.location.reload(), 1200)
-    } catch (err) {
-      console.error('Restore failed:', err)
-      setRestoreError(`Restore failed: ${err.message}`)
-      setRestoreLoading(false)
-    }
-  }
 
   if (!isAdmin) {
     return (
@@ -154,8 +140,9 @@ export default function Backup() {
           <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6, marginBottom: 14 }}>
             <strong>What's included:</strong>
             <ul style={{ margin: '8px 0 0 0', paddingLeft: 20, fontSize: 12 }}>
-              <li>All {BACKUP_TABLES.length} app tables.</li>
-              <li>All relationships preserved.</li>
+              <li>All {BACKUP_TABLES.length} listed public tables (verified row counts).</li>
+              <li>Private storage files ({BACKUP_STORAGE_BUCKETS.join(', ')}).</li>
+              <li>Database row identifiers and relationship fields retained in JSON.</li>
               <li>JSON file for restore.</li>
               <li>Excel file for inspection.</li>
               <li>Metadata with timestamp and row counts.</li>
@@ -178,7 +165,7 @@ export default function Backup() {
             <AlertCircle size={18} style={{ flexShrink: 0 }} />
             <div>
               <div style={{ fontWeight: 700, marginBottom: 4 }}>Danger Zone</div>
-              <div>This will delete ALL current app data and replace it with the selected backup. This cannot be undone.</div>
+              <div>Restore is temporarily disabled for safety. The previous browser-based restore was not transactional and could leave partial data after a failure. Backup downloads remain available.</div>
             </div>
           </div>
 
@@ -198,14 +185,14 @@ export default function Backup() {
               <MetaRow label="Tables" value={String(restoreInfo.tableNames?.length || 0)} />
               <MetaRow label="Rows" value={String(restoreInfo.totalRows || 0)} />
 
-              <div style={{ marginTop: 12 }}>
+              <div style={{ marginTop: 12, display: 'none' }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Type RESET to confirm</div>
                 <input value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder="RESET" disabled={restoreLoading} style={inputStyle} />
               </div>
 
-              <button onClick={handleRestore} disabled={!canRestore} style={dangerButtonStyle(!canRestore)}>
+              <button disabled style={dangerButtonStyle(true)}>
                 <RotateCcw size={16} />
-                {restoreLoading ? 'Restoring...' : 'Restore / Replace All Data'}
+                Restore disabled — requires verified recovery procedure
               </button>
             </div>
           )}
