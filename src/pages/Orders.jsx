@@ -12,7 +12,7 @@ import { generateJobNumber } from '../lib/utils'
 import { useAppDialogs } from '../components/ui/AppDialogs'
 import { getPageTabNoticeMap, markTabSeen, markTabUpdated } from '../lib/tabNotices'
 import { useAuth } from '../lib/authContext'
-import { statusBadgeStyle, statusDotStyle, statusColors, statusDisplay } from '../lib/statusColors'
+import { statusBadgeStyle, statusDotStyle, statusColors, statusDisplay, configuredStatusOptions } from '../lib/statusColors'
 import * as XLSX from 'xlsx'
 import {buildSampleProgramHTML,printSamplingHTML} from '../lib/sampleProgramPrint'
 import { buildFinishingPlanHTML } from '../lib/finishingPlanPrint'
@@ -375,7 +375,7 @@ function ChangeStatusModal({ selectedOrders, onClose, onDone }) {
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Change Status</div>
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 16 }}>{selectedOrders.length} order{selectedOrders.length > 1 ? 's' : ''} selected</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
-          {STATUS_OPTIONS.map(opt => (
+          {configuredStatusOptions('orders', STATUS_OPTIONS).map(value => { const opt = {value}; return (
             <div key={opt.value} onClick={() => setStatus(opt.value)}
               style={{ padding: '9px 14px', borderRadius: 7, border: `1px solid ${status === opt.value ? statusColors(opt.value).color : '#e5e7eb'}`, background: status === opt.value ? statusColors(opt.value).bg : '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, justifyContent:'space-between' }}>
               <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -384,7 +384,7 @@ function ChangeStatusModal({ selectedOrders, onClose, onDone }) {
               </div>
               {status === opt.value && <Check size={14} color={statusColors(opt.value).color} />}
             </div>
-          ))}
+          )})}
         </div>
         {errorMsg && <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 12 }}>{errorMsg}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
