@@ -3,7 +3,7 @@ import { formatDate as appFormatDate } from '../lib/utils'
 import { usageObject } from '../lib/usageMath'
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { statusBadgeStyle } from '../lib/statusColors'
+import { statusBadgeStyle, statusDisplay, configuredStatusOptions } from '../lib/statusColors'
 import { Search, Plus, Trash2, X, Lock, Unlock, Printer, Pencil } from 'lucide-react'
 import { generatePONumber, generateWONumber } from '../lib/utils'
 import { printPurchaseOrder, printWorkOrder } from '../components/PrintReports'
@@ -345,7 +345,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
             <div><label style={lbl}>Payment Terms</label><input style={mkInp(locked)} value={form.payment_terms} onChange={set('payment_terms')} placeholder="e.g. 30 days net" disabled={locked} /></div>
             <div><label style={lbl}>Status</label>
               <select style={mkSel(locked)} value={form.status} onChange={set('status')} disabled={locked}>
-                {['Draft','Issued','Acknowledged','Delivered','Cancelled'].map(s=><option key={s}>{s}</option>)}
+                {configuredStatusOptions('purchasing',['Draft','Issued','Acknowledged','Delivered','Cancelled']).map(v=><option key={v} value={v}>{statusDisplay(v,'purchasing')}</option>)}
               </select></div>
             <div style={{ gridColumn:'2 / 4' }}><label style={lbl}>Notes</label><input style={mkInp(locked)} value={form.notes} onChange={set('notes')} placeholder="Any notes..." disabled={locked} /></div>
           </div>
@@ -554,7 +554,7 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, prefillItems, onClo
             <div><label style={lbl}>Payment Terms</label><input style={mkInp(locked)} value={form.payment_terms} onChange={set('payment_terms')} placeholder="e.g. On completion" disabled={locked}/></div>
             <div><label style={lbl}>Status</label>
               <select style={mkSel(locked)} value={form.status} onChange={set('status')} disabled={locked}>
-                {['Draft','Issued','In Progress','Completed','Cancelled'].map(s=><option key={s}>{s}</option>)}
+                {configuredStatusOptions('work_orders',['Draft','Issued','In Progress','Completed','Cancelled']).map(v=><option key={v} value={v}>{statusDisplay(v,'work_orders')}</option>)}
               </select></div>
           </div>
           {orderProcesses.length>0&&(
@@ -1637,7 +1637,7 @@ function PurchaseOrdersTab({ orders, suppliers }) {
                   <TD style={{ color:'#6b7280', fontSize:11 }}>{fmtDate(p.po_date)}</TD>
                   <TD style={{ color:dateColor(p.delivery_date), fontSize:11 }}>{fmtDate(p.delivery_date)}</TD>
                   <TD style={{ fontSize:11 }}>{(p.purchase_order_items||[]).length} lines{total>0&&<span style={{ fontWeight:700, color:'#0d0d0d', marginLeft:6 }}>{p.currency} {fmtNum(total)}</span>}</TD>
-                  <TD><span style={statusBadgeStyle(p.status)}>{p.status}</span></TD>
+                  <TD><span style={statusBadgeStyle(p.status,{},'purchasing')}>{p.status}</span></TD>
                   <td style={{ padding:'9px 8px', borderBottom:'1px solid #f9fafb', whiteSpace:'nowrap' }}><button className="btn btn-ghost btn-sm" title="Edit" onClick={e=>{ e.stopPropagation(); if(!access.canEditPO(user)){ alert('Access Denied'); return } setEditPO({...p,items:p.purchase_order_items||[]}); setShowModal(true) }}><Pencil size={12} color="#6b7280"/></button><button className="btn btn-ghost btn-sm" title="Print" onClick={e=>handlePrint(p,e)}><Printer size={12} color="#6b7280"/></button>{access.canApprovePO(user)&&<button className="btn btn-ghost btn-sm" title={String(p.status||'').toLowerCase()==='approved'?'Unapprove':'Approve'} onClick={e=>handleTogglePOApproval(p,e)}>{String(p.status||'').toLowerCase()==='approved'?<Unlock size={12} color="#d97706"/>:<Lock size={12} color="#16a34a"/>}</button>}<button className="btn btn-ghost btn-sm" title="Delete" onClick={e=>handleDeletePO(p,e)}><Trash2 size={12} color="#dc2626"/></button></td>
                 </tr>
               )
@@ -1716,7 +1716,7 @@ function WorkOrdersTab({ orders, suppliers }) {
                   <TD style={{ textAlign:'right', fontFamily:'monospace', fontWeight:600 }}>{w.qty?.toLocaleString()||'—'}</TD>
                   <TD style={{ color:'#6b7280', fontSize:11, maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{procNames.slice(0,3).join(', ')}{procNames.length>3?` +${procNames.length-3}`:''}</TD>
                   <TD style={{ color:overdue?'#dc2626':'#6b7280', fontWeight:overdue?700:400, fontSize:11 }}>{fmtDate(w.complete_by)}{overdue?' ▲':''}</TD>
-                  <TD><span style={statusBadgeStyle(w.status)}>{w.status}</span></TD>
+                  <TD><span style={statusBadgeStyle(w.status,{},'work_orders')}>{w.status}</span></TD>
                   {total>0&&<span style={{ fontSize:11, fontWeight:700, color:'#0d0d0d', marginLeft:6 }}>PKR {fmtNum(total)}</span>}
                   <td style={{ padding:'9px 8px', borderBottom:'1px solid #f9fafb', whiteSpace:'nowrap' }}><button className="btn btn-ghost btn-sm" title="Edit" onClick={e=>{ e.stopPropagation(); setEditWO({...w,items:w.work_order_items||[]}); setShowModal(true) }}><Pencil size={12} color="#6b7280"/></button><button className="btn btn-ghost btn-sm" title="Print" onClick={e=>handlePrint(w,e)}><Printer size={12} color="#6b7280"/></button><button className="btn btn-ghost btn-sm" title="Delete" onClick={e=>handleDeleteWO(w,e)}><Trash2 size={12} color="#dc2626"/></button></td>
                 </tr>
