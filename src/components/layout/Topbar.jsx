@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabase'
 import { NotificationCenter, useDeadlineEvents } from '../ui/DeadlinesTracker'
 import { dueWithin24h, overdueEvents } from '../../lib/deadlineEvents'
 import QuickCalculator from '../ui/QuickCalculator'
+import {TimeConverter,CurrencyConverter} from './TopbarConverters'
 import {SHORTCUT_CATALOG,DEFAULT_SHORTCUTS,TOPBAR_SHORTCUTS_KEY} from '../../lib/topbarShortcuts'
 import {loadSetting} from '../../lib/settingsStore'
 import {can} from '../../lib/permissions'
@@ -63,12 +64,13 @@ function CottonBoll({size=15}) {
 const MARKET_CACHE_KEY='app2a-market-quotes-v1'
 function useMarketQuotes(){
   const [market,setMarket]=useState(()=>{try{return JSON.parse(localStorage.getItem(MARKET_CACHE_KEY)||'null')}catch{return null}})
+  const [refreshToken,setRefreshToken]=useState(0)
   useEffect(()=>{
     let active=true
     const load=async()=>{
       try{
         const stored=JSON.parse(localStorage.getItem(MARKET_CACHE_KEY)||'null')
-        if(stored?.checkedAt && Date.now()-stored.checkedAt<6*60*60*1000){if(active)setMarket(stored);return}
+        if(refreshToken===0 && stored?.checkedAt && Date.now()-stored.checkedAt<6*60*60*1000){if(active)setMarket(stored);return}
         const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),8000)
         let response
         try{response=await fetch('/api/market-rates',{signal:controller.signal})}finally{clearTimeout(timeout)}
@@ -82,8 +84,8 @@ function useMarketQuotes(){
     load()
     const timer=setInterval(load,60*60*1000)
     return()=>{active=false;clearInterval(timer)}
-  },[])
-  return market
+  },[refreshToken])
+  return {...market,refresh:()=>setRefreshToken(v=>v+1)}
 }
 const ICONS={ClipboardCheck,CalendarDays,Package,FilePlus2,ListTodo,PlusCircle,Scissors,Ship,BarChart3,ShoppingCart,Users,Truck,BookOpen,Settings}
 export default function Topbar({onOpenDeadlines}) {
@@ -208,6 +210,7 @@ export default function Topbar({onOpenDeadlines}) {
   }[syncStatus] || { icon: Cloud, color: '#16a34a', bg: '#f0fdf4', label: 'Online' }
 
   const market=useMarketQuotes()
+  const [converter,setConverter]=useState(null)
   const rates = [
     { sym: String.fromCharCode(36), code: 'USD' },
     { sym: '€', code: 'EUR' },
@@ -224,33 +227,35 @@ export default function Topbar({onOpenDeadlines}) {
       display: 'flex', alignItems: 'center',
       padding: '0 20px', flexShrink: 0,
     }}>
-      <div style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 18, alignItems: 'center',position:'relative' }}>
         {CITIES.map(({ label, tz }) => {
           const time = now.toLocaleTimeString('en-US', {
             timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false,
           })
           return (
-            <div key={label} style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+            <button key={label} type="button" onClick={()=>setConverter(v=>v?.type==='time'&&v.zone===tz?null:{type:'time',zone:tz})} title={'Convert meeting time for '+label} style={{ display: 'flex', alignItems: 'baseline', gap: 5,border:0,background:'none',padding:0,cursor:'pointer' }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e' }}>{label}</span>
               <span style={{ fontSize: 12, fontWeight: 400, fontVariantNumeric: 'tabular-nums', color: '#1a1a2e' }}>{time}</span>
-            </div>
+            </button>
           )
         })}
+        {converter?.type==='time'&&<><div onClick={()=>setConverter(null)} style={{position:'fixed',inset:0,zIndex:90}}/><TimeConverter key={converter.zone} initialZone={converter.zone} onClose={()=>setConverter(null)}/></>}
       </div>
 
       <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 16px' }} />
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center',position:'relative' }}>
         {rates.map(({ sym, code }) => {
           const quote=market?.fx?.[code]
-          return <div key={code} title={quote?.date?`${code}/PKR · Reference rate dated ${quote.date} · Frankfurter (official-source blend)`:`${code}/PKR · Waiting for reference rate`} style={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+          return <button key={code} type="button" onClick={()=>setConverter(v=>v?.type==='currency'&&v.code===code?null:{type:'currency',code})} title={quote?.date?`${code}/PKR · Reference rate dated ${quote.date} · Frankfurter (official-source blend)`:`${code}/PKR · Waiting for reference rate`} style={{ display: 'flex', alignItems: 'baseline', gap: 1,border:0,background:'none',padding:0,cursor:'pointer' }}>
             <span style={{ fontSize: 11, color: '#1a1a2e', fontWeight: 700 }}>{sym}</span>
             <span style={{ fontSize: 12, fontWeight: 400, color: '#1a1a2e', fontVariantNumeric: 'tabular-nums' }}>{Number.isFinite(Number(quote?.value))&&quote?.value!=null?Number(quote.value).toFixed(2):'—'}</span>
-          </div>
+          </button>
         })}
         <div title={market?.cotton?`USDA AMS seven-market upland cotton spot average · ${market.cotton.value} US cents/lb · Quotation: ${market.cotton.date} · via Cotton Grower`:'USDA seven-market cotton spot quotation currently unavailable'} style={{display:'flex',alignItems:'center',gap:3,color:'#1a1a2e'}}>
           <CottonBoll size={15}/>
           <span style={{fontSize:12,fontWeight:400,fontVariantNumeric:'tabular-nums'}}>{market?.cotton?Number(market.cotton.value).toFixed(2)+'¢':'—'}</span>
         </div>
+        {converter?.type==='currency'&&<><div onClick={()=>setConverter(null)} style={{position:'fixed',inset:0,zIndex:90}}/><CurrencyConverter key={converter.code} initialCode={converter.code} market={market} onRefresh={market.refresh} onClose={()=>setConverter(null)}/></>}
       </div>
 
       <div style={{flex:1}} />
