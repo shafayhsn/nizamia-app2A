@@ -60,6 +60,29 @@ export const BACKUP_TABLES = [
   'document_numbering',
   'uoms',
   'ui_status_colors',
+  'bom_presets',
+  'bom_preset_items',
+  'purchase_order_changelog',
+  'settings',
+  'counters',
+  'exchange_rates',
+  'payment_settlements',
+  'packing_snapshots',
+  'parcels',
+  'sample_number_migration_20261016',
+  'production_batches',
+  'production_batch_orders',
+  'app_tasks',
+  'app_task_comments',
+  'app_task_reads',
+  'production_daily_entries',
+  'app_database_sync_status',
+  'notification_reads',
+  'shipping_bookings',
+  'shipping_booking_lines',
+  'shipping_booking_shipments',
+  'feature_certificates',
+  'feature_assets',
 ]
 
 const ZERO_UUID = '00000000-0000-0000-0000-000000000000'
@@ -68,23 +91,48 @@ const BATCH_SIZE = 500
 /**
  * Fetch all rows from a Supabase table
  */
+const PAGE_SIZE = 500
+export const BACKUP_STORAGE_BUCKETS = ['company-assets']
+
+/** Fail closed: a missing or inaccessible table must never be recorded as empty. */
 async function fetchTable(tableName) {
-  try {
-    const { data, error } = await supabase
-      .from(tableName)
-      .select('*')
-      .limit(10000) // Safety limit
-
-    if (error) {
-      console.warn(`Warning: Could not fetch ${tableName}:`, error.message)
-      return []
-    }
-
-    return data || []
-  } catch (err) {
-    console.warn(`Error fetching ${tableName}:`, err.message)
-    return []
+  const { count, error: countError } = await supabase.from(tableName).select('*', { count: 'exact', head: true })
+  if (countError) throw new Error(`Cannot count ${tableName}: ${countError.message}`)
+  const rows = []
+  for (let offset = 0; offset < count; offset += PAGE_SIZE) {
+    const { data, error } = await supabase.from(tableName).select('*').range(offset, offset + PAGE_SIZE - 1)
+    if (error) throw new Error(`Cannot export ${tableName} at row ${offset}: ${error.message}`)
+    if (!data?.length) throw new Error(`Incomplete export for ${tableName}: expected ${count}, received ${rows.length}`)
+    rows.push(...data)
   }
+  if (rows.length !== count) throw new Error(`Row-count mismatch for ${tableName}: expected ${count}, exported ${rows.length}`)
+  return rows
+}
+
+/** Enumerate all storage objects, including nested folders. */
+export async function exportStorageFiles(zip) {
+  const manifest = []
+  for (const bucket of BACKUP_STORAGE_BUCKETS) {
+    const visit = async prefix => {
+      let offset = 0
+      while (true) {
+        const { data, error } = await supabase.storage.from(bucket).list(prefix, { limit: 100, offset, sortBy: { column: 'name', order: 'asc' } })
+        if (error) throw new Error(`Storage listing failed for ${bucket}/${prefix}: ${error.message}`)
+        for (const item of data || []) {
+          const key = prefix ? `${prefix}/${item.name}` : item.name
+          if (item.id == null) { await visit(key); continue }
+          const { data: blob, error: downloadError } = await supabase.storage.from(bucket).download(key)
+          if (downloadError || !blob) throw new Error(`Storage download failed for ${bucket}/${key}: ${downloadError?.message || 'No file'}`)
+          zip.file(`storage/${bucket}/${key}`, blob)
+          manifest.push({ bucket, path: key, size: blob.size })
+        }
+        if (!data || data.length < 100) break
+        offset += data.length
+      }
+    }
+    await visit('')
+  }
+  return manifest
 }
 
 /**
@@ -94,6 +142,7 @@ export async function exportAppData() {
   const backup_metadata = {
     timestamp: new Date().toISOString(),
     app_version: '2A',
+    backup_format_version: 2,
     table_count: BACKUP_TABLES.length,
     total_rows: 0,
   }
@@ -101,7 +150,7 @@ export async function exportAppData() {
   const tables = {}
   let totalRows = 0
 
-  // Fetch all tables in parallel
+  // Fetch all tables in parallel (any failed read aborts the backup)
   const results = await Promise.all(
     BACKUP_TABLES.map(tableName => fetchTable(tableName))
   )
@@ -113,6 +162,7 @@ export async function exportAppData() {
     totalRows += results[i].length
   }
 
+  backup_metadata.table_row_counts = Object.fromEntries(BACKUP_TABLES.map(t => [t, tables[t].length]))
   backup_metadata.total_rows = totalRows
 
   return { backup_metadata, tables }
