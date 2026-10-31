@@ -454,7 +454,7 @@ export default function SamplingApprovals() {
   const groupLabel = r => groupBy === 'customer' ? (r.order.buyer_name || r.buyer.name || 'No Customer') : groupBy === 'job' ? (r.order.job_number || 'No Job #') : groupBy === 'style' ? (r.order.style_number || 'No Style #') : groupBy === 'type' ? (r.sample_type || 'No Type') : groupBy === 'stage' ? r.stage : groupBy === 'approval' ? r.approvalStatus : ''
   const groupedRows = groupBy === 'none' ? null : rows.reduce((acc,r) => { const k=groupLabel(r); (acc[k] ||= []).push(r); return acc }, {})
   const approvalRows = allRows.filter(isCompleted)
-  const styleCount = predicate => new Set(approvalRows.filter(predicate).map(r=>r.order.style_number||r.id)).size
+  const styleCount = predicate => new Set(approvalRows.filter(predicate).map(r=>r.sample_number||r.id)).size
   const approvalKpis = [
     ['Total Styles',styleCount(()=>true),false],
     ['Not Dispatched',styleCount(r=>!['Dispatched','Delivered'].includes(r.dispatchStatus)),false],
