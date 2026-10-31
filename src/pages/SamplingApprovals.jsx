@@ -20,7 +20,8 @@ const inp = { height:34, padding:'0 10px', border:'1px solid #e5e7eb', borderRad
 const btn = { height:32, padding:'0 12px', border:'1px solid #e5e7eb', borderRadius:8, background:'#fff', fontSize:12, fontWeight:600, cursor:'pointer' }
 
 
-const SETTINGS_KEY = 'nizamia:sampling:table-settings:v1'
+const SETTINGS_KEY = 'nizamia:sampling:table-settings:v2'
+const TAB_DEFAULTS = {groupBy:'none',sortBy:'due-asc',filterBuyer:[],filterType:[],filterStage:[],filterApproval:[],query:''}
 function readSettings() {
   try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') } catch { return {} }
 }
@@ -337,18 +338,29 @@ export default function SamplingApprovals() {
   const [metadataSample,setMetadataSample]=useState(null)
   const [query, setQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState([])
-  const [groupBy, setGroupBy] = useState(() => readSettings().groupBy || 'none')
-  const [filterBuyer, setFilterBuyer] = useState(() => readSettings().filterBuyer || [])
-  const [filterType, setFilterType] = useState(() => readSettings().filterType || [])
-  const [filterStage, setFilterStage] = useState(() => readSettings().filterStage || [])
-  const [filterApproval, setFilterApproval] = useState(() => readSettings().filterApproval || [])
-  const [sortBy, setSortBy] = useState(() => readSettings().sortBy || 'due-asc')
+  const [groupBy, setGroupBy] = useState(() => TAB_DEFAULTS.groupBy)
+  const [filterBuyer, setFilterBuyer] = useState(() => [])
+  const [filterType, setFilterType] = useState(() => [])
+  const [filterStage, setFilterStage] = useState(() => [])
+  const [filterApproval, setFilterApproval] = useState(() => [])
+  const [sortBy, setSortBy] = useState(() => TAB_DEFAULTS.sortBy)
   const [viewTab, setViewTab] = useState('active')
+  const [tabSettings,setTabSettings] = useState(()=>{try{return JSON.parse(sessionStorage.getItem(SETTINGS_KEY)||'{}')}catch{return {}}})
+  const switchTab = next => {
+    if(next===viewTab)return
+    const current={groupBy,sortBy,filterBuyer,filterType,filterStage,filterApproval,query}
+    const saved={...tabSettings,[viewTab]:current}
+    const target={...TAB_DEFAULTS,...saved[next]}
+    setTabSettings(saved)
+    try{sessionStorage.setItem(SETTINGS_KEY,JSON.stringify(saved))}catch{}
+    setGroupBy(target.groupBy);setSortBy(target.sortBy);setFilterBuyer(target.filterBuyer);setFilterType(target.filterType);setFilterStage(target.filterStage);setFilterApproval(target.filterApproval);setQuery(target.query)
+    setSelectedIds([]);setViewTab(next)
+  }
 
   useEffect(() => { load() }, [refreshKey])
   useEffect(() => {
-    try { localStorage.setItem(SETTINGS_KEY,JSON.stringify({groupBy,sortBy,filterBuyer,filterType,filterStage,filterApproval})) } catch {}
-  },[groupBy,sortBy,filterBuyer,filterType,filterStage,filterApproval])
+    try { sessionStorage.setItem(SETTINGS_KEY,JSON.stringify({...tabSettings,[viewTab]:{groupBy,sortBy,filterBuyer,filterType,filterStage,filterApproval,query}})) } catch {}
+  },[groupBy,sortBy,filterBuyer,filterType,filterStage,filterApproval,query,viewTab])
 
   async function load() {
     const [{ data: s }, { data: o }, { data: b }, {data: bom}, {data: blocks}, {data: comments}, {data: parcels}] = await Promise.all([
@@ -571,13 +583,13 @@ export default function SamplingApprovals() {
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100%',width:'100%',minWidth:0,background:'#fff'}}>
       <div style={{height:48,borderBottom:'1px solid #e5e7eb',display:'flex',alignItems:'flex-end',padding:'0 24px',gap:28,flexShrink:0}}>
-        <button onClick={()=>{setViewTab('active');setSelectedIds([])}} style={{height:48,border:'none',borderBottom:viewTab==='active'?'2px solid #111':'2px solid transparent',background:'transparent',fontSize:13,fontWeight:viewTab==='active'?700:500,color:viewTab==='active'?'#111':'#9ca3af',cursor:'pointer'}}>Sampling & Approvals</button>
-        <button onClick={()=>{setViewTab('completed');setSelectedIds([])}} style={{height:48,border:'none',borderBottom:viewTab==='completed'?'2px solid #111':'2px solid transparent',background:'transparent',fontSize:13,fontWeight:viewTab==='completed'?700:500,color:viewTab==='completed'?'#111':'#9ca3af',cursor:'pointer'}}>Completed Samples <span style={{fontSize:10,color:'#9ca3af'}}>({completedCount})</span></button>
+        <button onClick={()=>{switchTab('active')}} style={{height:48,border:'none',borderBottom:viewTab==='active'?'2px solid #111':'2px solid transparent',background:'transparent',fontSize:13,fontWeight:viewTab==='active'?700:500,color:viewTab==='active'?'#111':'#9ca3af',cursor:'pointer'}}>Sampling & Approvals</button>
+        <button onClick={()=>{switchTab('completed')}} style={{height:48,border:'none',borderBottom:viewTab==='completed'?'2px solid #111':'2px solid transparent',background:'transparent',fontSize:13,fontWeight:viewTab==='completed'?700:500,color:viewTab==='completed'?'#111':'#9ca3af',cursor:'pointer'}}>Completed Samples <span style={{fontSize:10,color:'#9ca3af'}}>({completedCount})</span></button>
       </div>
       <div style={{padding:'10px 24px',borderBottom:'1px solid #f3f4f6',display:'flex',alignItems:'center',gap:14,flexShrink:0,overflowX:'auto'}}>
         <div style={{flexShrink:0}}><div className="app-page-title">{viewTab === 'active' ? 'Sampling & Approvals' : 'Completed Samples'}</div></div>
         <div style={{display:'flex',gap:8}}>{[
-          ['Total Samples',allRows.length,false],['Pending Approval',pendingCount,pendingCount>0],['In Progress',inProgressCount,false],['Overdue',overdueCount,overdueCount>0]
+          ...(viewTab==='active' ? [['Total Samples',allRows.length,false],...STAGES.map(stage=>[stage,allRows.filter(r=>!isCompleted(r)&&(r.stage||'Not Started')===stage).length,stage==='Not Started']),['Overdue',overdueCount,true]] : [['Total Samples',allRows.length,false],['Pending Approval',pendingCount,pendingCount>0],['In Progress',inProgressCount,false],['Overdue',overdueCount,overdueCount>0]])
         ].map(([label,value,amber])=><div key={label} style={{padding:'6px 12px',border:'1px solid var(--border)',borderRadius:8,background:'#fff',minWidth:100}}><div style={{fontSize:9,fontWeight:600,color:'var(--text-light)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:2}}>{label}</div><div style={{fontSize:18,fontWeight:700,lineHeight:1,color:amber?'#d97706':'#0d0d0d'}}>{value}</div></div>)}</div>
         <div style={{marginLeft:'auto',display:'flex',gap:8}}>
           {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSingle} onClick={()=>selectedRow&&setCommenting(selectedRow)}><MessageSquarePlus size={13}/> {selectedHasComments ? 'Edit Comment' : 'Add Comment'}</button>}
