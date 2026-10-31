@@ -82,7 +82,7 @@ export async function buildSampleProgramHTML(row, {bomItems=[],fittingBlocks=[],
     const currentComments=sampleComments.filter(c=>c.sample_id===row.id || c.sam_number===row.sample_number)
     const commentsHTML=currentComments.map(c=>`<div class="history"><b>${dayString(c.comment_date||c.created_at)||'—'}</b> · ${safeText(c.user_name||c.created_by||c.author||'')}: ${safeText(c.comment_text||c.comment||'')}</div>`).join('') || '<div class="history">No recorded comments for this version</div>'
     const parcelHTML=currentParcel?`<div class="history"><b>${safeText(currentParcel.parcel_number||currentParcel.parcel_no||'—')}</b> · ${safeText(currentParcel.status||'—')} · ${safeText(currentParcel.courier||currentParcel.courier_name||'—')} · ${safeText(currentParcel.tracking_number||'—')} · Dispatched ${dayString(currentParcel.dispatch_date||currentParcel.dispatched_at)||'—'}</div>`:'<div class="history">No linked parcel record</div>'
-    const image=row.order.style_image_url || row.order.style_image_base64 || row.order.image_url || row.order.picture_url || row.meta?.image_url || ''
+    const image=row.order?.style_image_url || row.order?.style_image_base64 || row.order?.image_url || row.order?.picture_url || row.meta?.image_url || ''
     const picture=image?`<img class="picture" src="${safeText(image)}" alt="Style image"/>`:'<div class="picture-empty">No image</div>'
     // The production-floor heading uses the saved type and version, not a fixed label.
     const rawType=String(row.sample_type||'').trim()
@@ -101,8 +101,6 @@ export async function buildSampleProgramHTML(row, {bomItems=[],fittingBlocks=[],
       <div class="timeline">${milestones.map(([label,date])=>`<div><b>${label}</b><strong>${date||'—'}</strong></div>`).join('')}</div>
       ${timelineConflict?'<div class="warning">Check schedule: sample due date precedes its start date.</div>':''}
       <h2>Style BOM Details</h2><table class="bom"><thead><tr><th>Type</th><th>Item</th><th>Detail</th><th>Consumption / pc</th><th>Required</th></tr></thead><tbody>${bomRows}</tbody></table>
-      <h2>Parcel Details</h2>${parcelHTML}
-      <h2>Comments & Approval</h2>${commentsHTML}
       <h2>Previous Versions of This Sample</h2>${histories}
       <footer>Printed on: ${dayString(new Date().toISOString().slice(0,10))} | User: ${safeText(printedBy)}</footer>
     </div>`
