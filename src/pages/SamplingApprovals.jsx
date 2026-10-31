@@ -13,7 +13,7 @@ import { Minus, X } from 'lucide-react'
 
 const STAGES = ['Not Started', 'Pattern', 'Cutting', 'Stitching', 'Washing', 'Finishing', 'Ready']
 const COMMENT_TYPES = ['Approval', 'Revision', 'Rejection']
-const REVISION_REASONS = ['Workmanship', 'Spec', 'Wash', 'Fitting', 'Printing / Embroidery', 'Buyer updated Spec or Fit']
+const REVISION_REASONS = ['Workmanship', 'Spec', 'Wash', 'Fitting', 'Printing / Embroidery', 'Buyer updated Spec or Fit', 'Packaging', 'Presentation']
 
 const card = { background:'#fff', border:'1px solid #ececec', borderRadius:12, boxShadow:'0 1px 2px rgba(0,0,0,.03)' }
 const inp = { height:34, padding:'0 10px', border:'1px solid #e5e7eb', borderRadius:8, fontSize:12, width:'100%', boxSizing:'border-box', outline:'none' }
@@ -191,20 +191,20 @@ function DispatchChecklistModal({ sample, onClose, onDone }) {
   )
 }
 
-function CommentModal({ sample, onClose, onSaved }) {
+function CommentModal({ sample, existingComment, onClose, onSaved }) {
   const { Dialogs } = useAppDialogs()
-  const [type, setType] = useState('Revision')
-  const [date, setDate] = useState(new Date().toISOString().slice(0,10))
-  const [by, setBy] = useState('')
-  const [text, setText] = useState('')
-  const [reasons, setReasons] = useState([])
+  const [type, setType] = useState(existingComment?.comment_type || 'Revision')
+  const [date, setDate] = useState(existingComment?.comment_date?.slice(0,10) || new Date().toISOString().slice(0,10))
+  const [by, setBy] = useState(existingComment?.comment_by || '')
+  const [text, setText] = useState(existingComment?.comment_text || '')
+  const [reasons, setReasons] = useState(existingComment?.meta?.revision_reasons || [])
   const [reasonsOpen, setReasonsOpen] = useState(false)
   const { minimized, setMinimized } = useSamplingWindow(`sampling:comment:${sample.id}`, `Sample Comment · ${sample.sample_number}`, () => { if (!text.trim() || window.confirm('Discard unsaved comment?')) onClose() })
   const valid = type && date && by.trim() && text.trim()
   return (
     <div style={{ position:'fixed', inset:0, background:minimized?'transparent':'rgba(0,0,0,.35)', display:minimized?'none':'flex', alignItems:'center', justifyContent:'center', zIndex:400 }}>
       <div style={{ ...card, width:560, padding:18 }}>
-        <div style={{display:'flex',alignItems:'center',marginBottom:4}}><div style={{ fontSize:16, fontWeight:700 }}>Record Comment</div><SamplingWindowControls onMinimize={()=>setMinimized(true)} onClose={()=>{if (!text.trim() || window.confirm('Discard unsaved comment?')) onClose()}}/></div>
+        <div style={{display:'flex',alignItems:'center',marginBottom:4}}><div style={{ fontSize:16, fontWeight:700 }}>{existingComment?'Edit Comment':'Record Comment'}</div><SamplingWindowControls onMinimize={()=>setMinimized(true)} onClose={()=>{if (!text.trim() || window.confirm('Discard unsaved comment?')) onClose()}}/></div>
         <div style={{ fontSize:12, color:'#6b7280', marginBottom:14 }}>{sample.sample_number} · Copy-paste buyer comments here</div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:10 }}>
           <select style={inp} value={type} onChange={e=>setType(e.target.value)}>{COMMENT_TYPES.map(x => <option key={x}>{x}</option>)}</select>
@@ -226,7 +226,7 @@ function CommentModal({ sample, onClose, onSaved }) {
         <textarea style={{ ...inp, height:140, padding:'10px' }} placeholder="Paste comments here..." value={text} onChange={e=>setText(e.target.value)} />
         <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:12 }}>
           <button style={btn} onClick={onClose}>Cancel</button>
-          <button style={{ ...btn, background:valid?'#111827':'#e5e7eb', color:valid?'#fff':'#9ca3af', borderColor:valid?'#111827':'#e5e7eb' }} disabled={!valid} onClick={() => onSaved({ type, date, by, text, reasons })}>Save Comment</button>
+          <button style={{ ...btn, background:valid?'#111827':'#e5e7eb', color:valid?'#fff':'#9ca3af', borderColor:valid?'#111827':'#e5e7eb' }} disabled={!valid} onClick={() => onSaved({ type, date, by, text, reasons })}>{existingComment?'Update Comment':'Save Comment'}</button>
         </div>
       </div>
       <Dialogs />
@@ -439,9 +439,14 @@ export default function SamplingApprovals() {
   }
 
   async function saveComment(sample, payload) {
-    const {error:commentError}=await supabase.from('sample_comments').insert({sample_id:sample.id,root_sample_id:sample.root_sample_id||sample.id,sam_number:sample.sample_number,version_label:sample.version,comment_type:payload.type,comment_text:payload.text,comment_by:payload.by,comment_date:payload.date+'T12:00:00Z',is_internal:false,meta:{revision_reasons:payload.reasons||[]}})
+    const existing=sampleComments.filter(c=>c.sample_id===sample.id&&!c.is_internal).sort((a,b)=>String(b.created_at||b.comment_date).localeCompare(String(a.created_at||a.comment_date)))[0]
+    const fields={comment_type:payload.type,comment_text:payload.text,comment_by:payload.by,comment_date:payload.date+'T12:00:00Z'}
+    const previous=existing?{type:existing.comment_type,text:existing.comment_text,by:existing.comment_by,date:existing.comment_date,reasons:existing.meta?.revision_reasons||[]}:null
+    const meta={...(existing?.meta||{}),revision_reasons:payload.reasons||[],...(existing?{edit_history:[...(existing.meta?.edit_history||[]),{previous,edited_at:new Date().toISOString()}]}:{})}
+    const query=existing?supabase.from('sample_comments').update({...fields,meta}).eq('id',existing.id):supabase.from('sample_comments').insert({sample_id:sample.id,root_sample_id:sample.root_sample_id||sample.id,sam_number:sample.sample_number,version_label:sample.version,...fields,is_internal:false,meta})
+    const {error:commentError}=await query
     if(commentError){alert('Comment was not saved to Supabase: '+commentError.message,{title:'Save Failed'});return}
-    addSampleComment(sample.id, payload)
+    if(existing){setSampleComments(v=>v.map(c=>c.id===existing.id?{...c,...fields,meta}:c))}else{addSampleComment(sample.id, payload)}
     const patch = payload.type === 'Approval'
       ? { approvalStatus:'Approved', dispatchStatus:'Comments Received', latestCommentType: payload.type, latestCommentDate: payload.date, latestCommentBy: payload.by }
       : payload.type === 'Revision'
@@ -575,7 +580,7 @@ export default function SamplingApprovals() {
       {revisionRequest&&<div style={{position:'fixed',inset:0,background:'rgba(15,23,42,.35)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>!revisionSaving&&setRevisionRequest(null)}><form onClick={e=>e.stopPropagation()} onSubmit={async e=>{e.preventDefault();if(!revisionDue||revisionSaving)return;setRevisionSaving(true);try{if(await createRevision(revisionRequest,revisionDue))setRevisionRequest(null)}finally{setRevisionSaving(false)}}} style={{background:'#fff',borderRadius:12,padding:24,width:360,maxWidth:'90vw',boxShadow:'0 18px 45px #0002'}}><h3 style={{margin:'0 0 8px'}}>Create Sample Revision</h3><div style={{fontSize:12,color:'#64748b',marginBottom:18}}>{revisionRequest.sample_number} · {revisionRequest.version_label||'V1'} → New Version</div><label style={{display:'block',fontSize:12,fontWeight:600,marginBottom:6}}>Revision due date *</label><input type="date" required value={revisionDue} onChange={e=>setRevisionDue(e.target.value)} style={{...inp,width:'100%',boxSizing:'border-box'}}/><div style={{fontSize:11,color:'#64748b',marginTop:12}}>The original sample and its history remain unchanged.</div><div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:20}}><button type="button" className="btn btn-secondary" disabled={revisionSaving} onClick={()=>setRevisionRequest(null)}>Cancel</button><button type="submit" className="btn" disabled={!revisionDue||revisionSaving} style={{background:'#111827',color:'white'}}>{revisionSaving?'Creating…':'Create V+'}</button></div></form></div>}
       {metadataSample&&<SampleMetadata sample={metadataSample} allSamples={samples} parcels={parcelItems} comments={sampleComments} onClose={()=>setMetadataSample(null)}/>}
       {dispatching&&<DispatchChecklistModal sample={dispatching} onClose={()=>setDispatching(null)} onDone={checks=>{sendSampleToParcelPool(dispatching.id,checks);setDispatching(null);setRefreshKey(x=>x+1)}}/>}
-      {commenting&&<CommentModal sample={commenting} onClose={()=>setCommenting(null)} onSaved={payload=>saveComment(commenting,payload)}/>}<Dialogs/>
+      {commenting&&<CommentModal sample={commenting} existingComment={sampleComments.filter(c=>c.sample_id===commenting.id&&!c.is_internal).sort((a,b)=>String(b.created_at||b.comment_date).localeCompare(String(a.created_at||a.comment_date)))[0]} onClose={()=>setCommenting(null)} onSaved={payload=>saveComment(commenting,payload)}/>}<Dialogs/>
     </div>
   )
 }
