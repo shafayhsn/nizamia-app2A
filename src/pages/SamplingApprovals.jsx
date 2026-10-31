@@ -503,13 +503,13 @@ export default function SamplingApprovals() {
     const versionNumber = Number(r.version_no) || Number(String(r.version_label || r.version || 'V1').match(/V?([0-9]+)/i)?.[1]) || 1
     const versionTag = 'V' + versionNumber
     const versionStyle = versionNumber===1 ? {background:'#dcfce7',color:'#166534'} : versionNumber===2 ? {background:'#ffedd5',color:'#c2410c'} : {background:'#dc2626',color:'#ffffff'}
-    const factoryReference = r.meta.reference || r.meta.ref || r.meta.factoryRef || ''
+    const factoryReference = r.meta?.reference || r.meta?.ref || r.meta?.factoryRef || r.order?.factory_ref || ''
     const child = samples.filter(x=>x.parent_sample_id===r.id).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))[0]
     return (
 
     <tr key={r.id} onDoubleClick={()=>setMetadataSample(r)} title="Double-click for sample history" style={{cursor:'pointer'}}>
       <td onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(r.id)} onChange={e => setSelectedIds(v => e.target.checked ? [...new Set([...v,r.id])] : v.filter(x=>x!==r.id))}/></td>
-      <td><div style={{fontFamily:'monospace',fontWeight:700,whiteSpace:'nowrap'}}>{r.sample_number}</div><div style={{fontSize:11,marginTop:3,fontWeight:600,color:'#374151'}}>{factoryReference || (viewTab==='completed'?'':r.approvalStatus)}</div></td>
+      <td><div style={{fontFamily:'monospace',fontWeight:700,whiteSpace:'nowrap'}}>{r.sample_number}</div><div style={{fontSize:11,marginTop:3,fontWeight:600,color:'#374151'}}>{factoryReference || '—'}</div></td>
       <td><div style={{fontWeight:600}}>{r.order.buyer_name || r.buyer.name || '—'}</div></td>
       <td><div style={{fontFamily:'monospace',fontWeight:600}}>{r.order.job_number || '—'}</div></td>
       <td><div style={{fontWeight:700}}>{r.order.style_number || '—'}</div><div style={{fontSize:10,color:'#9ca3af'}}>{r.order.description || ''}</div></td>
