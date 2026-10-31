@@ -104,29 +104,46 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
           <button style={{ ...btn, background:canCreate?'#111827':'#e5e7eb', color:canCreate?'#fff':'#9ca3af', borderColor:canCreate?'#111827':'#e5e7eb' }} disabled={!canCreate} onClick={() => onCreated({ items: allRows.map(r => ({ sampleId: r.sampleId })), customItems: customItems.filter(x => x.description?.trim()) })}>Create Parcel</button>
         </div>
       </div>
-      {editing&&<ParcelEditModal parcel={editing} onClose={()=>setEditing(null)} onSave={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok)setEditing(null)}} onDispatch={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok){await doDispatch({...editing,...patch});setEditing(null)}}}/>}
-      {editing&&<ParcelEditModal parcel={editing} onClose={()=>setEditing(null)} onSave={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok)setEditing(null)}} onDispatch={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok){await doDispatch({...editing,...patch});setEditing(null)}}}/>}
       <Dialogs />
     </div>
   )
 }
 
 
-function ParcelEditModal({parcel,onClose,onSave,onDispatch}){
- const [form,setForm]=useState({courier:parcel.courier||'',trackingNo:parcel.trackingNo||'',trackingUrl:parcel.trackingUrl||'',dispatchDate:parcel.dispatchDate||'',notes:parcel.notes||''})
+function ParcelEditModal({parcel,samples,orders,parcels,onClose,onSave,onDispatch}){
+ const [form,setForm]=useState({courier:parcel.courier||'',trackingNo:parcel.trackingNo||'',trackingUrl:parcel.trackingUrl||'',dispatchDate:parcel.dispatchDate||'',notes:parcel.notes||'',items:(parcel.items||[]).map(x=>({...x})),customItems:(parcel.customItems||[]).map(x=>({...x}))})
  const [working,setWorking]=useState(false)
  const set=(key,value)=>setForm(v=>({...v,[key]:value}))
+ const setCustom=(i,key,value)=>setForm(v=>({...v,customItems:v.customItems.map((x,j)=>i===j?{...x,[key]:value}:x)}))
+ const taken=new Set(parcels.filter(p=>p.id!==parcel.id).flatMap(p=>(p.items||[]).map(it=>it.sampleId)))
+ const choices=samples.filter(x=>!taken.has(x.id))
+ const orderMap=Object.fromEntries(orders.map(o=>[o.id,o]))
  const submit=async(dispatch=false)=>{
    if(form.trackingUrl&&!validTrackingUrl(form.trackingUrl)){window.alert('Enter a valid http(s) tracking URL.');return}
    if(dispatch&&(!form.courier||!form.trackingNo||!form.dispatchDate)){window.alert('Courier, tracking number and dispatch date are required.');return}
+   if(!form.items.length&&!form.customItems.some(x=>x.description?.trim())){window.alert('A parcel needs at least one sample or custom item.');return}
    setWorking(true)
-   try{await (dispatch?onDispatch(form):onSave(form))}finally{setWorking(false)}
+   try{await (dispatch?onDispatch: onSave)({...form,customItems:form.customItems.filter(x=>x.description?.trim())})}finally{setWorking(false)}
  }
  return <div style={{position:'fixed',inset:0,zIndex:500,background:'#0006',display:'flex',alignItems:'center',justifyContent:'center'}}>
-  <div role="dialog" aria-modal="true" aria-label="Edit parcel" style={{...card,padding:20,width:440,maxWidth:'95vw'}}>
+  <div role="dialog" aria-modal="true" aria-label="Edit parcel" style={{...card,padding:20,width:700,maxWidth:'95vw',maxHeight:'90vh',overflowY:'auto'}}>
    <div style={{display:'flex',justifyContent:'space-between',marginBottom:14}}><strong>Edit Parcel · {parcel.id}</strong><button style={btn} onClick={onClose}>×</button></div>
-   {[['courier','Courier'],['trackingNo','Tracking Number'],['trackingUrl','Tracking URL'],['dispatchDate','Dispatch Date'],['notes','Notes']].map(([key,label])=><label key={key} style={{display:'block',fontSize:12,marginBottom:10}}>{label}<input style={{...inp,marginTop:4}} type={key==='dispatchDate'?'date':'text'} value={form[key]} onChange={e=>set(key,e.target.value)} placeholder={key==='trackingUrl'?'https://courier.example/track/...':''}/></label>)}
-   <div style={{display:'flex',justifyContent:'flex-end',gap:8}}><button style={btn} onClick={onClose}>Cancel</button><button style={btn} disabled={working} onClick={()=>submit(false)}>Save</button>{parcel.status==='Draft'&&<button style={{...btn,background:'#111827',color:'#fff'}} disabled={working} onClick={()=>submit(true)}><Truck size={13}/> Dispatch</button>}</div>
+   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+   {[['courier','Courier'],['trackingNo','Tracking Number'],['trackingUrl','Tracking URL'],['dispatchDate','Dispatch Date']].map(([key,label])=><label key={key} style={{display:'block',fontSize:12,marginBottom:10}}>{label}<input style={{...inp,marginTop:4}} type={key==='dispatchDate'?'date':'text'} value={form[key]} onChange={e=>set(key,e.target.value)} placeholder={key==='trackingUrl'?'https://courier.example/track/...':''}/></label>)}</div>
+   <label style={{display:'block',fontSize:12,marginBottom:12}}>Notes<textarea style={{...inp,height:60,padding:8,marginTop:4}} value={form.notes} onChange={e=>set('notes',e.target.value)}/></label>
+   <strong>Samples in Parcel</strong><div style={{border:'1px solid #eee',borderRadius:8,padding:10,maxHeight:200,overflowY:'auto',margin:'8px 0 14px'}}>
+   {choices.map(sample=><label key={sample.id} style={{display:'flex',alignItems:'center',gap:10,padding:'6px 0',fontSize:12}}>
+   <input type="checkbox" checked={form.items.some(it=>it.sampleId===sample.id)} onChange={e=>set('items',e.target.checked?[...form.items,{sampleId:sample.id}]:form.items.filter(it=>it.sampleId!==sample.id))}/>
+   <strong>{sample.sample_number||sample.id}</strong><span>{orderMap[sample.order_id]?.style_number||'—'}</span><span>{sample.sample_type||''}</span></label>)}
+   {!choices.length&&<span>No available samples</span>}</div>
+   <strong>Custom Contents</strong><div style={{display:'grid',gap:7,margin:'8px 0'}}>
+   {form.customItems.map((it,i)=><div key={i} style={{display:'grid',gridTemplateColumns:'1fr 75px 85px 35px',gap:7}}>
+    <input style={inp} aria-label="Item description" placeholder="Description" value={it.description||''} onChange={e=>setCustom(i,'description',e.target.value)}/>
+    <input style={inp} aria-label="Quantity" type="number" min="1" value={it.qty??1} onChange={e=>setCustom(i,'qty',Number(e.target.value))}/>
+    <input style={inp} aria-label="Unit value" type="number" min="0" step="0.01" value={it.unitValue??1} onChange={e=>setCustom(i,'unitValue',Number(e.target.value))}/>
+    <button style={btn} aria-label="Remove custom item" onClick={()=>set('customItems',form.customItems.filter((_,j)=>j!==i))}>×</button></div>)}
+   <button style={btn} onClick={()=>set('customItems',[...form.customItems,{description:'',qty:1,unitValue:1}])}><Plus size={13}/> Add Item</button></div>
+   <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:14}}><button style={btn} onClick={onClose}>Cancel</button><button style={btn} disabled={working} onClick={()=>submit(false)}>Save Changes</button>{parcel.status==='Draft'&&<button style={{...btn,background:'#111827',color:'#fff'}} disabled={working} onClick={()=>submit(true)}><Truck size={13}/> Dispatch</button>}</div>
   </div>
  </div>
 }
@@ -403,6 +420,7 @@ export default function Parcels() {
         </tbody></table>}
       </div>
       <div style={{height:34,borderTop:'1px solid #e5e7eb',padding:'8px 24px',fontSize:11,color:'#6b7280',flexShrink:0}}>{tab==='ready'?`${shownSamples.length} READY SAMPLES · ${shownParcels.length} PARCELS AWAITING DISPATCH`:`${shownParcels.length} DISPATCHED PARCELS`}</div>
+      {editing&&<ParcelEditModal parcel={editing} samples={samples} orders={orders} parcels={parcels} onClose={()=>setEditing(null)} onSave={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok)setEditing(null)}} onDispatch={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok){await doDispatch({...editing,...patch});setEditing(null)}}}/>}
       {creating && <ParcelBuilderModal poolRows={selectedSamples.length?availableSamples.filter(r=>selectedSamples.includes(r.sampleId)):availableSamples} onClose={() => setCreating(false)} onCreated={createNewParcel} />}
       <Dialogs />
     </div>
