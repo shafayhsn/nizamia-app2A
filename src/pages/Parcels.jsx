@@ -105,6 +105,7 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
         </div>
       </div>
       {editing&&<ParcelEditModal parcel={editing} onClose={()=>setEditing(null)} onSave={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok)setEditing(null)}} onDispatch={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok){await doDispatch({...editing,...patch});setEditing(null)}}}/>}
+      {editing&&<ParcelEditModal parcel={editing} onClose={()=>setEditing(null)} onSave={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok)setEditing(null)}} onDispatch={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok){await doDispatch({...editing,...patch});setEditing(null)}}}/>}
       <Dialogs />
     </div>
   )
@@ -144,6 +145,8 @@ export default function Parcels() {
   const [sortBy,setSortBy]=useState(()=>readPrefs().sortBy||'date-desc')
   const [groupBy,setGroupBy]=useState(()=>readPrefs().groupBy||'none')
   const [statusFilter,setStatusFilter]=useState(()=>readPrefs().statusFilter||'All')
+  const [customerFilter,setCustomerFilter]=useState(()=>readPrefs().customerFilter||'All')
+  const [periodFilter,setPeriodFilter]=useState(()=>readPrefs().periodFilter||'All')
   const [creating, setCreating] = useState(false)
   const [active, setActive] = useState(null)
   const [tab, setTab] = useState('ready')
@@ -151,7 +154,7 @@ export default function Parcels() {
   const [selectedSamples, setSelectedSamples] = useState([])
 
   useEffect(() => { load() }, [])
-  useEffect(()=>{try{sessionStorage.setItem(PREF_KEY,JSON.stringify({sortBy,groupBy,statusFilter}))}catch{}},[sortBy,groupBy,statusFilter])
+  useEffect(()=>{try{sessionStorage.setItem(PREF_KEY,JSON.stringify({sortBy,groupBy,statusFilter,customerFilter,periodFilter}))}catch{}},[sortBy,groupBy,statusFilter,customerFilter,periodFilter])
 
   async function load() {
     const [{ data: s }, { data: o }, { data: b }, { data: dbParcels,error:parcelError }] = await Promise.all([
@@ -199,11 +202,34 @@ export default function Parcels() {
     const inParcels = new Set(parcels.flatMap(p => (p.items || []).map(it => it.sampleId)))
     return [...new Map([...readySamples,...poolRows].map(r=>[r.sampleId,r])).values()].filter(r=>!inParcels.has(r.sampleId))
   },[readySamples,poolRows,parcels])
+  const parcelCustomers=useMemo(()=>p=>{
+    const names=(p.items||[]).map(it=>{
+      const sample=sampleMap[it.sampleId]||{}
+      const order=orderMap[sample.order_id]||{}
+      return order.buyer_name||buyerMap[order.buyer_id]?.name||''
+    }).filter(Boolean)
+    return [...new Set(names)].join(', ')||p.customer||p.customer_name||'—'
+  },[sampleMap,orderMap,buyerMap])
+  const customerOptions=useMemo(()=>[...new Set(parcels.map(parcelCustomers).filter(x=>x!=='—'))].sort(),[parcels,parcelCustomers])
   const shownParcels=useMemo(()=>{
-    const rows=parcels.filter(p=>(tab==='dispatched'?p.status!=='Draft':p.status==='Draft') &&
-      (statusFilter==='All'||p.status===statusFilter) &&
-      (!search||[p.id,p.courier,p.trackingNo,p.status].some(v=>String(v||'').toLowerCase().includes(search.toLowerCase()))))
-    const sorted=[...rows].sort((a,b)=>{
+    const now=new Date()
+    const monthKey=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')
+    const lastMonth=new Date(now.getFullYear(),now.getMonth()-1,1)
+    const lastKey=lastMonth.getFullYear()+'-'+String(lastMonth.getMonth()+1).padStart(2,'0')
+    const query=search.toLocaleLowerCase().trim()
+    const rows=parcels.filter(p=>{
+      const date=p.dispatchDate||''
+      const contents=(p.items||[]).flatMap(it=>{
+        const sample=sampleMap[it.sampleId]||{}
+        const order=orderMap[sample.order_id]||{}
+        return [it.sampleId,sample.sample_number,sample.sample_type,order.style_number,order.job_number,order.po_number,order.buyer_name]
+      })
+      const custom=(p.customItems||[]).flatMap(it=>[it.description,it.qty])
+      const searchable=[p.id,p.courier,p.trackingNo,p.trackingUrl,p.status,p.notes,parcelCustomers(p),...contents,...custom].join(' ').toLocaleLowerCase()
+      const periodMatch=periodFilter==='All'||(periodFilter==='This Month'&&date.startsWith(monthKey))||(periodFilter==='Last Month'&&date.startsWith(lastKey))||(periodFilter==='This Year'&&date.startsWith(String(now.getFullYear())))
+      return (tab==='dispatched'?p.status!=='Draft':p.status==='Draft')&&(statusFilter==='All'||p.status===statusFilter)&&(customerFilter==='All'||parcelCustomers(p)===customerFilter)&&periodMatch&&(!query||query.split(/\\s+/).every(term=>searchable.includes(term)))
+    })
+    return [...rows].sort((a,b)=>{
       if(sortBy==='id-asc')return a.id.localeCompare(b.id)
       if(sortBy==='id-desc')return b.id.localeCompare(a.id)
       if(sortBy==='courier')return (a.courier||'').localeCompare(b.courier||'')
@@ -211,18 +237,17 @@ export default function Parcels() {
       const d=(a.dispatchDate||a.created_at||'').localeCompare(b.dispatchDate||b.created_at||'')
       return sortBy==='date-asc'?d:-d
     })
-    return sorted
-  },[parcels,tab,statusFilter,search,sortBy])
+  },[parcels,tab,statusFilter,customerFilter,periodFilter,search,sortBy,parcelCustomers,sampleMap,orderMap])
   const groupedParcels=useMemo(()=>{
     if(groupBy==='none')return [['',shownParcels]]
     const groups=new Map()
     for(const p of shownParcels){
-      const key=groupBy==='status'?p.status:groupBy==='courier'?(p.courier||'Unassigned'):groupBy==='month'?(p.dispatchDate||'Undated').slice(0,7):(p.items||[]).map(it=>orderMap[sampleMap[it.sampleId]?.order_id]?.buyer_name).filter(Boolean)[0]||'Unassigned'
+      const key=groupBy==='status'?p.status:groupBy==='courier'?(p.courier||'Unassigned'):groupBy==='month'?(p.dispatchDate||'Undated').slice(0,7):parcelCustomers(p)
       if(!groups.has(key))groups.set(key,[])
       groups.get(key).push(p)
     }
     return [...groups.entries()]
-  },[shownParcels,groupBy,sampleMap,orderMap])
+  },[shownParcels,groupBy,parcelCustomers])
   const shownSamples = availableSamples.filter(r => !search || [r.sample.sample_number,r.order.buyer_name,r.order.job_number,r.order.style_number,r.sample.sample_type].some(v=>String(v||'').toLowerCase().includes(search.toLowerCase())))
 
   async function patchParcel(parcelId,patch) {
@@ -333,14 +358,16 @@ export default function Parcels() {
         <div style={{marginLeft:'auto',display:'flex',gap:8}}><button className="btn btn-secondary" onClick={load}><RefreshCw size={14}/> Refresh</button><button className="btn btn-primary" onClick={()=>setCreating(true)}><Plus size={14}/> Create Parcel</button></div>
       </div>
       <div style={{padding:'8px 24px',borderBottom:'1px solid #f3f4f6',display:'flex',alignItems:'center',gap:7,flexShrink:0,whiteSpace:'nowrap',overflowX:'auto'}}>
-        <input style={{...inp,maxWidth:240,minWidth:140,flex:'1 1 170px'}} placeholder="Search Parcels" value={search} onChange={e=>setSearch(e.target.value)}/>
+        <input style={{...inp,maxWidth:240,minWidth:140,flex:'1 1 170px'}} placeholder="Search parcels, styles, samples..." value={search} onChange={e=>setSearch(e.target.value)}/>
         <select aria-label="Filter parcel status" style={{...inp,width:140}} value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>{['All','Draft',...TRACKING_STATUSES].map(v=><option key={v}>{v}</option>)}</select>
+        <select aria-label="Filter customer" style={{...inp,width:145}} value={customerFilter} onChange={e=>setCustomerFilter(e.target.value)}><option value="All">All Customers</option>{customerOptions.map(x=><option key={x} value={x}>{x}</option>)}</select>
+        <select aria-label="Filter dispatch period" style={{...inp,width:140}} value={periodFilter} onChange={e=>setPeriodFilter(e.target.value)}>{['All','This Month','Last Month','This Year'].map(x=><option key={x} value={x}>{x==='All'?'All Dates':x}</option>)}</select>
         <select aria-label="Sort parcels" style={{...inp,width:150}} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="date-desc">Newest Dispatch</option><option value="date-asc">Oldest Dispatch</option><option value="id-asc">Parcel # Asc</option><option value="id-desc">Parcel # Desc</option><option value="courier">Courier</option><option value="status">Status</option></select>
         <select aria-label="Group parcels" style={{...inp,width:140}} value={groupBy} onChange={e=>setGroupBy(e.target.value)}><option value="none">No Grouping</option><option value="status">By Status</option><option value="courier">By Courier</option><option value="month">By Month</option><option value="customer">By Customer</option></select>
         <div style={{marginLeft:'auto',display:'flex',gap:5,alignItems:'center'}}>
           <button style={btn} title="Edit selected parcel" disabled={busy||selectedParcels.length!==1} onClick={()=>setEditing(parcels.find(p=>p.id===selectedParcels[0]))}><Pencil size={15}/></button>
           <button style={btn} title="Delete selected parcels" disabled={busy||!selectedParcels.length} onClick={deleteSelected}><Trash2 size={15} color="#dc2626"/></button>
-          <button style={btn} title="Reset parcel view" onClick={()=>{setSortBy('date-desc');setGroupBy('none');setStatusFilter('All')}}><Settings2 size={15}/></button>
+          <button style={btn} title="Reset parcel view" onClick={()=>{setSortBy('date-desc');setGroupBy('none');setStatusFilter('All');setCustomerFilter('All');setPeriodFilter('All')}}><Settings2 size={15}/></button>
           <button style={{...btn,background:'#dcfce7',color:'#166534',borderColor:'#bbf7d0',display:'flex',gap:5,alignItems:'center'}} disabled={busy||!selectedParcels.some(id=>parcels.some(p=>p.id===id&&p.status!=='Delivered'&&p.status!=='Draft'))} onClick={markDelivered}><CheckCheck size={15}/> Mark Delivered</button>
         </div>
       </div>
@@ -354,20 +381,20 @@ export default function Parcels() {
         </>}
         {(tab==='dispatched'||parcels.some(p=>p.status==='Draft'))&&<table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr>
           <th><input type="checkbox" aria-label="Select visible parcels" checked={shownParcels.length>0&&shownParcels.every(p=>selectedParcels.includes(p.id))} onChange={e=>setSelectedParcels(e.target.checked?shownParcels.map(p=>p.id):[])}/></th>
-          <th>Parcel #</th><th>Contents</th><th>Status</th><th>Courier</th><th>Tracking #</th><th>Tracking</th><th>Dispatch Date</th><th>Actions</th>
+          <th>Parcel #</th><th>Customer</th><th>Contents</th><th>Courier</th><th>Tracking #</th><th>Tracking</th><th>Dispatch Date</th><th>Actions</th>
         </tr></thead><tbody>
           {groupedParcels.map(([group,rows])=><React.Fragment key={group||'all'}>
             {groupBy!=='none'&&<tr><td colSpan={9} style={{background:'#eef6fd',fontWeight:700,padding:'9px 12px'}}>{group} — {rows.length} parcels</td></tr>}
-            {rows.map(p=><React.Fragment key={p.id}><tr>
-              <td><input type="checkbox" aria-label={'Select '+p.id} checked={selectedParcels.includes(p.id)} onChange={e=>setSelectedParcels(v=>e.target.checked?[...new Set([...v,p.id])]:v.filter(id=>id!==p.id))}/></td>
-              <td style={{fontWeight:700}}>{p.id}</td>
+            {rows.map(p=><React.Fragment key={p.id}><tr style={{cursor:'pointer',background:selectedParcels.includes(p.id)?'#f0f7ff':undefined}} onClick={()=>setSelectedParcels(v=>v.includes(p.id)?v.filter(id=>id!==p.id):[...v,p.id])}>
+              <td onClick={e=>e.stopPropagation()}><input type="checkbox" aria-label={'Select '+p.id} checked={selectedParcels.includes(p.id)} onChange={e=>setSelectedParcels(v=>e.target.checked?[...new Set([...v,p.id])]:v.filter(id=>id!==p.id))}/></td>
+              <td style={{fontWeight:700}}><div>{p.id}</div><div style={{marginTop:5}}>{statusPill(p.status)}</div></td>
+              <td>{parcelCustomers(p)}</td>
               <td>{p.items?.length||0} SAM# + {p.customItems?.length||0} custom</td>
-              <td>{p.status==='Delivered'?statusPill('Delivered'):<select aria-label={'Status for '+p.id} disabled={busy} style={{...inp,minWidth:125,...STATUS_STYLES[p.status]}} value={p.status} onChange={e=>changeStatus(p.id,e.target.value)}>{(p.status==='Draft'?['Draft']:TRACKING_STATUSES.filter(x=>x!=='Delivered')).map(x=><option key={x}>{x}</option>)}</select>}</td>
               <td>{p.courier||'—'}</td>
               <td>{p.trackingNo||'—'}</td>
-              <td>{validTrackingUrl(p.trackingUrl)?<a href={validTrackingUrl(p.trackingUrl)} target="_blank" rel="noopener noreferrer" title="Open courier tracking"><ExternalLink size={16}/></a>:<span style={{color:'#9ca3af'}}>—</span>}</td>
+              <td onClick={e=>e.stopPropagation()}>{validTrackingUrl(p.trackingUrl)?<a href={validTrackingUrl(p.trackingUrl)} target="_blank" rel="noopener noreferrer" title="Open courier tracking"><ExternalLink size={16}/></a>:<span style={{color:'#9ca3af'}}>—</span>}</td>
               <td>{formatDate(p.dispatchDate)||'—'}</td>
-              <td><div style={{display:'flex',gap:5,whiteSpace:'nowrap'}}><button style={btn} onClick={()=>{setActive(active===p.id?null:p.id);openHistory(p.id)}}>View</button><button style={btn} onClick={()=>printInvoice(p)}><FileText size={13}/> Invoice</button>{p.status==='Draft'&&<button style={btn} onClick={()=>setEditing(p)}><Pencil size={13}/> Edit / Dispatch</button>}</div></td>
+              <td onClick={e=>e.stopPropagation()}><div style={{display:'flex',gap:5,whiteSpace:'nowrap'}}><button style={btn} onClick={()=>{setActive(active===p.id?null:p.id);openHistory(p.id)}}>View</button><button style={btn} onClick={()=>printInvoice(p)}><FileText size={13}/> Invoice</button>{p.status==='Draft'&&<button style={btn} onClick={()=>setEditing(p)}><Pencil size={13}/> Edit / Dispatch</button>}</div></td>
             </tr>
             {active===p.id&&<tr><td colSpan={9} style={{background:'#f9fafb',padding:14}}><strong>Parcel Contents · {p.id}</strong>{(p.items||[]).map((it,i)=><div key={i}>{sampleMap[it.sampleId]?.sample_number||it.sampleId} · {orderMap[sampleMap[it.sampleId]?.order_id]?.style_number||'—'}</div>)}{(p.customItems||[]).map((it,i)=><div key={'c'+i}>{it.description} · {it.qty} pcs</div>)}<div style={{marginTop:10,fontWeight:700}}>Status History</div>{history.length?history.map(h=><div key={h.id} style={{fontSize:12,marginTop:5}}>{new Date(h.changed_at).toLocaleString('en-GB')} · {h.old_status||'New'} → {h.new_status}</div>):<div style={{color:'#9ca3af',fontSize:12}}>No status changes recorded yet.</div>}</td></tr>}
             </React.Fragment>)}
