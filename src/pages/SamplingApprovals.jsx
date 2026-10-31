@@ -291,6 +291,9 @@ export default function SamplingApprovals() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [dispatching, setDispatching] = useState(null)
   const [commenting, setCommenting] = useState(null)
+  const [revisionRequest,setRevisionRequest] = useState(null)
+  const [revisionDue,setRevisionDue] = useState('')
+  const [revisionSaving,setRevisionSaving] = useState(false)
   const [metadataSample,setMetadataSample]=useState(null)
   const [query, setQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState([])
@@ -434,7 +437,7 @@ export default function SamplingApprovals() {
     setRefreshKey(x => x + 1)
   }
 
-  async function createRevision(sample) {
+  async function createRevision(sample, dueDate) {
     const rootId = sample.root_sample_id || sample.id
     const family = samples.filter(x => x.id === rootId || x.root_sample_id === rootId)
     const rootSample = family.find(x => x.id === rootId) || sample
@@ -459,11 +462,13 @@ export default function SamplingApprovals() {
       approval_status: 'Pending',
       dispatch_status: 'In Development',
       received_date: null,
+      due_date: dueDate,
+      requested_date: new Date().toISOString().slice(0,10),
     }
     const { data: inserted, error } = await supabase.from('samples').insert([payload]).select().single()
     if (error || !inserted) {
       alert(error?.message || 'Could not create revision sample', { title:'Revision Failed' })
-      return
+      return false
     }
     updateSampleMeta(inserted.id, {
       version: 'V' + nextVersion,
@@ -475,6 +480,7 @@ export default function SamplingApprovals() {
     })
     setSelectedIds([])
     setRefreshKey(x => x + 1)
+    return true
   }
 
   const selectedRows = rows.filter(r => selectedIds.includes(r.id))
@@ -493,7 +499,9 @@ export default function SamplingApprovals() {
     return names.join(', ') || (Array.isArray(r.colours) ? r.colours.join(', ') : '') || '—'
   }
   const sampleSize = r => r.base_size || (Array.isArray(r.sizes) ? r.sizes.join(', ') : '') || r.size || '—'
-  const renderRow = r => (
+  const renderRow = r => {
+    const child = samples.filter(x=>x.parent_sample_id===r.id).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))[0]
+    return (
 
     <tr key={r.id} onDoubleClick={()=>setMetadataSample(r)} title="Double-click for sample history" style={{cursor:'pointer'}}>
       <td onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(r.id)} onChange={e => setSelectedIds(v => e.target.checked ? [...new Set([...v,r.id])] : v.filter(x=>x!==r.id))}/></td>
@@ -503,7 +511,7 @@ export default function SamplingApprovals() {
       <td><div style={{fontWeight:700}}>{r.order.style_number || '—'}</div><div style={{fontSize:10,color:'#9ca3af'}}>{r.order.description || ''}</div></td>
       <td><div>{r.sample_type || '—'}</div><div style={{fontSize:10,color:'#6b7280'}}>{r.version}</div></td>
       <td style={{maxWidth:130,overflowWrap:'anywhere'}}>{washColour(r)}</td><td style={{fontWeight:600,whiteSpace:'nowrap'}}>{sampleSize(r)}</td><td style={{fontWeight:600}}>{r.qty || '—'}</td>
-      <td>{viewTab==='completed'?<div>{statusPill('','',r.currentStatus.label)}<div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{r.currentStatus.date?formatDate(r.currentStatus.date):'—'}</div></div>:['Dispatched','Delivered'].includes(r.dispatchStatus) ? <div>{statusPill('#dcfce7','#166534',r.dispatchStatus)}<div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{formatDate(r.meta.dispatchDate || r.meta.sentToParcelsAt)}</div></div> : <div><select style={{...inp,height:30,minWidth:130}} value={r.stage} onChange={e=>saveStage(r.id,e.target.value)}>{STAGES.map(x=><option key={x}>{x}</option>)}</select><div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{r.meta.stageDates?.[r.stage] ? formatDate(r.meta.stageDates[r.stage]) : '—'}</div></div>}</td>
+      <td>{viewTab==='completed'?<div>{statusPill('','',r.currentStatus.label)}<div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{r.currentStatus.date?formatDate(r.currentStatus.date):'—'}</div>{child&&<div style={{fontSize:10,color:'#475569',marginTop:4,fontWeight:600}}>{child.version_label||'V'+child.version_no} Requested on {formatDate(child.created_at||child.requested_date)}</div>}</div>:['Dispatched','Delivered'].includes(r.dispatchStatus) ? <div>{statusPill('#dcfce7','#166534',r.dispatchStatus)}<div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{formatDate(r.meta.dispatchDate || r.meta.sentToParcelsAt)}</div></div> : <div><select style={{...inp,height:30,minWidth:130}} value={r.stage} onChange={e=>saveStage(r.id,e.target.value)}>{STAGES.map(x=><option key={x}>{x}</option>)}</select><div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{r.meta.stageDates?.[r.stage] ? formatDate(r.meta.stageDates[r.stage]) : '—'}</div></div>}</td>
       {viewTab!=='completed'&&<td><div style={{fontWeight:600}}>{r.dueDate ? formatDate(r.dueDate) : '—'}</div>{r.dueDate && <div style={{fontSize:10,color:new Date(r.dueDate)<new Date()&&!isCompleted(r)?'#dc2626':'#9ca3af',marginTop:3}}>{Math.ceil((new Date(r.dueDate)-new Date())/86400000) >= 0 ? `${Math.ceil((new Date(r.dueDate)-new Date())/86400000)}d` : `${Math.abs(Math.ceil((new Date(r.dueDate)-new Date())/86400000))}d overdue`}</div>}</td>}
     </tr>
   )
@@ -521,7 +529,7 @@ export default function SamplingApprovals() {
         ].map(([label,value,amber])=><div key={label} style={{padding:'6px 12px',border:'1px solid var(--border)',borderRadius:8,background:'#fff',minWidth:100}}><div style={{fontSize:9,fontWeight:600,color:'var(--text-light)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:2}}>{label}</div><div style={{fontSize:18,fontWeight:700,lineHeight:1,color:amber?'#d97706':'#0d0d0d'}}>{value}</div></div>)}</div>
         <div style={{marginLeft:'auto',display:'flex',gap:8}}>
           {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSingle} onClick={()=>selectedRow&&setCommenting(selectedRow)}><MessageSquarePlus size={13}/> Add Comment</button>}
-          {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSingle} onClick={()=>selectedRow&&createRevision(selectedRow)}><ClipboardCheck size={13}/> Create V+</button>}
+          {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSingle} onClick={()=>{if(selectedRow){setRevisionRequest(selectedRow);setRevisionDue('')}}}><ClipboardCheck size={13}/> Create V+</button>}
           {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSend} onClick={()=>selectedRow&&setDispatching(selectedRow)}><PackagePlus size={13}/> Send to Parcels</button>}
           <button className="btn" style={{background:canSingle?'#6d28d9':'#e5e7eb',color:canSingle?'#fff':'#9ca3af',border:'1px solid '+(canSingle?'#5b21b6':'#d1d5db'),fontWeight:700}} disabled={!canSingle} onClick={()=>selectedRow&&printSampleProgram(selectedRow)}><Printer size={13}/> Program</button>
         </div>
@@ -544,6 +552,7 @@ export default function SamplingApprovals() {
         </table>
       </div>
       <div style={{height:34,borderTop:'1px solid #e5e7eb',display:'flex',alignItems:'center',padding:'0 24px',fontSize:11,color:'#6b7280',flexShrink:0}}><strong style={{color:'#374151'}}>{rows.length} {viewTab === 'completed' ? 'COMPLETED SAMPLES' : 'SAMPLES'}</strong><span style={{marginLeft:'auto'}}>{selectedIds.length ? `${selectedIds.length} selected` : (viewTab === 'completed' ? `${completedCount} completed` : `${pendingCount} pending approval`)}</span></div>
+      {revisionRequest&&<div style={{position:'fixed',inset:0,background:'rgba(15,23,42,.35)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>!revisionSaving&&setRevisionRequest(null)}><form onClick={e=>e.stopPropagation()} onSubmit={async e=>{e.preventDefault();if(!revisionDue||revisionSaving)return;setRevisionSaving(true);try{if(await createRevision(revisionRequest,revisionDue))setRevisionRequest(null)}finally{setRevisionSaving(false)}}} style={{background:'#fff',borderRadius:12,padding:24,width:360,maxWidth:'90vw',boxShadow:'0 18px 45px #0002'}}><h3 style={{margin:'0 0 8px'}}>Create Sample Revision</h3><div style={{fontSize:12,color:'#64748b',marginBottom:18}}>{revisionRequest.sample_number} · {revisionRequest.version_label||'V1'} → New Version</div><label style={{display:'block',fontSize:12,fontWeight:600,marginBottom:6}}>Revision due date *</label><input type="date" required value={revisionDue} onChange={e=>setRevisionDue(e.target.value)} style={{...inp,width:'100%',boxSizing:'border-box'}}/><div style={{fontSize:11,color:'#64748b',marginTop:12}}>The original sample and its history remain unchanged.</div><div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:20}}><button type="button" className="btn btn-secondary" disabled={revisionSaving} onClick={()=>setRevisionRequest(null)}>Cancel</button><button type="submit" className="btn" disabled={!revisionDue||revisionSaving} style={{background:'#111827',color:'white'}}>{revisionSaving?'Creating…':'Create V+'}</button></div></form></div>}
       {metadataSample&&<SampleMetadata sample={metadataSample} allSamples={samples} parcels={parcelItems} comments={sampleComments} onClose={()=>setMetadataSample(null)}/>}
       {dispatching&&<DispatchChecklistModal sample={dispatching} onClose={()=>setDispatching(null)} onDone={checks=>{sendSampleToParcelPool(dispatching.id,checks);setDispatching(null);setRefreshKey(x=>x+1)}}/>}
       {commenting&&<CommentModal sample={commenting} onClose={()=>setCommenting(null)} onSaved={payload=>saveComment(commenting,payload)}/>}<Dialogs/>
