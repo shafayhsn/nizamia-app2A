@@ -506,6 +506,7 @@ export default function SamplingApprovals() {
   const selectedRows = rows.filter(r => selectedIds.includes(r.id))
   const selectedRow = selectedRows.length === 1 ? selectedRows[0] : null
   const canSingle = !!selectedRow
+  const selectedHasComments = !!selectedRow && sampleComments.some(c => c.sample_id === selectedRow.id && !c.is_internal)
   const canSend = !!selectedRow && selectedRow.stage === 'Ready' && selectedRow.dispatchStatus !== 'Dispatched'
 
   async function printSampleProgram(row) {
@@ -553,7 +554,7 @@ export default function SamplingApprovals() {
           ['Total Samples',allRows.length,false],['Pending Approval',pendingCount,pendingCount>0],['In Progress',inProgressCount,false],['Overdue',overdueCount,overdueCount>0]
         ].map(([label,value,amber])=><div key={label} style={{padding:'6px 12px',border:'1px solid var(--border)',borderRadius:8,background:'#fff',minWidth:100}}><div style={{fontSize:9,fontWeight:600,color:'var(--text-light)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:2}}>{label}</div><div style={{fontSize:18,fontWeight:700,lineHeight:1,color:amber?'#d97706':'#0d0d0d'}}>{value}</div></div>)}</div>
         <div style={{marginLeft:'auto',display:'flex',gap:8}}>
-          {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSingle} onClick={()=>selectedRow&&setCommenting(selectedRow)}><MessageSquarePlus size={13}/> Add Comment</button>}
+          {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSingle} onClick={()=>selectedRow&&setCommenting(selectedRow)}><MessageSquarePlus size={13}/> {selectedHasComments ? 'Edit Comment' : 'Add Comment'}</button>}
           {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSingle} onClick={()=>{if(selectedRow){setRevisionRequest(selectedRow);setRevisionDue('')}}}><ClipboardCheck size={13}/> Create V+</button>}
           {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSend} onClick={()=>selectedRow&&setDispatching(selectedRow)}><PackagePlus size={13}/> Send to Parcels</button>}
           <button className="btn" style={{background:canSingle?'#6d28d9':'#e5e7eb',color:canSingle?'#fff':'#9ca3af',border:'1px solid '+(canSingle?'#5b21b6':'#d1d5db'),fontWeight:700}} disabled={!canSingle} onClick={()=>selectedRow&&printSampleProgram(selectedRow)}><Printer size={13}/> Program</button>
