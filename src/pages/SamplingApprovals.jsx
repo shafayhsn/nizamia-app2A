@@ -276,7 +276,7 @@ export default function SamplingApprovals() {
     const meta = sampleMeta[s.id] || {}
     const comments = getSampleComments(s.id)
     const latest = comments[comments.length - 1]
-    return { ...s, order, buyer, meta, comments, latest, version: s.version_label || meta.version || `V${s.version_no || 1}`, stage: s.stage || meta.stage || 'Not Started', dispatchStatus: s.dispatch_status || meta.dispatchStatus || 'In Development', approvalStatus: s.approval_status || meta.approvalStatus || 'Pending', dueDate: s.due_date || meta.dueDate || null, qty: s.req_pcs || s.qty || 0, latestCommentText: latest?.text || '' }
+    return { ...s, order, buyer, meta, comments, latest, version: s.version_label || meta.version || `V${s.version_no || 1}`, stage: s.stage || meta.stage || 'Not Started', dispatchStatus: s.dispatch_status === 'Delivered' ? 'Delivered' : s.dispatch_status || meta.dispatchStatus || 'In Development', approvalStatus: s.approval_status || meta.approvalStatus || 'Pending', dueDate: s.due_date || meta.dueDate || null, qty: s.req_pcs || s.qty || 0, latestCommentText: latest?.text || '' }
     })
   }, [samples, orderMap, buyerMap, refreshKey])
 
@@ -402,7 +402,7 @@ export default function SamplingApprovals() {
       <td><div style={{fontWeight:700}}>{r.order.style_number || '—'}</div><div style={{fontSize:10,color:'#9ca3af'}}>{r.order.description || ''}</div></td>
       <td><div>{r.sample_type || '—'}</div><div style={{fontSize:10,color:'#6b7280'}}>{r.version}</div></td>
       <td style={{maxWidth:130,overflowWrap:'anywhere'}}>{washColour(r)}</td><td style={{fontWeight:600,whiteSpace:'nowrap'}}>{sampleSize(r)}</td><td style={{fontWeight:600}}>{r.qty || '—'}</td>
-      <td>{r.dispatchStatus === 'Dispatched' ? <div>{statusPill('#dcfce7','#166534','Dispatched')}<div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{formatDate(r.meta.dispatchDate || r.meta.sentToParcelsAt)}</div></div> : <div><select style={{...inp,height:30,minWidth:130}} value={r.stage} onChange={e=>saveStage(r.id,e.target.value)}>{STAGES.map(x=><option key={x}>{x}</option>)}</select><div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{r.meta.stageDates?.[r.stage] ? formatDate(r.meta.stageDates[r.stage]) : '—'}</div></div>}</td>
+      <td>{['Dispatched','Delivered'].includes(r.dispatchStatus) ? <div>{statusPill('#dcfce7','#166534',r.dispatchStatus)}<div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{formatDate(r.meta.dispatchDate || r.meta.sentToParcelsAt)}</div></div> : <div><select style={{...inp,height:30,minWidth:130}} value={r.stage} onChange={e=>saveStage(r.id,e.target.value)}>{STAGES.map(x=><option key={x}>{x}</option>)}</select><div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{r.meta.stageDates?.[r.stage] ? formatDate(r.meta.stageDates[r.stage]) : '—'}</div></div>}</td>
       <td><div style={{fontWeight:600}}>{r.dueDate ? formatDate(r.dueDate) : '—'}</div>{r.dueDate && <div style={{fontSize:10,color:new Date(r.dueDate)<new Date()&&!isCompleted(r)?'#dc2626':'#9ca3af',marginTop:3}}>{Math.ceil((new Date(r.dueDate)-new Date())/86400000) >= 0 ? `${Math.ceil((new Date(r.dueDate)-new Date())/86400000)}d` : `${Math.abs(Math.ceil((new Date(r.dueDate)-new Date())/86400000))}d overdue`}</div>}</td>
     </tr>
   )
