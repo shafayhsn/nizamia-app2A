@@ -343,9 +343,9 @@ export default function SamplingApprovals() {
     const relatedParcel=parcelItems.filter(p=>(p.items||[]).some(it=>it.sampleId===s.id)).sort((a,b)=>String(b.delivered_at||b.dispatch_date||b.created_at||'').localeCompare(String(a.delivered_at||a.dispatch_date||a.created_at||'')))[0]
     const candidates=[{label:s.stage||meta.stage||'Not Started',date:meta.stageDates?.[s.stage||meta.stage]||s.created_at,source:'Sampling'}]
     if(relatedParcel){candidates.push({label:relatedParcel.status||'Dispatched',date:relatedParcel.delivered_at||relatedParcel.dispatch_date||relatedParcel.dispatched_at,source:'Parcels'})}
-    if(latest)candidates.push({label:latest.type==='Approval'?'Approved':latest.type==='Rejection'?'Rejected':latest.type==='Revision'?'Revision Required':latest.type,date:latest.date,source:'Approval'})
+    if(latest&&['Approval','Rejection','Revision'].includes(latest.type))candidates.push({label:latest.type==='Approval'?'Approved':latest.type==='Rejection'?'Rejected':latest.type==='Revision'?'Revision Required':latest.type,date:latest.date,source:'Approval'})
     if(s.last_comment_at&&s.approval_status)candidates.push({label:s.approval_status,date:s.last_comment_at,source:'Approval'})
-    const currentStatus=candidates.filter(x=>x.date).sort((a,b)=>new Date(b.date)-new Date(a.date))[0]||candidates[0]
+    const currentStatus=candidates.filter(x=>x.date&&!Number.isNaN(new Date(x.date).getTime())).sort((a,b)=>new Date(b.date)-new Date(a.date))[0]||candidates[0]
     return { ...s, order, buyer, meta, comments, latest, currentStatus, version: s.version_label || meta.version || `V${s.version_no || 1}`, stage: s.stage || meta.stage || 'Not Started', dispatchStatus: s.dispatch_status === 'Delivered' ? 'Delivered' : s.dispatch_status || meta.dispatchStatus || 'In Development', approvalStatus: s.approval_status || meta.approvalStatus || 'Pending', dueDate: s.due_date || meta.dueDate || null, qty: s.req_pcs || s.qty || 0, latestCommentText: latest?.text || '' }
     })
   }, [samples, orderMap, buyerMap, refreshKey, sampleComments, parcelItems])
