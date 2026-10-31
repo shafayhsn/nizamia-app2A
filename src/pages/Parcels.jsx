@@ -159,6 +159,7 @@ export default function Parcels() {
   const [editing,setEditing]=useState(null)
   const [history,setHistory]=useState([])
   const [busy,setBusy]=useState(false)
+  const [statusMenu,setStatusMenu]=useState(false)
   const [sortBy,setSortBy]=useState(()=>readPrefs().sortBy||'date-desc')
   const [groupBy,setGroupBy]=useState(()=>readPrefs().groupBy||'none')
   const [statusFilter,setStatusFilter]=useState(()=>readPrefs().statusFilter||'All')
@@ -309,13 +310,27 @@ export default function Parcels() {
     if(status==='Delivered'||status==='Draft')return
     await patchParcel(id,{status})
   }
+  async function bulkChangeStatus(status){
+    if(!selectedParcels.length||status==='Delivered')return
+    setStatusMenu(false)
+    for(const id of selectedParcels){const p=parcels.find(x=>x.id===id);if(p&&p.status!=='Draft'&&p.status!=='Delivered')await patchParcel(id,{status})}
+    setSelectedParcels([])
+    await load()
+  }
   async function markDelivered(){
     const targets=parcels.filter(p=>selectedParcels.includes(p.id)&&p.status!=='Delivered'&&p.status!=='Draft')
     if(!targets.length)return
     if(!window.confirm('Mark '+targets.length+' selected parcel(s) as delivered?'))return
     for(const p of targets){
       const ok=await patchParcel(p.id,{status:'Delivered'})
-      if(ok)await supabase.from('parcels').update({delivered_at:new Date().toISOString()}).eq('id',p.id)
+      if(ok){
+        const deliveredAt=new Date().toISOString()
+        const {error:dateError}=await supabase.from('parcels').update({delivered_at:deliveredAt}).eq('id',p.id)
+        if(dateError)alert(dateError.message,{title:'Delivery Date Error'})
+        const ids=(p.items||[]).map(it=>it.sampleId).filter(Boolean)
+        if(ids.length){const {error:sampleError}=await supabase.from('samples').update({dispatch_status:'Delivered'}).in('id',ids)
+          if(sampleError)alert(sampleError.message,{title:'Sample Status Update Failed'})}
+      }
     }
     setSelectedParcels([])
     await load()
@@ -384,7 +399,7 @@ export default function Parcels() {
         <div style={{marginLeft:'auto',display:'flex',gap:5,alignItems:'center'}}>
           <button style={btn} title="Edit selected parcel" disabled={busy||selectedParcels.length!==1} onClick={()=>setEditing(parcels.find(p=>p.id===selectedParcels[0]))}><Pencil size={15}/></button>
           <button style={btn} title="Delete selected parcels" disabled={busy||!selectedParcels.length} onClick={deleteSelected}><Trash2 size={15} color="#dc2626"/></button>
-          <button style={btn} title="Reset parcel view" onClick={()=>{setSortBy('date-desc');setGroupBy('none');setStatusFilter('All');setCustomerFilter('All');setPeriodFilter('All')}}><Settings2 size={15}/></button>
+          <div style={{position:'relative'}}><button style={btn} title="Change Status" aria-label="Change Status" disabled={busy||!selectedParcels.some(id=>parcels.some(p=>p.id===id&&p.status!=='Draft'&&p.status!=='Delivered'))} onClick={()=>setStatusMenu(v=>!v)}><Settings2 size={15}/></button>{statusMenu&&<div style={{position:'absolute',right:0,top:35,zIndex:60,background:'#fff',border:'1px solid #ddd',borderRadius:8,boxShadow:'0 6px 20px #0002',padding:5,minWidth:175}}>{TRACKING_STATUSES.filter(x=>x!=='Delivered').map(x=><button key={x} onClick={()=>bulkChangeStatus(x)} style={{...btn,display:'block',width:'100%',textAlign:'left',border:0}}>{statusPill(x)}</button>)}</div>}</div>
           <button style={{...btn,background:'#dcfce7',color:'#166534',borderColor:'#bbf7d0',display:'flex',gap:5,alignItems:'center'}} disabled={busy||!selectedParcels.some(id=>parcels.some(p=>p.id===id&&p.status!=='Delivered'&&p.status!=='Draft'))} onClick={markDelivered}><CheckCheck size={15}/> Mark Delivered</button>
         </div>
       </div>
@@ -398,10 +413,10 @@ export default function Parcels() {
         </>}
         {(tab==='dispatched'||parcels.some(p=>p.status==='Draft'))&&<table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr>
           <th><input type="checkbox" aria-label="Select visible parcels" checked={shownParcels.length>0&&shownParcels.every(p=>selectedParcels.includes(p.id))} onChange={e=>setSelectedParcels(e.target.checked?shownParcels.map(p=>p.id):[])}/></th>
-          <th>Parcel #</th><th>Customer</th><th>Contents</th><th>Courier</th><th>Tracking #</th><th>Tracking</th><th>Dispatch Date</th><th>Actions</th>
+          <th>Parcel #</th><th>Customer</th><th>Contents</th><th>Courier</th><th>Tracking #</th><th>Tracking</th><th>Dispatch Date</th><th>Delivered On</th><th>Actions</th>
         </tr></thead><tbody>
           {groupedParcels.map(([group,rows])=><React.Fragment key={group||'all'}>
-            {groupBy!=='none'&&<tr><td colSpan={9} style={{background:'#eef6fd',fontWeight:700,padding:'9px 12px'}}>{group} — {rows.length} parcels</td></tr>}
+            {groupBy!=='none'&&<tr><td colSpan={10} style={{background:'#eef6fd',fontWeight:700,padding:'9px 12px'}}>{group} — {rows.length} parcels</td></tr>}
             {rows.map(p=><React.Fragment key={p.id}><tr style={{cursor:'pointer',background:selectedParcels.includes(p.id)?'#f0f7ff':undefined}} onClick={()=>setSelectedParcels(v=>v.includes(p.id)?v.filter(id=>id!==p.id):[...v,p.id])}>
               <td onClick={e=>e.stopPropagation()}><input type="checkbox" aria-label={'Select '+p.id} checked={selectedParcels.includes(p.id)} onChange={e=>setSelectedParcels(v=>e.target.checked?[...new Set([...v,p.id])]:v.filter(id=>id!==p.id))}/></td>
               <td style={{fontWeight:700}}><div>{p.id}</div><div style={{marginTop:5}}>{statusPill(p.status)}</div></td>
@@ -411,6 +426,7 @@ export default function Parcels() {
               <td>{p.trackingNo||'—'}</td>
               <td onClick={e=>e.stopPropagation()}>{validTrackingUrl(p.trackingUrl)?<a href={validTrackingUrl(p.trackingUrl)} target="_blank" rel="noopener noreferrer" title="Open courier tracking"><ExternalLink size={16}/></a>:<span style={{color:'#9ca3af'}}>—</span>}</td>
               <td>{formatDate(p.dispatchDate)||'—'}</td>
+              <td>{p.deliveredAt?<><div>{formatDate(p.deliveredAt)}</div><div style={{fontSize:11,color:'#16a34a',marginTop:3}}>{p.dispatchDate?Math.max(0,Math.round((new Date(p.deliveredAt.slice(0,10)+'T12:00:00Z')-new Date(p.dispatchDate.slice(0,10)+'T12:00:00Z'))/86400000))+' Days Transit':'—'}</div></>:'—'}</td>
               <td onClick={e=>e.stopPropagation()}><div style={{display:'flex',gap:5,whiteSpace:'nowrap'}}><button style={btn} onClick={()=>{setActive(active===p.id?null:p.id);openHistory(p.id)}}>View</button><button style={btn} onClick={()=>printInvoice(p)}><FileText size={13}/> Invoice</button>{p.status==='Draft'&&<button style={btn} onClick={()=>setEditing(p)}><Pencil size={13}/> Edit / Dispatch</button>}</div></td>
             </tr>
             {active===p.id&&<tr><td colSpan={9} style={{background:'#f9fafb',padding:14}}><strong>Parcel Contents · {p.id}</strong>{(p.items||[]).map((it,i)=><div key={i}>{sampleMap[it.sampleId]?.sample_number||it.sampleId} · {orderMap[sampleMap[it.sampleId]?.order_id]?.style_number||'—'}</div>)}{(p.customItems||[]).map((it,i)=><div key={'c'+i}>{it.description} · {it.qty} pcs</div>)}<div style={{marginTop:10,fontWeight:700}}>Status History</div>{history.length?history.map(h=><div key={h.id} style={{fontSize:12,marginTop:5}}>{new Date(h.changed_at).toLocaleString('en-GB')} · {h.old_status||'New'} → {h.new_status}</div>):<div style={{color:'#9ca3af',fontSize:12}}>No status changes recorded yet.</div>}</td></tr>}
