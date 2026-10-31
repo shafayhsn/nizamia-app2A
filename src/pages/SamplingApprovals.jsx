@@ -229,7 +229,8 @@ function SampleMetadata({sample,allSamples,parcels,comments,onClose}){
  const familyIds=new Set(versions.map(v=>v.id))
  const linkedParcels=parcels.filter(p=>(p.items||[]).some(i=>familyIds.has(i.sampleId)))
  const relatedComments=comments.filter(c=>familyIds.has(c.sample_id)||c.root_sample_id===root||c.sam_number===sample.sample_number)
- const localComments=versions.flatMap(v=>(loadSamplingStore().comments?.[v.id]||[]).map(c=>({...c,sample_id:v.id,comment_type:c.type,comment_text:c.text,comment_by:c.by,comment_date:c.date,source:'Browser legacy'})))
+ const stored=loadSamplingStore()
+ const localComments=versions.flatMap(v=>(stored.comments?.[v.id]||[]).filter(c=>!relatedComments.some(d=>d.sample_id===v.id&&d.comment_text===c.text&&d.comment_type===c.type&&String(d.comment_date||'').slice(0,10)===String(c.date||'').slice(0,10))).map(c=>({...c,sample_id:v.id,comment_type:c.type,comment_text:c.text,comment_by:c.by,comment_date:c.date,source:'Browser legacy'})))
  useEffect(()=>{
    let active=true
    const ids=linkedParcels.map(p=>p.id)
@@ -247,7 +248,7 @@ function SampleMetadata({sample,allSamples,parcels,comments,onClose}){
    if(v.parent_sample_id)push(v.created_at,'New sample version',v.version_label||'Revision','Versions')
    if(v.received_date)push(v.received_date,'Sample received',v.version_label||'','Sampling')
    if(v.last_comment_at&&v.approval_status)push(v.last_comment_at,v.approval_status,v.last_comment_by||'','Approval')
-   const meta=loadSamplingStore().sampleMeta?.[v.id]||{}
+   const meta=stored.sampleMeta?.[v.id]||{}
    Object.entries(meta.stageDates||{}).forEach(([stage,date])=>push(date,stage,v.version_label||'','Sampling · legacy'))
  })
  ;[...relatedComments,...localComments].forEach(c=>push(c.comment_date||c.created_at,c.comment_type||'Comment',(c.comment_by?c.comment_by+' · ':'')+(c.comment_text||''),c.source||'Comments'))
@@ -291,7 +292,6 @@ export default function SamplingApprovals() {
   const [dispatching, setDispatching] = useState(null)
   const [commenting, setCommenting] = useState(null)
   const [metadataSample,setMetadataSample]=useState(null)
-  const [parcelHistory,setParcelHistory]=useState([])
   const [query, setQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState([])
   const [groupBy, setGroupBy] = useState(() => readSettings().groupBy || 'none')
@@ -337,7 +337,8 @@ export default function SamplingApprovals() {
     const order = orderMap[s.order_id] || {}
     const buyer = buyerMap[order.buyer_id] || {}
     const meta = sampleMeta[s.id] || {}
-    const comments = [...(localComments[s.id]||[]),...sampleComments.filter(c=>c.sample_id===s.id).map(c=>({type:c.comment_type,text:c.comment_text,by:c.comment_by,date:c.comment_date}))]
+    const dbComments=sampleComments.filter(c=>c.sample_id===s.id).map(c=>({type:c.comment_type,text:c.comment_text,by:c.comment_by,date:c.comment_date}))
+    const comments=[...dbComments,...(localComments[s.id]||[]).filter(c=>!dbComments.some(d=>d.text===c.text&&d.type===c.type&&String(d.date||'').slice(0,10)===String(c.date||'').slice(0,10)))]
     const latest = comments[comments.length - 1]
     const relatedParcel=parcelItems.filter(p=>(p.items||[]).some(it=>it.sampleId===s.id)).sort((a,b)=>String(b.delivered_at||b.dispatch_date||b.created_at||'').localeCompare(String(a.delivered_at||a.dispatch_date||a.created_at||'')))[0]
     const candidates=[{label:s.stage||meta.stage||'Not Started',date:meta.stageDates?.[s.stage||meta.stage]||s.created_at,source:'Sampling'}]
@@ -390,6 +391,14 @@ export default function SamplingApprovals() {
 
 
   async function saveStage(sampleId, stage) {
+    const sample=samples.find(x=>x.id===sampleId)
+    if(!sample)return
+    const previous=sample.stage||'Not Started'
+    const {error:stageError}=await supabase.from('samples').update({stage}).eq('id',sampleId)
+    if(stageError){alert(stageError.message,{title:'Stage Save Failed'});return}
+    const {error:logError}=await supabase.from('sample_comments').insert({sample_id:sampleId,root_sample_id:sample.root_sample_id||sampleId,sam_number:sample.sample_number,version_label:sample.version_label||'V1',comment_type:'Stage',comment_text:previous+' → '+stage,comment_date:new Date().toISOString(),is_internal:true})
+    if(logError)alert('Stage saved, but history log failed: '+logError.message,{title:'History Warning'})
+    setSamples(v=>v.map(x=>x.id===sampleId?{...x,stage}:x))
     const meta = loadSamplingStore().sampleMeta[sampleId] || {}
     const stageDates = { ...(meta.stageDates || {}) }
     stageDates[stage] = new Date().toISOString().slice(0,10)
@@ -467,7 +476,7 @@ export default function SamplingApprovals() {
 
     <tr key={r.id} onDoubleClick={()=>setMetadataSample(r)} title="Double-click for sample history" style={{cursor:'pointer'}}>
       <td onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(r.id)} onChange={e => setSelectedIds(v => e.target.checked ? [...new Set([...v,r.id])] : v.filter(x=>x!==r.id))}/></td>
-      <td><div style={{fontFamily:'monospace',fontWeight:700,whiteSpace:'nowrap'}}>{r.sample_number}</div><div style={{fontSize:11,marginTop:3,fontWeight:600,color:'#374151'}}>{viewTab==='completed'?(r.order.factory_ref||r.meta.reference||r.meta.ref||''):r.approvalStatus}</div></td>
+      <td><div style={{fontFamily:'monospace',fontWeight:700,whiteSpace:'nowrap'}}>{r.sample_number}</div><div style={{fontSize:11,marginTop:3,fontWeight:600,color:'#374151'}}>{viewTab==='completed'?(r.meta.reference||r.meta.ref||r.meta.factoryRef||''):r.approvalStatus}</div></td>
       <td><div style={{fontWeight:600}}>{r.order.buyer_name || r.buyer.name || '—'}</div></td>
       <td><div style={{fontFamily:'monospace',fontWeight:600}}>{r.order.job_number || '—'}</div></td>
       <td><div style={{fontWeight:700}}>{r.order.style_number || '—'}</div><div style={{fontSize:10,color:'#9ca3af'}}>{r.order.description || ''}</div></td>
