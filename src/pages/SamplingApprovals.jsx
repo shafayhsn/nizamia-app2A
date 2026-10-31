@@ -515,6 +515,7 @@ export default function SamplingApprovals() {
       {viewTab!=='completed'&&<td><div style={{fontWeight:600}}>{r.dueDate ? formatDate(r.dueDate) : '—'}</div>{r.dueDate && <div style={{fontSize:10,color:new Date(r.dueDate)<new Date()&&!isCompleted(r)?'#dc2626':'#9ca3af',marginTop:3}}>{Math.ceil((new Date(r.dueDate)-new Date())/86400000) >= 0 ? `${Math.ceil((new Date(r.dueDate)-new Date())/86400000)}d` : `${Math.abs(Math.ceil((new Date(r.dueDate)-new Date())/86400000))}d overdue`}</div>}</td>}
     </tr>
   )
+  }
 
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100%',width:'100%',minWidth:0,background:'#fff'}}>
