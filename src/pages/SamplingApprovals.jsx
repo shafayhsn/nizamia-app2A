@@ -435,23 +435,29 @@ export default function SamplingApprovals() {
   }
 
   async function createRevision(sample) {
+    const rootId = sample.root_sample_id || sample.id
+    const family = samples.filter(x => x.id === rootId || x.root_sample_id === rootId)
+    const rootSample = family.find(x => x.id === rootId) || sample
+    const baseNumber = String(rootSample.sample_number).replace(/-V\\d+$/i, '')
+    const maxVersion = Math.max(1, ...family.map(x => Number(x.version_no) || Number(String(x.version_label || '').replace(/^V/i,'')) || 1))
+    const nextVersion = maxVersion + 1
+    const nextNumber = baseNumber + '-V' + nextVersion
     const prev = getSampleComments(sample.id).filter(c => ['Revision','Rejection'].includes(c.type)).slice(-1)
-    const meta = loadSamplingStore().sampleMeta[sample.id] || {}
-    const num = sample.sample_number
-    const nextVersion = Math.max(1, Number(sample.version_no) || parseInt(String(sample.version_label || 'V1').replace('V','')) || 1) + 1
-    // Only insert actual database fields, not UI-enriched order/buyer/meta objects.
     const fields = ['order_id','sample_type','color','size','requested_date','due_date',
       'size_group_id','size_group_name','colours','sizes','base_size',
       'bom_snapshot','wash_snapshot','emb_snapshot','req_pcs']
     const payload = {
       ...Object.fromEntries(fields.map(k => [k, sample[k]]).filter(([,v]) => v !== undefined)),
-      sample_number: num,
+      sample_number: nextNumber,
       parent_sample_id: sample.id,
-      root_sample_id: sample.root_sample_id || sample.id,
+      root_sample_id: rootId,
       version_no: nextVersion,
-      version_label: `V${nextVersion}`,
+      version_label: 'V' + nextVersion,
       comments: null,
       status: 'Pending',
+      stage: 'Pattern',
+      approval_status: 'Pending',
+      dispatch_status: 'In Development',
       received_date: null,
     }
     const { data: inserted, error } = await supabase.from('samples').insert([payload]).select().single()
@@ -460,13 +466,14 @@ export default function SamplingApprovals() {
       return
     }
     updateSampleMeta(inserted.id, {
-      version: `V${nextVersion}`,
+      version: 'V' + nextVersion,
       stage: 'Pattern',
       dispatchStatus: 'In Development',
       approvalStatus: 'Pending',
       parentSampleId: sample.id,
       carryForwardComments: prev,
     })
+    setSelectedIds([])
     setRefreshKey(x => x + 1)
   }
 
