@@ -120,7 +120,6 @@ export default function Parcels() {
   const [editing,setEditing]=useState(null)
   const [history,setHistory]=useState([])
   const [busy,setBusy]=useState(false)
-  const [prefs,setPrefs]=useState(readPrefs)
   const [sortBy,setSortBy]=useState(()=>readPrefs().sortBy||'date-desc')
   const [groupBy,setGroupBy]=useState(()=>readPrefs().groupBy||'none')
   const [statusFilter,setStatusFilter]=useState(()=>readPrefs().statusFilter||'All')
@@ -305,7 +304,18 @@ export default function Parcels() {
         <div style={{border:'1px solid #e5e7eb',borderRadius:8,padding:'6px 12px',fontSize:12}}>DISPATCHED <strong>{parcels.filter(p=>p.status==='Dispatched').length}</strong></div>
         <div style={{marginLeft:'auto',display:'flex',gap:8}}><button className="btn btn-secondary" onClick={load}><RefreshCw size={14}/> Refresh</button><button className="btn btn-primary" onClick={()=>setCreating(true)}><Plus size={14}/> Create Parcel</button></div>
       </div>
-      <div style={{padding:'8px 24px',borderBottom:'1px solid #f3f4f6',display:'flex',alignItems:'center',gap:8,flexShrink:0}}><input style={{...inp,maxWidth:300}} placeholder="Search Parcels" value={search} onChange={e=>setSearch(e.target.value)}/></div>
+      <div style={{padding:'8px 24px',borderBottom:'1px solid #f3f4f6',display:'flex',alignItems:'center',gap:7,flexShrink:0,whiteSpace:'nowrap',overflowX:'auto'}}>
+        <input style={{...inp,maxWidth:240,minWidth:140,flex:'1 1 170px'}} placeholder="Search Parcels" value={search} onChange={e=>setSearch(e.target.value)}/>
+        <select aria-label="Filter parcel status" style={{...inp,width:140}} value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>{['All','Draft',...TRACKING_STATUSES].map(v=><option key={v}>{v}</option>)}</select>
+        <select aria-label="Sort parcels" style={{...inp,width:150}} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="date-desc">Newest Dispatch</option><option value="date-asc">Oldest Dispatch</option><option value="id-asc">Parcel # Asc</option><option value="id-desc">Parcel # Desc</option><option value="courier">Courier</option><option value="status">Status</option></select>
+        <select aria-label="Group parcels" style={{...inp,width:140}} value={groupBy} onChange={e=>setGroupBy(e.target.value)}><option value="none">No Grouping</option><option value="status">By Status</option><option value="courier">By Courier</option><option value="month">By Month</option><option value="customer">By Customer</option></select>
+        <div style={{marginLeft:'auto',display:'flex',gap:5,alignItems:'center'}}>
+          <button style={btn} title="Edit selected parcel" disabled={busy||selectedParcels.length!==1} onClick={()=>setEditing(parcels.find(p=>p.id===selectedParcels[0]))}><Pencil size={15}/></button>
+          <button style={btn} title="Delete selected parcels" disabled={busy||!selectedParcels.length} onClick={deleteSelected}><Trash2 size={15} color="#dc2626"/></button>
+          <button style={btn} title="Reset parcel view" onClick={()=>{setSortBy('date-desc');setGroupBy('none');setStatusFilter('All')}}><Settings2 size={15}/></button>
+          <button style={{...btn,background:'#dcfce7',color:'#166534',borderColor:'#bbf7d0',display:'flex',gap:5,alignItems:'center'}} disabled={busy||!selectedParcels.some(id=>parcels.some(p=>p.id===id&&p.status!=='Delivered'&&p.status!=='Draft'))} onClick={markDelivered}><CheckCheck size={15}/> Mark Delivered</button>
+        </div>
+      </div>
       <div className="table-wrap" style={{flex:1,minHeight:0,overflow:'auto',padding:'0 24px'}}>
         {tab==='ready' && <>
           <table style={{width:'100%'}}><thead><tr><th style={{width:34}}><input type="checkbox" checked={shownSamples.length>0&&shownSamples.every(r=>selectedSamples.includes(r.sampleId))} onChange={e=>setSelectedSamples(e.target.checked?shownSamples.map(r=>r.sampleId):[])}/></th><th>SAM # / Ref</th><th>Customer</th><th>Job #</th><th>Style #</th><th>Type / Ver.</th><th>Wash Colour</th><th>Sample Size</th><th>Qty</th><th>Ready Date</th></tr></thead><tbody>
@@ -314,14 +324,31 @@ export default function Parcels() {
           </tbody></table>
           {parcels.some(p=>p.status!=='Dispatched')&&<div style={{fontWeight:700,fontSize:13,margin:'18px 0 8px'}}>Parcels Awaiting Dispatch</div>}
         </>}
-        {(tab==='dispatched'||parcels.some(p=>p.status!=='Dispatched'))&&<table style={{width:'100%'}}><thead><tr><th>Parcel #</th><th>Contents</th><th>Status</th><th>Courier</th><th>Tracking #</th><th>Dispatch Date</th><th>Actions</th></tr></thead><tbody>
-          {shownParcels.map(p=><React.Fragment key={p.id}><tr><td style={{fontWeight:700}}>{p.id}</td><td>{p.items?.length||0} SAM# + {p.customItems?.length||0} custom</td><td><span style={statusBadgeStyle(p.status,{},'parcels')}>{statusDisplay(p.status,'parcels')}</span></td><td>{tab==='ready'?<input style={{...inp,minWidth:110}} value={p.courier||''} onChange={e=>patchParcel(p.id,{courier:e.target.value})}/>:p.courier||'—'}</td><td>{tab==='ready'?<input style={{...inp,minWidth:110}} value={p.trackingNo||''} onChange={e=>patchParcel(p.id,{trackingNo:e.target.value})}/>:p.trackingNo||'—'}</td><td>{tab==='ready'?<input style={{...inp,minWidth:125}} type="date" value={p.dispatchDate||''} onChange={e=>patchParcel(p.id,{dispatchDate:e.target.value})}/>:formatDate(p.dispatchDate)}</td><td><div style={{display:'flex',gap:5,whiteSpace:'nowrap'}}><button style={btn} onClick={()=>setActive(active===p.id?null:p.id)}>View</button><button style={btn} onClick={()=>printInvoice(p)}><FileText size={13}/> Invoice</button>{tab==='ready'&&<button style={btn} onClick={()=>doDispatch(p)}><Truck size={13}/> Dispatch</button>}</div></td></tr>
-            {active===p.id&&<tr><td colSpan={7} style={{background:'#f9fafb',padding:14}}><strong>Parcel Contents · {p.id}</strong>{(p.items||[]).map((it,i)=><div key={i}>{sampleMap[it.sampleId]?.sample_number||it.sampleId} · {orderMap[sampleMap[it.sampleId]?.order_id]?.style_number||'—'}</div>)}{(p.customItems||[]).map((it,i)=><div key={'c'+i}>{it.description} · {it.qty} pcs</div>)}</td></tr>}</React.Fragment>)}
-          {!shownParcels.length&&<tr><td colSpan={7} style={{textAlign:'center',padding:28,color:'#9ca3af'}}>No parcels in this tab.</td></tr>}
-        </tbody></table>}
+        {(tab==='dispatched'||parcels.some(p=>p.status==='Draft'))&&<table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr>
+          <th><input type="checkbox" aria-label="Select visible parcels" checked={shownParcels.length>0&&shownParcels.every(p=>selectedParcels.includes(p.id))} onChange={e=>setSelectedParcels(e.target.checked?shownParcels.map(p=>p.id):[])}/></th>
+          <th>Parcel #</th><th>Contents</th><th>Status</th><th>Courier</th><th>Tracking #</th><th>Tracking</th><th>Dispatch Date</th><th>Actions</th>
+        </tr></thead><tbody>
+          {groupedParcels.map(([group,rows])=><React.Fragment key={group||'all'}>
+            {groupBy!=='none'&&<tr><td colSpan={9} style={{background:'#eef6fd',fontWeight:700,padding:'9px 12px'}}>{group} — {rows.length} parcels</td></tr>}
+            {rows.map(p=><React.Fragment key={p.id}><tr>
+              <td><input type="checkbox" aria-label={'Select '+p.id} checked={selectedParcels.includes(p.id)} onChange={e=>setSelectedParcels(v=>e.target.checked?[...new Set([...v,p.id])]:v.filter(id=>id!==p.id))}/></td>
+              <td style={{fontWeight:700}}>{p.id}</td>
+              <td>{p.items?.length||0} SAM# + {p.customItems?.length||0} custom</td>
+              <td>{p.status==='Delivered'?statusPill('Delivered'):<select aria-label={'Status for '+p.id} disabled={busy} style={{...inp,minWidth:125,...STATUS_STYLES[p.status]}} value={p.status} onChange={e=>changeStatus(p.id,e.target.value)}>{['Draft',...TRACKING_STATUSES.filter(x=>x!=='Delivered')].filter(x=>x!=='Draft'||p.status==='Draft').map(x=><option key={x}>{x}</option>)}</select>}</td>
+              <td>{p.courier||'—'}</td>
+              <td>{p.trackingNo||'—'}</td>
+              <td>{validTrackingUrl(p.trackingUrl)?<a href={validTrackingUrl(p.trackingUrl)} target="_blank" rel="noopener noreferrer" title="Open courier tracking"><ExternalLink size={16}/></a>:<span style={{color:'#9ca3af'}}>—</span>}</td>
+              <td>{formatDate(p.dispatchDate)||'—'}</td>
+              <td><div style={{display:'flex',gap:5,whiteSpace:'nowrap'}}><button style={btn} onClick={()=>{setActive(active===p.id?null:p.id);openHistory(p.id)}}>View</button><button style={btn} onClick={()=>printInvoice(p)}><FileText size={13}/> Invoice</button>{p.status==='Draft'&&<button style={btn} onClick={()=>setEditing(p)}><Pencil size={13}/> Edit / Dispatch</button>}</div></td>
+            </tr>
+            {active===p.id&&<tr><td colSpan={9} style={{background:'#f9fafb',padding:14}}><strong>Parcel Contents · {p.id}</strong>{(p.items||[]).map((it,i)=><div key={i}>{sampleMap[it.sampleId]?.sample_number||it.sampleId} · {orderMap[sampleMap[it.sampleId]?.order_id]?.style_number||'—'}</div>)}{(p.customItems||[]).map((it,i)=><div key={'c'+i}>{it.description} · {it.qty} pcs</div>)}<div style={{marginTop:10,fontWeight:700}}>Status History</div>{history.length?history.map(h=><div key={h.id} style={{fontSize:12,marginTop:5}}>{new Date(h.changed_at).toLocaleString('en-GB')} · {h.old_status||'New'} → {h.new_status}</div>):<div style={{color:'#9ca3af',fontSize:12}}>No status changes recorded yet.</div>}</td></tr>}
+            </React.Fragment>)}
+          </React.Fragment>)}
+          {!shownParcels.length&&<tr><td colSpan={9} style={{textAlign:'center',padding:28,color:'#9ca3af'}}>No parcels in this tab.</td></tr>}
+        </tbody></table>
       </div>
       <div style={{height:34,borderTop:'1px solid #e5e7eb',padding:'8px 24px',fontSize:11,color:'#6b7280',flexShrink:0}}>{tab==='ready'?`${shownSamples.length} READY SAMPLES · ${shownParcels.length} PARCELS AWAITING DISPATCH`:`${shownParcels.length} DISPATCHED PARCELS`}</div>
-      {creating && <ParcelBuilderModal poolRows={selectedSamples.length?availableSamples.filter(r=>selectedSamples.includes(r.sampleId)):availableSamples} onClose={() => setCreating(false)} onCreated={(payload) => { createParcel(payload); setCreating(false); setStore(loadSamplingStore()) }} />}
+      {creating && <ParcelBuilderModal poolRows={selectedSamples.length?availableSamples.filter(r=>selectedSamples.includes(r.sampleId)):availableSamples} onClose={() => setCreating(false)} onCreated={createNewParcel} />}
       <Dialogs />
     </div>
   )
