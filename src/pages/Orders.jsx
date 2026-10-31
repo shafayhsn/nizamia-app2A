@@ -4233,13 +4233,19 @@ export default function Orders() {
     // Large inline image payloads must not block the primary Orders table.
     // Fetch them after the rows are visible and enrich only matching records.
     if (mapped.length) {
-      supabase.from('orders').select('id,style_image_base64').not('style_image_base64', 'is', null)
-        .then(({data: imageRows, error: imageError}) => {
-          if (imageError || !imageRows?.length) return
-          const images = new Map(imageRows.map(r => [r.id, r.style_image_base64]))
-          setOrders(previous => previous.map(o => images.has(o.id)
-            ? {...o, style_image_base64: images.get(o.id)} : o))
-        })
+      // Fetch only images needed by the current table, in bounded batches.
+      // Orders with a URL already have an immediately usable thumbnail.
+      const missingImageIds = mapped.filter(o => !o.style_image_url).map(o => o.id)
+      const batches = Array.from({length:Math.ceil(missingImageIds.length/20)},(_,i)=>missingImageIds.slice(i*20,(i+1)*20))
+      batches.forEach(batch => {
+        supabase.from('orders').select('id,style_image_base64').in('id',batch).not('style_image_base64','is',null)
+          .then(({data:imageRows,error:imageError}) => {
+            if (imageError || !imageRows?.length) return
+            const images = new Map(imageRows.map(r=>[r.id,r.style_image_base64]))
+            setOrders(previous=>previous.map(o=>images.has(o.id)
+              ? {...o,style_image_base64:images.get(o.id)} : o))
+          }).catch(()=>{})
+      })
     }
   }
 
