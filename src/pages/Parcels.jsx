@@ -166,14 +166,19 @@ export default function Parcels() {
     if(parcelError){alert(parcelError.message,{title:'Parcel Loading Failed'});return}
     // Import browser-only legacy parcels without overwriting existing Supabase records.
     const legacy=loadSamplingStore()
+    const migrationKey='nzm_parcels_migrated_to_supabase_v1'
+    const migrationDone=localStorage.getItem(migrationKey)==='true'
     const remoteIds=new Set((dbParcels||[]).map(p=>p.id))
-    const migrationDone=localStorage.getItem('nzm_parcels_migrated_to_supabase_v1')==='true'
-    const missing=migrationDone?[]:(legacy.parcels||[]).filter(p=>!remoteIds.has(p.id))
+    const missing=migrationDone?[]:(legacy.parcels||[]).filter(p=>p.id&&!remoteIds.has(p.id))
+    // Ignore concurrent duplicate inserts, never overwrite a parcel already on Supabase.
+    // This also handles multiple browser tabs and overlapping refreshes safely.
+    let imported=false
     if(missing.length){
-      const {error:importError}=await supabase.from('parcels').insert(missing.map(toDb))
+      const {error:importError}=await supabase.from('parcels').upsert(missing.map(toDb),{onConflict:'id',ignoreDuplicates:true})
       if(importError) alert('Legacy parcel import failed: '+importError.message,{title:'Migration Warning'})
-      else localStorage.setItem('nzm_parcels_migrated_to_supabase_v1','true')
-    } else if(!migrationDone) localStorage.setItem('nzm_parcels_migrated_to_supabase_v1','true')
+      else imported=true
+    } else imported=true
+    if(imported&&!migrationDone)localStorage.setItem(migrationKey,'true')
     const {data:updated,error:reloadError}=missing.length?await supabase.from('parcels').select('*').order('created_at',{ascending:false}):{data:dbParcels}
     if(reloadError) alert(reloadError.message,{title:'Parcel Loading Failed'})
     setParcels((updated||dbParcels||[]).map(fromDb))
