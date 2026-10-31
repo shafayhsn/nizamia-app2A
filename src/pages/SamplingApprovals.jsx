@@ -247,7 +247,7 @@ function SampleMetadata({sample,allSamples,parcels,comments,onClose}){
    push(v.created_at||v.requested_date,'Sample requirement created',v.sample_number+' · '+(v.version_label||'V1'),'Sampling')
    if(v.parent_sample_id)push(v.created_at,'New sample version',v.version_label||'Revision','Versions')
    if(v.received_date)push(v.received_date,'Sample received',v.version_label||'','Sampling')
-   if(v.last_comment_at&&v.approval_status)push(v.last_comment_at,v.approval_status,v.last_comment_by||'','Approval')
+   if(v.last_comment_at&&v.approval_status&&!relatedComments.some(c=>c.sample_id===v.id&&String(c.comment_date||'').slice(0,10)===String(v.last_comment_at).slice(0,10)))push(v.last_comment_at,v.approval_status,v.last_comment_by||'','Approval')
    const meta=stored.sampleMeta?.[v.id]||{}
    Object.entries(meta.stageDates||{}).forEach(([stage,date])=>push(date,stage,v.version_label||'','Sampling · legacy'))
  })
@@ -258,7 +258,7 @@ function SampleMetadata({sample,allSamples,parcels,comments,onClose}){
    if(p.delivered_at)push(p.delivered_at,'Delivered',p.id+(p.received_by?' · Received by '+p.received_by:''),'Parcels')
  })
  history.forEach(h=>push(h.changed_at,h.new_status,h.parcel_id+(h.note?' · '+h.note:''),'Parcel status'))
- events.sort((a,b)=>new Date(a.date)-new Date(b.date))
+ events.sort((a,b)=>new Date(b.date)-new Date(a.date))
  const fmt=d=>d?new Date(d).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour: d.includes('T')?'2-digit':undefined,minute:d.includes('T')?'2-digit':undefined}):'—'
  const cell=(label,value)=><div style={{padding:'9px 0',borderBottom:'1px solid #f1f5f9'}}><div style={{fontSize:10,color:'#94a3b8'}}>{label}</div><div style={{fontSize:12,fontWeight:600,marginTop:3}}>{value||'—'}</div></div>
  return createPortal(<div style={{position:'fixed',inset:0,zIndex:11000,background:'#0f172a88',display:'flex',justifyContent:'center',alignItems:'center',padding:20}} onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}>
@@ -268,7 +268,7 @@ function SampleMetadata({sample,allSamples,parcels,comments,onClose}){
     <div style={{display:'flex',gap:6,marginTop:16,flexWrap:'wrap'}}>{['Timeline','Details','Versions','Comments','Parcels'].map(x=><button key={x} onClick={()=>setTab(x)} style={{...btn,background:tab===x?'#111827':'#fff',color:tab===x?'#fff':'#374151'}}>{x}{x==='Versions'?' ('+versions.length+')':x==='Comments'?' ('+(relatedComments.length+localComments.length)+')':''}</button>)}</div>
    </header>
    <main style={{padding:'14px 24px 24px',overflowY:'auto',minHeight:180}}>
-    {tab==='Timeline'&&<>{loading&&<div style={{color:'#64748b',fontSize:12}}>Loading parcel history…</div>}{events.length?events.map((e,i)=><div key={i} style={{display:'flex',gap:14,borderLeft:'2px solid #e2e8f0',padding:'0 0 20px 18px',marginLeft:6,position:'relative'}}><div style={{position:'absolute',left:-6,top:2,width:10,height:10,borderRadius:10,background:'#64748b'}}/><div style={{width:130,flexShrink:0,fontSize:11,color:'#64748b'}}>{fmt(e.date)}</div><div><strong style={{fontSize:13}}>{e.label}</strong><div style={{fontSize:11,color:'#64748b',marginTop:3}}>{e.source}</div>{e.detail&&<div style={{fontSize:12,marginTop:6,whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{e.detail}</div>}</div></div>):<div>No dated history is available for this sample.</div>}</>}
+    {tab==='Timeline'&&<><div style={{display:'grid',gridTemplateColumns:'145px 125px 160px minmax(0,1fr)',gap:12,padding:'9px 12px',background:'#f8fafc',fontSize:11,fontWeight:700,color:'#64748b',borderBottom:'1px solid #e2e8f0'}}><span>DATE / TIME</span><span>PHASE</span><span>ACTIVITY</span><span>DETAILS / COMMENTS</span></div>{loading&&<div style={{padding:10,color:'#64748b',fontSize:12}}>Loading parcel history…</div>}{events.length?events.map((e,i)=><div key={i} style={{display:'grid',gridTemplateColumns:'145px 125px 160px minmax(0,1fr)',gap:12,alignItems:'start',padding:'10px 12px',borderBottom:'1px solid #e5e7eb',fontSize:12}}><span style={{color:'#64748b',fontVariantNumeric:'tabular-nums'}}>{fmt(e.date)}</span><span style={{color:'#64748b'}}>{e.source}</span><strong style={{fontSize:12}}>{e.label}</strong><span style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',lineHeight:1.45}}>{e.detail||'—'}</span></div>):<div style={{padding:16}}>No dated history is available for this sample.</div>}</>}
     {tab==='Details'&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',columnGap:22}}>{cell('SAM #',sample.sample_number)}{cell('Sample Type',sample.sample_type)}{cell('Version',sample.version)}{cell('Approval',sample.approvalStatus)}{cell('Sampling Stage',sample.stage)}{cell('Parcel Status',sample.dispatchStatus)}{cell('Requested Date',fmt(sample.requested_date||sample.created_at))}{cell('Due Date',fmt(sample.dueDate))}{cell('Quantity',sample.qty)}{cell('Size',sample.base_size||sample.size)}{cell('Colour',sample.color||sample.colours?.join(', '))}{cell('Root Sample',root)}</div>}
     {tab==='Versions'&&versions.map(v=><div key={v.id} style={{padding:12,borderBottom:'1px solid #e5e7eb'}}><strong>{v.version_label||'V1'}</strong> · {v.sample_number} <span style={{color:'#64748b',fontSize:11}}>Created {fmt(v.created_at)}</span><div style={{fontSize:12,marginTop:5}}>Stage: {v.stage||'—'} · Approval: {v.approval_status||'Pending'} · Parent: {v.parent_sample_id?'Linked':'Original'}</div></div>)}
     {tab==='Comments'&&([...relatedComments,...localComments].sort((a,b)=>new Date(a.comment_date||a.created_at)-new Date(b.comment_date||b.created_at)).map((c,i)=><div key={c.id||i} style={{padding:'12px 0',borderBottom:'1px solid #e5e7eb'}}><strong>{c.comment_type||'Comment'}</strong><span style={{color:'#64748b',fontSize:11}}> · {fmt(c.comment_date||c.created_at)} · {c.comment_by||'Unknown author'} · {c.version_label||''}</span><div style={{whiteSpace:'pre-wrap',fontSize:12,marginTop:7}}>{c.comment_text||'—'}</div></div>))}
@@ -345,7 +345,11 @@ export default function SamplingApprovals() {
     if(relatedParcel){candidates.push({label:relatedParcel.status||'Dispatched',date:relatedParcel.delivered_at||relatedParcel.dispatch_date||relatedParcel.dispatched_at,source:'Parcels'})}
     if(latest&&['Approval','Rejection','Revision'].includes(latest.type))candidates.push({label:latest.type==='Approval'?'Approved':latest.type==='Rejection'?'Rejected':latest.type==='Revision'?'Revision Required':latest.type,date:latest.date,source:'Approval'})
     if(s.last_comment_at&&s.approval_status)candidates.push({label:s.approval_status,date:s.last_comment_at,source:'Approval'})
-    const currentStatus=candidates.filter(x=>x.date&&!Number.isNaN(new Date(x.date).getTime())).sort((a,b)=>new Date(b.date)-new Date(a.date))[0]||candidates[0]
+    // Physical delivery is the primary status on the completed list; buyer decisions remain separately recorded.
+    const latestEvent=candidates.filter(x=>x.date&&!Number.isNaN(new Date(x.date).getTime())).sort((a,b)=>new Date(b.date)-new Date(a.date))[0]||candidates[0]
+    const currentStatus=relatedParcel&&['Delivered','Dispatched'].includes(relatedParcel.status)
+      ? {label:relatedParcel.status,date:relatedParcel.delivered_at||relatedParcel.dispatch_date||relatedParcel.dispatched_at,source:'Parcels'}
+      : latestEvent
     return { ...s, order, buyer, meta, comments, latest, currentStatus, version: s.version_label || meta.version || `V${s.version_no || 1}`, stage: s.stage || meta.stage || 'Not Started', dispatchStatus: s.dispatch_status === 'Delivered' ? 'Delivered' : s.dispatch_status || meta.dispatchStatus || 'In Development', approvalStatus: s.approval_status || meta.approvalStatus || 'Pending', dueDate: s.due_date || meta.dueDate || null, qty: s.req_pcs || s.qty || 0, latestCommentText: latest?.text || '' }
     })
   }, [samples, orderMap, buyerMap, refreshKey, sampleComments, parcelItems])
