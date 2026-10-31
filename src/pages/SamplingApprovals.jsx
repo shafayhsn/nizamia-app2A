@@ -13,6 +13,7 @@ import { Minus, X } from 'lucide-react'
 
 const STAGES = ['Not Started', 'Pattern', 'Cutting', 'Stitching', 'Washing', 'Finishing', 'Ready']
 const COMMENT_TYPES = ['Approval', 'Revision', 'Rejection']
+const REVISION_REASONS = ['Workmanship', 'Spec', 'Wash', 'Fitting', 'Printing / Embroidery', 'Buyer updated Spec or Fit']
 
 const card = { background:'#fff', border:'1px solid #ececec', borderRadius:12, boxShadow:'0 1px 2px rgba(0,0,0,.03)' }
 const inp = { height:34, padding:'0 10px', border:'1px solid #e5e7eb', borderRadius:8, fontSize:12, width:'100%', boxSizing:'border-box', outline:'none' }
@@ -196,6 +197,8 @@ function CommentModal({ sample, onClose, onSaved }) {
   const [date, setDate] = useState(new Date().toISOString().slice(0,10))
   const [by, setBy] = useState('')
   const [text, setText] = useState('')
+  const [reasons, setReasons] = useState([])
+  const [reasonsOpen, setReasonsOpen] = useState(false)
   const { minimized, setMinimized } = useSamplingWindow(`sampling:comment:${sample.id}`, `Sample Comment · ${sample.sample_number}`, () => { if (!text.trim() || window.confirm('Discard unsaved comment?')) onClose() })
   const valid = type && date && by.trim() && text.trim()
   return (
@@ -208,10 +211,22 @@ function CommentModal({ sample, onClose, onSaved }) {
           <input style={inp} type="date" value={date} onChange={e=>setDate(e.target.value)} />
           <input style={inp} placeholder="Comment by" value={by} onChange={e=>setBy(e.target.value)} />
         </div>
+        <div style={{position:'relative',marginBottom:10}}>
+          <div style={{fontSize:12,fontWeight:600,marginBottom:5}}>Rejected/Revision on</div>
+          <button type="button" style={{...inp,textAlign:'left',background:'#fff',cursor:'pointer',height:'auto',minHeight:36,padding:'8px 10px'}} onClick={()=>setReasonsOpen(v=>!v)} aria-expanded={reasonsOpen}>
+            {reasons.length?reasons.join(', '):'Select reasons (multiple)'} <span style={{float:'right'}}>⌄</span>
+          </button>
+          {reasonsOpen && <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:450,background:'#fff',border:'1px solid #e5e7eb',borderRadius:8,boxShadow:'0 8px 20px rgba(0,0,0,.12)',padding:8,maxHeight:230,overflowY:'auto'}}>
+            {REVISION_REASONS.map(reason=><label key={reason} style={{display:'flex',gap:8,alignItems:'center',padding:'6px 8px',fontSize:12,cursor:'pointer'}}>
+              <input type="checkbox" checked={reasons.includes(reason)} onChange={e=>setReasons(old=>e.target.checked?[...old,reason]:old.filter(x=>x!==reason))}/>{reason}
+            </label>)}
+            <button type="button" style={{...btn,marginTop:6,width:'100%'}} onClick={()=>setReasonsOpen(false)}>Done</button>
+          </div>}
+        </div>
         <textarea style={{ ...inp, height:140, padding:'10px' }} placeholder="Paste comments here..." value={text} onChange={e=>setText(e.target.value)} />
         <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:12 }}>
           <button style={btn} onClick={onClose}>Cancel</button>
-          <button style={{ ...btn, background:valid?'#111827':'#e5e7eb', color:valid?'#fff':'#9ca3af', borderColor:valid?'#111827':'#e5e7eb' }} disabled={!valid} onClick={() => onSaved({ type, date, by, text })}>Save Comment</button>
+          <button style={{ ...btn, background:valid?'#111827':'#e5e7eb', color:valid?'#fff':'#9ca3af', borderColor:valid?'#111827':'#e5e7eb' }} disabled={!valid} onClick={() => onSaved({ type, date, by, text, reasons })}>Save Comment</button>
         </div>
       </div>
       <Dialogs />
@@ -424,7 +439,7 @@ export default function SamplingApprovals() {
   }
 
   async function saveComment(sample, payload) {
-    const {error:commentError}=await supabase.from('sample_comments').insert({sample_id:sample.id,root_sample_id:sample.root_sample_id||sample.id,sam_number:sample.sample_number,version_label:sample.version,comment_type:payload.type,comment_text:payload.text,comment_by:payload.by,comment_date:payload.date+'T12:00:00Z',is_internal:false})
+    const {error:commentError}=await supabase.from('sample_comments').insert({sample_id:sample.id,root_sample_id:sample.root_sample_id||sample.id,sam_number:sample.sample_number,version_label:sample.version,comment_type:payload.type,comment_text:payload.text,comment_by:payload.by,comment_date:payload.date+'T12:00:00Z',is_internal:false,meta:{revision_reasons:payload.reasons||[]}})
     if(commentError){alert('Comment was not saved to Supabase: '+commentError.message,{title:'Save Failed'});return}
     addSampleComment(sample.id, payload)
     const patch = payload.type === 'Approval'
