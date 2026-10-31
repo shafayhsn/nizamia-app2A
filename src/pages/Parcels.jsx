@@ -104,9 +104,30 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
           <button style={{ ...btn, background:canCreate?'#111827':'#e5e7eb', color:canCreate?'#fff':'#9ca3af', borderColor:canCreate?'#111827':'#e5e7eb' }} disabled={!canCreate} onClick={() => onCreated({ items: allRows.map(r => ({ sampleId: r.sampleId })), customItems: customItems.filter(x => x.description?.trim()) })}>Create Parcel</button>
         </div>
       </div>
+      {editing&&<ParcelEditModal parcel={editing} onClose={()=>setEditing(null)} onSave={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok)setEditing(null)}} onDispatch={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok){await doDispatch({...editing,...patch});setEditing(null)}}}/>}
       <Dialogs />
     </div>
   )
+}
+
+
+function ParcelEditModal({parcel,onClose,onSave,onDispatch}){
+ const [form,setForm]=useState({courier:parcel.courier||'',trackingNo:parcel.trackingNo||'',trackingUrl:parcel.trackingUrl||'',dispatchDate:parcel.dispatchDate||'',notes:parcel.notes||''})
+ const [working,setWorking]=useState(false)
+ const set=(key,value)=>setForm(v=>({...v,[key]:value}))
+ const submit=async(dispatch=false)=>{
+   if(form.trackingUrl&&!validTrackingUrl(form.trackingUrl)){window.alert('Enter a valid http(s) tracking URL.');return}
+   if(dispatch&&(!form.courier||!form.trackingNo||!form.dispatchDate)){window.alert('Courier, tracking number and dispatch date are required.');return}
+   setWorking(true)
+   try{await (dispatch?onDispatch(form):onSave(form))}finally{setWorking(false)}
+ }
+ return <div style={{position:'fixed',inset:0,zIndex:500,background:'#0006',display:'flex',alignItems:'center',justifyContent:'center'}}>
+  <div role="dialog" aria-modal="true" aria-label="Edit parcel" style={{...card,padding:20,width:440,maxWidth:'95vw'}}>
+   <div style={{display:'flex',justifyContent:'space-between',marginBottom:14}}><strong>Edit Parcel · {parcel.id}</strong><button style={btn} onClick={onClose}>×</button></div>
+   {[['courier','Courier'],['trackingNo','Tracking Number'],['trackingUrl','Tracking URL'],['dispatchDate','Dispatch Date'],['notes','Notes']].map(([key,label])=><label key={key} style={{display:'block',fontSize:12,marginBottom:10}}>{label}<input style={{...inp,marginTop:4}} type={key==='dispatchDate'?'date':'text'} value={form[key]} onChange={e=>set(key,e.target.value)} placeholder={key==='trackingUrl'?'https://courier.example/track/...':''}/></label>)}
+   <div style={{display:'flex',justifyContent:'flex-end',gap:8}}><button style={btn} onClick={onClose}>Cancel</button><button style={btn} disabled={working} onClick={()=>submit(false)}>Save</button>{parcel.status==='Draft'&&<button style={{...btn,background:'#111827',color:'#fff'}} disabled={working} onClick={()=>submit(true)}><Truck size={13}/> Dispatch</button>}</div>
+  </div>
+ </div>
 }
 
 export default function Parcels() {
@@ -301,7 +322,7 @@ export default function Parcels() {
       <div style={{padding:'10px 24px',borderBottom:'1px solid #f3f4f6',display:'flex',alignItems:'center',gap:14,flexShrink:0}}>
         <div className="app-page-title">Parcels</div>
         <div style={{border:'1px solid #e5e7eb',borderRadius:8,padding:'6px 12px',fontSize:12}}>READY <strong>{availableSamples.length}</strong></div>
-        <div style={{border:'1px solid #e5e7eb',borderRadius:8,padding:'6px 12px',fontSize:12}}>DISPATCHED <strong>{parcels.filter(p=>p.status==='Dispatched').length}</strong></div>
+        <div style={{border:'1px solid #e5e7eb',borderRadius:8,padding:'6px 12px',fontSize:12}}>DISPATCHED <strong>{parcels.filter(p=>p.status!=='Draft').length}</strong></div>
         <div style={{marginLeft:'auto',display:'flex',gap:8}}><button className="btn btn-secondary" onClick={load}><RefreshCw size={14}/> Refresh</button><button className="btn btn-primary" onClick={()=>setCreating(true)}><Plus size={14}/> Create Parcel</button></div>
       </div>
       <div style={{padding:'8px 24px',borderBottom:'1px solid #f3f4f6',display:'flex',alignItems:'center',gap:7,flexShrink:0,whiteSpace:'nowrap',overflowX:'auto'}}>
@@ -322,7 +343,7 @@ export default function Parcels() {
             {shownSamples.map(r=><tr key={r.sampleId}><td><input type="checkbox" checked={selectedSamples.includes(r.sampleId)} onChange={e=>setSelectedSamples(v=>e.target.checked?[...v,r.sampleId]:v.filter(x=>x!==r.sampleId))}/></td><td style={{fontWeight:700}}>{r.sample.sample_number||'—'}</td><td>{r.order.buyer_name||'—'}</td><td>{r.order.job_number||'—'}</td><td>{r.order.style_number||'—'}</td><td>{r.sample.sample_type||'—'} / {r.meta.version||'V1'}</td><td>{sampleWashColour(r.sample,r.meta)}</td><td>{sampleSizeLabel(r.sample,r.meta)}</td><td>{r.sample.req_pcs||0}</td><td>{formatDate(r.sample.stage_dates?.Ready||r.meta.stageDates?.Ready||r.sample.ready_at||r.meta.readyAt)||'—'}</td></tr>)}
             {!shownSamples.length&&<tr><td colSpan={10} style={{textAlign:'center',padding:28,color:'#9ca3af'}}>No samples ready for dispatch. You can still create a parcel with custom items.</td></tr>}
           </tbody></table>
-          {parcels.some(p=>p.status!=='Dispatched')&&<div style={{fontWeight:700,fontSize:13,margin:'18px 0 8px'}}>Parcels Awaiting Dispatch</div>}
+          {parcels.some(p=>p.status==='Draft')&&<div style={{fontWeight:700,fontSize:13,margin:'18px 0 8px'}}>Parcels Awaiting Dispatch</div>}
         </>}
         {(tab==='dispatched'||parcels.some(p=>p.status==='Draft'))&&<table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr>
           <th><input type="checkbox" aria-label="Select visible parcels" checked={shownParcels.length>0&&shownParcels.every(p=>selectedParcels.includes(p.id))} onChange={e=>setSelectedParcels(e.target.checked?shownParcels.map(p=>p.id):[])}/></th>
