@@ -1,9 +1,10 @@
+import { createPortal } from 'react-dom'
 import useManagedPopup from '../components/ui/useManagedPopup'
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { statusBadgeStyle, statusDisplay } from '../lib/statusColors'
 import { loadSamplingStore } from '../lib/samplingStore'
-import { FileText, Plus, RefreshCw, Truck, Pencil, Trash2, CheckCheck, ExternalLink, ArrowDownUp, Layers, Settings2 } from 'lucide-react'
+import { FileText, Plus, RefreshCw, Truck, Pencil, Trash2, CheckCheck, ExternalLink, ArrowDownUp, Layers, Settings2, ListFilter } from 'lucide-react'
 import { useAppDialogs } from '../components/ui/AppDialogs'
 import { formatDate } from '../lib/utils'
 
@@ -160,6 +161,7 @@ export default function Parcels() {
   const [history,setHistory]=useState([])
   const [busy,setBusy]=useState(false)
   const [statusMenu,setStatusMenu]=useState(false)
+  const [statusMenuPos,setStatusMenuPos]=useState({top:0,right:0})
   const [sortBy,setSortBy]=useState(()=>readPrefs().sortBy||'date-desc')
   const [groupBy,setGroupBy]=useState(()=>readPrefs().groupBy||'none')
   const [statusFilter,setStatusFilter]=useState(()=>readPrefs().statusFilter||'All')
@@ -399,7 +401,7 @@ export default function Parcels() {
         <div style={{marginLeft:'auto',display:'flex',gap:5,alignItems:'center'}}>
           <button style={btn} title="Edit selected parcel" disabled={busy||selectedParcels.length!==1} onClick={()=>setEditing(parcels.find(p=>p.id===selectedParcels[0]))}><Pencil size={15}/></button>
           <button style={btn} title="Delete selected parcels" disabled={busy||!selectedParcels.length} onClick={deleteSelected}><Trash2 size={15} color="#dc2626"/></button>
-          <div style={{position:'relative'}}><button style={btn} title="Change Status" aria-label="Change Status" disabled={busy||!selectedParcels.some(id=>parcels.some(p=>p.id===id&&p.status!=='Draft'&&p.status!=='Delivered'))} onClick={()=>setStatusMenu(v=>!v)}><Settings2 size={15}/></button>{statusMenu&&<div style={{position:'absolute',right:0,top:35,zIndex:60,background:'#fff',border:'1px solid #ddd',borderRadius:8,boxShadow:'0 6px 20px #0002',padding:5,minWidth:175}}>{TRACKING_STATUSES.filter(x=>x!=='Delivered').map(x=><button key={x} onClick={()=>bulkChangeStatus(x)} style={{...btn,display:'block',width:'100%',textAlign:'left',border:0}}>{statusPill(x)}</button>)}</div>}</div>
+          <div><button style={btn} title="Change Status" aria-label="Change Status" disabled={busy||!selectedParcels.some(id=>parcels.some(p=>p.id===id&&p.status!=='Draft'&&p.status!=='Delivered'))} onClick={e=>{const rect=e.currentTarget.getBoundingClientRect();setStatusMenuPos({top:rect.bottom+6,right:Math.max(8,window.innerWidth-rect.right)});setStatusMenu(v=>!v)}}><ListFilter size={15}/></button>{statusMenu&&createPortal(<><div style={{position:'fixed',inset:0,zIndex:9998}} onClick={()=>setStatusMenu(false)}/><div role="menu" aria-label="Change parcel status" style={{position:'fixed',right:statusMenuPos.right,top:statusMenuPos.top,zIndex:9999,background:'#fff',border:'1px solid #ddd',borderRadius:8,boxShadow:'0 6px 20px #0002',padding:5,minWidth:175}}>{TRACKING_STATUSES.filter(x=>x!=='Delivered').map(x=><button key={x} role="menuitem" onClick={()=>bulkChangeStatus(x)} style={{...btn,display:'block',width:'100%',textAlign:'left',border:0}}>{statusPill(x)}</button>)}</div></>,document.body)}</div>
           <button style={{...btn,background:'#dcfce7',color:'#166534',borderColor:'#bbf7d0',display:'flex',gap:5,alignItems:'center'}} disabled={busy||!selectedParcels.some(id=>parcels.some(p=>p.id===id&&p.status!=='Delivered'&&p.status!=='Draft'))} onClick={markDelivered}><CheckCheck size={15}/> Mark Delivered</button>
         </div>
       </div>
