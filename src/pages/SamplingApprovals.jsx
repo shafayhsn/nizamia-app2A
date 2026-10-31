@@ -552,7 +552,7 @@ export default function SamplingApprovals() {
       </div>
 
       <div style={{flex:1,minHeight:0,overflowX:'auto',overflowY:'auto',width:'100%',minWidth:0,boxSizing:'border-box',padding:'0 12px'}} className="table-wrap">
-        <table style={{width:'100%',minWidth:1150,tableLayout:'auto'}}><thead><tr><th style={{width:36}}><input type="checkbox" checked={rows.length>0&&selectedIds.length===rows.length} onChange={e=>setSelectedIds(e.target.checked?rows.map(r=>r.id):[])}/></th><th>SAM # / {viewTab==='completed'?'Ref':'Approval'}</th><th>Customer</th><th>Job #</th><th>Style #</th><th>Type / Ver.</th><th>Wash Colour</th><th>Sample Size</th><th>Qty</th><th>Status</th>{viewTab!=='completed'&&<th>Due Date</th>}</tr></thead>
+        <table style={{width:'100%',minWidth:1150,tableLayout:'auto'}}><thead><tr><th style={{width:36}}><input type="checkbox" checked={rows.length>0&&selectedIds.length===rows.length} onChange={e=>setSelectedIds(e.target.checked?rows.map(r=>r.id):[])}/></th><th>SAM # / Factory Ref #</th><th>Customer</th><th>Job #</th><th>Style #</th><th>Type / Ver.</th><th>Wash Colour</th><th>Sample Size</th><th>Qty</th><th>Status</th>{viewTab!=='completed'&&<th>Due Date</th>}</tr></thead>
           <tbody>{groupedRows ? Object.entries(groupedRows).flatMap(([group,items]) => [<tr key={`g-${group}`}><td colSpan={viewTab==='completed'?10:11} style={{background:'#dceefa',fontWeight:700,padding:'8px 12px'}}>{group} <span style={{color:'#6b7280',fontWeight:500}}>— {items.length} sample{items.length===1?'':'s'}</span></td></tr>, ...items.map(renderRow)]) : rows.map(renderRow)}{rows.length===0&&<tr><td colSpan={11} style={{textAlign:'center',padding:28,color:'#9ca3af'}}>No sample requests found.</td></tr>}</tbody>
         </table>
       </div>
