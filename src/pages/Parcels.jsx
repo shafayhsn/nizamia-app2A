@@ -167,11 +167,13 @@ export default function Parcels() {
     // Import browser-only legacy parcels without overwriting existing Supabase records.
     const legacy=loadSamplingStore()
     const remoteIds=new Set((dbParcels||[]).map(p=>p.id))
-    const missing=(legacy.parcels||[]).filter(p=>!remoteIds.has(p.id))
+    const migrationDone=localStorage.getItem('nzm_parcels_migrated_to_supabase_v1')==='true'
+    const missing=migrationDone?[]:(legacy.parcels||[]).filter(p=>!remoteIds.has(p.id))
     if(missing.length){
       const {error:importError}=await supabase.from('parcels').insert(missing.map(toDb))
       if(importError) alert('Legacy parcel import failed: '+importError.message,{title:'Migration Warning'})
-    }
+      else localStorage.setItem('nzm_parcels_migrated_to_supabase_v1','true')
+    } else if(!migrationDone) localStorage.setItem('nzm_parcels_migrated_to_supabase_v1','true')
     const {data:updated,error:reloadError}=missing.length?await supabase.from('parcels').select('*').order('created_at',{ascending:false}):{data:dbParcels}
     if(reloadError) alert(reloadError.message,{title:'Parcel Loading Failed'})
     setParcels((updated||dbParcels||[]).map(fromDb))
@@ -257,7 +259,7 @@ export default function Parcels() {
     }
   }
   async function changeStatus(id,status){
-    if(status==='Delivered')return
+    if(status==='Delivered'||status==='Draft')return
     await patchParcel(id,{status})
   }
   async function markDelivered(){
@@ -355,7 +357,7 @@ export default function Parcels() {
               <td><input type="checkbox" aria-label={'Select '+p.id} checked={selectedParcels.includes(p.id)} onChange={e=>setSelectedParcels(v=>e.target.checked?[...new Set([...v,p.id])]:v.filter(id=>id!==p.id))}/></td>
               <td style={{fontWeight:700}}>{p.id}</td>
               <td>{p.items?.length||0} SAM# + {p.customItems?.length||0} custom</td>
-              <td>{p.status==='Delivered'?statusPill('Delivered'):<select aria-label={'Status for '+p.id} disabled={busy} style={{...inp,minWidth:125,...STATUS_STYLES[p.status]}} value={p.status} onChange={e=>changeStatus(p.id,e.target.value)}>{['Draft',...TRACKING_STATUSES.filter(x=>x!=='Delivered')].filter(x=>x!=='Draft'||p.status==='Draft').map(x=><option key={x}>{x}</option>)}</select>}</td>
+              <td>{p.status==='Delivered'?statusPill('Delivered'):<select aria-label={'Status for '+p.id} disabled={busy} style={{...inp,minWidth:125,...STATUS_STYLES[p.status]}} value={p.status} onChange={e=>changeStatus(p.id,e.target.value)}>{(p.status==='Draft'?['Draft']:TRACKING_STATUSES.filter(x=>x!=='Delivered')).map(x=><option key={x}>{x}</option>)}</select>}</td>
               <td>{p.courier||'—'}</td>
               <td>{p.trackingNo||'—'}</td>
               <td>{validTrackingUrl(p.trackingUrl)?<a href={validTrackingUrl(p.trackingUrl)} target="_blank" rel="noopener noreferrer" title="Open courier tracking"><ExternalLink size={16}/></a>:<span style={{color:'#9ca3af'}}>—</span>}</td>
