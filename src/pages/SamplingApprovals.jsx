@@ -249,7 +249,7 @@ export default function SamplingApprovals() {
   async function load() {
     const [{ data: s }, { data: o }, { data: b }, {data: bom}, {data: blocks}, {data: comments}, {data: parcels}] = await Promise.all([
       supabase.from('samples').select('*').order('created_at', { ascending:false }),
-      supabase.from('orders').select('id,buyer_id,buyer_name,job_number,style_number,description,factory_ref,merchandiser_name,style_image_url,style_image_base64').order('created_at', { ascending:false }),
+      supabase.from('orders').select('id,buyer_id,buyer_name,job_number,style_number,description,factory_ref,merchandiser_name,style_image_url').order('created_at', { ascending:false }),
       supabase.from('buyers').select('*').order('name'),
       supabase.from('bom_items').select('*').order('sort_order'),
       supabase.from('fitting_blocks').select('*').order('sort_order'),
@@ -269,12 +269,14 @@ export default function SamplingApprovals() {
   const buyerMap = useMemo(() => Object.fromEntries(buyers.map(b => [b.id, b])), [buyers])
 
   const allRows = useMemo(() => {
-    const sampleMeta = loadSamplingStore().sampleMeta || {}
+    const localStore = loadSamplingStore()
+    const sampleMeta = localStore.sampleMeta || {}
+    const localComments = localStore.comments || {}
     return samples.map(s => {
     const order = orderMap[s.order_id] || {}
     const buyer = buyerMap[order.buyer_id] || {}
     const meta = sampleMeta[s.id] || {}
-    const comments = getSampleComments(s.id)
+    const comments = localComments[s.id] || []
     const latest = comments[comments.length - 1]
     return { ...s, order, buyer, meta, comments, latest, version: s.version_label || meta.version || `V${s.version_no || 1}`, stage: s.stage || meta.stage || 'Not Started', dispatchStatus: s.dispatch_status === 'Delivered' ? 'Delivered' : s.dispatch_status || meta.dispatchStatus || 'In Development', approvalStatus: s.approval_status || meta.approvalStatus || 'Pending', dueDate: s.due_date || meta.dueDate || null, qty: s.req_pcs || s.qty || 0, latestCommentText: latest?.text || '' }
     })
