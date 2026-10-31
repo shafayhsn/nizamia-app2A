@@ -242,22 +242,22 @@ function SampleMetadata({sample,allSamples,parcels,comments,onClose}){
    return()=>{active=false}
  },[sample.id,parcels])
  const events=[]
- const push=(date,label,detail,source)=>{if(date)events.push({date,label,detail,source})}
+ const push=(date,label,detail,source,user)=>{if(date)events.push({date,label,detail,source,user:user||null})}
  versions.forEach(v=>{
    push(v.created_at||v.requested_date,'Sample requirement created',v.sample_number+' · '+(v.version_label||'V1'),'Sampling')
    if(v.parent_sample_id)push(v.created_at,'New sample version',v.version_label||'Revision','Versions')
    if(v.received_date)push(v.received_date,'Sample received',v.version_label||'','Sampling')
-   if(v.last_comment_at&&v.approval_status&&!relatedComments.some(c=>c.sample_id===v.id&&String(c.comment_date||'').slice(0,10)===String(v.last_comment_at).slice(0,10)))push(v.last_comment_at,v.approval_status,v.last_comment_by||'','Approval')
+   if(v.last_comment_at&&v.approval_status&&!relatedComments.some(c=>c.sample_id===v.id&&String(c.comment_date||'').slice(0,10)===String(v.last_comment_at).slice(0,10)))push(v.last_comment_at,v.approval_status,v.version_label||'','Approval',v.last_comment_by)
    const meta=stored.sampleMeta?.[v.id]||{}
    Object.entries(meta.stageDates||{}).forEach(([stage,date])=>push(date,stage,v.version_label||'','Sampling · legacy'))
  })
- ;[...relatedComments,...localComments].forEach(c=>push(c.comment_date||c.created_at,c.comment_type||'Comment',(c.comment_by?c.comment_by+' · ':'')+(c.comment_text||''),c.source||'Comments'))
+ ;[...relatedComments,...localComments].forEach(c=>push(c.comment_date||c.created_at,c.comment_type||'Comment',c.comment_text||'',c.source||'Comments',c.comment_by))
  linkedParcels.forEach(p=>{
    push(p.created_at,'Added to parcel',p.id,'Parcels')
-   push(p.dispatch_date||p.dispatched_at,'Parcel dispatched',p.id+' · '+(p.courier||''),'Parcels')
+   push(p.dispatch_date||p.dispatched_at,'Parcel dispatched',[p.id,p.courier,p.tracking_no].filter(Boolean).join(' · '),'Parcels',p.dispatched_by)
    if(p.delivered_at)push(p.delivered_at,'Delivered',p.id+(p.received_by?' · Received by '+p.received_by:''),'Parcels')
  })
- history.forEach(h=>push(h.changed_at,h.new_status,h.parcel_id+(h.note?' · '+h.note:''),'Parcel status'))
+ history.forEach(h=>push(h.changed_at,h.new_status,h.parcel_id+(h.note?' · '+h.note:''),'Parcel status',h.changed_by))
  events.sort((a,b)=>new Date(b.date)-new Date(a.date))
  const fmt=d=>d?new Date(d).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour: d.includes('T')?'2-digit':undefined,minute:d.includes('T')?'2-digit':undefined}):'—'
  const cell=(label,value)=><div style={{padding:'9px 0',borderBottom:'1px solid #f1f5f9'}}><div style={{fontSize:10,color:'#94a3b8'}}>{label}</div><div style={{fontSize:12,fontWeight:600,marginTop:3}}>{value||'—'}</div></div>
@@ -268,7 +268,7 @@ function SampleMetadata({sample,allSamples,parcels,comments,onClose}){
     <div style={{display:'flex',gap:6,marginTop:16,flexWrap:'wrap'}}>{['Timeline','Details','Versions','Comments','Parcels'].map(x=><button key={x} onClick={()=>setTab(x)} style={{...btn,background:tab===x?'#111827':'#fff',color:tab===x?'#fff':'#374151'}}>{x}{x==='Versions'?' ('+versions.length+')':x==='Comments'?' ('+(relatedComments.length+localComments.length)+')':''}</button>)}</div>
    </header>
    <main style={{padding:'14px 24px 24px',overflowY:'auto',minHeight:180}}>
-    {tab==='Timeline'&&<><div style={{display:'grid',gridTemplateColumns:'145px 125px 160px minmax(0,1fr)',gap:12,padding:'9px 12px',background:'#f8fafc',fontSize:11,fontWeight:700,color:'#64748b',borderBottom:'1px solid #e2e8f0'}}><span>DATE / TIME</span><span>PHASE</span><span>ACTIVITY</span><span>DETAILS / COMMENTS</span></div>{loading&&<div style={{padding:10,color:'#64748b',fontSize:12}}>Loading parcel history…</div>}{events.length?events.map((e,i)=><div key={i} style={{display:'grid',gridTemplateColumns:'145px 125px 160px minmax(0,1fr)',gap:12,alignItems:'start',padding:'10px 12px',borderBottom:'1px solid #e5e7eb',fontSize:12}}><span style={{color:'#64748b',fontVariantNumeric:'tabular-nums'}}>{fmt(e.date)}</span><span style={{color:'#64748b'}}>{e.source}</span><strong style={{fontSize:12}}>{e.label}</strong><span style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',lineHeight:1.45}}>{e.detail||'—'}</span></div>):<div style={{padding:16}}>No dated history is available for this sample.</div>}</>}
+    {tab==='Timeline'&&<>{loading&&<div style={{padding:10,color:'#64748b',fontSize:12}}>Loading parcel history…</div>}{events.length?events.map((e,i)=><div key={i} style={{display:'grid',gridTemplateColumns:'112px minmax(0,1fr) 125px',gap:12,alignItems:'start',padding:'10px 6px',borderBottom:'1px solid #e5e7eb',fontSize:12}}><span style={{color:'#64748b',fontVariantNumeric:'tabular-nums'}}>{fmt(e.date)}</span><span style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',lineHeight:1.45}}><strong>{e.label}</strong>{e.detail?' | '+e.detail:''}</span><span style={{color:'#64748b',textAlign:'right',overflowWrap:'anywhere'}}>User: {e.user||'—'}</span></div>):<div style={{padding:16}}>No dated history is available for this sample.</div>}</>}
     {tab==='Details'&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',columnGap:22}}>{cell('SAM #',sample.sample_number)}{cell('Sample Type',sample.sample_type)}{cell('Version',sample.version)}{cell('Approval',sample.approvalStatus)}{cell('Sampling Stage',sample.stage)}{cell('Parcel Status',sample.dispatchStatus)}{cell('Requested Date',fmt(sample.requested_date||sample.created_at))}{cell('Due Date',fmt(sample.dueDate))}{cell('Quantity',sample.qty)}{cell('Size',sample.base_size||sample.size)}{cell('Colour',sample.color||sample.colours?.join(', '))}{cell('Root Sample',root)}</div>}
     {tab==='Versions'&&versions.map(v=><div key={v.id} style={{padding:12,borderBottom:'1px solid #e5e7eb'}}><strong>{v.version_label||'V1'}</strong> · {v.sample_number} <span style={{color:'#64748b',fontSize:11}}>Created {fmt(v.created_at)}</span><div style={{fontSize:12,marginTop:5}}>Stage: {v.stage||'—'} · Approval: {v.approval_status||'Pending'} · Parent: {v.parent_sample_id?'Linked':'Original'}</div></div>)}
     {tab==='Comments'&&([...relatedComments,...localComments].sort((a,b)=>new Date(a.comment_date||a.created_at)-new Date(b.comment_date||b.created_at)).map((c,i)=><div key={c.id||i} style={{padding:'12px 0',borderBottom:'1px solid #e5e7eb'}}><strong>{c.comment_type||'Comment'}</strong><span style={{color:'#64748b',fontSize:11}}> · {fmt(c.comment_date||c.created_at)} · {c.comment_by||'Unknown author'} · {c.version_label||''}</span><div style={{whiteSpace:'pre-wrap',fontSize:12,marginTop:7}}>{c.comment_text||'—'}</div></div>))}
