@@ -219,6 +219,65 @@ function CommentModal({ sample, onClose, onSaved }) {
   )
 }
 
+
+function SampleMetadata({sample,allSamples,parcels,comments,onClose}){
+ const [tab,setTab]=useState('Timeline')
+ const [history,setHistory]=useState([])
+ const [loading,setLoading]=useState(true)
+ const root=sample.root_sample_id||sample.id
+ const versions=allSamples.filter(x=>x.id===root||x.root_sample_id===root||x.parent_sample_id===sample.id||x.id===sample.id).sort((a,b)=>(a.version_no||1)-(b.version_no||1))
+ const familyIds=new Set(versions.map(v=>v.id))
+ const linkedParcels=parcels.filter(p=>(p.items||[]).some(i=>familyIds.has(i.sampleId)))
+ const relatedComments=comments.filter(c=>familyIds.has(c.sample_id)||c.root_sample_id===root||c.sam_number===sample.sample_number)
+ const localComments=versions.flatMap(v=>(loadSamplingStore().comments?.[v.id]||[]).map(c=>({...c,sample_id:v.id,comment_type:c.type,comment_text:c.text,comment_by:c.by,comment_date:c.date,source:'Browser legacy'})))
+ useEffect(()=>{
+   let active=true
+   const ids=linkedParcels.map(p=>p.id)
+   if(!ids.length){setHistory([]);setLoading(false);return}
+   setLoading(true)
+   supabase.from('parcel_status_history').select('*').in('parcel_id',ids).order('changed_at',{ascending:true}).then(({data,error})=>{
+     if(active){setHistory(data||[]);setLoading(false);if(error)console.error('Parcel history:',error)}
+   })
+   return()=>{active=false}
+ },[sample.id,parcels])
+ const events=[]
+ const push=(date,label,detail,source)=>{if(date)events.push({date,label,detail,source})}
+ versions.forEach(v=>{
+   push(v.created_at||v.requested_date,'Sample requirement created',v.sample_number+' · '+(v.version_label||'V1'),'Sampling')
+   if(v.parent_sample_id)push(v.created_at,'New sample version',v.version_label||'Revision','Versions')
+   if(v.received_date)push(v.received_date,'Sample received',v.version_label||'','Sampling')
+   if(v.last_comment_at&&v.approval_status)push(v.last_comment_at,v.approval_status,v.last_comment_by||'','Approval')
+   const meta=loadSamplingStore().sampleMeta?.[v.id]||{}
+   Object.entries(meta.stageDates||{}).forEach(([stage,date])=>push(date,stage,v.version_label||'','Sampling · legacy'))
+ })
+ ;[...relatedComments,...localComments].forEach(c=>push(c.comment_date||c.created_at,c.comment_type||'Comment',(c.comment_by?c.comment_by+' · ':'')+(c.comment_text||''),c.source||'Comments'))
+ linkedParcels.forEach(p=>{
+   push(p.created_at,'Added to parcel',p.id,'Parcels')
+   push(p.dispatch_date||p.dispatched_at,'Parcel dispatched',p.id+' · '+(p.courier||''),'Parcels')
+   if(p.delivered_at)push(p.delivered_at,'Delivered',p.id+(p.received_by?' · Received by '+p.received_by:''),'Parcels')
+ })
+ history.forEach(h=>push(h.changed_at,h.new_status,h.parcel_id+(h.note?' · '+h.note:''),'Parcel status'))
+ events.sort((a,b)=>new Date(a.date)-new Date(b.date))
+ const fmt=d=>d?new Date(d).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour: d.includes('T')?'2-digit':undefined,minute:d.includes('T')?'2-digit':undefined}):'—'
+ const cell=(label,value)=><div style={{padding:'9px 0',borderBottom:'1px solid #f1f5f9'}}><div style={{fontSize:10,color:'#94a3b8'}}>{label}</div><div style={{fontSize:12,fontWeight:600,marginTop:3}}>{value||'—'}</div></div>
+ return createPortal(<div style={{position:'fixed',inset:0,zIndex:11000,background:'#0f172a88',display:'flex',justifyContent:'center',alignItems:'center',padding:20}} onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}>
+  <section role="dialog" aria-modal="true" aria-label={'Sample metadata '+sample.sample_number} style={{background:'#fff',borderRadius:14,width:860,maxWidth:'96vw',maxHeight:'92vh',display:'flex',flexDirection:'column',boxShadow:'0 18px 60px #0003',overflow:'hidden'}}>
+   <header style={{padding:'18px 22px 12px',borderBottom:'1px solid #e5e7eb',flexShrink:0}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12}}><div><div style={{fontSize:20,fontWeight:750}}>{sample.sample_number} <span style={{fontSize:12,color:'#64748b',fontWeight:400}}>· {sample.version}</span></div><div style={{fontSize:12,color:'#64748b',marginTop:5}}>{sample.order.style_number||'—'} · {sample.order.job_number||'—'} · {sample.order.buyer_name||sample.buyer.name||'—'}</div></div><div style={{display:'flex',alignItems:'center',gap:12}}>{statusPill('','',sample.currentStatus?.label||sample.stage)}<button style={btn} onClick={onClose} aria-label="Close sample metadata"><X size={17}/></button></div></div>
+    <div style={{display:'flex',gap:6,marginTop:16,flexWrap:'wrap'}}>{['Timeline','Details','Versions','Comments','Parcels'].map(x=><button key={x} onClick={()=>setTab(x)} style={{...btn,background:tab===x?'#111827':'#fff',color:tab===x?'#fff':'#374151'}}>{x}{x==='Versions'?' ('+versions.length+')':x==='Comments'?' ('+(relatedComments.length+localComments.length)+')':''}</button>)}</div>
+   </header>
+   <main style={{padding:'14px 24px 24px',overflowY:'auto',minHeight:180}}>
+    {tab==='Timeline'&&<>{loading&&<div style={{color:'#64748b',fontSize:12}}>Loading parcel history…</div>}{events.length?events.map((e,i)=><div key={i} style={{display:'flex',gap:14,borderLeft:'2px solid #e2e8f0',padding:'0 0 20px 18px',marginLeft:6,position:'relative'}}><div style={{position:'absolute',left:-6,top:2,width:10,height:10,borderRadius:10,background:'#64748b'}}/><div style={{width:130,flexShrink:0,fontSize:11,color:'#64748b'}}>{fmt(e.date)}</div><div><strong style={{fontSize:13}}>{e.label}</strong><div style={{fontSize:11,color:'#64748b',marginTop:3}}>{e.source}</div>{e.detail&&<div style={{fontSize:12,marginTop:6,whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{e.detail}</div>}</div></div>):<div>No dated history is available for this sample.</div>}</>}
+    {tab==='Details'&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',columnGap:22}}>{cell('SAM #',sample.sample_number)}{cell('Sample Type',sample.sample_type)}{cell('Version',sample.version)}{cell('Approval',sample.approvalStatus)}{cell('Sampling Stage',sample.stage)}{cell('Parcel Status',sample.dispatchStatus)}{cell('Requested Date',fmt(sample.requested_date||sample.created_at))}{cell('Due Date',fmt(sample.dueDate))}{cell('Quantity',sample.qty)}{cell('Size',sample.base_size||sample.size)}{cell('Colour',sample.color||sample.colours?.join(', '))}{cell('Root Sample',root)}</div>}
+    {tab==='Versions'&&versions.map(v=><div key={v.id} style={{padding:12,borderBottom:'1px solid #e5e7eb'}}><strong>{v.version_label||'V1'}</strong> · {v.sample_number} <span style={{color:'#64748b',fontSize:11}}>Created {fmt(v.created_at)}</span><div style={{fontSize:12,marginTop:5}}>Stage: {v.stage||'—'} · Approval: {v.approval_status||'Pending'} · Parent: {v.parent_sample_id?'Linked':'Original'}</div></div>)}
+    {tab==='Comments'&&([...relatedComments,...localComments].sort((a,b)=>new Date(a.comment_date||a.created_at)-new Date(b.comment_date||b.created_at)).map((c,i)=><div key={c.id||i} style={{padding:'12px 0',borderBottom:'1px solid #e5e7eb'}}><strong>{c.comment_type||'Comment'}</strong><span style={{color:'#64748b',fontSize:11}}> · {fmt(c.comment_date||c.created_at)} · {c.comment_by||'Unknown author'} · {c.version_label||''}</span><div style={{whiteSpace:'pre-wrap',fontSize:12,marginTop:7}}>{c.comment_text||'—'}</div></div>))}
+    {tab==='Parcels'&&(linkedParcels.length?linkedParcels.map(p=><div key={p.id} style={{padding:12,borderBottom:'1px solid #e5e7eb'}}><strong>{p.id}</strong> · {p.status||'—'}<div style={{fontSize:12,marginTop:5}}>Courier: {p.courier||'—'} · Tracking: {p.tracking_no||'—'}</div><div style={{fontSize:12,marginTop:5}}>Dispatched: {fmt(p.dispatch_date)} · Delivered: {fmt(p.delivered_at)}</div>{p.received_by&&<div style={{fontSize:12}}>Received by: {p.received_by}</div>}</div>):<div>No linked parcel records.</div>)}
+   </main>
+   <footer style={{borderTop:'1px solid #e5e7eb',padding:'9px 22px',fontSize:11,color:'#64748b'}}>History uses saved Supabase records and labelled legacy browser entries. Missing historical timestamps are not invented.</footer>
+  </section>
+ </div>,document.body)
+}
+
 export default function SamplingApprovals() {
   const { alert, Dialogs } = useAppDialogs()
   const [samples, setSamples] = useState([])
@@ -231,6 +290,8 @@ export default function SamplingApprovals() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [dispatching, setDispatching] = useState(null)
   const [commenting, setCommenting] = useState(null)
+  const [metadataSample,setMetadataSample]=useState(null)
+  const [parcelHistory,setParcelHistory]=useState([])
   const [query, setQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState([])
   const [groupBy, setGroupBy] = useState(() => readSettings().groupBy || 'none')
@@ -254,7 +315,7 @@ export default function SamplingApprovals() {
       supabase.from('bom_items').select('*').order('sort_order'),
       supabase.from('fitting_blocks').select('*').order('sort_order'),
       supabase.from('sample_comments').select('*').order('comment_date'),
-      supabase.from('parcels').select('id,items,custom_items,dispatch_date,dispatched_at'),
+      supabase.from('parcels').select('id,items,custom_items,status,courier,tracking_no,created_at,dispatch_date,dispatched_at,delivered_at,received_by'),
     ])
     setSamples(s || [])
     setOrders(o || [])
@@ -276,11 +337,17 @@ export default function SamplingApprovals() {
     const order = orderMap[s.order_id] || {}
     const buyer = buyerMap[order.buyer_id] || {}
     const meta = sampleMeta[s.id] || {}
-    const comments = localComments[s.id] || []
+    const comments = [...(localComments[s.id]||[]),...sampleComments.filter(c=>c.sample_id===s.id).map(c=>({type:c.comment_type,text:c.comment_text,by:c.comment_by,date:c.comment_date}))]
     const latest = comments[comments.length - 1]
-    return { ...s, order, buyer, meta, comments, latest, version: s.version_label || meta.version || `V${s.version_no || 1}`, stage: s.stage || meta.stage || 'Not Started', dispatchStatus: s.dispatch_status === 'Delivered' ? 'Delivered' : s.dispatch_status || meta.dispatchStatus || 'In Development', approvalStatus: s.approval_status || meta.approvalStatus || 'Pending', dueDate: s.due_date || meta.dueDate || null, qty: s.req_pcs || s.qty || 0, latestCommentText: latest?.text || '' }
+    const relatedParcel=parcelItems.filter(p=>(p.items||[]).some(it=>it.sampleId===s.id)).sort((a,b)=>String(b.delivered_at||b.dispatch_date||b.created_at||'').localeCompare(String(a.delivered_at||a.dispatch_date||a.created_at||'')))[0]
+    const candidates=[{label:s.stage||meta.stage||'Not Started',date:meta.stageDates?.[s.stage||meta.stage]||s.created_at,source:'Sampling'}]
+    if(relatedParcel){candidates.push({label:relatedParcel.status||'Dispatched',date:relatedParcel.delivered_at||relatedParcel.dispatch_date||relatedParcel.dispatched_at,source:'Parcels'})}
+    if(latest)candidates.push({label:latest.type==='Approval'?'Approved':latest.type==='Rejection'?'Rejected':latest.type==='Revision'?'Revision Required':latest.type,date:latest.date,source:'Approval'})
+    if(s.last_comment_at&&s.approval_status)candidates.push({label:s.approval_status,date:s.last_comment_at,source:'Approval'})
+    const currentStatus=candidates.filter(x=>x.date).sort((a,b)=>new Date(b.date)-new Date(a.date))[0]||candidates[0]
+    return { ...s, order, buyer, meta, comments, latest, currentStatus, version: s.version_label || meta.version || `V${s.version_no || 1}`, stage: s.stage || meta.stage || 'Not Started', dispatchStatus: s.dispatch_status === 'Delivered' ? 'Delivered' : s.dispatch_status || meta.dispatchStatus || 'In Development', approvalStatus: s.approval_status || meta.approvalStatus || 'Pending', dueDate: s.due_date || meta.dueDate || null, qty: s.req_pcs || s.qty || 0, latestCommentText: latest?.text || '' }
     })
-  }, [samples, orderMap, buyerMap, refreshKey])
+  }, [samples, orderMap, buyerMap, refreshKey, sampleComments, parcelItems])
 
   const isCompleted = r => r.stage === 'Ready' || r.approvalStatus === 'Approved' || ['complete','completed'].includes(String(r.status || '').toLowerCase())
   const rows = useMemo(() => {
@@ -331,6 +398,8 @@ export default function SamplingApprovals() {
   }
 
   async function saveComment(sample, payload) {
+    const {error:commentError}=await supabase.from('sample_comments').insert({sample_id:sample.id,root_sample_id:sample.root_sample_id||sample.id,sam_number:sample.sample_number,version_label:sample.version,comment_type:payload.type,comment_text:payload.text,comment_by:payload.by,comment_date:payload.date+'T12:00:00Z',is_internal:false})
+    if(commentError){alert('Comment was not saved to Supabase: '+commentError.message,{title:'Save Failed'});return}
     addSampleComment(sample.id, payload)
     const patch = payload.type === 'Approval'
       ? { approvalStatus:'Approved', dispatchStatus:'Comments Received', latestCommentType: payload.type, latestCommentDate: payload.date, latestCommentBy: payload.by }
@@ -396,16 +465,16 @@ export default function SamplingApprovals() {
   const sampleSize = r => r.base_size || (Array.isArray(r.sizes) ? r.sizes.join(', ') : '') || r.size || '—'
   const renderRow = r => (
 
-    <tr key={r.id}>
-      <td><input type="checkbox" checked={selectedIds.includes(r.id)} onChange={e => setSelectedIds(v => e.target.checked ? [...new Set([...v,r.id])] : v.filter(x=>x!==r.id))}/></td>
-      <td><div style={{fontFamily:'monospace',fontWeight:700,whiteSpace:'nowrap'}}>{r.sample_number}</div><div style={{fontSize:11,marginTop:3,fontWeight:600,color:'#374151'}}>{r.approvalStatus}</div></td>
+    <tr key={r.id} onDoubleClick={()=>setMetadataSample(r)} title="Double-click for sample history" style={{cursor:'pointer'}}>
+      <td onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(r.id)} onChange={e => setSelectedIds(v => e.target.checked ? [...new Set([...v,r.id])] : v.filter(x=>x!==r.id))}/></td>
+      <td><div style={{fontFamily:'monospace',fontWeight:700,whiteSpace:'nowrap'}}>{r.sample_number}</div><div style={{fontSize:11,marginTop:3,fontWeight:600,color:'#374151'}}>{viewTab==='completed'?(r.order.factory_ref||r.meta.reference||r.meta.ref||''):r.approvalStatus}</div></td>
       <td><div style={{fontWeight:600}}>{r.order.buyer_name || r.buyer.name || '—'}</div></td>
       <td><div style={{fontFamily:'monospace',fontWeight:600}}>{r.order.job_number || '—'}</div></td>
       <td><div style={{fontWeight:700}}>{r.order.style_number || '—'}</div><div style={{fontSize:10,color:'#9ca3af'}}>{r.order.description || ''}</div></td>
       <td><div>{r.sample_type || '—'}</div><div style={{fontSize:10,color:'#6b7280'}}>{r.version}</div></td>
       <td style={{maxWidth:130,overflowWrap:'anywhere'}}>{washColour(r)}</td><td style={{fontWeight:600,whiteSpace:'nowrap'}}>{sampleSize(r)}</td><td style={{fontWeight:600}}>{r.qty || '—'}</td>
-      <td>{['Dispatched','Delivered'].includes(r.dispatchStatus) ? <div>{statusPill('#dcfce7','#166534',r.dispatchStatus)}<div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{formatDate(r.meta.dispatchDate || r.meta.sentToParcelsAt)}</div></div> : <div><select style={{...inp,height:30,minWidth:130}} value={r.stage} onChange={e=>saveStage(r.id,e.target.value)}>{STAGES.map(x=><option key={x}>{x}</option>)}</select><div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{r.meta.stageDates?.[r.stage] ? formatDate(r.meta.stageDates[r.stage]) : '—'}</div></div>}</td>
-      <td><div style={{fontWeight:600}}>{r.dueDate ? formatDate(r.dueDate) : '—'}</div>{r.dueDate && <div style={{fontSize:10,color:new Date(r.dueDate)<new Date()&&!isCompleted(r)?'#dc2626':'#9ca3af',marginTop:3}}>{Math.ceil((new Date(r.dueDate)-new Date())/86400000) >= 0 ? `${Math.ceil((new Date(r.dueDate)-new Date())/86400000)}d` : `${Math.abs(Math.ceil((new Date(r.dueDate)-new Date())/86400000))}d overdue`}</div>}</td>
+      <td>{viewTab==='completed'?<div>{statusPill('','',r.currentStatus.label)}<div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{r.currentStatus.date?formatDate(r.currentStatus.date):'—'}</div></div>:['Dispatched','Delivered'].includes(r.dispatchStatus) ? <div>{statusPill('#dcfce7','#166534',r.dispatchStatus)}<div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{formatDate(r.meta.dispatchDate || r.meta.sentToParcelsAt)}</div></div> : <div><select style={{...inp,height:30,minWidth:130}} value={r.stage} onChange={e=>saveStage(r.id,e.target.value)}>{STAGES.map(x=><option key={x}>{x}</option>)}</select><div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{r.meta.stageDates?.[r.stage] ? formatDate(r.meta.stageDates[r.stage]) : '—'}</div></div>}</td>
+      {viewTab!=='completed'&&<td><div style={{fontWeight:600}}>{r.dueDate ? formatDate(r.dueDate) : '—'}</div>{r.dueDate && <div style={{fontSize:10,color:new Date(r.dueDate)<new Date()&&!isCompleted(r)?'#dc2626':'#9ca3af',marginTop:3}}>{Math.ceil((new Date(r.dueDate)-new Date())/86400000) >= 0 ? `${Math.ceil((new Date(r.dueDate)-new Date())/86400000)}d` : `${Math.abs(Math.ceil((new Date(r.dueDate)-new Date())/86400000))}d overdue`}</div>}</td>}
     </tr>
   )
 
@@ -440,11 +509,12 @@ export default function SamplingApprovals() {
       </div>
 
       <div style={{flex:1,minHeight:0,overflowX:'auto',overflowY:'auto',width:'100%',minWidth:0,boxSizing:'border-box',padding:'0 12px'}} className="table-wrap">
-        <table style={{width:'100%',minWidth:1150,tableLayout:'auto'}}><thead><tr><th style={{width:36}}><input type="checkbox" checked={rows.length>0&&selectedIds.length===rows.length} onChange={e=>setSelectedIds(e.target.checked?rows.map(r=>r.id):[])}/></th><th>SAM # / Approval</th><th>Customer</th><th>Job #</th><th>Style #</th><th>Type / Ver.</th><th>Wash Colour</th><th>Sample Size</th><th>Qty</th><th>Stage</th><th>Due Date</th></tr></thead>
-          <tbody>{groupedRows ? Object.entries(groupedRows).flatMap(([group,items]) => [<tr key={`g-${group}`}><td colSpan={11} style={{background:'#dceefa',fontWeight:700,padding:'8px 12px'}}>{group} <span style={{color:'#6b7280',fontWeight:500}}>— {items.length} sample{items.length===1?'':'s'}</span></td></tr>, ...items.map(renderRow)]) : rows.map(renderRow)}{rows.length===0&&<tr><td colSpan={11} style={{textAlign:'center',padding:28,color:'#9ca3af'}}>No sample requests found.</td></tr>}</tbody>
+        <table style={{width:'100%',minWidth:1150,tableLayout:'auto'}}><thead><tr><th style={{width:36}}><input type="checkbox" checked={rows.length>0&&selectedIds.length===rows.length} onChange={e=>setSelectedIds(e.target.checked?rows.map(r=>r.id):[])}/></th><th>SAM # / {viewTab==='completed'?'Ref':'Approval'}</th><th>Customer</th><th>Job #</th><th>Style #</th><th>Type / Ver.</th><th>Wash Colour</th><th>Sample Size</th><th>Qty</th><th>Status</th>{viewTab!=='completed'&&<th>Due Date</th>}</tr></thead>
+          <tbody>{groupedRows ? Object.entries(groupedRows).flatMap(([group,items]) => [<tr key={`g-${group}`}><td colSpan={viewTab==='completed'?10:11} style={{background:'#dceefa',fontWeight:700,padding:'8px 12px'}}>{group} <span style={{color:'#6b7280',fontWeight:500}}>— {items.length} sample{items.length===1?'':'s'}</span></td></tr>, ...items.map(renderRow)]) : rows.map(renderRow)}{rows.length===0&&<tr><td colSpan={11} style={{textAlign:'center',padding:28,color:'#9ca3af'}}>No sample requests found.</td></tr>}</tbody>
         </table>
       </div>
       <div style={{height:34,borderTop:'1px solid #e5e7eb',display:'flex',alignItems:'center',padding:'0 24px',fontSize:11,color:'#6b7280',flexShrink:0}}><strong style={{color:'#374151'}}>{rows.length} {viewTab === 'completed' ? 'COMPLETED SAMPLES' : 'SAMPLES'}</strong><span style={{marginLeft:'auto'}}>{selectedIds.length ? `${selectedIds.length} selected` : (viewTab === 'completed' ? `${completedCount} completed` : `${pendingCount} pending approval`)}</span></div>
+      {metadataSample&&<SampleMetadata sample={metadataSample} allSamples={samples} parcels={parcelItems} comments={sampleComments} onClose={()=>setMetadataSample(null)}/>}
       {dispatching&&<DispatchChecklistModal sample={dispatching} onClose={()=>setDispatching(null)} onDone={checks=>{sendSampleToParcelPool(dispatching.id,checks);setDispatching(null);setRefreshKey(x=>x+1)}}/>}
       {commenting&&<CommentModal sample={commenting} onClose={()=>setCommenting(null)} onSaved={payload=>saveComment(commenting,payload)}/>}<Dialogs/>
     </div>
