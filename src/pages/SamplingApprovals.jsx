@@ -351,10 +351,15 @@ export default function SamplingApprovals() {
     const approvalEvents=comments.filter(c=>approvalLabels[c.type]||['Approved','Rejected','Revision Required'].includes(c.type))
     approvalEvents.forEach(c=>candidates.push({label:approvalLabels[c.type]||c.type,date:c.date,source:'Approval',rank:3}))
     if(s.last_comment_at&&s.approval_status&&!['Pending','Pending Approval'].includes(s.approval_status))candidates.push({label:s.approval_status,date:s.last_comment_at,source:'Approval',rank:3})
-    // Compare actual event dates; on the same calendar date, later workflow phases win.
+    // Workflow phase precedence: a sampling Ready date must not override parcel delivery.
+    // Approval decisions supersede logistics only when recorded after the parcel event.
     const valid=candidates.filter(x=>x.date&&!Number.isNaN(new Date(x.date).getTime()))
-    valid.sort((a,b)=>new Date(b.date)-new Date(a.date)||b.rank-a.rank)
-    const currentStatus=valid[0]||candidates[0]
+    const newest=items=>items.sort((a,b)=>new Date(b.date)-new Date(a.date))[0]
+    const parcelEvent=newest(valid.filter(x=>x.rank===2))
+    const approvalEvent=newest(valid.filter(x=>x.rank===3))
+    const samplingEvent=newest(valid.filter(x=>x.rank===1))
+    const currentStatus=approvalEvent&&(!parcelEvent||new Date(approvalEvent.date)>=new Date(parcelEvent.date))
+      ? approvalEvent : parcelEvent||samplingEvent||candidates[0]
     return { ...s, order, buyer, meta, comments, latest, currentStatus, version: s.version_label || meta.version || `V${s.version_no || 1}`, stage: s.stage || meta.stage || 'Not Started', dispatchStatus: s.dispatch_status === 'Delivered' ? 'Delivered' : s.dispatch_status || meta.dispatchStatus || 'In Development', approvalStatus: s.approval_status || meta.approvalStatus || 'Pending', dueDate: s.due_date || meta.dueDate || null, qty: s.req_pcs || s.qty || 0, latestCommentText: latest?.text || '' }
     })
   }, [samples, orderMap, buyerMap, refreshKey, sampleComments, parcelItems])
