@@ -191,6 +191,31 @@ function DispatchChecklistModal({ sample, onClose, onDone }) {
   )
 }
 
+const legacySampleComments = sample => {
+  if (!sample) return []
+  const raw = sample.comments
+  if (!raw) return []
+  let parsed = raw
+  if (typeof raw === 'string') {
+    try { parsed = JSON.parse(raw) } catch { parsed = [{ text:raw }] }
+  }
+  return (Array.isArray(parsed) ? parsed : [parsed]).filter(Boolean).map(c =>
+    typeof c === 'string' ? {comment_text:c,comment_type:'Revision'} : {
+      comment_text:c.text||c.comment_text||c.comment||'',
+      comment_type:c.type||c.comment_type||'Revision',
+      comment_by:c.by||c.comment_by||'',
+      comment_date:c.date||c.comment_date||null,
+      meta:{revision_reasons:c.reasons||c.meta?.revision_reasons||[]}
+    }).filter(c=>c.comment_text)
+}
+const latestEditableComment = (sample, records) => {
+  if (!sample) return null
+  const db = records.filter(c=>c.sample_id===sample.id&&!c.is_internal).sort((a,b)=>String(b.created_at||b.comment_date).localeCompare(String(a.created_at||a.comment_date)))[0]
+  if (db) return db
+  const local = getSampleComments(sample.id).filter(c=>c.text).map(c=>({comment_text:c.text,comment_type:c.type||'Revision',comment_by:c.by||'',comment_date:c.date||null,meta:{revision_reasons:c.reasons||[]}}))
+  return local.at(-1) || legacySampleComments(sample).at(-1) || null
+}
+
 function CommentModal({ sample, existingComment, onClose, onSaved }) {
   const { Dialogs } = useAppDialogs()
   const [type, setType] = useState(existingComment?.comment_type || 'Revision')
@@ -212,7 +237,7 @@ function CommentModal({ sample, existingComment, onClose, onSaved }) {
           <input style={inp} placeholder="Comment by" value={by} onChange={e=>setBy(e.target.value)} />
         </div>
         <div style={{position:'relative',marginBottom:10}}>
-          <div style={{fontSize:12,fontWeight:600,marginBottom:5}}>Rejected/Revision on</div>
+          <div style={{fontSize:12,fontWeight:600,marginBottom:5}}>{type === 'Approval' ? 'Approved for' : 'Rejected/Revision on'}</div>
           <button type="button" style={{...inp,textAlign:'left',background:'#fff',cursor:'pointer',height:'auto',minHeight:36,padding:'8px 10px'}} onClick={()=>setReasonsOpen(v=>!v)} aria-expanded={reasonsOpen}>
             {reasons.length?reasons.join(', '):'Select reasons (multiple)'} <span style={{float:'right'}}>⌄</span>
           </button>
@@ -440,13 +465,14 @@ export default function SamplingApprovals() {
 
   async function saveComment(sample, payload) {
     const existing=sampleComments.filter(c=>c.sample_id===sample.id&&!c.is_internal).sort((a,b)=>String(b.created_at||b.comment_date).localeCompare(String(a.created_at||a.comment_date)))[0]
+    const legacy=existing?null:latestEditableComment(sample,sampleComments)
     const fields={comment_type:payload.type,comment_text:payload.text,comment_by:payload.by,comment_date:payload.date+'T12:00:00Z'}
     const previous=existing?{type:existing.comment_type,text:existing.comment_text,by:existing.comment_by,date:existing.comment_date,reasons:existing.meta?.revision_reasons||[]}:null
-    const meta={...(existing?.meta||{}),revision_reasons:payload.reasons||[],...(existing?{edit_history:[...(existing.meta?.edit_history||[]),{previous,edited_at:new Date().toISOString()}]}:{})}
+    const meta={...(existing?.meta||{}),revision_reasons:payload.reasons||[],...((existing||legacy)?{edit_history:[...(existing?.meta?.edit_history||[]),{previous:previous||{type:legacy.comment_type,text:legacy.comment_text,by:legacy.comment_by,date:legacy.comment_date,reasons:legacy.meta?.revision_reasons||[]},edited_at:new Date().toISOString()}]}:{})}
     const query=existing?supabase.from('sample_comments').update({...fields,meta}).eq('id',existing.id):supabase.from('sample_comments').insert({sample_id:sample.id,root_sample_id:sample.root_sample_id||sample.id,sam_number:sample.sample_number,version_label:sample.version,...fields,is_internal:false,meta})
     const {error:commentError}=await query
     if(commentError){alert('Comment was not saved to Supabase: '+commentError.message,{title:'Save Failed'});return}
-    if(existing){setSampleComments(v=>v.map(c=>c.id===existing.id?{...c,...fields,meta}:c))}else{addSampleComment(sample.id, payload)}
+    if(existing){setSampleComments(v=>v.map(c=>c.id===existing.id?{...c,...fields,meta}:c))}else{if(!legacy)addSampleComment(sample.id, payload)}
     const patch = payload.type === 'Approval'
       ? { approvalStatus:'Approved', dispatchStatus:'Comments Received', latestCommentType: payload.type, latestCommentDate: payload.date, latestCommentBy: payload.by }
       : payload.type === 'Revision'
@@ -506,7 +532,7 @@ export default function SamplingApprovals() {
   const selectedRows = rows.filter(r => selectedIds.includes(r.id))
   const selectedRow = selectedRows.length === 1 ? selectedRows[0] : null
   const canSingle = !!selectedRow
-  const selectedHasComments = !!selectedRow && sampleComments.some(c => c.sample_id === selectedRow.id && !c.is_internal)
+  const selectedHasComments = !!latestEditableComment(selectedRow, sampleComments)
   const canSend = !!selectedRow && selectedRow.stage === 'Ready' && selectedRow.dispatchStatus !== 'Dispatched'
 
   async function printSampleProgram(row) {
@@ -581,7 +607,7 @@ export default function SamplingApprovals() {
       {revisionRequest&&<div style={{position:'fixed',inset:0,background:'rgba(15,23,42,.35)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>!revisionSaving&&setRevisionRequest(null)}><form onClick={e=>e.stopPropagation()} onSubmit={async e=>{e.preventDefault();if(!revisionDue||revisionSaving)return;setRevisionSaving(true);try{if(await createRevision(revisionRequest,revisionDue))setRevisionRequest(null)}finally{setRevisionSaving(false)}}} style={{background:'#fff',borderRadius:12,padding:24,width:360,maxWidth:'90vw',boxShadow:'0 18px 45px #0002'}}><h3 style={{margin:'0 0 8px'}}>Create Sample Revision</h3><div style={{fontSize:12,color:'#64748b',marginBottom:18}}>{revisionRequest.sample_number} · {revisionRequest.version_label||'V1'} → New Version</div><label style={{display:'block',fontSize:12,fontWeight:600,marginBottom:6}}>Revision due date *</label><input type="date" required value={revisionDue} onChange={e=>setRevisionDue(e.target.value)} style={{...inp,width:'100%',boxSizing:'border-box'}}/><div style={{fontSize:11,color:'#64748b',marginTop:12}}>The original sample and its history remain unchanged.</div><div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:20}}><button type="button" className="btn btn-secondary" disabled={revisionSaving} onClick={()=>setRevisionRequest(null)}>Cancel</button><button type="submit" className="btn" disabled={!revisionDue||revisionSaving} style={{background:'#111827',color:'white'}}>{revisionSaving?'Creating…':'Create V+'}</button></div></form></div>}
       {metadataSample&&<SampleMetadata sample={metadataSample} allSamples={samples} parcels={parcelItems} comments={sampleComments} onClose={()=>setMetadataSample(null)}/>}
       {dispatching&&<DispatchChecklistModal sample={dispatching} onClose={()=>setDispatching(null)} onDone={checks=>{sendSampleToParcelPool(dispatching.id,checks);setDispatching(null);setRefreshKey(x=>x+1)}}/>}
-      {commenting&&<CommentModal sample={commenting} existingComment={sampleComments.filter(c=>c.sample_id===commenting.id&&!c.is_internal).sort((a,b)=>String(b.created_at||b.comment_date).localeCompare(String(a.created_at||a.comment_date)))[0]} onClose={()=>setCommenting(null)} onSaved={payload=>saveComment(commenting,payload)}/>}<Dialogs/>
+      {commenting&&<CommentModal sample={commenting} existingComment={latestEditableComment(commenting,sampleComments)} onClose={()=>setCommenting(null)} onSaved={payload=>saveComment(commenting,payload)}/>}<Dialogs/>
     </div>
   )
 }
