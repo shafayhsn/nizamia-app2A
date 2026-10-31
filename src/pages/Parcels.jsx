@@ -227,7 +227,7 @@ export default function Parcels() {
       const custom=(p.customItems||[]).flatMap(it=>[it.description,it.qty])
       const searchable=[p.id,p.courier,p.trackingNo,p.trackingUrl,p.status,p.notes,parcelCustomers(p),...contents,...custom].join(' ').toLocaleLowerCase()
       const periodMatch=periodFilter==='All'||(periodFilter==='This Month'&&date.startsWith(monthKey))||(periodFilter==='Last Month'&&date.startsWith(lastKey))||(periodFilter==='This Year'&&date.startsWith(String(now.getFullYear())))
-      return (tab==='dispatched'?p.status!=='Draft':p.status==='Draft')&&(statusFilter==='All'||p.status===statusFilter)&&(customerFilter==='All'||parcelCustomers(p)===customerFilter)&&periodMatch&&(!query||query.split(/\\s+/).every(term=>searchable.includes(term)))
+      return (tab==='dispatched'?p.status!=='Draft':p.status==='Draft')&&(statusFilter==='All'||p.status===statusFilter)&&(customerFilter==='All'||parcelCustomers(p)===customerFilter)&&periodMatch&&(!query||query.split(/\s+/).every(term=>searchable.includes(term)))
     })
     return [...rows].sort((a,b)=>{
       if(sortBy==='id-asc')return a.id.localeCompare(b.id)
