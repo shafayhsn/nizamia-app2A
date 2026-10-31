@@ -336,16 +336,18 @@ export default function SamplingApprovals() {
   const [revisionDue,setRevisionDue] = useState('')
   const [revisionSaving,setRevisionSaving] = useState(false)
   const [metadataSample,setMetadataSample]=useState(null)
-  const [query, setQuery] = useState('')
+  const initialTabSettings = useMemo(()=>{try{return JSON.parse(sessionStorage.getItem(SETTINGS_KEY)||'{}')}catch{return {}}},[])
+  const initialFilters = {...TAB_DEFAULTS,...initialTabSettings.active}
+  const [query, setQuery] = useState(() => initialFilters.query)
   const [selectedIds, setSelectedIds] = useState([])
-  const [groupBy, setGroupBy] = useState(() => TAB_DEFAULTS.groupBy)
-  const [filterBuyer, setFilterBuyer] = useState(() => [])
-  const [filterType, setFilterType] = useState(() => [])
-  const [filterStage, setFilterStage] = useState(() => [])
-  const [filterApproval, setFilterApproval] = useState(() => [])
-  const [sortBy, setSortBy] = useState(() => TAB_DEFAULTS.sortBy)
+  const [groupBy, setGroupBy] = useState(() => initialFilters.groupBy)
+  const [filterBuyer, setFilterBuyer] = useState(() => initialFilters.filterBuyer)
+  const [filterType, setFilterType] = useState(() => initialFilters.filterType)
+  const [filterStage, setFilterStage] = useState(() => initialFilters.filterStage)
+  const [filterApproval, setFilterApproval] = useState(() => initialFilters.filterApproval)
+  const [sortBy, setSortBy] = useState(() => initialFilters.sortBy)
   const [viewTab, setViewTab] = useState('active')
-  const [tabSettings,setTabSettings] = useState(()=>{try{return JSON.parse(sessionStorage.getItem(SETTINGS_KEY)||'{}')}catch{return {}}})
+  const [tabSettings,setTabSettings] = useState(()=>initialTabSettings)
   const switchTab = next => {
     if(next===viewTab)return
     const current={groupBy,sortBy,filterBuyer,filterType,filterStage,filterApproval,query}
@@ -456,7 +458,7 @@ export default function SamplingApprovals() {
   const approvalRows = allRows.filter(isCompleted)
   const styleCount = predicate => new Set(approvalRows.filter(predicate).map(r=>r.sample_number||r.id)).size
   const approvalKpis = [
-    ['Total Styles',styleCount(()=>true),false],
+    ['Total Samples',styleCount(()=>true),false],
     ['Not Dispatched',styleCount(r=>!['Dispatched','Delivered'].includes(r.dispatchStatus)),false],
     ['Dispatched',styleCount(r=>r.dispatchStatus==='Dispatched'||r.dispatchStatus==='Delivered'),false],
     ['Awaiting Comments',styleCount(r=>['Dispatched','Delivered'].includes(r.dispatchStatus)&&r.approvalStatus==='Pending'),true],
@@ -601,7 +603,7 @@ export default function SamplingApprovals() {
         <div style={{flexShrink:0}}><div className="app-page-title">{viewTab === 'active' ? 'Sample Room' : 'Approvals & Status'}</div></div>
         <div style={{display:'flex',gap:6,flex:'1 1 auto',minWidth:0}}>{[
           ...(viewTab==='active' ? [['Total Samples',allRows.length,false],...STAGES.map(stage=>[stage,allRows.filter(r=>!isCompleted(r)&&(r.stage||'Not Started')===stage).length,stage==='Not Started']),['Overdue',overdueCount,true]] : approvalKpis)
-        ].map(([label,value,amber])=><div key={label} style={{padding:'6px 8px',border:'1px solid var(--border)',borderRadius:8,background:'#fff',minWidth:0,flex:'1 1 0'}}><div style={{fontSize:9,fontWeight:600,color:'var(--text-light)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:2,whiteSpace:'nowrap'}}>{label}</div><div style={{fontSize:18,fontWeight:700,lineHeight:1,color:amber?'#d97706':'#0d0d0d'}}>{value}</div></div>)}</div>
+        ].map(([label,value,amber])=><div key={label} style={{padding:'6px 8px',border:'1px solid var(--border)',borderRadius:8,background:'#fff',minWidth:0,flex:'1 1 0'}}><div style={{fontSize:9,fontWeight:600,color:'var(--text-light)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:2,whiteSpace:'normal',overflowWrap:'anywhere',lineHeight:'11px',minHeight:22}}>{label}</div><div style={{fontSize:18,fontWeight:700,lineHeight:1,color:amber?'#d97706':'#0d0d0d'}}>{value}</div></div>)}</div>
         <div style={{marginLeft:'auto',display:'flex',gap:8}}><button className="btn btn-secondary" title="Refresh" aria-label="Refresh" onClick={()=>setRefreshKey(x=>x+1)}><RefreshCw size={14}/></button>
           {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSingle} onClick={()=>selectedRow&&setCommenting(selectedRow)}><MessageSquarePlus size={13}/> {selectedHasComments ? 'Edit Comment' : 'Add Comment'}</button>}
           {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSingle} onClick={()=>{if(selectedRow){setRevisionRequest(selectedRow);setRevisionDue('')}}}><ClipboardCheck size={13}/> Create V+</button>}
