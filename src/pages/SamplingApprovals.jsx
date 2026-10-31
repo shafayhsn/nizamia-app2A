@@ -341,15 +341,20 @@ export default function SamplingApprovals() {
     const comments=[...dbComments,...(localComments[s.id]||[]).filter(c=>!dbComments.some(d=>d.text===c.text&&d.type===c.type&&String(d.date||'').slice(0,10)===String(c.date||'').slice(0,10)))]
     const latest = comments[comments.length - 1]
     const relatedParcel=parcelItems.filter(p=>(p.items||[]).some(it=>it.sampleId===s.id)).sort((a,b)=>String(b.delivered_at||b.dispatch_date||b.created_at||'').localeCompare(String(a.delivered_at||a.dispatch_date||a.created_at||'')))[0]
-    const candidates=[{label:s.stage||meta.stage||'Not Started',date:meta.stageDates?.[s.stage||meta.stage]||s.created_at,source:'Sampling'}]
-    if(relatedParcel){candidates.push({label:relatedParcel.status||'Dispatched',date:relatedParcel.delivered_at||relatedParcel.dispatch_date||relatedParcel.dispatched_at,source:'Parcels'})}
-    if(latest&&['Approval','Rejection','Revision'].includes(latest.type))candidates.push({label:latest.type==='Approval'?'Approved':latest.type==='Rejection'?'Rejected':latest.type==='Revision'?'Revision Required':latest.type,date:latest.date,source:'Approval'})
-    if(s.last_comment_at&&s.approval_status)candidates.push({label:s.approval_status,date:s.last_comment_at,source:'Approval'})
-    // Physical delivery is the primary status on the completed list; buyer decisions remain separately recorded.
-    const latestEvent=candidates.filter(x=>x.date&&!Number.isNaN(new Date(x.date).getTime())).sort((a,b)=>new Date(b.date)-new Date(a.date))[0]||candidates[0]
-    const currentStatus=relatedParcel&&['Delivered','Dispatched'].includes(relatedParcel.status)
-      ? {label:relatedParcel.status,date:relatedParcel.delivered_at||relatedParcel.dispatch_date||relatedParcel.dispatched_at,source:'Parcels'}
-      : latestEvent
+    const candidates=[{label:s.stage||meta.stage||'Not Started',date:meta.stageDates?.[s.stage||meta.stage]||s.created_at,source:'Sampling',rank:1}]
+    if(relatedParcel){
+      if(relatedParcel.dispatch_date||relatedParcel.dispatched_at)candidates.push({label:'Dispatched',date:relatedParcel.dispatch_date||relatedParcel.dispatched_at,source:'Parcels',rank:2})
+      if(relatedParcel.delivered_at)candidates.push({label:'Delivered',date:relatedParcel.delivered_at,source:'Parcels',rank:2})
+      else if(relatedParcel.status&&relatedParcel.status!=='Dispatched')candidates.push({label:relatedParcel.status,date:relatedParcel.updated_at||relatedParcel.dispatch_date,source:'Parcels',rank:2})
+    }
+    const approvalLabels={Approval:'Approved',Rejection:'Rejected',Revision:'Revision Required'}
+    const approvalEvents=comments.filter(c=>approvalLabels[c.type]||['Approved','Rejected','Revision Required'].includes(c.type))
+    approvalEvents.forEach(c=>candidates.push({label:approvalLabels[c.type]||c.type,date:c.date,source:'Approval',rank:3}))
+    if(s.last_comment_at&&s.approval_status&&!['Pending','Pending Approval'].includes(s.approval_status))candidates.push({label:s.approval_status,date:s.last_comment_at,source:'Approval',rank:3})
+    // Compare actual event dates; on the same calendar date, later workflow phases win.
+    const valid=candidates.filter(x=>x.date&&!Number.isNaN(new Date(x.date).getTime()))
+    valid.sort((a,b)=>new Date(b.date)-new Date(a.date)||b.rank-a.rank)
+    const currentStatus=valid[0]||candidates[0]
     return { ...s, order, buyer, meta, comments, latest, currentStatus, version: s.version_label || meta.version || `V${s.version_no || 1}`, stage: s.stage || meta.stage || 'Not Started', dispatchStatus: s.dispatch_status === 'Delivered' ? 'Delivered' : s.dispatch_status || meta.dispatchStatus || 'In Development', approvalStatus: s.approval_status || meta.approvalStatus || 'Pending', dueDate: s.due_date || meta.dueDate || null, qty: s.req_pcs || s.qty || 0, latestCommentText: latest?.text || '' }
     })
   }, [samples, orderMap, buyerMap, refreshKey, sampleComments, parcelItems])
