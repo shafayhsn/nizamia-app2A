@@ -68,16 +68,21 @@ export async function buildSampleProgramHTML(row, {bomItems=[],fittingBlocks=[],
     const root=row.root_sample_id || row.parent_sample_id || row.id
     const family=allRows.filter(s=>s.id===root || s.root_sample_id===root || (s.sample_number===row.sample_number && s.order_id===row.order_id))
     const earlier=family.filter(s=>s.id!==row.id && Number(s.version_no||1)<Number(row.version_no||1)).sort((a,b)=>Number(a.version_no||1)-Number(b.version_no||1))
+    const parcelFor = s => parcelItems.find(p=>[...(Array.isArray(p.items)?p.items:[]),...(Array.isArray(p.custom_items)?p.custom_items:[])].some(x=>x?.sample_id===s.id || x?.sam_number===s.sample_number || x?.sample_number===s.sample_number))
     const histories=earlier.map(s=>{
       const comments=sampleComments.filter(c=>c.sample_id===s.id || (c.sam_number===s.sample_number && c.version_label===s.version_label))
-      const parcel=parcelItems.find(p=>[...(Array.isArray(p.items)?p.items:[]),...(Array.isArray(p.custom_items)?p.custom_items:[])].some(x=>x?.sample_id===s.id))
-      return `<div class="history"><b>${safeText(s.version_label||'V1')}</b> — Sample: ${dayString(s.created_at)||'—'} | Parcel: ${dayString(parcel?.dispatch_date||parcel?.dispatched_at)||'—'}<div>${comments.length?comments.map(c=>`<p><b>${dayString(c.comment_date)||'—'}:</b> ${safeText(c.comment_text||'')}</p>`).join(''):'No recorded comments'}</div></div>`
+      const parcel=parcelFor(s)
+      return `<div class="history"><b>${safeText(s.version_label||'V1')}</b> — Sample: ${dayString(s.created_at)||'—'} | Parcel: ${safeText(parcel?.parcel_number||parcel?.parcel_no||'—')} · ${safeText(parcel?.status||'—')} · ${dayString(parcel?.dispatch_date||parcel?.dispatched_at)||'—'}<div>${comments.length?comments.map(c=>`<p><b>${dayString(c.comment_date)||'—'}:</b> ${safeText(c.comment_text||'')}</p>`).join(''):'No recorded comments'}</div></div>`
     }).join('') || '<div class="history">No previous versions</div>'
     const start=row.requested_date||row.created_at
     const ready=row.dueDate
     const milestones=[['Start Date',dayString(start)],['Pattern Ready',shiftDate(start,1)],['Send to Wash',shiftDate(ready,-2)],['Sample Ready',dayString(ready)]]
     const timelineConflict=!!(start&&ready&&new Date(String(start).slice(0,10))>new Date(String(ready).slice(0,10)))
-    const image=row.order.style_image_url || row.order.style_image_base64 || ''
+    const currentParcel=parcelFor(row)
+    const currentComments=sampleComments.filter(c=>c.sample_id===row.id || c.sam_number===row.sample_number)
+    const commentsHTML=currentComments.map(c=>`<div class="history"><b>${dayString(c.comment_date||c.created_at)||'—'}</b> · ${safeText(c.user_name||c.created_by||c.author||'')}: ${safeText(c.comment_text||c.comment||'')}</div>`).join('') || '<div class="history">No recorded comments for this version</div>'
+    const parcelHTML=currentParcel?`<div class="history"><b>${safeText(currentParcel.parcel_number||currentParcel.parcel_no||'—')}</b> · ${safeText(currentParcel.status||'—')} · ${safeText(currentParcel.courier||currentParcel.courier_name||'—')} · ${safeText(currentParcel.tracking_number||'—')} · Dispatched ${dayString(currentParcel.dispatch_date||currentParcel.dispatched_at)||'—'}</div>`:'<div class="history">No linked parcel record</div>'
+    const image=row.order.style_image_url || row.order.style_image_base64 || row.order.image_url || row.order.picture_url || row.meta?.image_url || ''
     const picture=image?`<img class="picture" src="${safeText(image)}" alt="Style image"/>`:'<div class="picture-empty">No image</div>'
     // The production-floor heading uses the saved type and version, not a fixed label.
     const rawType=String(row.sample_type||'').trim()
@@ -96,6 +101,8 @@ export async function buildSampleProgramHTML(row, {bomItems=[],fittingBlocks=[],
       <div class="timeline">${milestones.map(([label,date])=>`<div><b>${label}</b><strong>${date||'—'}</strong></div>`).join('')}</div>
       ${timelineConflict?'<div class="warning">Check schedule: sample due date precedes its start date.</div>':''}
       <h2>Style BOM Details</h2><table class="bom"><thead><tr><th>Type</th><th>Item</th><th>Detail</th><th>Consumption / pc</th><th>Required</th></tr></thead><tbody>${bomRows}</tbody></table>
+      <h2>Parcel Details</h2>${parcelHTML}
+      <h2>Comments & Approval</h2>${commentsHTML}
       <h2>Previous Versions of This Sample</h2>${histories}
       <footer>Printed on: ${dayString(new Date().toISOString().slice(0,10))} | User: ${safeText(printedBy)}</footer>
     </div>`
