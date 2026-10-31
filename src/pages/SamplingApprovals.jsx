@@ -453,6 +453,17 @@ export default function SamplingApprovals() {
   const approvalOptions = ['Pending','Approved','Revision Required','Rejected']
   const groupLabel = r => groupBy === 'customer' ? (r.order.buyer_name || r.buyer.name || 'No Customer') : groupBy === 'job' ? (r.order.job_number || 'No Job #') : groupBy === 'style' ? (r.order.style_number || 'No Style #') : groupBy === 'type' ? (r.sample_type || 'No Type') : groupBy === 'stage' ? r.stage : groupBy === 'approval' ? r.approvalStatus : ''
   const groupedRows = groupBy === 'none' ? null : rows.reduce((acc,r) => { const k=groupLabel(r); (acc[k] ||= []).push(r); return acc }, {})
+  const approvalRows = allRows.filter(isCompleted)
+  const styleCount = predicate => new Set(approvalRows.filter(predicate).map(r=>r.order.style_number||r.id)).size
+  const approvalKpis = [
+    ['Total Styles',styleCount(()=>true),false],
+    ['Not Dispatched',styleCount(r=>!['Dispatched','Delivered'].includes(r.dispatchStatus)),false],
+    ['Dispatched',styleCount(r=>r.dispatchStatus==='Dispatched'||r.dispatchStatus==='Delivered'),false],
+    ['Awaiting Comments',styleCount(r=>['Dispatched','Delivered'].includes(r.dispatchStatus)&&r.approvalStatus==='Pending'),true],
+    ['Reject',styleCount(r=>r.approvalStatus==='Rejected'),true],
+    ['Revised',styleCount(r=>r.approvalStatus==='Revision Required'),true],
+    ['Approved',styleCount(r=>r.approvalStatus==='Approved'),false]
+  ]
   const pendingCount = allRows.filter(r => r.approvalStatus === 'Pending').length
   const inProgressCount = allRows.filter(r => !['Not Started','Ready'].includes(r.stage) && r.dispatchStatus !== 'Dispatched').length
   const overdueCount = allRows.filter(r => r.dueDate && new Date(r.dueDate) < new Date() && !isCompleted(r)).length
@@ -583,19 +594,19 @@ export default function SamplingApprovals() {
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100%',width:'100%',minWidth:0,background:'#fff'}}>
       <div style={{height:48,borderBottom:'1px solid #e5e7eb',display:'flex',alignItems:'flex-end',padding:'0 24px',gap:28,flexShrink:0}}>
-        <button onClick={()=>{switchTab('active')}} style={{height:48,border:'none',borderBottom:viewTab==='active'?'2px solid #111':'2px solid transparent',background:'transparent',fontSize:13,fontWeight:viewTab==='active'?700:500,color:viewTab==='active'?'#111':'#9ca3af',cursor:'pointer'}}>Sampling & Approvals</button>
-        <button onClick={()=>{switchTab('completed')}} style={{height:48,border:'none',borderBottom:viewTab==='completed'?'2px solid #111':'2px solid transparent',background:'transparent',fontSize:13,fontWeight:viewTab==='completed'?700:500,color:viewTab==='completed'?'#111':'#9ca3af',cursor:'pointer'}}>Completed Samples <span style={{fontSize:10,color:'#9ca3af'}}>({completedCount})</span></button>
+        <button onClick={()=>{switchTab('active')}} style={{height:48,border:'none',borderBottom:viewTab==='active'?'2px solid #111':'2px solid transparent',background:'transparent',fontSize:13,fontWeight:viewTab==='active'?700:500,color:viewTab==='active'?'#111':'#9ca3af',cursor:'pointer'}}>Sampling WIP</button>
+        <button onClick={()=>{switchTab('completed')}} style={{height:48,border:'none',borderBottom:viewTab==='completed'?'2px solid #111':'2px solid transparent',background:'transparent',fontSize:13,fontWeight:viewTab==='completed'?700:500,color:viewTab==='completed'?'#111':'#9ca3af',cursor:'pointer'}}>Approvals & Status <span style={{fontSize:10,color:'#9ca3af'}}>({completedCount})</span></button>
       </div>
       <div style={{padding:'10px 24px',borderBottom:'1px solid #f3f4f6',display:'flex',alignItems:'center',gap:10,flexShrink:0,minWidth:0}}>
-        <div style={{flexShrink:0}}><div className="app-page-title">{viewTab === 'active' ? 'Sample Room' : 'Completed Samples'}</div></div>
+        <div style={{flexShrink:0}}><div className="app-page-title">{viewTab === 'active' ? 'Sample Room' : 'Approvals & Status'}</div></div>
         <div style={{display:'flex',gap:6,flex:'1 1 auto',minWidth:0}}>{[
-          ...(viewTab==='active' ? [['Total Samples',allRows.length,false],...STAGES.map(stage=>[stage,allRows.filter(r=>!isCompleted(r)&&(r.stage||'Not Started')===stage).length,stage==='Not Started']),['Overdue',overdueCount,true]] : [['Total Samples',allRows.length,false],['Pending Approval',pendingCount,pendingCount>0],['In Progress',inProgressCount,false],['Overdue',overdueCount,overdueCount>0]])
+          ...(viewTab==='active' ? [['Total Samples',allRows.length,false],...STAGES.map(stage=>[stage,allRows.filter(r=>!isCompleted(r)&&(r.stage||'Not Started')===stage).length,stage==='Not Started']),['Overdue',overdueCount,true]] : approvalKpis)
         ].map(([label,value,amber])=><div key={label} style={{padding:'6px 8px',border:'1px solid var(--border)',borderRadius:8,background:'#fff',minWidth:0,flex:'1 1 0'}}><div style={{fontSize:9,fontWeight:600,color:'var(--text-light)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:2,whiteSpace:'nowrap'}}>{label}</div><div style={{fontSize:18,fontWeight:700,lineHeight:1,color:amber?'#d97706':'#0d0d0d'}}>{value}</div></div>)}</div>
-        <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+        <div style={{marginLeft:'auto',display:'flex',gap:8}}><button className="btn btn-secondary" title="Refresh" aria-label="Refresh" onClick={()=>setRefreshKey(x=>x+1)}><RefreshCw size={14}/></button>
           {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSingle} onClick={()=>selectedRow&&setCommenting(selectedRow)}><MessageSquarePlus size={13}/> {selectedHasComments ? 'Edit Comment' : 'Add Comment'}</button>}
           {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSingle} onClick={()=>{if(selectedRow){setRevisionRequest(selectedRow);setRevisionDue('')}}}><ClipboardCheck size={13}/> Create V+</button>}
-          {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSend} onClick={()=>selectedRow&&setDispatching(selectedRow)}><PackagePlus size={13}/> Send to Parcels</button>}
-          <button className="btn" style={{background:canSingle?'#6d28d9':'#e5e7eb',color:canSingle?'#fff':'#9ca3af',border:'1px solid '+(canSingle?'#5b21b6':'#d1d5db'),fontWeight:700}} disabled={!canSingle} onClick={()=>selectedRow&&printSampleProgram(selectedRow)}><Printer size={13}/> Program</button>
+
+          {viewTab === 'active' && <button className="btn" style={{background:canSingle?'#6d28d9':'#e5e7eb',color:canSingle?'#fff':'#9ca3af',border:'1px solid '+(canSingle?'#5b21b6':'#d1d5db'),fontWeight:700}} disabled={!canSingle} onClick={()=>selectedRow&&printSampleProgram(selectedRow)}><Printer size={13}/> Program</button>}
         </div>
       </div>
 
@@ -607,7 +618,7 @@ export default function SamplingApprovals() {
         <MultiFilter title="Types" options={typeOptions} value={filterType} onChange={setFilterType}/>
         <MultiFilter title="Stages" options={STAGES} value={filterStage} onChange={setFilterStage}/>
         <MultiFilter title="Approvals" options={approvalOptions} value={filterApproval} onChange={setFilterApproval}/>
-        <button className="btn btn-secondary" style={{whiteSpace:'nowrap',justifySelf:'end'}} onClick={()=>setRefreshKey(x=>x+1)}><RefreshCw size={14}/> Refresh</button>
+
       </div>
 
       <div style={{flex:1,minHeight:0,overflowX:'auto',overflowY:'auto',width:'100%',minWidth:0,boxSizing:'border-box',padding:'0 12px'}} className="table-wrap">
