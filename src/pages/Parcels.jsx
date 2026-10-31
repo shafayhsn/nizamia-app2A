@@ -34,7 +34,7 @@ const STATUS_STYLES={
  'Delivered':{background:'#dcfce7',color:'#166534'}
 }
 const statusPill=s=><span style={{...STATUS_STYLES[s],padding:'4px 9px',borderRadius:20,fontSize:11,fontWeight:700,whiteSpace:'nowrap'}}>{s}</span>
-const fromDb=p=>({...p,trackingNo:p.tracking_no||'',trackingUrl:p.tracking_url||'',dispatchDate:p.dispatch_date||'',customItems:p.custom_items||[],items:p.items||[],deliveredAt:p.delivered_at})
+const fromDb=p=>({...p,trackingNo:p.tracking_no||'',trackingUrl:p.tracking_url||'',dispatchDate:p.dispatch_date||'',customItems:p.custom_items||[],items:p.items||[],deliveredAt:p.delivered_at,receivedBy:p.received_by||''})
 const toDb=p=>({id:p.id,status:p.status||'Draft',courier:p.courier||'',tracking_no:p.trackingNo||'',tracking_url:p.trackingUrl||'',dispatch_date:p.dispatchDate||null,notes:p.notes||'',items:p.items||[],custom_items:p.customItems||[]})
 const validTrackingUrl=value=>{try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)?u.href:null}catch{return null}}
 const PREF_KEY='app2a.parcels.view.v1'
@@ -160,6 +160,9 @@ export default function Parcels() {
   const [editing,setEditing]=useState(null)
   const [history,setHistory]=useState([])
   const [busy,setBusy]=useState(false)
+  const [deliveryOpen,setDeliveryOpen]=useState(false)
+  const [deliveryDate,setDeliveryDate]=useState('')
+  const [receivedBy,setReceivedBy]=useState('')
   const [statusMenu,setStatusMenu]=useState(false)
   const [statusMenuPos,setStatusMenuPos]=useState({top:0,right:0})
   const [sortBy,setSortBy]=useState(()=>readPrefs().sortBy||'date-desc')
@@ -319,22 +322,31 @@ export default function Parcels() {
     setSelectedParcels([])
     await load()
   }
-  async function markDelivered(){
+  function markDelivered(){
+    if(!selectedParcels.some(id=>parcels.some(p=>p.id===id&&p.status!=='Delivered'&&p.status!=='Draft')))return
+    setDeliveryDate('')
+    setReceivedBy('')
+    setDeliveryOpen(true)
+  }
+  async function confirmDelivered(){
     const targets=parcels.filter(p=>selectedParcels.includes(p.id)&&p.status!=='Delivered'&&p.status!=='Draft')
-    if(!targets.length)return
-    if(!window.confirm('Mark '+targets.length+' selected parcel(s) as delivered?'))return
+    if(!targets.length||!deliveryDate)return
+    if(targets.some(p=>p.dispatchDate&&deliveryDate<p.dispatchDate)){alert('Delivery date cannot be before dispatch date.',{title:'Invalid Delivery Date'});return}
+    if(deliveryDate>new Date().toLocaleDateString('en-CA')){alert('Delivery date cannot be in the future.',{title:'Invalid Delivery Date'});return}
+    setBusy(true)
+    let succeeded=0
     for(const p of targets){
-      const ok=await patchParcel(p.id,{status:'Delivered'})
-      if(ok){
-        const deliveredAt=new Date().toISOString()
-        const {error:dateError}=await supabase.from('parcels').update({delivered_at:deliveredAt}).eq('id',p.id)
-        if(dateError)alert(dateError.message,{title:'Delivery Date Error'})
-        const ids=(p.items||[]).map(it=>it.sampleId).filter(Boolean)
-        if(ids.length){const {error:sampleError}=await supabase.from('samples').update({dispatch_status:'Delivered'}).in('id',ids)
-          if(sampleError)alert(sampleError.message,{title:'Sample Status Update Failed'})}
-      }
+      const {error}=await supabase.from('parcels').update({status:'Delivered',delivered_at:deliveryDate+'T12:00:00Z',received_by:receivedBy.trim()||null,updated_at:new Date().toISOString()}).eq('id',p.id)
+      if(error){alert(error.message,{title:'Delivery Update Failed'});continue}
+      succeeded++
+      const {error:historyError}=await supabase.from('parcel_status_history').insert({parcel_id:p.id,old_status:p.status,new_status:'Delivered',note:'Delivered on '+deliveryDate+(receivedBy.trim()?' · Received by '+receivedBy.trim():'')})
+      if(historyError)alert(historyError.message,{title:'History Warning'})
+      const ids=(p.items||[]).map(it=>it.sampleId).filter(Boolean)
+      if(ids.length){const {error:sampleError}=await supabase.from('samples').update({dispatch_status:'Delivered'}).in('id',ids)
+        if(sampleError)alert(sampleError.message,{title:'Sample Status Update Failed'})}
     }
-    setSelectedParcels([])
+    setBusy(false)
+    if(succeeded){setDeliveryOpen(false);setSelectedParcels([])}
     await load()
   }
   async function deleteSelected(){
@@ -428,7 +440,7 @@ export default function Parcels() {
               <td>{p.trackingNo||'—'}</td>
               <td onClick={e=>e.stopPropagation()}>{validTrackingUrl(p.trackingUrl)?<a href={validTrackingUrl(p.trackingUrl)} target="_blank" rel="noopener noreferrer" title="Open courier tracking"><ExternalLink size={16}/></a>:<span style={{color:'#9ca3af'}}>—</span>}</td>
               <td>{formatDate(p.dispatchDate)||'—'}</td>
-              <td>{p.deliveredAt?<><div>{formatDate(p.deliveredAt)}</div><div style={{fontSize:11,color:'#16a34a',marginTop:3}}>{p.dispatchDate?Math.max(0,Math.round((new Date(p.deliveredAt.slice(0,10)+'T12:00:00Z')-new Date(p.dispatchDate.slice(0,10)+'T12:00:00Z'))/86400000))+' Days Transit':'—'}</div></>:'—'}</td>
+              <td>{p.deliveredAt?<><div>{formatDate(p.deliveredAt)}</div><div style={{fontSize:11,color:'#16a34a',marginTop:3}}>{p.dispatchDate?Math.max(0,Math.round((new Date(p.deliveredAt.slice(0,10)+'T12:00:00Z')-new Date(p.dispatchDate.slice(0,10)+'T12:00:00Z'))/86400000))+' Days Transit':'—'}</div>{p.receivedBy&&<div style={{fontSize:11,color:'#64748b',marginTop:3}}>Received by: {p.receivedBy}</div>}</>:'—'}</td>
               <td onClick={e=>e.stopPropagation()}><div style={{display:'flex',gap:5,whiteSpace:'nowrap'}}><button style={btn} onClick={()=>{setActive(active===p.id?null:p.id);openHistory(p.id)}}>View</button><button style={btn} onClick={()=>printInvoice(p)}><FileText size={13}/> Invoice</button>{p.status==='Draft'&&<button style={btn} onClick={()=>setEditing(p)}><Pencil size={13}/> Edit / Dispatch</button>}</div></td>
             </tr>
             {active===p.id&&<tr><td colSpan={9} style={{background:'#f9fafb',padding:14}}><strong>Parcel Contents · {p.id}</strong>{(p.items||[]).map((it,i)=><div key={i}>{sampleMap[it.sampleId]?.sample_number||it.sampleId} · {orderMap[sampleMap[it.sampleId]?.order_id]?.style_number||'—'}</div>)}{(p.customItems||[]).map((it,i)=><div key={'c'+i}>{it.description} · {it.qty} pcs</div>)}<div style={{marginTop:10,fontWeight:700}}>Status History</div>{history.length?history.map(h=><div key={h.id} style={{fontSize:12,marginTop:5}}>{new Date(h.changed_at).toLocaleString('en-GB')} · {h.old_status||'New'} → {h.new_status}</div>):<div style={{color:'#9ca3af',fontSize:12}}>No status changes recorded yet.</div>}</td></tr>}
@@ -438,6 +450,15 @@ export default function Parcels() {
         </tbody></table>}
       </div>
       <div style={{height:34,borderTop:'1px solid #e5e7eb',padding:'8px 24px',fontSize:11,color:'#6b7280',flexShrink:0}}>{tab==='ready'?`${shownSamples.length} READY SAMPLES · ${shownParcels.length} PARCELS AWAITING DISPATCH`:`${shownParcels.length} DISPATCHED PARCELS`}</div>
+      {deliveryOpen&&<div style={{position:'fixed',inset:0,zIndex:10000,background:'#0006',display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <div role="dialog" aria-modal="true" aria-label="Confirm parcel delivery" style={{...card,padding:22,width:380,maxWidth:'92vw'}}>
+          <div style={{fontWeight:700,fontSize:17,marginBottom:6}}>Mark Delivered</div>
+          <div style={{color:'#64748b',fontSize:12,marginBottom:18}}>{selectedParcels.filter(id=>parcels.some(p=>p.id===id&&p.status!=='Draft'&&p.status!=='Delivered')).length} parcel(s) selected</div>
+          <label style={{display:'block',fontSize:12,fontWeight:600,marginBottom:13}}>Delivered Date <span style={{color:'#dc2626'}}>*</span><input type="date" style={{...inp,marginTop:6}} required value={deliveryDate} max={new Date().toLocaleDateString('en-CA')} onChange={e=>setDeliveryDate(e.target.value)}/></label>
+          <label style={{display:'block',fontSize:12,fontWeight:600,marginBottom:18}}>Received By <span style={{fontWeight:400,color:'#64748b'}}>(optional)</span><input style={{...inp,marginTop:6}} value={receivedBy} placeholder="Name of recipient" onChange={e=>setReceivedBy(e.target.value)}/></label>
+          <div style={{display:'flex',justifyContent:'flex-end',gap:8}}><button style={btn} disabled={busy} onClick={()=>setDeliveryOpen(false)}>Cancel</button><button style={{...btn,background:'#dcfce7',color:'#166534',borderColor:'#bbf7d0'}} disabled={busy||!deliveryDate} onClick={confirmDelivered}><CheckCheck size={14}/> Confirm Delivery</button></div>
+        </div>
+      </div>}
       {editing&&<ParcelEditModal parcel={editing} samples={samples} orders={orders} parcels={parcels} onClose={()=>setEditing(null)} onSave={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok)setEditing(null)}} onDispatch={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok){await doDispatch({...editing,...patch});setEditing(null)}}}/>}
       {creating && <ParcelBuilderModal poolRows={selectedSamples.length?availableSamples.filter(r=>selectedSamples.includes(r.sampleId)):availableSamples} onClose={() => setCreating(false)} onCreated={createNewParcel} />}
       <Dialogs />
