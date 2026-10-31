@@ -500,16 +500,20 @@ export default function SamplingApprovals() {
   }
   const sampleSize = r => r.base_size || (Array.isArray(r.sizes) ? r.sizes.join(', ') : '') || r.size || '—'
   const renderRow = r => {
+    const versionNumber = Number(r.version_no) || Number(String(r.version_label || r.version || 'V1').match(/V?([0-9]+)/i)?.[1]) || 1
+    const versionTag = 'V' + versionNumber
+    const versionStyle = versionNumber===1 ? {background:'#dcfce7',color:'#166534'} : versionNumber===2 ? {background:'#ffedd5',color:'#c2410c'} : {background:'#dc2626',color:'#ffffff'}
+    const factoryReference = r.meta.reference || r.meta.ref || r.meta.factoryRef || ''
     const child = samples.filter(x=>x.parent_sample_id===r.id).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))[0]
     return (
 
     <tr key={r.id} onDoubleClick={()=>setMetadataSample(r)} title="Double-click for sample history" style={{cursor:'pointer'}}>
       <td onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(r.id)} onChange={e => setSelectedIds(v => e.target.checked ? [...new Set([...v,r.id])] : v.filter(x=>x!==r.id))}/></td>
-      <td><div style={{fontFamily:'monospace',fontWeight:700,whiteSpace:'nowrap'}}>{r.sample_number}</div><div style={{fontSize:11,marginTop:3,fontWeight:600,color:'#374151'}}>{viewTab==='completed'?(r.meta.reference||r.meta.ref||r.meta.factoryRef||''):r.approvalStatus}</div></td>
+      <td><div style={{fontFamily:'monospace',fontWeight:700,whiteSpace:'nowrap'}}>{r.sample_number}</div><div style={{fontSize:11,marginTop:3,fontWeight:600,color:'#374151'}}>{factoryReference || (viewTab==='completed'?'':r.approvalStatus)}</div></td>
       <td><div style={{fontWeight:600}}>{r.order.buyer_name || r.buyer.name || '—'}</div></td>
       <td><div style={{fontFamily:'monospace',fontWeight:600}}>{r.order.job_number || '—'}</div></td>
       <td><div style={{fontWeight:700}}>{r.order.style_number || '—'}</div><div style={{fontSize:10,color:'#9ca3af'}}>{r.order.description || ''}</div></td>
-      <td><div>{r.sample_type || '—'}</div><div style={{fontSize:10,color:'#6b7280'}}>{r.version}</div></td>
+      <td><div style={{display:'flex',alignItems:'center',gap:5,whiteSpace:'nowrap'}}><span style={{...versionStyle,fontSize:10,fontWeight:700,padding:'2px 5px',borderRadius:3,lineHeight:1.35}}>{versionTag}</span><span>{r.sample_type || '—'}</span></div></td>
       <td style={{maxWidth:130,overflowWrap:'anywhere'}}>{washColour(r)}</td><td style={{fontWeight:600,whiteSpace:'nowrap'}}>{sampleSize(r)}</td><td style={{fontWeight:600}}>{r.qty || '—'}</td>
       <td>{viewTab==='completed'?<div>{statusPill('','',r.currentStatus.label)}<div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{r.currentStatus.date?formatDate(r.currentStatus.date):'—'}</div>{child&&<div style={{fontSize:10,color:'#475569',marginTop:4,fontWeight:600}}>{child.version_label||'V'+child.version_no} Requested on {formatDate(child.created_at||child.requested_date)}</div>}</div>:['Dispatched','Delivered'].includes(r.dispatchStatus) ? <div>{statusPill('#dcfce7','#166534',r.dispatchStatus)}<div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{formatDate(r.meta.dispatchDate || r.meta.sentToParcelsAt)}</div></div> : <div><select style={{...inp,height:30,minWidth:130}} value={r.stage} onChange={e=>saveStage(r.id,e.target.value)}>{STAGES.map(x=><option key={x}>{x}</option>)}</select><div style={{fontSize:10,color:'#9ca3af',marginTop:4}}>{r.meta.stageDates?.[r.stage] ? formatDate(r.meta.stageDates[r.stage]) : '—'}</div></div>}</td>
       {viewTab!=='completed'&&<td><div style={{fontWeight:600}}>{r.dueDate ? formatDate(r.dueDate) : '—'}</div>{r.dueDate && <div style={{fontSize:10,color:new Date(r.dueDate)<new Date()&&!isCompleted(r)?'#dc2626':'#9ca3af',marginTop:3}}>{Math.ceil((new Date(r.dueDate)-new Date())/86400000) >= 0 ? `${Math.ceil((new Date(r.dueDate)-new Date())/86400000)}d` : `${Math.abs(Math.ceil((new Date(r.dueDate)-new Date())/86400000))}d overdue`}</div>}</td>}
