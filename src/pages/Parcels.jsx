@@ -11,6 +11,17 @@ const card = { background:'#fff', border:'1px solid #ececec', borderRadius:12, b
 const inp = { height:34, padding:'0 10px', border:'1px solid #e5e7eb', borderRadius:8, fontSize:12, width:'100%', boxSizing:'border-box', outline:'none' }
 const btn = { height:32, padding:'0 12px', border:'1px solid #e5e7eb', borderRadius:8, background:'#fff', fontSize:12, fontWeight:600, cursor:'pointer' }
 
+// Match the source fields used in Sampling & Approvals. Older browser metadata is fallback only.
+const sampleWashColour = (sample, meta = {}) => {
+  const snapshot = Array.isArray(sample.wash_snapshot) ? sample.wash_snapshot : []
+  const names = [...new Set(snapshot.map(w => w?.color_name || w?.colour_name || w?.wash_color || w?.wash_colour).filter(Boolean))]
+  const colours = Array.isArray(sample.colours) ? sample.colours.filter(Boolean).join(', ') : ''
+  return names.join(', ') || colours || sample.wash_color || sample.wash_colour || meta.washColor || meta.washColour || '—'
+}
+const sampleSizeLabel = (sample, meta = {}) =>
+  sample.base_size || (Array.isArray(sample.sizes) ? sample.sizes.filter(Boolean).join(', ') : '') || sample.size || meta.sampleSize || '—'
+
+
 function openPrint(html, title, onBlocked) {
   const w = window.open('', '_blank', 'width=1000,height=800')
   if (!w) { onBlocked?.(); return }
@@ -182,7 +193,7 @@ export default function Parcels() {
       <div className="table-wrap" style={{flex:1,minHeight:0,overflow:'auto',padding:'0 24px'}}>
         {tab==='ready' && <>
           <table style={{width:'100%'}}><thead><tr><th style={{width:34}}><input type="checkbox" checked={shownSamples.length>0&&shownSamples.every(r=>selectedSamples.includes(r.sampleId))} onChange={e=>setSelectedSamples(e.target.checked?shownSamples.map(r=>r.sampleId):[])}/></th><th>SAM # / Ref</th><th>Customer</th><th>Job #</th><th>Style #</th><th>Type / Ver.</th><th>Wash Colour</th><th>Sample Size</th><th>Qty</th><th>Ready Date</th></tr></thead><tbody>
-            {shownSamples.map(r=><tr key={r.sampleId}><td><input type="checkbox" checked={selectedSamples.includes(r.sampleId)} onChange={e=>setSelectedSamples(v=>e.target.checked?[...v,r.sampleId]:v.filter(x=>x!==r.sampleId))}/></td><td style={{fontWeight:700}}>{r.sample.sample_number||'—'}</td><td>{r.order.buyer_name||'—'}</td><td>{r.order.job_number||'—'}</td><td>{r.order.style_number||'—'}</td><td>{r.sample.sample_type||'—'} / {r.meta.version||'V1'}</td><td>{r.meta.washColor||r.meta.washColour||'—'}</td><td>{r.meta.sampleSize||'—'}</td><td>{r.sample.req_pcs||0}</td><td>{formatDate(r.sample.stage_dates?.Ready||r.meta.stageDates?.Ready||r.sample.ready_at||r.meta.readyAt)||'—'}</td></tr>)}
+            {shownSamples.map(r=><tr key={r.sampleId}><td><input type="checkbox" checked={selectedSamples.includes(r.sampleId)} onChange={e=>setSelectedSamples(v=>e.target.checked?[...v,r.sampleId]:v.filter(x=>x!==r.sampleId))}/></td><td style={{fontWeight:700}}>{r.sample.sample_number||'—'}</td><td>{r.order.buyer_name||'—'}</td><td>{r.order.job_number||'—'}</td><td>{r.order.style_number||'—'}</td><td>{r.sample.sample_type||'—'} / {r.meta.version||'V1'}</td><td>{sampleWashColour(r.sample,r.meta)}</td><td>{sampleSizeLabel(r.sample,r.meta)}</td><td>{r.sample.req_pcs||0}</td><td>{formatDate(r.sample.stage_dates?.Ready||r.meta.stageDates?.Ready||r.sample.ready_at||r.meta.readyAt)||'—'}</td></tr>)}
             {!shownSamples.length&&<tr><td colSpan={10} style={{textAlign:'center',padding:28,color:'#9ca3af'}}>No samples ready for dispatch. You can still create a parcel with custom items.</td></tr>}
           </tbody></table>
           {parcels.some(p=>p.status!=='Dispatched')&&<div style={{fontWeight:700,fontSize:13,margin:'18px 0 8px'}}>Parcels Awaiting Dispatch</div>}
