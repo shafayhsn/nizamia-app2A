@@ -68,11 +68,26 @@ export async function buildSampleProgramHTML(row, {bomItems=[],fittingBlocks=[],
     const root=row.root_sample_id || row.parent_sample_id || row.id
     const family=allRows.filter(s=>s.id===root || s.root_sample_id===root || (s.sample_number===row.sample_number && s.order_id===row.order_id))
     const earlier=family.filter(s=>s.id!==row.id && Number(s.version_no||1)<Number(row.version_no||1)).sort((a,b)=>Number(a.version_no||1)-Number(b.version_no||1))
-    const parcelFor = s => parcelItems.find(p=>[...(Array.isArray(p.items)?p.items:[]),...(Array.isArray(p.custom_items)?p.custom_items:[])].some(x=>x?.sample_id===s.id || x?.sam_number===s.sample_number || x?.sample_number===s.sample_number))
+    const parcelFor = s => parcelItems.find(p=>[...(Array.isArray(p.items)?p.items:[]),...(Array.isArray(p.custom_items)?p.custom_items:[])].some(x=>x?.sample_id===s.id || x?.sampleId===s.id || x?.sam_number===s.sample_number || x?.sample_number===s.sample_number))
+    const parseLegacyComments = value => {
+      if(!value)return []
+      let parsed=value
+      if(typeof parsed==='string'){
+        try {parsed=JSON.parse(parsed)} catch {return [{text:parsed}]}
+      }
+      if(!Array.isArray(parsed))parsed=[parsed]
+      return parsed.filter(Boolean).map(c=>typeof c==='string'?{text:c}:{text:c.text||c.comment_text||c.comment||'',date:c.date||c.comment_date,type:c.type||c.comment_type,by:c.by||c.comment_by})
+    }
     const histories=earlier.map(s=>{
-      const comments=sampleComments.filter(c=>c.sample_id===s.id || c.root_sample_id===s.id || (c.sam_number===s.sample_number && c.version_label===s.version_label))
+      const stored=sampleComments.filter(c=>c.sample_id===s.id || c.root_sample_id===s.id || (c.sam_number===s.sample_number && c.version_label===s.version_label))
+      const comments=stored.length?stored.map(c=>({text:c.comment_text||'',date:c.comment_date||c.created_at,type:c.comment_type})):parseLegacyComments(s.comments)
       const parcel=parcelFor(s)
-      return `<div class="history"><b>${safeText(s.version_label||'V1')}</b> — Sample: ${dayString(s.created_at)||'—'} | Parcel: ${safeText(parcel?.parcel_number||parcel?.parcel_no||'—')} · ${safeText(parcel?.status||'—')} · ${dayString(parcel?.dispatch_date||parcel?.dispatched_at)||'—'}<div>${comments.length?comments.map(c=>`<p><b>${dayString(c.comment_date||c.created_at)||'—'}:</b> ${safeText(c.comment_text||'')}</p>`).join(''):(s.comments ? safeText(typeof s.comments==='string'?s.comments:JSON.stringify(s.comments)) : 'No recorded comments')}</div></div>`
+      const parcelLabel=parcel?[parcel.courier,parcel.tracking_no||parcel.tracking_number].filter(Boolean).join(' ')||parcel.id:'—'
+      const approval=String(s.approvalStatus||s.approval_status||'').trim()
+      const status=approval && !/pending/i.test(approval)?approval:(s.status||s.stage||'—')
+      const latestComment=comments.filter(c=>c.date).sort((a,b)=>String(b.date).localeCompare(String(a.date)))[0]
+      const commentDate=latestComment?.date?dayString(latestComment.date):'—'
+      return `<div class="history"><b>${safeText(s.version_label||'V1')}</b> — Sample: ${dayString(s.created_at)||'—'} | Parcel: ${safeText(parcelLabel)} | Status: ${safeText(status)} | Comments Date: ${commentDate}<div>Rejected/Revision on: </div><div>Comments: ${comments.length?comments.map(c=>safeText(c.text)).filter(Boolean).join(' / '):'—'}</div></div>`
     }).join('') || '<div class="history">No previous versions</div>'
     const start=row.requested_date||row.created_at
     const ready=row.dueDate
