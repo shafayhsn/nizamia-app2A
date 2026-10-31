@@ -70,9 +70,9 @@ export async function buildSampleProgramHTML(row, {bomItems=[],fittingBlocks=[],
     const earlier=family.filter(s=>s.id!==row.id && Number(s.version_no||1)<Number(row.version_no||1)).sort((a,b)=>Number(a.version_no||1)-Number(b.version_no||1))
     const parcelFor = s => parcelItems.find(p=>[...(Array.isArray(p.items)?p.items:[]),...(Array.isArray(p.custom_items)?p.custom_items:[])].some(x=>x?.sample_id===s.id || x?.sam_number===s.sample_number || x?.sample_number===s.sample_number))
     const histories=earlier.map(s=>{
-      const comments=sampleComments.filter(c=>c.sample_id===s.id || (c.sam_number===s.sample_number && c.version_label===s.version_label))
+      const comments=sampleComments.filter(c=>c.sample_id===s.id || c.root_sample_id===s.id || (c.sam_number===s.sample_number && c.version_label===s.version_label))
       const parcel=parcelFor(s)
-      return `<div class="history"><b>${safeText(s.version_label||'V1')}</b> — Sample: ${dayString(s.created_at)||'—'} | Parcel: ${safeText(parcel?.parcel_number||parcel?.parcel_no||'—')} · ${safeText(parcel?.status||'—')} · ${dayString(parcel?.dispatch_date||parcel?.dispatched_at)||'—'}<div>${comments.length?comments.map(c=>`<p><b>${dayString(c.comment_date)||'—'}:</b> ${safeText(c.comment_text||'')}</p>`).join(''):'No recorded comments'}</div></div>`
+      return `<div class="history"><b>${safeText(s.version_label||'V1')}</b> — Sample: ${dayString(s.created_at)||'—'} | Parcel: ${safeText(parcel?.parcel_number||parcel?.parcel_no||'—')} · ${safeText(parcel?.status||'—')} · ${dayString(parcel?.dispatch_date||parcel?.dispatched_at)||'—'}<div>${comments.length?comments.map(c=>`<p><b>${dayString(c.comment_date||c.created_at)||'—'}:</b> ${safeText(c.comment_text||'')}</p>`).join(''):(s.comments ? safeText(typeof s.comments==='string'?s.comments:JSON.stringify(s.comments)) : 'No recorded comments')}</div></div>`
     }).join('') || '<div class="history">No previous versions</div>'
     const start=row.requested_date||row.created_at
     const ready=row.dueDate
@@ -82,7 +82,13 @@ export async function buildSampleProgramHTML(row, {bomItems=[],fittingBlocks=[],
     const currentComments=sampleComments.filter(c=>c.sample_id===row.id || c.sam_number===row.sample_number)
     const commentsHTML=currentComments.map(c=>`<div class="history"><b>${dayString(c.comment_date||c.created_at)||'—'}</b> · ${safeText(c.user_name||c.created_by||c.author||'')}: ${safeText(c.comment_text||c.comment||'')}</div>`).join('') || '<div class="history">No recorded comments for this version</div>'
     const parcelHTML=currentParcel?`<div class="history"><b>${safeText(currentParcel.parcel_number||currentParcel.parcel_no||'—')}</b> · ${safeText(currentParcel.status||'—')} · ${safeText(currentParcel.courier||currentParcel.courier_name||'—')} · ${safeText(currentParcel.tracking_number||'—')} · Dispatched ${dayString(currentParcel.dispatch_date||currentParcel.dispatched_at)||'—'}</div>`:'<div class="history">No linked parcel record</div>'
-    const image=row.order?.style_image_url || row.order?.style_image_base64 || row.order?.image_url || row.order?.picture_url || row.meta?.image_url || ''
+    let image=row.order?.style_image_url || row.order?.style_image_base64 || row.order?.image_url || row.order?.picture_url || row.meta?.image_url || ''
+    if(!image && row.order?.style_number){
+      const {data:variants,error:imageError}=await supabase.from('orders').select('style_image_url,style_image_base64').eq('style_number',row.order.style_number).limit(100)
+      if(imageError)console.warn('Sample program image lookup:',imageError.message)
+      const match=variants?.find(v=>v.style_image_url||v.style_image_base64)
+      image=match?.style_image_url||match?.style_image_base64||''
+    }
     const picture=image?`<img class="picture" src="${safeText(image)}" alt="Style image"/>`:'<div class="picture-empty">No image</div>'
     // The production-floor heading uses the saved type and version, not a fixed label.
     const rawType=String(row.sample_type||'').trim()
