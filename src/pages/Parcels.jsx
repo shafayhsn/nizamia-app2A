@@ -366,7 +366,7 @@ export default function Parcels() {
             </React.Fragment>)}
           </React.Fragment>)}
           {!shownParcels.length&&<tr><td colSpan={9} style={{textAlign:'center',padding:28,color:'#9ca3af'}}>No parcels in this tab.</td></tr>}
-        </tbody></table>
+        </tbody></table>}
       </div>
       <div style={{height:34,borderTop:'1px solid #e5e7eb',padding:'8px 24px',fontSize:11,color:'#6b7280',flexShrink:0}}>{tab==='ready'?`${shownSamples.length} READY SAMPLES · ${shownParcels.length} PARCELS AWAITING DISPATCH`:`${shownParcels.length} DISPATCHED PARCELS`}</div>
       {creating && <ParcelBuilderModal poolRows={selectedSamples.length?availableSamples.filter(r=>selectedSamples.includes(r.sampleId)):availableSamples} onClose={() => setCreating(false)} onCreated={createNewParcel} />}
