@@ -2,8 +2,8 @@ import useManagedPopup from '../components/ui/useManagedPopup'
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { statusBadgeStyle, statusDisplay } from '../lib/statusColors'
-import { createParcel, dispatchParcel, loadSamplingStore, updateParcel } from '../lib/samplingStore'
-import { FileText, PackageOpen, Plus, Printer, RefreshCw, Truck } from 'lucide-react'
+import { loadSamplingStore } from '../lib/samplingStore'
+import { FileText, Plus, RefreshCw, Truck, Pencil, Trash2, CheckCheck, ExternalLink, ArrowDownUp, Layers, Settings2 } from 'lucide-react'
 import { useAppDialogs } from '../components/ui/AppDialogs'
 import { formatDate } from '../lib/utils'
 
@@ -21,6 +21,23 @@ const sampleWashColour = (sample, meta = {}) => {
 const sampleSizeLabel = (sample, meta = {}) =>
   sample.base_size || (Array.isArray(sample.sizes) ? sample.sizes.filter(Boolean).join(', ') : '') || sample.size || meta.sampleSize || '—'
 
+
+const TRACKING_STATUSES=['Dispatched','In-Transit','On Hold','Returned','Out for Delivery','Delivered']
+const STATUS_STYLES={
+ 'Draft':{background:'#f3f4f6',color:'#4b5563'},
+ 'Dispatched':{background:'#dbeafe',color:'#1d4ed8'},
+ 'In-Transit':{background:'#ede9fe',color:'#6d28d9'},
+ 'On Hold':{background:'#fef3c7',color:'#92400e'},
+ 'Returned':{background:'#fee2e2',color:'#b91c1c'},
+ 'Out for Delivery':{background:'#e0f2fe',color:'#0369a1'},
+ 'Delivered':{background:'#dcfce7',color:'#166534'}
+}
+const statusPill=s=><span style={{...STATUS_STYLES[s],padding:'4px 9px',borderRadius:20,fontSize:11,fontWeight:700,whiteSpace:'nowrap'}}>{s}</span>
+const fromDb=p=>({...p,trackingNo:p.tracking_no||'',trackingUrl:p.tracking_url||'',dispatchDate:p.dispatch_date||'',customItems:p.custom_items||[],items:p.items||[],deliveredAt:p.delivered_at})
+const toDb=p=>({id:p.id,status:p.status||'Draft',courier:p.courier||'',tracking_no:p.trackingNo||'',tracking_url:p.trackingUrl||'',dispatch_date:p.dispatchDate||null,notes:p.notes||'',items:p.items||[],custom_items:p.customItems||[]})
+const validTrackingUrl=value=>{try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)?u.href:null}catch{return null}}
+const PREF_KEY='app2a.parcels.view.v1'
+const readPrefs=()=>{try{return JSON.parse(sessionStorage.getItem(PREF_KEY)||'{}')}catch{return {}}}
 
 function openPrint(html, title, onBlocked) {
   const w = window.open('', '_blank', 'width=1000,height=800')
@@ -98,6 +115,15 @@ export default function Parcels() {
   const [orders, setOrders] = useState([])
   const [buyers, setBuyers] = useState([])
   const [store, setStore] = useState(loadSamplingStore())
+  const [parcels,setParcels]=useState([])
+  const [selectedParcels,setSelectedParcels]=useState([])
+  const [editing,setEditing]=useState(null)
+  const [history,setHistory]=useState([])
+  const [busy,setBusy]=useState(false)
+  const [prefs,setPrefs]=useState(readPrefs)
+  const [sortBy,setSortBy]=useState(()=>readPrefs().sortBy||'date-desc')
+  const [groupBy,setGroupBy]=useState(()=>readPrefs().groupBy||'none')
+  const [statusFilter,setStatusFilter]=useState(()=>readPrefs().statusFilter||'All')
   const [creating, setCreating] = useState(false)
   const [active, setActive] = useState(null)
   const [tab, setTab] = useState('ready')
@@ -105,17 +131,31 @@ export default function Parcels() {
   const [selectedSamples, setSelectedSamples] = useState([])
 
   useEffect(() => { load() }, [])
+  useEffect(()=>{try{sessionStorage.setItem(PREF_KEY,JSON.stringify({sortBy,groupBy,statusFilter}))}catch{}},[sortBy,groupBy,statusFilter])
 
   async function load() {
-    const [{ data: s }, { data: o }, { data: b }] = await Promise.all([
+    const [{ data: s }, { data: o }, { data: b }, { data: dbParcels,error:parcelError }] = await Promise.all([
       supabase.from('samples').select('*').order('created_at', { ascending:false }),
       supabase.from('orders').select('*').order('created_at', { ascending:false }),
       supabase.from('buyers').select('*').order('name'),
+      supabase.from('parcels').select('*').order('created_at',{ascending:false}),
     ])
     setSamples(s || [])
     setOrders(o || [])
     setBuyers(b || [])
-    setStore(loadSamplingStore())
+    if(parcelError){alert(parcelError.message,{title:'Parcel Loading Failed'});return}
+    // Import browser-only legacy parcels without overwriting existing Supabase records.
+    const legacy=loadSamplingStore()
+    const remoteIds=new Set((dbParcels||[]).map(p=>p.id))
+    const missing=(legacy.parcels||[]).filter(p=>!remoteIds.has(p.id))
+    if(missing.length){
+      const {error:importError}=await supabase.from('parcels').insert(missing.map(toDb))
+      if(importError) alert('Legacy parcel import failed: '+importError.message,{title:'Migration Warning'})
+    }
+    const {data:updated,error:reloadError}=missing.length?await supabase.from('parcels').select('*').order('created_at',{ascending:false}):{data:dbParcels}
+    if(reloadError) alert(reloadError.message,{title:'Parcel Loading Failed'})
+    setParcels((updated||dbParcels||[]).map(fromDb))
+    setStore(legacy)
   }
 
   const sampleMap = useMemo(() => Object.fromEntries(samples.map(s => [s.id, s])), [samples])
@@ -123,7 +163,7 @@ export default function Parcels() {
   const buyerMap = useMemo(() => Object.fromEntries(buyers.map(b => [b.id, b])), [buyers])
 
   const poolRows = useMemo(() => (store.parcelPool || []).map(p => ({ ...p, sample: sampleMap[p.sampleId] || {}, order: orderMap[(sampleMap[p.sampleId] || {}).order_id] || {} })).filter(x => x.sample.id), [store, sampleMap, orderMap])
-  const parcels = store.parcels || []
+
   const readySamples = useMemo(() => samples.filter(s => {
     const stage = store.sampleMeta?.[s.id]?.stage || s.stage || ''
     return stage === 'Ready'
@@ -132,21 +172,97 @@ export default function Parcels() {
     const inParcels = new Set(parcels.flatMap(p => (p.items || []).map(it => it.sampleId)))
     return [...new Map([...readySamples,...poolRows].map(r=>[r.sampleId,r])).values()].filter(r=>!inParcels.has(r.sampleId))
   },[readySamples,poolRows,parcels])
-  const shownParcels = parcels.filter(p => (tab === 'dispatched' ? p.status === 'Dispatched' : p.status !== 'Dispatched') && (!search || [p.id,p.courier,p.trackingNo].some(v=>String(v||'').toLowerCase().includes(search.toLowerCase()))))
+  const shownParcels=useMemo(()=>{
+    const rows=parcels.filter(p=>(tab==='dispatched'?p.status!=='Draft':p.status==='Draft') &&
+      (statusFilter==='All'||p.status===statusFilter) &&
+      (!search||[p.id,p.courier,p.trackingNo,p.status].some(v=>String(v||'').toLowerCase().includes(search.toLowerCase()))))
+    const sorted=[...rows].sort((a,b)=>{
+      if(sortBy==='id-asc')return a.id.localeCompare(b.id)
+      if(sortBy==='id-desc')return b.id.localeCompare(a.id)
+      if(sortBy==='courier')return (a.courier||'').localeCompare(b.courier||'')
+      if(sortBy==='status')return a.status.localeCompare(b.status)
+      const d=(a.dispatchDate||a.created_at||'').localeCompare(b.dispatchDate||b.created_at||'')
+      return sortBy==='date-asc'?d:-d
+    })
+    return sorted
+  },[parcels,tab,statusFilter,search,sortBy])
+  const groupedParcels=useMemo(()=>{
+    if(groupBy==='none')return [['',shownParcels]]
+    const groups=new Map()
+    for(const p of shownParcels){
+      const key=groupBy==='status'?p.status:groupBy==='courier'?(p.courier||'Unassigned'):groupBy==='month'?(p.dispatchDate||'Undated').slice(0,7):(p.items||[]).map(it=>orderMap[sampleMap[it.sampleId]?.order_id]?.buyer_name).filter(Boolean)[0]||'Unassigned'
+      if(!groups.has(key))groups.set(key,[])
+      groups.get(key).push(p)
+    }
+    return [...groups.entries()]
+  },[shownParcels,groupBy,sampleMap,orderMap])
   const shownSamples = availableSamples.filter(r => !search || [r.sample.sample_number,r.order.buyer_name,r.order.job_number,r.order.style_number,r.sample.sample_type].some(v=>String(v||'').toLowerCase().includes(search.toLowerCase())))
 
-  function patchParcel(parcelId, patch) {
-    updateParcel(parcelId, patch)
-    setStore(loadSamplingStore())
-  }
-
-  function doDispatch(parcel) {
-    if (!parcel.courier || !parcel.trackingNo || !parcel.dispatchDate) {
-      alert('Courier, tracking no and dispatch date are required.', { title:'Missing Dispatch Details' })
-      return
+  async function patchParcel(parcelId,patch) {
+    const old=parcels.find(p=>p.id===parcelId)
+    if(!old)return false
+    setBusy(true)
+    const changed={...old,...patch}
+    const db=toDb(changed)
+    const {error}=await supabase.from('parcels').update({...db,updated_at:new Date().toISOString()}).eq('id',parcelId)
+    if(error){alert(error.message,{title:'Parcel Update Failed'});setBusy(false);return false}
+    if(patch.status&&patch.status!==old.status){
+      const {error:historyError}=await supabase.from('parcel_status_history').insert({parcel_id:parcelId,old_status:old.status,new_status:patch.status})
+      if(historyError)alert('Status updated, but history could not be saved: '+historyError.message,{title:'History Warning'})
     }
-    dispatchParcel(parcel.id)
-    setStore(loadSamplingStore())
+    setParcels(v=>v.map(p=>p.id===parcelId?changed:p))
+    setBusy(false)
+    return true
+  }
+  async function createNewParcel(payload){
+    setBusy(true)
+    const year=String(new Date().getFullYear()).slice(-2)
+    const id='PAR-'+year+'-'+(globalThis.crypto?.randomUUID?.()||Math.random().toString(36).slice(2)).slice(0,8).toUpperCase()
+    const {error}=await supabase.from('parcels').insert(toDb({id,...payload,status:'Draft'}))
+    if(error)alert(error.message,{title:'Create Parcel Failed'})
+    else{setCreating(false);await load()}
+    setBusy(false)
+  }
+  async function doDispatch(parcel){
+    if(!parcel.courier||!parcel.trackingNo||!parcel.dispatchDate){
+      alert('Courier, tracking number and dispatch date are required.',{title:'Missing Dispatch Details'});return
+    }
+    const ok=await patchParcel(parcel.id,{status:'Dispatched'})
+    if(ok){
+      await supabase.from('parcels').update({dispatched_at:new Date().toISOString()}).eq('id',parcel.id)
+      for(const it of parcel.items||[]){
+        await supabase.from('samples').update({dispatch_status:'Dispatched'}).eq('id',it.sampleId)
+      }
+      await load()
+    }
+  }
+  async function changeStatus(id,status){
+    if(status==='Delivered')return
+    await patchParcel(id,{status})
+  }
+  async function markDelivered(){
+    const targets=parcels.filter(p=>selectedParcels.includes(p.id)&&p.status!=='Delivered'&&p.status!=='Draft')
+    if(!targets.length)return
+    if(!window.confirm('Mark '+targets.length+' selected parcel(s) as delivered?'))return
+    for(const p of targets){
+      const ok=await patchParcel(p.id,{status:'Delivered'})
+      if(ok)await supabase.from('parcels').update({delivered_at:new Date().toISOString()}).eq('id',p.id)
+    }
+    setSelectedParcels([])
+    await load()
+  }
+  async function deleteSelected(){
+    if(!selectedParcels.length||!window.confirm('Delete '+selectedParcels.length+' parcel(s)? This cannot be undone.'))return
+    setBusy(true)
+    const {error}=await supabase.from('parcels').delete().in('id',selectedParcels)
+    if(error)alert(error.message,{title:'Delete Failed'})
+    else{setSelectedParcels([]);await load()}
+    setBusy(false)
+  }
+  async function openHistory(id){
+    const {data,error}=await supabase.from('parcel_status_history').select('*').eq('parcel_id',id).order('changed_at',{ascending:false})
+    if(error)alert(error.message,{title:'History Error'})
+    setHistory(data||[])
   }
 
   function printInvoice(parcel) {
