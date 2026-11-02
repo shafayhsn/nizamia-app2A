@@ -120,14 +120,14 @@ export default function Suppliers() {
   const isContractorsTab = tab === 'Contractors'
   const isTrimsTab = tab === 'Trims'
 
-  const inp = { width: '100%', height: 34, padding: '0 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, fontFamily: 'Inter,sans-serif', outline: 'none', background: '#fff', boxSizing: 'border-box' }
+  const inp = { width: '100%', height: 34, padding: '0 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, fontFamily: 'var(--font)', outline: 'none', background: '#fff', boxSizing: 'border-box' }
   const lbl = { fontSize: 11, fontWeight: 500, color: '#6b7280', display: 'block', marginBottom: 4 }
 
   return (
-    <div className="page-content" style={{padding:0,display:"flex",flexDirection:"column",height:"100%",minHeight:0}}>
+    <div style={{padding:0,margin:0,display:"flex",flexDirection:"column",height:"calc(100vh - var(--topbar-h))",minHeight:0,width:"100%",overflow:"hidden",background:"#fff"}}>
       {/* Header */}
-      <div className="section-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',padding:'14px 28px',margin:0,minHeight:74,borderBottom:'1px solid #e5e7eb',boxSizing:'border-box'}}>
-        <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+      <div style={{flexShrink:0,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',padding:'12px 28px',margin:0,minHeight:76,borderBottom:'1px solid #e5e7eb',boxSizing:'border-box'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'nowrap'}}>
           <h1 style={{fontSize:22,fontWeight:750,margin:0}}>Suppliers</h1>
           <div style={{padding:'7px 13px',border:'1px solid #e5e7eb',borderRadius:8,minWidth:105,background:'#fff'}}>
             <div style={{fontSize:10,fontWeight:700,color:'#9ca3af'}}>TOTAL SUPPLIERS</div><div style={{fontSize:19,fontWeight:700}}>{suppliers.length}</div>
@@ -139,15 +139,15 @@ export default function Suppliers() {
         <button className="btn btn-primary" onClick={openNew}><Plus size={14}/> New Supplier</button>
       </div>
       {/* Search and actions */}
-      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'10px 20px',marginBottom:0,borderBottom:'1px solid #e5e7eb',boxSizing:'border-box'}}>
-        <div style={{position:'relative',minWidth:190,flex:'0 1 220px',maxWidth:240}}>
-          <Search size={15} style={{position:'absolute',left:11,top:10,color:'#9ca3af'}}/>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search Suppliers" style={{...inp,paddingLeft:34,height:36}}/>
+      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'nowrap',flexShrink:0,minHeight:58,padding:'10px 28px',marginBottom:0,borderBottom:'1px solid #e5e7eb',boxSizing:'border-box'}}>
+        <div style={{position:'relative',minWidth:150,flex:'0 1 180px',maxWidth:180}}>
+          <Search size={15} style={{position:'absolute',left:11,top:8,color:'#9ca3af'}}/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search Suppliers" style={{...inp,paddingLeft:34,height:32}}/>
         </div>
-        <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...inp,width:155,height:36,cursor:'pointer'}}><option value="name-asc">Name (A–Z)</option><option value="name-desc">Name (Z–A)</option><option value="category">Category</option></select>
-        <select value={tab} onChange={e=>setTab(e.target.value)} style={{...inp,width:145,height:36,cursor:'pointer'}}>{TABS.map(t=><option key={t} value={t}>{t==='All'?'All Categories':t}</option>)}</select>
-        <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{...inp,width:140,height:36,cursor:'pointer'}}><option value="all">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
-        <div style={{marginLeft:'auto',display:'flex',gap:6}}>
+        <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...inp,width:150,height:32,cursor:'pointer'}}><option value="name-asc">Name (A–Z)</option><option value="name-desc">Name (Z–A)</option><option value="category">Category</option></select>
+        <select value={tab} onChange={e=>setTab(e.target.value)} style={{...inp,width:145,height:32,cursor:'pointer'}}>{TABS.map(t=><option key={t} value={t}>{t==='All'?'All Categories':t}</option>)}</select>
+        <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{...inp,width:140,height:32,cursor:'pointer'}}><option value="all">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+        <div style={{marginLeft:'auto',display:'flex',gap:6,flexShrink:0}}>
           <button className="btn btn-secondary app-icon-only" title="Edit selected supplier" disabled={!selectedSupplier} onClick={()=>selectedSupplier&&openEdit(selectedSupplier)}><Edit2 size={15}/></button>
           <button className="btn btn-secondary app-icon-only" title="Deactivate selected supplier" disabled={!selectedSupplier} onClick={()=>selectedSupplier&&handleDelete(selectedSupplier.id)}><Trash2 size={15}/></button>
           <button className="btn btn-secondary app-icon-only" title="Refresh" onClick={load}><RefreshCw size={15}/></button>
@@ -157,7 +157,7 @@ export default function Suppliers() {
       {showOptions&&<div style={{padding:'10px 0',display:'flex',gap:10,alignItems:'center',fontSize:12}}><button className="btn btn-secondary" onClick={()=>exportToCSV(filtered)}><Download size={14}/> Export filtered CSV</button><span style={{color:'#6b7280'}}>Supplier records are deactivated, not permanently deleted.</span></div>}
       {/* Table */}
       <div style={{margin:0,background:"#fff",flex:"1 1 auto",minHeight:0,overflow:"hidden"}}>
-        <div className="table-wrap" style={{height:"100%",overflow:"auto"}}>
+        <div className="table-wrap" style={{height:"100%",overflow:"auto",minHeight:0}}>
           {filtered.length === 0 ? (
             <div className="empty-state">
               <Truck size={32} />
@@ -166,7 +166,7 @@ export default function Suppliers() {
             </div>
           ) : (
             <table style={{width:'100%',borderCollapse:'collapse'}}>
-              <thead>
+              <thead style={{position:'sticky',top:0,zIndex:2,background:'#f9fafb'}}>
                 <tr>
                   <th style={{width:30}}><input type="checkbox" aria-label="Select all visible suppliers" checked={filtered.length>0&&filtered.every(x=>selectedIds.includes(x.id))} onChange={e=>setSelectedIds(e.target.checked?[...new Set([...selectedIds,...filtered.map(x=>x.id)])]:selectedIds.filter(id=>!filtered.some(x=>x.id===id)))}/></th>
                   <th>Name</th>
@@ -238,7 +238,7 @@ export default function Suppliers() {
         </div>
       </div>
 
-      <div style={{display:'flex',justifyContent:'space-between',padding:'10px 28px',fontSize:12,color:'#6b7280',borderTop:'1px solid #e5e7eb',background:'#f9fafb'}}><span>{filtered.length} Suppliers</span><span>{activeCount} active</span></div>
+      <div style={{display:'flex',justifyContent:'space-between',padding:'9px 28px',flexShrink:0,fontSize:12,color:'#6b7280',borderTop:'1px solid #e5e7eb',background:'#f9fafb'}}><span>{filtered.length} Suppliers</span><span>{activeCount} active</span></div>
       {/* Modal */}
       {modal && (
         <MinimizableModal title={editing ? 'Edit Supplier' : 'New Supplier'} onClose={() => setModal(false)}>
