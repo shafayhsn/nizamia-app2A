@@ -63,6 +63,8 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
   const { Dialogs } = useAppDialogs()
   const [selected, setSelected] = useState(poolRows.map(r => r.sampleId))
   const [customItems, setCustomItems] = useState([{ description:'', qty:1, unitValue:1 }])
+  const [sampleDetails,setSampleDetails]=useState({})
+  const updateSample=(id,key,value)=>setSampleDetails(prev=>({...prev,[id]:{...prev[id],[key]:value}}))
   const allRows = poolRows.filter(r => selected.includes(r.sampleId))
   const canCreate = allRows.length > 0 || customItems.some(x => x.description?.trim())
 
@@ -78,13 +80,14 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
         <div style={{ fontWeight:700, marginBottom:8 }}>Samples in Parcel</div>
         <div style={{ display:'grid', gap:8 }}>
           {poolRows.map(r => (
-            <label key={r.sampleId} style={{ display:'grid', gridTemplateColumns:'20px 1.2fr .9fr .8fr .8fr', gap:10, alignItems:'center', border:'1px solid #ececec', borderRadius:8, padding:'8px 10px' }}>
+            <div key={r.sampleId} style={{ display:'grid', gridTemplateColumns:'20px 1.2fr .8fr 85px 100px .8fr', gap:10, alignItems:'center', border:'1px solid #ececec', borderRadius:8, padding:'8px 10px' }}>
               <input type="checkbox" checked={selected.includes(r.sampleId)} onChange={e => setSelected(s => e.target.checked ? [...s, r.sampleId] : s.filter(x => x !== r.sampleId))} />
               <div><div style={{ fontWeight:700, fontFamily:'monospace' }}>{r.sample.sample_number}</div><div style={{ fontSize:11, color:'#6b7280' }}>{r.order.style_number || '—'} · {r.order.description || '—'}</div></div>
               <div>{r.sample.sample_type || '—'}</div>
-              <div>{r.sample.req_pcs || 0} pcs</div>
+              <input aria-label={'Parcel quantity '+r.sample.sample_number} style={inp} type="number" min="1" value={sampleDetails[r.sampleId]?.qty??r.sample.req_pcs??1} onChange={e=>updateSample(r.sampleId,'qty',e.target.value)} />
+              <input aria-label={'USD unit value '+r.sample.sample_number} style={inp} type="number" min="0" step="0.01" value={sampleDetails[r.sampleId]?.unitValue??1} onChange={e=>updateSample(r.sampleId,'unitValue',e.target.value)} />
               <div>{r.order.buyer_name || '—'}</div>
-            </label>
+            </div>
           ))}
         </div>
 
@@ -102,7 +105,7 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
 
         <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:14 }}>
           <button style={btn} onClick={onClose}>Cancel</button>
-          <button style={{ ...btn, background:canCreate?'#111827':'#e5e7eb', color:canCreate?'#fff':'#9ca3af', borderColor:canCreate?'#111827':'#e5e7eb' }} disabled={!canCreate} onClick={() => onCreated({ items: allRows.map(r => ({ sampleId: r.sampleId })), customItems: customItems.filter(x => x.description?.trim()) })}>Create Parcel</button>
+          <button style={{ ...btn, background:canCreate?'#111827':'#e5e7eb', color:canCreate?'#fff':'#9ca3af', borderColor:canCreate?'#111827':'#e5e7eb' }} disabled={!canCreate} onClick={() => onCreated({ items: allRows.map(r => ({ sampleId:r.sampleId,qty:Math.max(1,Number(sampleDetails[r.sampleId]?.qty??r.sample.req_pcs??1)),unitValue:Math.max(0,Number(sampleDetails[r.sampleId]?.unitValue??1)) })), customItems: customItems.filter(x => x.description?.trim()) })}>Create Parcel</button>
         </div>
       </div>
       <Dialogs />
@@ -189,7 +192,7 @@ export default function Parcels() {
 
   async function load() {
     const [{ data: s,error:sampleError }, { data: o }, { data: b }, { data: dbParcels,error:parcelError }] = await Promise.all([
-      supabase.from('samples').select('id,order_id,sample_number,sample_type,stage,dispatch_status,req_pcs,version_label,created_at').order('created_at', { ascending:false }),
+      supabase.from('samples').select('id,order_id,sample_number,sample_type,stage,dispatch_status,req_pcs,base_size,sizes,colours,color,wash_snapshot,version_label,created_at').order('created_at', { ascending:false }),
       supabase.from('orders').select('id,buyer_id,buyer_name,style_number,job_number,po_number,description,factory_ref').order('created_at', { ascending:false }),
       supabase.from('buyers').select('*').order('name'),
       supabase.from('parcels').select('*').order('created_at',{ascending:false}),
@@ -425,7 +428,7 @@ export default function Parcels() {
       ...(parcel.items || []).map((it, idx) => {
         const s = sampleMap[it.sampleId] || {}
         const o = orderMap[s.order_id] || {}
-        return { no: idx + 1, description: `Sample - ${o.style_number || '—'} (${s.sample_type || 'Sample'})`, qty: Number(s.req_pcs || 0), unitValue: 1 }
+        return { no: idx + 1, description: `Sample - ${o.style_number || '—'} (${s.sample_type || 'Sample'})`, qty: Number(it.qty ?? s.req_pcs ?? 0), unitValue: Number(it.unitValue ?? 1) }
       }),
       ...(parcel.customItems || []).map((it, idx) => ({ no: (parcel.items?.length || 0) + idx + 1, description: it.description, qty: Number(it.qty || 0), unitValue: Number(it.unitValue || 1) })),
     ]
