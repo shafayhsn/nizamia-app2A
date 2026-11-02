@@ -89,10 +89,7 @@ export default async function handler(req,res){
    return error?err(res,500,'Could not load buyer details'):res.json({data:data||[]})
  }
  if(action!=='sync')return err(res,400,'Invalid action')
- if(!['admin','manager'].includes(String(user.role||'').toLowerCase())){
-   const {data:permissions}=await db.from('permissions').select('can_edit,can_create').eq('module','buyers').limit(1)
-   if(!permissions?.some(p=>p.can_edit||p.can_create))return err(res,403,'Buyer edit permission required')
- }
+ if(!['admin','manager'].includes(String(user.role||'').toLowerCase()))return err(res,403,'Administrator or manager access required')
  const rows=req.body?.rows
  if(!Array.isArray(rows)||rows.length>100)return err(res,400,'Invalid records')
  if(rows.length&&rows.filter(r=>r.is_default).length!==1)return err(res,400,'Select exactly one default')
