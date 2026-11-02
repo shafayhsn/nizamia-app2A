@@ -142,10 +142,13 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
 function ParcelEditModal({parcel,samples,orders,parcels,onClose,onSave,onDispatch}){
  const [form,setForm]=useState({courier:parcel.courier||'',trackingNo:parcel.trackingNo||'',trackingUrl:parcel.trackingUrl||'',dispatchDate:parcel.dispatchDate||'',notes:parcel.notes||'',items:(parcel.items||[]).map(x=>({...x})),customItems:(parcel.customItems||[]).map(x=>({...x}))})
  const [working,setWorking]=useState(false)
+ const [showAddSamples,setShowAddSamples]=useState(false)
+ const [sampleSearch,setSampleSearch]=useState('')
  const set=(key,value)=>setForm(v=>({...v,[key]:value}))
  const setCustom=(i,key,value)=>setForm(v=>({...v,customItems:v.customItems.map((x,j)=>i===j?{...x,[key]:value}:x)}))
  const taken=new Set(parcels.filter(p=>p.id!==parcel.id).flatMap(p=>(p.items||[]).map(it=>it.sampleId)))
- const choices=samples.filter(x=>!taken.has(x.id))
+ const choices=samples.filter(x=>!taken.has(x.id) && !form.items.some(it=>it.sampleId===x.id) && String(x.stage||'').toLowerCase()==='ready')
+ const matchingChoices=choices.filter(x=>[x.sample_number,orderMap[x.order_id]?.style_number,x.sample_type].join(' ').toLowerCase().includes(sampleSearch.toLowerCase()))
  const orderMap=Object.fromEntries(orders.map(o=>[o.id,o]))
  const submit=async(dispatch=false)=>{
    if(form.trackingUrl&&!validTrackingUrl(form.trackingUrl)){window.alert('Enter a valid http(s) tracking URL.');return}
@@ -160,11 +163,25 @@ function ParcelEditModal({parcel,samples,orders,parcels,onClose,onSave,onDispatc
    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
    {[['courier','Courier'],['trackingNo','Tracking Number'],['trackingUrl','Tracking URL'],['dispatchDate','Dispatch Date']].map(([key,label])=><label key={key} style={{display:'block',fontSize:12,marginBottom:10}}>{label}<input style={{...inp,marginTop:4}} type={key==='dispatchDate'?'date':'text'} value={form[key]} onChange={e=>set(key,e.target.value)} placeholder={key==='trackingUrl'?'https://courier.example/track/...':''}/></label>)}</div>
    <label style={{display:'block',fontSize:12,marginBottom:12}}>Notes<textarea style={{...inp,height:60,padding:8,marginTop:4}} value={form.notes} onChange={e=>set('notes',e.target.value)}/></label>
-   <strong>Samples in Parcel</strong><div style={{border:'1px solid #eee',borderRadius:8,padding:10,maxHeight:200,overflowY:'auto',margin:'8px 0 14px'}}>
-   {choices.map(sample=><label key={sample.id} style={{display:'flex',alignItems:'center',gap:10,padding:'6px 0',fontSize:12}}>
-   <input type="checkbox" checked={form.items.some(it=>it.sampleId===sample.id)} onChange={e=>set('items',e.target.checked?[...form.items,{sampleId:sample.id}]:form.items.filter(it=>it.sampleId!==sample.id))}/>
-   <strong>{sample.sample_number||sample.id}</strong><span>{orderMap[sample.order_id]?.style_number||'—'}</span><span>{sample.sample_type||''}</span></label>)}
-   {!choices.length&&<span>No available samples</span>}</div>
+   <strong>Samples in Parcel ({form.items.length})</strong>
+   <div style={{border:'1px solid #eee',borderRadius:8,padding:10,margin:'8px 0 14px'}}>
+   {form.items.map(it=>{const sample=samples.find(x=>x.id===it.sampleId);return <div key={it.sampleId} style={{display:'flex',alignItems:'center',gap:12,padding:'8px 0',borderBottom:'1px solid #f3f4f6',fontSize:12}}>
+     <strong style={{minWidth:105}}>{sample?.sample_number||it.sampleId}</strong>
+     <span style={{flex:1}}>{orderMap[sample?.order_id]?.style_number||'—'} · {sample?.sample_type||'Sample'}</span>
+     <label>Qty <input aria-label="Parcel sample quantity" style={{...inp,width:65,marginLeft:4}} type="number" min="1" value={it.qty??sample?.req_pcs??1} onChange={e=>set('items',form.items.map(x=>x.sampleId===it.sampleId?{...x,qty:e.target.value}:x))}/></label>
+     <label>USD <input aria-label="Parcel sample unit value" style={{...inp,width:75,marginLeft:4}} type="number" min="0" step=".01" value={it.unitValue??1} onChange={e=>set('items',form.items.map(x=>x.sampleId===it.sampleId?{...x,unitValue:e.target.value}:x))}/></label>
+     <button style={btn} type="button" onClick={()=>set('items',form.items.filter(x=>x.sampleId!==it.sampleId))}>Remove</button>
+   </div>})}
+   {!form.items.length&&<div style={{fontSize:12,color:'#6b7280',padding:8}}>No samples in this parcel.</div>}
+   <button style={{...btn,marginTop:10}} type="button" onClick={()=>setShowAddSamples(v=>!v)}><Plus size={13}/> {showAddSamples?'Close Sample Search':'Add Sample'}</button>
+   {showAddSamples&&<div style={{marginTop:10,padding:10,background:'#f9fafb',borderRadius:8}}>
+     <input style={{...inp,marginBottom:8}} placeholder="Search ready samples by SAM#, style or type" value={sampleSearch} onChange={e=>setSampleSearch(e.target.value)}/>
+     <div style={{maxHeight:150,overflowY:'auto'}}>
+       {matchingChoices.map(sample=><button type="button" key={sample.id} style={{...btn,display:'flex',width:'100%',justifyContent:'flex-start',marginBottom:5}} onClick={()=>{set('items',[...form.items,{sampleId:sample.id,qty:sample.req_pcs||1,unitValue:1}]);setShowAddSamples(false);setSampleSearch('')}}><Plus size={12}/> {sample.sample_number} · {orderMap[sample.order_id]?.style_number||'—'} · {sample.sample_type||'Sample'}</button>)}
+       {!matchingChoices.length&&<span style={{fontSize:12,color:'#6b7280'}}>No eligible ready samples found.</span>}
+     </div>
+   </div>}
+   </div>
    <strong>Custom Contents</strong><div style={{display:'grid',gap:7,margin:'8px 0'}}>
    {form.customItems.map((it,i)=><div key={i} style={{display:'grid',gridTemplateColumns:'1fr 75px 85px 35px',gap:7}}>
     <input style={inp} aria-label="Item description" placeholder="Description" value={it.description||''} onChange={e=>setCustom(i,'description',e.target.value)}/>
