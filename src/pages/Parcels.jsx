@@ -101,6 +101,7 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
         </div>
         {!addresses.length && !consigneeError && <div style={{fontSize:11,color:'#6b7280',marginTop:6}}>No saved addresses for this buyer. Add one in Buyers before creating a parcel.</div>}
         <div style={{ fontWeight:700, marginBottom:8 }}>2. Samples in Parcel</div>
+        <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Sample / Style　 |　 Type　 |　 Quantity (pcs)　 |　 Unit Value (USD)　 |　 Buyer</div>
         <div style={{ display:'grid', gap:8 }}>
           {poolRows.map(r => (
             <div key={r.sampleId} style={{ display:'grid', gridTemplateColumns:'20px 1.2fr .8fr 85px 100px .8fr', gap:10, alignItems:'center', border:'1px solid #ececec', borderRadius:8, padding:'8px 10px' }}>
@@ -115,6 +116,7 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
         </div>
 
         <div style={{ fontWeight:700, margin:'14px 0 8px' }}>Custom Items</div>
+        <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Description　 |　 Quantity (pcs)　 |　 Unit Value (USD)</div>
         <div style={{ display:'grid', gap:8 }}>
           {customItems.map((item, idx) => (
             <div key={idx} style={{ display:'grid', gridTemplateColumns:'1.4fr 90px 110px', gap:8 }}>
