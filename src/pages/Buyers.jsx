@@ -46,8 +46,8 @@ export default function Buyers() {
     if(!response.ok)throw new Error(json.error||'Unable to access buyer details')
     return json.data||[]
   }
-  const openNew = async () => { setEditing(null); setForm({ currency: 'USD', default_ship_mode: 'Sea', default_incoterms: 'FOB', payment_terms_days: 30 }); setAddresses([]);setContacts([]);setDetailError('');setDetailsReady(false);setModal(true); const [a,c]=await Promise.all([supabase.from('buyer_addresses').select('id').limit(1),supabase.from('buyer_contacts').select('id').limit(1)]);if(a.error||c.error){setDetailError('Buyer address/contact storage is not available. Saving is disabled until it is configured.');return}setDetailsReady(true) }
-  const openEdit = async (b) => { setEditing(b); setForm({ ...b }); setAddresses([]);setContacts([]);setDetailError('');setDetailsReady(false);setModal(true); const [a,c]=await Promise.all([supabase.from('buyer_addresses').select('*').eq('buyer_id',b.id).order('created_at'),supabase.from('buyer_contacts').select('*').eq('buyer_id',b.id).order('created_at')]);if(a.error||c.error){setDetailError('Address/contact storage is not configured yet. Changes cannot be saved until the database migration is applied.');return}setAddresses(a.data||[]);setContacts(c.data||[]);setDetailsReady(true) }
+  const openNew = async () => { setEditing(null); setForm({ currency: 'USD', default_ship_mode: 'Sea', default_incoterms: 'FOB', payment_terms_days: 30 }); setAddresses([]);setContacts([]);setDetailError('');setDetailsReady(false);setModal(true); try{await Promise.all([detailsRequest('addresses'),detailsRequest('contacts')]);setDetailsReady(true)}catch(e){setDetailError(e.message)} }
+  const openEdit = async (b) => { setEditing(b); setForm({ ...b }); setAddresses([]);setContacts([]);setDetailError('');setDetailsReady(false);setModal(true); try{const [a,c]=await Promise.all([detailsRequest('addresses',b.id),detailsRequest('contacts',b.id)]);setAddresses(a);setContacts(c);setDetailsReady(true)}catch(e){setDetailError(e.message)} }
 
   const handleSave = async () => {
     if (!form.name?.trim() || saving) return
@@ -65,15 +65,7 @@ export default function Buyers() {
     }
     if(res.error){setDetailError(res.error.message);setSaving(false);return}
     const buyerId=res.data.id
-    const sync=async(table,rows)=>{
-      const existing=rows.filter(r=>r.id)
-      const incoming=rows.map(({id,created_at,updated_at,...r})=>({...r,buyer_id:buyerId,...(id?{id}:{})}))
-      const old=await supabase.from(table).select('id').eq('buyer_id',buyerId)
-      if(old.error)throw old.error
-      const removed=(old.data||[]).filter(r=>!existing.some(e=>e.id===r.id)).map(r=>r.id)
-      if(removed.length){const d=await supabase.from(table).delete().in('id',removed);if(d.error)throw d.error}
-      if(incoming.length){const u=await supabase.from(table).upsert(incoming);if(u.error)throw u.error}
-    }
+    const sync=(table,rows)=>detailsRequest(table==='buyer_addresses'?'addresses':'contacts',buyerId,rows)
     try{
       await sync('buyer_addresses',addresses.map((a,i)=>({...a,is_default:addresses.length===1||!!a.is_default})))
       await sync('buyer_contacts',contacts.map((c,i)=>({...c,is_default:contacts.length===1||!!c.is_default})))
