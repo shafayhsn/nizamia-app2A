@@ -64,18 +64,18 @@ export default function Buyers() {
   const allSelected=visible.length>0&&visible.every(b=>selected.has(b.id))
   const toggleSelected=id=>setSelected(old=>{const next=new Set(old);next.has(id)?next.delete(id):next.add(id);return next})
   return (
-    <div className="page-content" style={{padding:0,display:'flex',flexDirection:'column',height:'100%',minHeight:0,background:'#fff'}}>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'14px 30px',borderBottom:'1px solid #e5e7eb',flexShrink:0}}>
+    <div style={{display:'flex',flexDirection:'column',height:'100%',minHeight:0,background:'#fff',width:'100%'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'12px 20px',borderBottom:'1px solid #e5e7eb',flexShrink:0}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <h2 style={{fontSize:22,fontWeight:700,margin:'0 6px 0 0'}}>Buyers</h2>
-          {[['TOTAL CUSTOMERS',buyers.length,'#111827'],['ACTIVE CUSTOMERS',activeBuyerIds.size,'#059669']].map(([label,n,color])=><div key={label} style={{border:'1px solid #e5e7eb',borderRadius:10,padding:'7px 13px',minWidth:125,background:'#fff',height:60,boxSizing:'border-box'}}><div style={{fontSize:10,fontWeight:700,color:'#90949d',whiteSpace:'nowrap'}}>{label}</div><div style={{fontSize:22,fontWeight:700,color,lineHeight:'27px'}}>{n}</div></div>)}
+          {[['TOTAL CUSTOMERS',buyers.length,'#111827'],['ACTIVE CUSTOMERS',activeBuyerIds.size,'#059669']].map(([label,n,color])=><div key={label} style={{border:'1px solid #e5e7eb',borderRadius:10,padding:'7px 13px',minWidth:125,background:'#fff',height:58,boxSizing:'border-box'}}><div style={{fontSize:10,fontWeight:700,color:'#90949d',whiteSpace:'nowrap'}}>{label}</div><div style={{fontSize:22,fontWeight:700,color,lineHeight:'27px'}}>{n}</div></div>)}
         </div>
         <button className="btn btn-primary" onClick={openNew} style={{background:'#0b0b0b',color:'#fff',whiteSpace:'nowrap'}}><Plus size={14}/> New Buyer</button>
       </div>
-      <div style={{display:'flex',gap:8,alignItems:'center',padding:'10px 20px',borderBottom:'1px solid #e5e7eb',flexShrink:0,flexWrap:'wrap'}}>
-        <div style={{position:'relative',width:245,flexShrink:1}}><Search size={15} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:'#9ca3af'}}/><input className="input" placeholder="Search Buyers" aria-label="Search buyers" value={search} onChange={e=>setSearch(e.target.value)} style={{width:'100%',boxSizing:'border-box',paddingLeft:34,height:36}}/></div>
-        <select className="select" aria-label="Sort buyers" value={sort} onChange={e=>setSort(e.target.value)} style={{width:150,height:36}}><option value="az">Name (A–Z)</option><option value="za">Name (Z–A)</option><option value="country">Country</option></select>
-        <select className="select" aria-label="Country" value={country} onChange={e=>setCountry(e.target.value)} style={{width:145,height:36}}><option value="all">All Countries</option>{countries.map(c=><option key={c} value={c}>{c}</option>)}</select>
+      <div style={{display:'flex',gap:8,alignItems:'center',padding:'8px 20px',borderBottom:'1px solid #e5e7eb',flexShrink:0,flexWrap:'wrap'}}>
+        <div style={{position:'relative',width:180,flexShrink:1}}><Search size={15} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:'#9ca3af'}}/><input className="input" placeholder="Search Buyers" aria-label="Search buyers" value={search} onChange={e=>setSearch(e.target.value)} style={{width:'100%',boxSizing:'border-box',paddingLeft:34,height:36}}/></div>
+        <select className="select" aria-label="Sort buyers" value={sort} onChange={e=>setSort(e.target.value)} style={{width:155,height:36}}><option value="az">Name (A–Z)</option><option value="za">Name (Z–A)</option><option value="country">Country</option></select>
+        <select className="select" aria-label="Country" value={country} onChange={e=>setCountry(e.target.value)} style={{width:135,height:36}}><option value="all">All Countries</option>{countries.map(c=><option key={c} value={c}>{c}</option>)}</select>
         <select className="select" aria-label="Activity" value={activity} onChange={e=>setActivity(e.target.value)} style={{width:145,height:36}}><option value="all">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
         <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
           <button className="btn btn-secondary" title="Edit selected buyer" aria-label="Edit selected buyer" disabled={selected.size!==1} onClick={()=>{const buyer=buyers.find(b=>selected.has(b.id));if(buyer)openEdit(buyer)}}><Edit2 size={15}/></button>
@@ -90,22 +90,22 @@ export default function Buyers() {
             <th style={{width:34,padding:'11px 14px'}}><input type="checkbox" aria-label="Select all buyers" checked={allSelected} onChange={()=>setSelected(old=>{const next=new Set(old);visible.forEach(b=>allSelected?next.delete(b.id):next.add(b.id));return next})}/></th>
             <th style={{textAlign:'left',padding:'11px 12px'}}>BUYER / STATUS</th>
             {fields.filter(([key])=>columns[key]).map(([key,label])=><th key={key} style={{textAlign:'left',padding:'11px 12px',whiteSpace:'nowrap'}}>{label}</th>)}
-            <th style={{textAlign:'right',padding:'11px 16px'}}>ACTIONS</th>
+            
           </tr></thead>
           <tbody>{visible.map(b=><tr key={b.id} style={{borderBottom:'1px solid #e9ecef',background:selected.has(b.id)?'#eff6ff':'#fff'}}>
-            <td style={{padding:'10px 14px'}}><input type="checkbox" aria-label={'Select '+b.name} checked={selected.has(b.id)} onChange={()=>toggleSelected(b.id)}/></td>
-            <td style={{padding:'10px 12px',fontWeight:650,whiteSpace:'nowrap'}}><span style={{display:'inline-flex',alignItems:'center',gap:9}}><span title={activeBuyerIds.has(b.id)?'Open orders':'No open orders'} style={{width:9,height:9,borderRadius:'50%',background:activeBuyerIds.has(b.id)?'#10B981':'#D1D5DB'}}/>{b.name}</span></td>
-            {columns.contact&&<td style={{padding:'10px 12px'}}>{b.contact_person||'—'}</td>}
+            <td style={{padding:'9px 14px'}}><input type="checkbox" aria-label={'Select '+b.name} checked={selected.has(b.id)} onChange={()=>toggleSelected(b.id)}/></td>
+            <td style={{padding:'9px 12px',fontWeight:650,whiteSpace:'nowrap'}}><span style={{display:'inline-flex',alignItems:'center',gap:9}}><span title={activeBuyerIds.has(b.id)?'Open orders':'No open orders'} style={{width:9,height:9,borderRadius:'50%',background:activeBuyerIds.has(b.id)?'#10B981':'#D1D5DB'}}/>{b.name}</span></td>
+            {columns.contact&&<td style={{padding:'9px 12px'}}>{b.contact_person||'—'}</td>}
             {columns.country&&<td style={{padding:'10px 12px'}}>{b.country||'—'}</td>}
             {columns.currency&&<td style={{padding:'10px 12px'}}>{b.currency||'—'}</td>}
             {columns.terms&&<td style={{padding:'10px 12px'}}>{b.payment_terms_days?b.payment_terms_days+' days':'—'}</td>}
             {columns.incoterms&&<td style={{padding:'10px 12px'}}>{b.default_incoterms||'—'}</td>}
             {columns.ship&&<td style={{padding:'10px 12px'}}>{b.default_ship_mode||'—'}</td>}
-            <td style={{padding:'10px 16px',textAlign:'right',whiteSpace:'nowrap'}}><button className="btn btn-ghost btn-sm" title="Edit" onClick={()=>openEdit(b)}><Edit2 size={13}/></button><button className="btn btn-ghost btn-sm" title="Deactivate" onClick={()=>handleDelete(b.id)}><Trash2 size={13}/></button></td>
-          </tr>)}{!visible.length&&<tr><td colSpan={9} style={{textAlign:'center',padding:28}}>No matching buyers.</td></tr>}</tbody>
+            
+          </tr>)}{!visible.length&&<tr><td colSpan={8} style={{textAlign:'center',padding:28}}>No matching buyers.</td></tr>}</tbody>
         </table>
       </div>
-      <div style={{display:'flex',justifyContent:'space-between',padding:'12px 30px',fontSize:12,color:'#64748b',borderTop:'1px solid #e5e7eb',flexShrink:0,background:'#f8f9fa'}}><strong>{visible.length} CUSTOMERS</strong><span>{visible.filter(b=>activeBuyerIds.has(b.id)).length} active{selected.size?' · '+selected.size+' selected':''}</span></div>
+      <div style={{display:'flex',justifyContent:'space-between',padding:'10px 20px',fontSize:12,color:'#64748b',borderTop:'1px solid #e5e7eb',flexShrink:0,background:'#f8f9fa'}}><strong>{visible.length} CUSTOMERS</strong><span>{visible.filter(b=>activeBuyerIds.has(b.id)).length} active{selected.size?' · '+selected.size+' selected':''}</span></div>
       {modal && (
         <MinimizableModal title={editing ? 'Edit Buyer' : 'New Buyer'} onClose={() => setModal(false)}>
           <div style={{ background: '#fff', borderRadius: 10, padding: 24, width: 480, boxShadow: '0 10px 40px rgba(0,0,0,0.15)' }}>
