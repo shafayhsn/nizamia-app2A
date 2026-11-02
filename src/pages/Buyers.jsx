@@ -1,7 +1,7 @@
 import MinimizableModal from '../components/ui/MinimizableModal'
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { Plus, Edit2, Trash2, Users, Search, RefreshCcw } from 'lucide-react'
+import { Plus, Edit2, Trash2, Users, Search, RefreshCcw, Settings, ListFilter, CheckSquare } from 'lucide-react'
 import { useAppDialogs } from '../components/ui/AppDialogs'
 
 export default function Buyers() {
@@ -18,6 +18,9 @@ export default function Buyers() {
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
+  const [selected,setSelected] = useState(new Set())
+  const [showColumns,setShowColumns] = useState(false)
+  const [columns,setColumns] = useState({contact:true,country:true,currency:true,terms:true,incoterms:true,ship:true})
 
   useEffect(() => { load() }, [])
 
@@ -57,29 +60,52 @@ export default function Buyers() {
 
   const countries=[...new Set(buyers.map(b=>b.country).filter(Boolean))].sort()
   const visible=buyers.filter(b=>(activity==='all'||(activity==='active'?activeBuyerIds.has(b.id):!activeBuyerIds.has(b.id)))&&(country==='all'||b.country===country)&&[b.name,b.contact_person,b.country,b.email].some(v=>String(v||'').toLowerCase().includes(search.toLowerCase()))).sort((a,b)=>sort==='za'?b.name.localeCompare(a.name):sort==='country'?String(a.country||'').localeCompare(String(b.country||''))||a.name.localeCompare(b.name):a.name.localeCompare(b.name))
+  const fields=[['contact','CONTACT'],['country','COUNTRY'],['currency','CURRENCY'],['terms','PAYMENT TERMS'],['incoterms','INCOTERMS'],['ship','SHIP MODE']]
+  const allSelected=visible.length>0&&visible.every(b=>selected.has(b.id))
+  const toggleSelected=id=>setSelected(old=>{const next=new Set(old);next.has(id)?next.delete(id):next.add(id);return next})
   return (
-    <div className="page-content">
-      <div className="section-header" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}>
-        <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
-          <h2 style={{margin:0,fontSize:22}}>Buyers</h2>
-          {[['TOTAL CUSTOMERS',buyers.length,'#111827'],['ACTIVE CUSTOMERS',activeBuyerIds.size,'#059669']].map(([label,n,color])=><div key={label} style={{border:'1px solid #e5e7eb',borderRadius:10,padding:'8px 14px',minWidth:136,background:'#fff'}}><div style={{fontSize:10,fontWeight:700,color:'#8b919c',whiteSpace:'nowrap'}}>{label}</div><div style={{fontSize:23,fontWeight:700,color}}>{n}</div></div>)}
-        </div><button className="btn btn-primary" onClick={openNew}><Plus size={14}/> New Buyer</button>
+    <div className="page-content" style={{padding:0,display:'flex',flexDirection:'column',height:'100%',minHeight:0,background:'#fff'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'14px 30px',borderBottom:'1px solid #e5e7eb',flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <h2 style={{fontSize:22,fontWeight:700,margin:'0 6px 0 0'}}>Buyers</h2>
+          {[['TOTAL CUSTOMERS',buyers.length,'#111827'],['ACTIVE CUSTOMERS',activeBuyerIds.size,'#059669']].map(([label,n,color])=><div key={label} style={{border:'1px solid #e5e7eb',borderRadius:10,padding:'7px 13px',minWidth:125,background:'#fff',height:60,boxSizing:'border-box'}}><div style={{fontSize:10,fontWeight:700,color:'#90949d',whiteSpace:'nowrap'}}>{label}</div><div style={{fontSize:22,fontWeight:700,color,lineHeight:'27px'}}>{n}</div></div>)}
+        </div>
+        <button className="btn btn-primary" onClick={openNew} style={{background:'#0b0b0b',color:'#fff',whiteSpace:'nowrap'}}><Plus size={14}/> New Buyer</button>
       </div>
-      <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',margin:'14px 0'}}>
-        <div style={{position:'relative',flex:'2 1 240px'}}><Search size={15} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:'#9ca3af'}}/><input className="input" placeholder="Search buyer, contact, country..." aria-label="Search buyers" value={search} onChange={e=>setSearch(e.target.value)} style={{width:'100%',boxSizing:'border-box',paddingLeft:34}}/></div>
-        <select className="select" aria-label="Sort buyers" value={sort} onChange={e=>setSort(e.target.value)} style={{flex:'1 1 125px'}}><option value="az">Name (A–Z)</option><option value="za">Name (Z–A)</option><option value="country">Country</option></select>
-        <select className="select" aria-label="Country" value={country} onChange={e=>setCountry(e.target.value)} style={{flex:'1 1 125px'}}><option value="all">All Countries</option>{countries.map(c=><option key={c} value={c}>{c}</option>)}</select>
-        <select className="select" aria-label="Activity" value={activity} onChange={e=>setActivity(e.target.value)} style={{flex:'1 1 125px'}}><option value="all">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
-        <button className="btn btn-secondary" title="Refresh" aria-label="Refresh buyers" onClick={load}><RefreshCcw size={16}/></button>
+      <div style={{display:'flex',gap:8,alignItems:'center',padding:'10px 20px',borderBottom:'1px solid #e5e7eb',flexShrink:0,flexWrap:'wrap'}}>
+        <div style={{position:'relative',width:245,flexShrink:1}}><Search size={15} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:'#9ca3af'}}/><input className="input" placeholder="Search Buyers" aria-label="Search buyers" value={search} onChange={e=>setSearch(e.target.value)} style={{width:'100%',boxSizing:'border-box',paddingLeft:34,height:36}}/></div>
+        <select className="select" aria-label="Sort buyers" value={sort} onChange={e=>setSort(e.target.value)} style={{width:150,height:36}}><option value="az">Name (A–Z)</option><option value="za">Name (Z–A)</option><option value="country">Country</option></select>
+        <select className="select" aria-label="Country" value={country} onChange={e=>setCountry(e.target.value)} style={{width:145,height:36}}><option value="all">All Countries</option>{countries.map(c=><option key={c} value={c}>{c}</option>)}</select>
+        <select className="select" aria-label="Activity" value={activity} onChange={e=>setActivity(e.target.value)} style={{width:145,height:36}}><option value="all">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+        <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
+          <button className="btn btn-secondary" title="Edit selected buyer" aria-label="Edit selected buyer" disabled={selected.size!==1} onClick={()=>{const buyer=buyers.find(b=>selected.has(b.id));if(buyer)openEdit(buyer)}}><Edit2 size={15}/></button>
+          <button className="btn btn-secondary" title="Deactivate selected buyer" aria-label="Deactivate selected buyer" disabled={selected.size!==1} onClick={()=>{const id=[...selected][0];if(id)handleDelete(id)}}><Trash2 size={15}/></button>
+          <button className="btn btn-secondary" title="Refresh buyers" aria-label="Refresh buyers" onClick={load}><RefreshCcw size={15}/></button>
+          <div style={{position:'relative'}}><button className="btn btn-secondary" title="Table columns" aria-label="Table columns" onClick={()=>setShowColumns(!showColumns)}><Settings size={15}/></button>{showColumns&&<div style={{position:'absolute',right:0,top:40,zIndex:30,background:'#fff',border:'1px solid #e5e7eb',boxShadow:'0 8px 20px #0002',borderRadius:8,padding:12,minWidth:160}}><div style={{fontSize:11,fontWeight:700,marginBottom:8}}>VISIBLE COLUMNS</div>{fields.map(([key,label])=><label key={key} style={{display:'flex',gap:8,alignItems:'center',padding:'5px 0',fontSize:12}}><input type="checkbox" checked={columns[key]} onChange={e=>setColumns(old=>({...old,[key]:e.target.checked}))}/>{label}</label>)}</div>}</div>
+        </div>
       </div>
-      <div className="card"><div className="table-wrap"><table>
-        <thead><tr><th>BUYER / STATUS</th><th>CONTACT</th><th>COUNTRY</th><th>CURRENCY</th><th>PAYMENT TERMS</th><th>INCOTERMS</th><th>SHIP MODE</th><th style={{textAlign:'right'}}>ACTIONS</th></tr></thead>
-        <tbody>{visible.map(b=><tr key={b.id}>
-          <td style={{fontWeight:600}}><span style={{display:'inline-flex',alignItems:'center',gap:8}}><span title={activeBuyerIds.has(b.id)?'Open orders':'No open orders'} style={{width:8,height:8,borderRadius:'50%',background:activeBuyerIds.has(b.id)?'#10B981':'#D1D5DB'}}/>{b.name}</span></td>
-          <td>{b.contact_person||'—'}</td><td>{b.country||'—'}</td><td>{b.currency||'—'}</td><td>{b.payment_terms_days?b.payment_terms_days+' days':'—'}</td><td>{b.default_incoterms||'—'}</td><td>{b.default_ship_mode||'—'}</td>
-          <td style={{textAlign:'right'}}><button className="btn btn-ghost btn-sm" title="Edit" onClick={()=>openEdit(b)}><Edit2 size={13}/></button><button className="btn btn-ghost btn-sm" title="Deactivate" onClick={()=>handleDelete(b.id)}><Trash2 size={13}/></button></td>
-        </tr>)}{!visible.length&&<tr><td colSpan={8} style={{textAlign:'center',padding:28}}>No matching buyers.</td></tr>}</tbody>
-      </table></div><div style={{display:'flex',justifyContent:'space-between',padding:'10px 16px',fontSize:12,color:'#64748b',borderTop:'1px solid #e5e7eb'}}><span>{visible.length} buyers</span><span>{visible.filter(b=>activeBuyerIds.has(b.id)).length} active</span></div></div>
+      <div style={{flex:1,minHeight:0,overflow:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+          <thead style={{position:'sticky',top:0,background:'#f8f9fa',zIndex:1}}><tr>
+            <th style={{width:34,padding:'11px 14px'}}><input type="checkbox" aria-label="Select all buyers" checked={allSelected} onChange={()=>setSelected(old=>{const next=new Set(old);visible.forEach(b=>allSelected?next.delete(b.id):next.add(b.id));return next})}/></th>
+            <th style={{textAlign:'left',padding:'11px 12px'}}>BUYER / STATUS</th>
+            {fields.filter(([key])=>columns[key]).map(([key,label])=><th key={key} style={{textAlign:'left',padding:'11px 12px',whiteSpace:'nowrap'}}>{label}</th>)}
+            <th style={{textAlign:'right',padding:'11px 16px'}}>ACTIONS</th>
+          </tr></thead>
+          <tbody>{visible.map(b=><tr key={b.id} style={{borderBottom:'1px solid #e9ecef',background:selected.has(b.id)?'#eff6ff':'#fff'}}>
+            <td style={{padding:'10px 14px'}}><input type="checkbox" aria-label={'Select '+b.name} checked={selected.has(b.id)} onChange={()=>toggleSelected(b.id)}/></td>
+            <td style={{padding:'10px 12px',fontWeight:650,whiteSpace:'nowrap'}}><span style={{display:'inline-flex',alignItems:'center',gap:9}}><span title={activeBuyerIds.has(b.id)?'Open orders':'No open orders'} style={{width:9,height:9,borderRadius:'50%',background:activeBuyerIds.has(b.id)?'#10B981':'#D1D5DB'}}/>{b.name}</span></td>
+            {columns.contact&&<td style={{padding:'10px 12px'}}>{b.contact_person||'—'}</td>}
+            {columns.country&&<td style={{padding:'10px 12px'}}>{b.country||'—'}</td>}
+            {columns.currency&&<td style={{padding:'10px 12px'}}>{b.currency||'—'}</td>}
+            {columns.terms&&<td style={{padding:'10px 12px'}}>{b.payment_terms_days?b.payment_terms_days+' days':'—'}</td>}
+            {columns.incoterms&&<td style={{padding:'10px 12px'}}>{b.default_incoterms||'—'}</td>}
+            {columns.ship&&<td style={{padding:'10px 12px'}}>{b.default_ship_mode||'—'}</td>}
+            <td style={{padding:'10px 16px',textAlign:'right',whiteSpace:'nowrap'}}><button className="btn btn-ghost btn-sm" title="Edit" onClick={()=>openEdit(b)}><Edit2 size={13}/></button><button className="btn btn-ghost btn-sm" title="Deactivate" onClick={()=>handleDelete(b.id)}><Trash2 size={13}/></button></td>
+          </tr>)}{!visible.length&&<tr><td colSpan={9} style={{textAlign:'center',padding:28}}>No matching buyers.</td></tr>}</tbody>
+        </table>
+      </div>
+      <div style={{display:'flex',justifyContent:'space-between',padding:'12px 30px',fontSize:12,color:'#64748b',borderTop:'1px solid #e5e7eb',flexShrink:0,background:'#f8f9fa'}}><strong>{visible.length} CUSTOMERS</strong><span>{visible.filter(b=>activeBuyerIds.has(b.id)).length} active{selected.size?' · '+selected.size+' selected':''}</span></div>
       {modal && (
         <MinimizableModal title={editing ? 'Edit Buyer' : 'New Buyer'} onClose={() => setModal(false)}>
           <div style={{ background: '#fff', borderRadius: 10, padding: 24, width: 480, boxShadow: '0 10px 40px rgba(0,0,0,0.15)' }}>
