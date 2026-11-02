@@ -56,6 +56,7 @@ function openPrint(html, title, onBlocked) {
     .box{border:1px solid #222;padding:10px}
     .section{margin-top:14px}
     .right{text-align:right}
+    .head h1{font-size:24px}.head h2{font-size:17px;font-weight:500;margin-top:4px}.box{line-height:1.4;min-height:105px}thead{display:table-header-group}tr{break-inside:avoid}
   </style></head><body>${html}</body></html>`)
   w.document.close(); w.focus(); setTimeout(()=>w.print(), 350)
 }
@@ -480,7 +481,8 @@ export default function Parcels() {
   }
 
   function printInvoice(parcel, consignee = null) {
-    const company = JSON.parse(localStorage.getItem('nizamia_company_info') || '{}')
+    let company = {}
+    try { company = JSON.parse(localStorage.getItem('nizamia_company_info') || '{}') || {} } catch {}
     const missing = ['name','address','phone','email'].filter(k => !String(company[k] || '').trim())
     if (missing.length) { alert('Complete company information in Settings: '+missing.join(', ')); return }
     const firstItem = parcel.items?.[0]
@@ -501,14 +503,14 @@ export default function Parcels() {
     const totalQty = lines.reduce((a, x) => a + x.qty, 0)
     const totalValue = lines.reduce((a, x) => a + (x.qty * x.unitValue), 0)
     const html = `
-      <div class="head"><div><h1>${esc(company.name)}</h1><h2>NON-COMMERCIAL INVOICE</h2></div><div class="muted">Parcel ${parcel.id}</div></div>
+      <div class="head"><div><h1>${esc(company.name)}</h1><h2>NON-COMMERCIAL INVOICE</h2></div><div class="muted">INVOICE #${esc(parcel.id)}</div></div>
       <div class="two">
         <div class="box"><h3>Shipper</h3><div>${esc(company.name)}</div><div>Sender: ${esc(user?.displayName || user?.username || '')}</div><div style="white-space:pre-line">${esc(company.address)}</div><div>${esc(company.phone)}</div><div>${esc(company.email)}</div></div>
-        <div class="box"><h3>Consignee</h3><div>${esc(shipTo.name||'—')}</div><div>${addressText||'—'}</div><div>${esc(shipTo.contact_name||'—')}</div><div>${esc(shipTo.phone||'—')}</div><div>${esc(shipTo.email||'')}</div></div>
+        <div class="box"><h3>Consignee</h3><div>${esc(shipTo.name||'—')}</div><div>Attention: ${esc(shipTo.contact_name||'—')}</div><div>${addressText||'—'}</div><div>${esc(shipTo.phone||'—')}</div><div>${esc(shipTo.email||'')}</div></div>
       </div>
-      <div class="section"><table><tr><th>Parcel ID</th><td>${parcel.id}</td><th>Courier</th><td>${parcel.courier || '—'}</td></tr><tr><th>Dispatch Date</th><td>${parcel.dispatchDate || '—'}</td><th>Tracking #</th><td>${parcel.trackingNo || '—'}</td></tr></table></div>
-      <div class="section"><table><thead><tr><th>#</th><th>Description</th><th>Qty</th><th>Unit Value</th><th>Total</th></tr></thead><tbody>${lines.map(x => `<tr><td>${x.no}</td><td>${x.description}</td><td>${x.qty}</td><td class="right">$${x.unitValue.toFixed(2)}</td><td class="right">$${(x.qty * x.unitValue).toFixed(2)}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="2" class="right">Total</th><th>${totalQty}</th><th></th><th class="right">$${totalValue.toFixed(2)}</th></tr></tfoot></table></div>
-      <div class="section box"><strong>Declaration</strong><div style="margin-top:6px">We hereby declare that the goods described are samples of no commercial value and are being sent for development and approval purposes only.</div></div>
+      <div class="section"><table><tr><th>Parcel ID</th><td>${esc(parcel.id)}</td><th>Courier</th><td>${esc(parcel.courier || '—')}</td></tr><tr><th>Dispatch Date</th><td>${esc(parcel.dispatchDate || '—')}</td><th>Tracking #</th><td>${esc(parcel.trackingNo || '—')}</td></tr></table></div>
+      <div class="section"><table><thead><tr><th>#</th><th>Description</th><th>Qty</th><th>Unit Value</th><th>Total</th></tr></thead><tbody>${lines.map(x => `<tr><td>${x.no}</td><td>${esc(x.description)}</td><td>${x.qty}</td><td class="right">$${x.unitValue.toFixed(2)}</td><td class="right">$${(x.qty * x.unitValue).toFixed(2)}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="2" class="right">Total</th><th>${totalQty}</th><th></th><th class="right">$${totalValue.toFixed(2)}</th></tr></tfoot></table></div>
+      <div class="section box"><strong>Declaration</strong><div style="margin-top:6px">We hereby declare that the goods described are samples of no commercial value and are being sent for development and approval purposes only.</div><div style="margin-top:8px;font-weight:700">NO COMMERCIAL VALUE. VALUE ONLY FOR CUSTOMS PURPOSES.</div></div>
       <div class="section" style="margin-top:28px;display:grid;grid-template-columns:1fr 1fr;gap:32px"><div><div style="border-top:1px solid #111;padding-top:6px">Authorized Signatory</div></div><div><div style="border-top:1px solid #111;padding-top:6px">Courier Acknowledgement</div></div></div>
     `
     openPrint(html, `${parcel.id} Non-Commercial Invoice`, () => alert('Please allow popups to print this document.', { title:'Popup Blocked' }))
