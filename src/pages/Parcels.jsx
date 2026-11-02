@@ -347,9 +347,9 @@ export default function Parcels() {
   }
   async function createNewParcel(payload){
     setBusy(true)
-    const year=String(new Date().getFullYear()).slice(-2)
-    const id='PAR-'+year+'-'+(globalThis.crypto?.randomUUID?.()||Math.random().toString(36).slice(2)).slice(0,8).toUpperCase()
-    const {error}=await supabase.from('parcels').insert(toDb({id,...payload,status:'Draft'}))
+    const created=await fetch('/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'createParcel',parcel:toDb({...payload,status:'Draft'})})}).then(async r=>({ok:r.ok,...await r.json()})).catch(e=>({ok:false,error:e.message}))
+    const id=created.id
+    const error=created.ok?null:{message:created.error||'Parcel creation failed'}
     if(error)alert(error.message,{title:'Create Parcel Failed'})
     else{
       const response=await fetch('/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save',type:'snapshots',parcelId:id,addressId:payload.addressId,contactId:payload.contactId})})
