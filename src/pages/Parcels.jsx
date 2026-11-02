@@ -93,7 +93,14 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
       <div style={{ ...card, width:760, padding:18, maxHeight:'88vh', overflow:'auto' }}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}><div style={{fontSize:16,fontWeight:700}}>Create Parcel</div><div style={{display:'flex',gap:10}}><button type="button" title="Minimize" onClick={popup.minimize} style={{border:0,background:'none',cursor:'pointer',fontSize:20}}>−</button><button type="button" title="Close" onClick={popup.close} style={{border:0,background:'none',cursor:'pointer',fontSize:20}}>×</button></div></div>
         <div style={{ fontSize:12, color:'#6b7280', marginBottom:12 }}>A parcel can include multiple SAM# plus custom items like trim cards, wash legs, lab dips or documents.</div>
-        <div style={{ fontWeight:700, marginBottom:8 }}>Samples in Parcel</div>
+        <div style={{fontWeight:700,margin:'14px 0 8px'}}>1. Buyer & Consignee (Ship To)</div>
+        {consigneeError && <div style={{color:'#b91c1c',fontSize:12,marginBottom:8}}>{consigneeError}</div>}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          <div><div style={{fontSize:11,marginBottom:4}}>Saved Address</div><select aria-label="Consignee address" style={inp} value={addressId} onChange={e=>setAddressId(e.target.value)}><option value="">Select address</option>{addresses.map(a=><option key={a.id} value={a.id}>{a.label||a.recipient||a.address_line1} — {a.city}</option>)}</select></div>
+          <div><div style={{fontSize:11,marginBottom:4}}>Attention / Contact Person</div><select aria-label="Consignee contact" style={inp} value={contactId} onChange={e=>setContactId(e.target.value)}><option value="">No contact selected</option>{contacts.map(c=><option key={c.id} value={c.id}>{c.name} {c.designation?'— '+c.designation:''}</option>)}</select></div>
+        </div>
+        {!addresses.length && !consigneeError && <div style={{fontSize:11,color:'#6b7280',marginTop:6}}>No saved addresses for this buyer. Add one in Buyers before creating a parcel.</div>}
+        <div style={{ fontWeight:700, marginBottom:8 }}>2. Samples in Parcel</div>
         <div style={{ display:'grid', gap:8 }}>
           {poolRows.map(r => (
             <div key={r.sampleId} style={{ display:'grid', gridTemplateColumns:'20px 1.2fr .8fr 85px 100px .8fr', gap:10, alignItems:'center', border:'1px solid #ececec', borderRadius:8, padding:'8px 10px' }}>
@@ -107,13 +114,6 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
           ))}
         </div>
 
-        <div style={{fontWeight:700,margin:'14px 0 8px'}}>Consignee (Ship To)</div>
-        {consigneeError && <div style={{color:'#b91c1c',fontSize:12,marginBottom:8}}>{consigneeError}</div>}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-          <div><div style={{fontSize:11,marginBottom:4}}>Saved Address</div><select aria-label="Consignee address" style={inp} value={addressId} onChange={e=>setAddressId(e.target.value)}><option value="">Select address</option>{addresses.map(a=><option key={a.id} value={a.id}>{a.label||a.recipient||a.address_line1} — {a.city}</option>)}</select></div>
-          <div><div style={{fontSize:11,marginBottom:4}}>Attention / Contact Person</div><select aria-label="Consignee contact" style={inp} value={contactId} onChange={e=>setContactId(e.target.value)}><option value="">No contact selected</option>{contacts.map(c=><option key={c.id} value={c.id}>{c.name} {c.designation?'— '+c.designation:''}</option>)}</select></div>
-        </div>
-        {!addresses.length && !consigneeError && <div style={{fontSize:11,color:'#6b7280',marginTop:6}}>No saved addresses for this buyer. Add one in Buyers before creating a parcel.</div>}
         <div style={{ fontWeight:700, margin:'14px 0 8px' }}>Custom Items</div>
         <div style={{ display:'grid', gap:8 }}>
           {customItems.map((item, idx) => (
