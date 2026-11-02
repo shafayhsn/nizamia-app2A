@@ -7,6 +7,7 @@ import { loadSamplingStore } from '../lib/samplingStore'
 import { FileText, Plus, RefreshCw, Truck, Pencil, Trash2, CheckCheck, ExternalLink, ArrowDownUp, Layers, Settings2, ListFilter } from 'lucide-react'
 import { useAppDialogs } from '../components/ui/AppDialogs'
 import { formatDate } from '../lib/utils'
+import { useAuth } from '../lib/authContext'
 
 const card = { background:'#fff', border:'1px solid #ececec', borderRadius:12, boxShadow:'0 1px 2px rgba(0,0,0,.03)' }
 const inp = { height:34, padding:'0 10px', border:'1px solid #e5e7eb', borderRadius:8, fontSize:12, width:'100%', boxSizing:'border-box', outline:'none' }
@@ -44,7 +45,7 @@ function openPrint(html, title, onBlocked) {
   const w = window.open('', '_blank', 'width=1000,height=800')
   if (!w) { onBlocked?.(); return }
   w.document.write(`<!doctype html><html><head><title>${title}</title><style>
-    body{font-family:Arial,sans-serif;color:#111;padding:18px}
+    @page{size:A4 portrait;margin:15mm} body{font-family:Arial,sans-serif;color:#111;padding:0}
     h1,h2,h3{margin:0}
     .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:14px}
     .muted{color:#666;font-size:12px}
@@ -195,6 +196,7 @@ function ParcelEditModal({parcel,samples,orders,parcels,onClose,onSave,onDispatc
 }
 
 export default function Parcels() {
+  const { user } = useAuth()
   const { alert, Dialogs } = useAppDialogs()
   const [samples, setSamples] = useState([])
   const [orders, setOrders] = useState([])
@@ -478,6 +480,9 @@ export default function Parcels() {
   }
 
   function printInvoice(parcel, consignee = null) {
+    const company = JSON.parse(localStorage.getItem('nizamia_company_info') || '{}')
+    const missing = ['name','address','phone','email'].filter(k => !String(company[k] || '').trim())
+    if (missing.length) { alert('Complete company information in Settings: '+missing.join(', ')); return }
     const firstItem = parcel.items?.[0]
     const firstSample = sampleMap[firstItem?.sampleId] || {}
     const firstOrder = orderMap[firstSample.order_id] || {}
@@ -489,16 +494,16 @@ export default function Parcels() {
       ...(parcel.items || []).map((it, idx) => {
         const s = sampleMap[it.sampleId] || {}
         const o = orderMap[s.order_id] || {}
-        return { no: idx + 1, description: `Sample - ${o.style_number || '—'} (${s.sample_type || 'Sample'})`, qty: Number(it.qty ?? s.req_pcs ?? 0), unitValue: Number(it.unitValue ?? 1) }
+        return { no: idx + 1, description: `${[s.sample_number || it.sampleNumber, o.style_number, s.sample_type || 'Sample'].filter(Boolean).join(' - ')}`, qty: Number(it.qty ?? s.req_pcs ?? 0), unitValue: Number(it.unitValue ?? 1) }
       }),
       ...(parcel.customItems || []).map((it, idx) => ({ no: (parcel.items?.length || 0) + idx + 1, description: it.description, qty: Number(it.qty || 0), unitValue: Number(it.unitValue || 1) })),
     ]
     const totalQty = lines.reduce((a, x) => a + x.qty, 0)
     const totalValue = lines.reduce((a, x) => a + (x.qty * x.unitValue), 0)
     const html = `
-      <div class="head"><div><h1>NON-COMMERCIAL INVOICE</h1><div class="muted">FOR CUSTOM PURPOSE ONLY</div></div><div class="muted">Parcel ${parcel.id}</div></div>
+      <div class="head"><div><h1>${esc(company.name)}</h1><h2>NON-COMMERCIAL INVOICE</h2></div><div class="muted">Parcel ${parcel.id}</div></div>
       <div class="two">
-        <div class="box"><h3>Shipper</h3><div>Nizamia Apparels</div><div class="muted">Karachi, Pakistan</div></div>
+        <div class="box"><h3>Shipper</h3><div>${esc(company.name)}</div><div>Sender: ${esc(user?.displayName || user?.username || '')}</div><div style="white-space:pre-line">${esc(company.address)}</div><div>${esc(company.phone)}</div><div>${esc(company.email)}</div></div>
         <div class="box"><h3>Consignee</h3><div>${esc(shipTo.name||'—')}</div><div>${addressText||'—'}</div><div>${esc(shipTo.contact_name||'—')}</div><div>${esc(shipTo.phone||'—')}</div><div>${esc(shipTo.email||'')}</div></div>
       </div>
       <div class="section"><table><tr><th>Parcel ID</th><td>${parcel.id}</td><th>Courier</th><td>${parcel.courier || '—'}</td></tr><tr><th>Dispatch Date</th><td>${parcel.dispatchDate || '—'}</td><th>Tracking #</th><td>${parcel.trackingNo || '—'}</td></tr></table></div>
