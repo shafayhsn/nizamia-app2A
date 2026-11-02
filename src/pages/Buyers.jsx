@@ -20,6 +20,7 @@ export default function Buyers() {
   const [addresses,setAddresses]=useState([])
   const [contacts,setContacts]=useState([])
   const [detailError,setDetailError]=useState('')
+  const [detailsReady,setDetailsReady]=useState(false)
   const [saving, setSaving] = useState(false)
   const [selected,setSelected] = useState(new Set())
   const [showColumns,setShowColumns] = useState(false)
@@ -38,11 +39,14 @@ export default function Buyers() {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const openNew = () => { setEditing(null); setForm({ currency: 'USD', default_ship_mode: 'Sea', default_incoterms: 'FOB', payment_terms_days: 30 }); setAddresses([]);setContacts([]);setDetailError('');setModal(true) }
-  const openEdit = async (b) => { setEditing(b); setForm({ ...b }); setAddresses([]);setContacts([]);setDetailError('');setModal(true); const [a,c]=await Promise.all([supabase.from('buyer_addresses').select('*').eq('buyer_id',b.id).order('created_at'),supabase.from('buyer_contacts').select('*').eq('buyer_id',b.id).order('created_at')]);if(a.error||c.error){setDetailError('Address/contact storage is not configured yet. Changes cannot be saved until the database migration is applied.');return}setAddresses(a.data||[]);setContacts(c.data||[]) }
+  const openNew = () => { setEditing(null); setForm({ currency: 'USD', default_ship_mode: 'Sea', default_incoterms: 'FOB', payment_terms_days: 30 }); setAddresses([]);setContacts([]);setDetailError('');setDetailsReady(false);setModal(true) }
+  const openEdit = async (b) => { setEditing(b); setForm({ ...b }); setAddresses([]);setContacts([]);setDetailError('');setDetailsReady(false);setModal(true); const [a,c]=await Promise.all([supabase.from('buyer_addresses').select('*').eq('buyer_id',b.id).order('created_at'),supabase.from('buyer_contacts').select('*').eq('buyer_id',b.id).order('created_at')]);if(a.error||c.error){setDetailError('Address/contact storage is not configured yet. Changes cannot be saved until the database migration is applied.');return}setAddresses(a.data||[]);setContacts(c.data||[]);setDetailsReady(true) }
 
   const handleSave = async () => {
     if (!form.name?.trim() || saving) return
+    if (!detailsReady && editing) {setDetailError('Address and contact records are unavailable. Saving is blocked to prevent partial changes.');return}
+    if (addresses.length && addresses.filter(a=>a.is_default).length!==1){setDetailError('Select exactly one default address.');return}
+    if (contacts.length && contacts.filter(c=>c.is_default).length!==1){setDetailError('Select exactly one default contact.');return}
     setSaving(true);setDetailError('')
     const {id,created_at,updated_at,...fields}=form
     const saveBody = { ...fields, payment_terms_days: parseInt(form.payment_terms_days, 10) || 0 }
@@ -155,7 +159,7 @@ export default function Buyers() {
             </div>
             {detailError&&<p role="alert" style={{color:'#b91c1c',fontSize:12}}>{detailError}</p>}
             <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:16,borderTop:'1px solid #e5e7eb',paddingTop:14}}>
-              <button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancel</button><button className="btn btn-primary" disabled={saving||!form.name?.trim()} onClick={handleSave}>{saving?'Saving...':editing?'Save Changes':'Save Buyer'}</button>
+              <button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancel</button><button className="btn btn-primary" disabled={saving||!form.name?.trim()||(!!editing&&!detailsReady)} onClick={handleSave}>{saving?'Saving...':editing?'Save Changes':'Save Buyer'}</button>
             </div>
           </div>
         </MinimizableModal>
