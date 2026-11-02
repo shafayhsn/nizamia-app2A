@@ -39,6 +39,13 @@ export default function Buyers() {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
+  const detailsRequest=async(type,buyerId,rows)=>{
+    const qs='?action='+(buyerId?'list':'check')+'&type='+type+(buyerId?'&buyerId='+encodeURIComponent(buyerId):'')
+    const response=await fetch('/api/oms'+(rows? '':qs),rows?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'sync',type,buyerId,rows})}:{})
+    const json=await response.json()
+    if(!response.ok)throw new Error(json.error||'Unable to access buyer details')
+    return json.data||[]
+  }
   const openNew = async () => { setEditing(null); setForm({ currency: 'USD', default_ship_mode: 'Sea', default_incoterms: 'FOB', payment_terms_days: 30 }); setAddresses([]);setContacts([]);setDetailError('');setDetailsReady(false);setModal(true); const [a,c]=await Promise.all([supabase.from('buyer_addresses').select('id').limit(1),supabase.from('buyer_contacts').select('id').limit(1)]);if(a.error||c.error){setDetailError('Buyer address/contact storage is not available. Saving is disabled until it is configured.');return}setDetailsReady(true) }
   const openEdit = async (b) => { setEditing(b); setForm({ ...b }); setAddresses([]);setContacts([]);setDetailError('');setDetailsReady(false);setModal(true); const [a,c]=await Promise.all([supabase.from('buyer_addresses').select('*').eq('buyer_id',b.id).order('created_at'),supabase.from('buyer_contacts').select('*').eq('buyer_id',b.id).order('created_at')]);if(a.error||c.error){setDetailError('Address/contact storage is not configured yet. Changes cannot be saved until the database migration is applied.');return}setAddresses(a.data||[]);setContacts(c.data||[]);setDetailsReady(true) }
 
