@@ -17,6 +17,9 @@ export default function Buyers() {
   useEffect(()=>{try{Object.entries({search,sort,country,activity}).forEach(([k,v])=>sessionStorage.setItem('buyers_'+k,v))}catch{}},[search,sort,country,activity])
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({})
+  const [addresses,setAddresses]=useState([])
+  const [contacts,setContacts]=useState([])
+  const [detailError,setDetailError]=useState('')
   const [saving, setSaving] = useState(false)
   const [selected,setSelected] = useState(new Set())
   const [showColumns,setShowColumns] = useState(false)
@@ -35,20 +38,37 @@ export default function Buyers() {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const openNew = () => { setEditing(null); setForm({ currency: 'USD', default_ship_mode: 'Sea', default_incoterms: 'FOB', payment_terms_days: 30 }); setModal(true) }
-  const openEdit = (b) => { setEditing(b); setForm({ ...b }); setModal(true) }
+  const openNew = () => { setEditing(null); setForm({ currency: 'USD', default_ship_mode: 'Sea', default_incoterms: 'FOB', payment_terms_days: 30 }); setAddresses([]);setContacts([]);setDetailError('');setModal(true) }
+  const openEdit = async (b) => { setEditing(b); setForm({ ...b }); setAddresses([]);setContacts([]);setDetailError('');setModal(true); const [a,c]=await Promise.all([supabase.from('buyer_addresses').select('*').eq('buyer_id',b.id).order('created_at'),supabase.from('buyer_contacts').select('*').eq('buyer_id',b.id).order('created_at')]);if(a.error||c.error){setDetailError('Address/contact storage is not configured yet. Changes cannot be saved until the database migration is applied.');return}setAddresses(a.data||[]);setContacts(c.data||[]) }
 
   const handleSave = async () => {
-    setSaving(true)
-    const saveBody = { ...form, payment_terms_days: parseInt(form.payment_terms_days, 10) || 0 }
-    let res = editing ? await supabase.from('buyers').update(saveBody).eq('id', editing.id) : await supabase.from('buyers').insert([saveBody])
+    if (!form.name?.trim() || saving) return
+    setSaving(true);setDetailError('')
+    const {id,created_at,updated_at,...fields}=form
+    const saveBody = { ...fields, payment_terms_days: parseInt(form.payment_terms_days, 10) || 0 }
+    let res = editing ? await supabase.from('buyers').update(saveBody).eq('id', editing.id).select('id').single() : await supabase.from('buyers').insert([saveBody]).select('id').single()
     if (res.error && /payment_terms_days|schema cache|column/i.test(res.error.message || '')) {
       const { payment_terms_days, ...fallback } = saveBody
       fallback.notes = [fallback.notes, `Payment Terms Days: ${payment_terms_days}`].filter(Boolean).join('\n')
-      res = editing ? await supabase.from('buyers').update(fallback).eq('id', editing.id) : await supabase.from('buyers').insert([fallback])
+      res = editing ? await supabase.from('buyers').update(fallback).eq('id', editing.id).select('id').single() : await supabase.from('buyers').insert([fallback]).select('id').single()
     }
-    if (res.error) { alert(res.error.message || 'Could not save buyer'); setSaving(false); return }
-    setSaving(false); setModal(false); load()
+    if(res.error){setDetailError(res.error.message);setSaving(false);return}
+    const buyerId=res.data.id
+    const sync=async(table,rows)=>{
+      const existing=rows.filter(r=>r.id)
+      const incoming=rows.map(({id,created_at,updated_at,...r})=>({...r,buyer_id:buyerId,...(id?{id}:{})}))
+      const old=await supabase.from(table).select('id').eq('buyer_id',buyerId)
+      if(old.error)throw old.error
+      const removed=(old.data||[]).filter(r=>!existing.some(e=>e.id===r.id)).map(r=>r.id)
+      if(removed.length){const d=await supabase.from(table).delete().in('id',removed);if(d.error)throw d.error}
+      if(incoming.length){const u=await supabase.from(table).upsert(incoming);if(u.error)throw u.error}
+    }
+    try{
+      await sync('buyer_addresses',addresses.map((a,i)=>({...a,is_default:addresses.length===1||!!a.is_default})))
+      await sync('buyer_contacts',contacts.map((c,i)=>({...c,is_default:contacts.length===1||!!c.is_default})))
+      setModal(false);load()
+    }catch(e){setDetailError('Buyer saved, but address/contact details could not be saved: '+(e.message||e));}
+    finally{setSaving(false)}
   }
 
   const handleDelete = async (id) => {
@@ -107,17 +127,35 @@ export default function Buyers() {
       </div>
       <div style={{display:'flex',justifyContent:'space-between',padding:'10px 20px',fontSize:12,color:'#64748b',borderTop:'1px solid #e5e7eb',flexShrink:0,background:'#f8f9fa'}}><strong>{visible.length} CUSTOMERS</strong><span>{visible.filter(b=>activeBuyerIds.has(b.id)).length} active{selected.size?' · '+selected.size+' selected':''}</span></div>
       {modal && (
-        <MinimizableModal title={editing ? 'Edit Buyer' : 'New Buyer'} onClose={() => setModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 10, padding: 24, width: 480, boxShadow: '0 10px 40px rgba(0,0,0,0.15)' }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 18 }}>{editing ? 'Edit Buyer' : 'New Buyer'}</div>
-            <div className="form-row form-row-2 form-group"><div><label>Name *</label><input className="input" value={form.name || ''} onChange={e => set('name', e.target.value)} /></div><div><label>Contact Person</label><input className="input" value={form.contact_person || ''} onChange={e => set('contact_person', e.target.value)} /></div></div>
-            <div className="form-row form-row-2 form-group"><div><label>Email</label><input className="input" type="email" value={form.email || ''} onChange={e => set('email', e.target.value)} /></div><div><label>Phone</label><input className="input" value={form.phone || ''} onChange={e => set('phone', e.target.value)} /></div></div>
-            <div className="form-row form-row-2 form-group"><div><label>Country</label><input className="input" value={form.country || ''} onChange={e => set('country', e.target.value)} /></div><div><label>Currency</label><select className="select" value={form.currency || 'USD'} onChange={e => set('currency', e.target.value)}>{['USD','EUR','GBP'].map(c => <option key={c}>{c}</option>)}</select></div></div>
-            <div className="form-row form-row-2 form-group"><div><label>Payment Terms (days after shipment)</label><input className="input" type="number" min="0" value={form.payment_terms_days || ''} onChange={e => set('payment_terms_days', e.target.value)} /></div><div><label>Default Incoterms</label><select className="select" value={form.default_incoterms || ''} onChange={e => set('default_incoterms', e.target.value)}><option value="">—</option>{['FOB','CIF','EXW','CFR','DDP'].map(i => <option key={i}>{i}</option>)}</select></div></div>
-            <div className="form-row form-row-2 form-group"><div><label>Default Ship Mode</label><select className="select" value={form.default_ship_mode || ''} onChange={e => set('default_ship_mode', e.target.value)}><option value="">—</option>{['Sea','Air','Courier'].map(m => <option key={m}>{m}</option>)}</select></div><div></div></div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-              <button className="btn btn-secondary" onClick={() => setModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSave} disabled={saving || !form.name}>{saving ? 'Saving...' : 'Save'}</button>
+        <MinimizableModal title={editing ? 'Edit Buyer' : 'Add New Buyer'} onClose={() => setModal(false)}>
+          <div style={{background:'#fff',borderRadius:10,padding:22,width:'min(1080px,calc(100vw - 80px))',maxHeight:'min(76vh,780px)',overflowY:'auto',boxSizing:'border-box'}}>
+            <div style={{fontSize:14,fontWeight:650,marginBottom:18}}>Buyer Information</div>
+            <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr) minmax(270px,1.15fr)',gap:22}}>
+              <div>
+                {[[ 'name','Customer Name *'],['country','Country'],['payment_terms_days','Payment Terms (days)'],['currency','Trade Currency'],['default_incoterms','Default Incoterms'],['default_ship_mode','Default Ship Mode']].map(([key,label])=><div key={key} className="form-group"><label>{label}</label>{['currency','default_incoterms','default_ship_mode'].includes(key)?<select className="select" style={{width:'100%'}} value={form[key]||''} onChange={e=>set(key,e.target.value)}>{(key==='currency'?['USD','EUR','GBP']:key==='default_incoterms'?['FOB','CIF','EXW','CFR','DDP']:['Sea','Air','Courier']).map(v=><option key={v} value={v}>{v}</option>)}</select>:<input className="input" style={{width:'100%'}} type={key==='payment_terms_days'?'number':'text'} value={form[key]??''} onChange={e=>set(key,e.target.value)}/>}</div>)}
+              </div>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>Default Contact</div>
+                {[[ 'contact_person','Attention Person'],['phone','Phone Number'],['email','Email Address']].map(([key,label])=><div key={key} className="form-group"><label>{label}</label><input className="input" style={{width:'100%'}} value={form[key]||''} onChange={e=>set(key,e.target.value)}/></div>)}
+                <div style={{fontSize:12,color:'#64748b',lineHeight:1.5}}>Existing buyer contact fields are retained for compatibility. Additional contacts can be managed separately.</div>
+              </div>
+              <div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}><strong style={{fontSize:13}}>Additional Addresses / Warehouses</strong><button className="btn btn-secondary btn-sm" onClick={()=>setAddresses(v=>[...v,{label:'',recipient:'',address_line1:'',address_line2:'',city:'',region:'',postal_code:'',country:'',phone:'',email:'',is_default:v.length===0}])}><Plus size={13}/> Add</button></div>
+                {addresses.map((ad,i)=><div key={ad.id||i} style={{border:'1px solid #e5e7eb',borderRadius:8,padding:10,marginBottom:8,background:'#fafafa'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',gap:6,alignItems:'center',marginBottom:6}}><strong style={{fontSize:12}}>Address {i+1}</strong><div style={{display:'flex',gap:6,alignItems:'center'}}><label style={{fontSize:11,whiteSpace:'nowrap'}}><input type="radio" name="defaultBuyerAddress" checked={!!ad.is_default} onChange={()=>setAddresses(v=>v.map((x,j)=>({...x,is_default:j===i})))}/> Default</label><button className="btn btn-ghost btn-sm" title="Remove address" onClick={()=>setAddresses(v=>{const next=v.filter((_,j)=>j!==i);if(next.length&&!next.some(x=>x.is_default))next[0]={...next[0],is_default:true};return next})}><Trash2 size={13}/></button></div></div>
+                  {[[ 'label','Address name (Warehouse / Office)'],['recipient','Recipient / Company'],['address_line1','Street / Building'],['address_line2','Address line 2'],['city','City'],['region','State / Region'],['postal_code','Postal code'],['country','Country'],['phone','Phone'],['email','Email']].map(([k,placeholder])=><input key={k} className="input" aria-label={placeholder} placeholder={placeholder} style={{width:'100%',marginBottom:5,height:31,fontSize:12}} value={ad[k]||''} onChange={e=>setAddresses(v=>v.map((x,j)=>j===i?{...x,[k]:e.target.value}:x))}/>)}
+                </div>)}
+                {!addresses.length&&<p style={{fontSize:12,color:'#94a3b8'}}>No saved addresses. Add a warehouse or office for parcel delivery.</p>}
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'16px 0 8px'}}><strong style={{fontSize:13}}>Additional Contact Persons</strong><button className="btn btn-secondary btn-sm" onClick={()=>setContacts(v=>[...v,{name:'',designation:'',department:'',phone:'',email:'',is_default:v.length===0}])}><Plus size={13}/> Add</button></div>
+                {contacts.map((ct,i)=><div key={ct.id||i} style={{border:'1px solid #e5e7eb',borderRadius:8,padding:10,marginBottom:8}}>
+                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}><label style={{fontSize:11}}><input type="radio" name="defaultBuyerContact" checked={!!ct.is_default} onChange={()=>setContacts(v=>v.map((x,j)=>({...x,is_default:j===i})))}/> Default contact</label><button className="btn btn-ghost btn-sm" title="Remove contact" onClick={()=>setContacts(v=>{const next=v.filter((_,j)=>j!==i);if(next.length&&!next.some(x=>x.is_default))next[0]={...next[0],is_default:true};return next})}><Trash2 size={13}/></button></div>
+                  {[[ 'name','Full name'],['designation','Designation'],['department','Department'],['phone','Phone'],['email','Email']].map(([k,placeholder])=><input key={k} className="input" aria-label={placeholder} placeholder={placeholder} style={{width:'100%',marginBottom:5,height:31,fontSize:12}} value={ct[k]||''} onChange={e=>setContacts(v=>v.map((x,j)=>j===i?{...x,[k]:e.target.value}:x))}/>)}
+                </div>)}
+              </div>
+            </div>
+            {detailError&&<p role="alert" style={{color:'#b91c1c',fontSize:12}}>{detailError}</p>}
+            <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:16,borderTop:'1px solid #e5e7eb',paddingTop:14}}>
+              <button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancel</button><button className="btn btn-primary" disabled={saving||!form.name?.trim()} onClick={handleSave}>{saving?'Saving...':editing?'Save Changes':'Save Buyer'}</button>
             </div>
           </div>
         </MinimizableModal>
