@@ -1,11 +1,13 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import { supabase } from '../../lib/supabase'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../lib/authContext'
 import { can } from '../../lib/permissions'
 import {
   Factory, BarChart3, LayoutDashboard, ShoppingBag, ShoppingCart, Users, Truck,
   BookOpen, ChevronLeft, ChevronRight, Blocks, Settings,
-  UserCircle, ClipboardCheck, Send, CalendarCheck, CalendarDays, LogOut,
+  UserCircle, ClipboardCheck, Send, CalendarCheck, CalendarDays, LogOut, X, Clock3, Circle,
 } from 'lucide-react'
 import nizamiaLogoFull from '../../assets/nizamia-logo-full.png'
 import nizamiaLogoMark from '../../assets/nizamia-logo-mark.png'
@@ -45,6 +47,51 @@ export default function Sidebar({ onOpenDeadlines }) {
   const navigate = useNavigate()
   const { user, userRole, logout } = useAuth()
   const currentName = user?.username || user?.displayName || user?.email || 'User'
+  const [sessionOpen, setSessionOpen] = useState(false)
+  const [now, setNow] = useState(Date.now())
+  const [peers, setPeers] = useState([])
+  const [presenceReady, setPresenceReady] = useState(false)
+  const sessionStart = useRef(Date.now())
+  const presenceId = useRef(Math.random().toString(36).slice(2))
+  useEffect(() => {
+    if (!user?.id) return
+    sessionStart.current = Date.now()
+    const channel = supabase.channel('nizamia-active-sessions', {
+      config: { presence: { key: presenceId.current } }
+    })
+    const refresh = () => {
+      const state = channel.presenceState()
+      setPeers(Object.values(state).flat().filter(p => p?.id && p.sessionId !== presenceId.current))
+    }
+    channel.on('presence', { event: 'sync' }, refresh)
+      .on('presence', { event: 'join' }, refresh)
+      .on('presence', { event: 'leave' }, refresh)
+      .subscribe(async status => {
+        if (status === 'SUBSCRIBED') {
+          setPresenceReady(true)
+          await channel.track({
+            id: user.id, username: user.username || user.displayName || 'User',
+            role: user.role || '', sessionId: presenceId.current,
+            startedAt: sessionStart.current
+          })
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setPresenceReady(false)
+      })
+    return () => { setPresenceReady(false); setPeers([]); supabase.removeChannel(channel) }
+  }, [user?.id, user?.username, user?.role])
+  useEffect(() => {
+    if (!sessionOpen) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [sessionOpen])
+  const duration = started => {
+    const seconds = Math.max(0, Math.floor((now - Number(started || now)) / 1000))
+    return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
+      .map(n => String(n).padStart(2, '0')).join(':')
+  }
+  const otherUsers = [...new Map(peers.filter(p => String(p.id) !== String(user?.id))
+    .map(p => [String(p.id), p])).values()]
+
 
   const disabledItem = (Icon, label, key) => (
     <div key={key || label} title="No permission" style={{
@@ -192,14 +239,14 @@ export default function Sidebar({ onOpenDeadlines }) {
 
         {/* Bottom tools */}
         <div className="app-sidebar-bottom" style={{ padding: '8px', borderTop: `1px solid ${SB_BORDER}`, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <div title={currentName} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: collapsed ? '8px 0' : '8px 10px', justifyContent: collapsed ? 'center' : 'flex-start', borderRadius: 8, background: '#f9fafb', border: '1px solid #f1f5f9', marginBottom: 6 }}>
+          <div onClick={() => setSessionOpen(true)} role="button" tabIndex={0} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") setSessionOpen(true) }} title="View active sessions" style={{ cursor: "pointer", display: 'flex', alignItems: 'center', gap: 9, padding: collapsed ? '8px 0' : '8px 10px', justifyContent: collapsed ? 'center' : 'flex-start', borderRadius: 8, background: '#f9fafb', border: '1px solid #f1f5f9', marginBottom: 6 }}>
             <UserCircle size={16} strokeWidth={1.8} style={{ flexShrink: 0, color: '#6b7280' }} />
             {!collapsed && <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.35 }}>Logged in</div>
               <div style={{ fontSize: 12, color: '#111827', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentName}</div>
             </div>}
             {!collapsed && (
-              <button onClick={logout} title="Logout" style={{
+              <button onClick={e => { e.stopPropagation(); logout() }} title="Logout" style={{
                 background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280',
                 padding: 5, display: 'flex', borderRadius: 6, flexShrink: 0,
               }}
@@ -273,7 +320,31 @@ export default function Sidebar({ onOpenDeadlines }) {
           )}
         </div>
       </aside>
-
+      {sessionOpen && createPortal(
+        <div onMouseDown={e => { if (e.target === e.currentTarget) setSessionOpen(false) }} style={{position:'fixed',inset:0,zIndex:5000,background:'rgba(15,23,42,.36)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+          <section role="dialog" aria-modal="true" aria-label="Active user sessions" style={{width:'100%',maxWidth:450,maxHeight:'min(75vh,580px)',overflow:'auto',background:'#fff',borderRadius:15,boxShadow:'0 24px 70px rgba(15,23,42,.22)',fontFamily:'var(--font,system-ui,sans-serif)',color:'#111827'}}>
+            <div style={{padding:'20px 22px 17px',borderBottom:'1px solid #e5e7eb'}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
+                <div style={{fontSize:17,fontWeight:750}}>Active Sessions</div>
+                <button onClick={()=>setSessionOpen(false)} aria-label="Close" style={{border:'1px solid #e5e7eb',background:'#fff',borderRadius:8,padding:7,cursor:'pointer',display:'flex'}}><X size={17}/></button>
+              </div>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginTop:18}}>
+                <div><div style={{fontSize:11,color:'#94a3b8',fontWeight:700,textTransform:'uppercase'}}>Logged in as</div><div style={{fontSize:17,fontWeight:750,marginTop:3}}>{currentName}</div></div>
+                <button onClick={()=>{setSessionOpen(false);logout()}} title="Logout" aria-label="Logout now" style={{border:'1px solid #fee2e2',background:'#fef2f2',color:'#dc2626',padding:10,borderRadius:9,cursor:'pointer',display:'flex'}}><LogOut size={20}/></button>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:7,marginTop:12,fontSize:12,color:'#64748b'}}><Clock3 size={14}/> Current session <strong style={{color:'#111827',fontVariantNumeric:'tabular-nums'}}>{duration(sessionStart.current)}</strong></div>
+            </div>
+            <div style={{padding:'18px 22px 22px'}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,fontWeight:750,marginBottom:14}}><Circle size={9} fill="#16a34a" stroke="#16a34a"/> Other Active Users <span style={{color:'#94a3b8',fontWeight:500}}>({otherUsers.length})</span></div>
+              {otherUsers.length ? <div style={{display:'flex',flexDirection:'column',gap:9}}>{otherUsers.map(p=><div key={p.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'11px 12px',background:'#f8fafc',border:'1px solid #edf0f4',borderRadius:9}}>
+                <div style={{minWidth:0}}><div style={{fontSize:13,fontWeight:700,overflow:'hidden',textOverflow:'ellipsis'}}>{p.username}</div><div style={{fontSize:11,color:'#64748b',textTransform:'capitalize',marginTop:2}}>{p.role || 'User'}</div></div>
+                <div style={{fontSize:12,fontWeight:650,color:'#475569',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{duration(p.startedAt)}</div>
+              </div>)}</div> : <div style={{fontSize:12,color:'#94a3b8',padding:'16px 0'}}>{presenceReady ? 'No other users currently online.' : 'Connecting to live session status…'}</div>}
+              <div style={{fontSize:11,color:'#94a3b8',marginTop:14}}>Live sessions are shown while users remain connected. Duration is measured from connection to this session.</div>
+            </div>
+          </section>
+        </div>, document.body
+      )}
     </>
   )
 }
