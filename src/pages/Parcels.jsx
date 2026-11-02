@@ -62,7 +62,7 @@ function openPrint(html, title, onBlocked) {
 export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
   const { Dialogs } = useAppDialogs()
   const [selected, setSelected] = useState(poolRows.map(r => r.sampleId))
-  const [customItems, setCustomItems] = useState([{ description:'', qty:1, unitValue:1 }])
+  const [customItems, setCustomItems] = useState([])
   const [sampleDetails,setSampleDetails]=useState({})
   const buyerIds=[...new Set(poolRows.map(r=>r.order.buyer_id).filter(Boolean))]
   const buyerId=buyerIds.length===1?buyerIds[0]:null
@@ -83,51 +83,51 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
   const updateSample=(id,key,value)=>setSampleDetails(prev=>({...prev,[id]:{...prev[id],[key]:value}}))
   const allRows = poolRows.filter(r => selected.includes(r.sampleId))
   const canCreate = (allRows.length > 0 || customItems.some(x => x.description?.trim())) && !!buyerId && !!addressId && !consigneeError
+  const totalQty=allRows.reduce((n,r)=>n+Math.max(0,Number(sampleDetails[r.sampleId]?.qty??r.sample.req_pcs??1)),0)+customItems.filter(x=>x.description.trim()).reduce((n,x)=>n+Math.max(0,Number(x.qty||0)),0)
+  const totalInvoice=allRows.reduce((n,r)=>n+Math.max(0,Number(sampleDetails[r.sampleId]?.qty??r.sample.req_pcs??1))*Math.max(0,Number(sampleDetails[r.sampleId]?.unitValue??1)),0)+customItems.filter(x=>x.description.trim()).reduce((n,x)=>n+Math.max(0,Number(x.qty||0))*Math.max(0,Number(x.unitValue||0)),0)
 
   const setCustom = (idx, key, value) => setCustomItems(arr => arr.map((x, i) => i === idx ? { ...x, [key]: value } : x))
   const addCustom = () => setCustomItems(arr => [...arr, { description:'', qty:1, unitValue:1 }])
+  const removeCustom = idx => setCustomItems(arr => arr.filter((_,i)=>i!==idx))
 
   const popup = useManagedPopup('Create Parcel', onClose)
   return (
     <div style={{ display:popup.minimized?'none':'flex', position:'fixed', inset:0, background:'rgba(0,0,0,.35)', alignItems:'center', justifyContent:'center', zIndex:400 }}>
-      <div style={{ ...card, width:760, padding:18, maxHeight:'88vh', overflow:'auto' }}>
+      <div style={{ ...card, width:1040, maxWidth:'96vw', padding:22, maxHeight:'88vh', overflow:'auto' }}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}><div style={{fontSize:16,fontWeight:700}}>Create Parcel</div><div style={{display:'flex',gap:10}}><button type="button" title="Minimize" onClick={popup.minimize} style={{border:0,background:'none',cursor:'pointer',fontSize:20}}>−</button><button type="button" title="Close" onClick={popup.close} style={{border:0,background:'none',cursor:'pointer',fontSize:20}}>×</button></div></div>
-        <div style={{ fontSize:12, color:'#6b7280', marginBottom:12 }}>A parcel can include multiple SAM# plus custom items like trim cards, wash legs, lab dips or documents.</div>
-        <div style={{fontWeight:700,margin:'14px 0 8px'}}>1. Buyer & Consignee (Ship To)</div>
-        {consigneeError && <div style={{color:'#b91c1c',fontSize:12,marginBottom:8}}>{consigneeError}</div>}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-          <div><div style={{fontSize:11,marginBottom:4}}>Saved Address</div><select aria-label="Consignee address" style={inp} value={addressId} onChange={e=>setAddressId(e.target.value)}><option value="">Select address</option>{addresses.map(a=><option key={a.id} value={a.id}>{a.label||a.recipient||a.address_line1} — {a.city}</option>)}</select></div>
-          <div><div style={{fontSize:11,marginBottom:4}}>Attention / Contact Person</div><select aria-label="Consignee contact" style={inp} value={contactId} onChange={e=>setContactId(e.target.value)}><option value="">No contact selected</option>{contacts.map(c=><option key={c.id} value={c.id}>{c.name} {c.designation?'— '+c.designation:''}</option>)}</select></div>
-        </div>
-        {!addresses.length && !consigneeError && <div style={{fontSize:11,color:'#6b7280',marginTop:6}}>No saved addresses for this buyer. Add one in Buyers before creating a parcel.</div>}
-        <div style={{ fontWeight:700, marginBottom:8 }}>2. Samples in Parcel</div>
-        <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Sample / Style　 |　 Type　 |　 Quantity (pcs)　 |　 Unit Value (USD)　 |　 Buyer</div>
-        <div style={{ display:'grid', gap:8 }}>
-          {poolRows.map(r => (
-            <div key={r.sampleId} style={{ display:'grid', gridTemplateColumns:'20px 1.2fr .8fr 85px 100px .8fr', gap:10, alignItems:'center', border:'1px solid #ececec', borderRadius:8, padding:'8px 10px' }}>
-              <input type="checkbox" checked={selected.includes(r.sampleId)} onChange={e => setSelected(s => e.target.checked ? [...s, r.sampleId] : s.filter(x => x !== r.sampleId))} />
-              <div><div style={{ fontWeight:700, fontFamily:'monospace' }}>{r.sample.sample_number}</div><div style={{ fontSize:11, color:'#6b7280' }}>{r.order.style_number || '—'} · {r.order.description || '—'}</div></div>
-              <div>{r.sample.sample_type || '—'}</div>
-              <input aria-label={'Parcel quantity '+r.sample.sample_number} style={inp} type="number" min="1" value={sampleDetails[r.sampleId]?.qty??r.sample.req_pcs??1} onChange={e=>updateSample(r.sampleId,'qty',e.target.value)} />
-              <input aria-label={'USD unit value '+r.sample.sample_number} style={inp} type="number" min="0" step="0.01" value={sampleDetails[r.sampleId]?.unitValue??1} onChange={e=>updateSample(r.sampleId,'unitValue',e.target.value)} />
-              <div>{r.order.buyer_name || '—'}</div>
-            </div>
-          ))}
-        </div>
 
-        <div style={{ fontWeight:700, margin:'14px 0 8px' }}>Custom Items</div>
-        <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Description　 |　 Quantity (pcs)　 |　 Unit Value (USD)</div>
-        <div style={{ display:'grid', gap:8 }}>
-          {customItems.map((item, idx) => (
-            <div key={idx} style={{ display:'grid', gridTemplateColumns:'1.4fr 90px 110px', gap:8 }}>
-              <input style={inp} placeholder="Trim card / wash leg / lab dip / documents..." value={item.description} onChange={e => setCustom(idx, 'description', e.target.value)} />
-              <input style={inp} type="number" min="1" value={item.qty} onChange={e => setCustom(idx, 'qty', parseInt(e.target.value || '1'))} />
-              <input style={inp} type="number" min="0" step="0.01" value={item.unitValue} onChange={e => setCustom(idx, 'unitValue', parseFloat(e.target.value || '0'))} />
-            </div>
-          ))}
-          <div><button style={btn} onClick={addCustom}><Plus size={13} /> Add Custom Item</button></div>
+        {consigneeError && <div style={{color:'#b91c1c',marginBottom:12}}>{consigneeError}</div>}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16,marginBottom:20}}>
+          <label style={{fontSize:12,fontWeight:600}}>Customer Name<input style={{...inp,marginTop:6,background:'#f3f4f6'}} readOnly value={poolRows.find(r=>r.order.buyer_id===buyerId)?.order.buyer_name||''}/></label>
+          <label style={{fontSize:12,fontWeight:600}}>Attention Person<select style={{...inp,marginTop:6}} value={contactId} onChange={e=>setContactId(e.target.value)}><option value="">No contact selected</option>{contacts.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+          <label style={{fontSize:12,fontWeight:600}}>Select Address<select style={{...inp,marginTop:6}} value={addressId} onChange={e=>setAddressId(e.target.value)}><option value="">Select address</option>{addresses.map(a=><option key={a.id} value={a.id}>{a.label||a.recipient||a.address_line1}</option>)}</select></label>
         </div>
-
+        <div style={{borderTop:'1px solid #e5e7eb',margin:'0 -22px 18px'}}/>
+        <div style={{fontWeight:700,marginBottom:14}}>Add parcel content</div>
+        <div style={{display:'grid',gridTemplateColumns:'1.2fr .8fr 1.6fr 90px 110px 110px',gap:12,padding:'10px 8px',borderBottom:'1px solid #d1d5db',fontSize:12,fontWeight:700}}>
+          <span>Sample / Style</span><span>Type</span><span>Description</span><span>Quantity</span><span>Unit Value (USD)</span><span>Invoice (USD)</span>
+        </div>
+        {poolRows.map(r=>{
+          const qty=sampleDetails[r.sampleId]?.qty??r.sample.req_pcs??1
+          const unit=sampleDetails[r.sampleId]?.unitValue??1
+          return <div key={r.sampleId} style={{display:'grid',gridTemplateColumns:'1.2fr .8fr 1.6fr 90px 110px 110px',gap:12,padding:'12px 8px',alignItems:'center',borderBottom:'1px solid #f1f2f4'}}>
+            <label style={{display:'flex',gap:9,alignItems:'flex-start'}}><input type="checkbox" checked={selected.includes(r.sampleId)} onChange={e=>setSelected(prev=>e.target.checked?[...prev,r.sampleId]:prev.filter(id=>id!==r.sampleId))}/><span><strong>{r.sample.sample_number}</strong><div style={{fontSize:11,color:'#6b7280'}}>{r.order.style_number||'—'}</div></span></label>
+            <span>{r.sample.sample_type||'—'}</span><span>{r.order.description||'—'}</span>
+            <input style={inp} aria-label={'Quantity '+r.sample.sample_number} type="number" min="1" step="1" value={qty} onChange={e=>updateSample(r.sampleId,'qty',e.target.value)}/>
+            <input style={inp} aria-label={'Unit value '+r.sample.sample_number} type="number" min="0" step=".01" value={unit} onChange={e=>updateSample(r.sampleId,'unitValue',e.target.value)}/>
+            <strong style={{textAlign:'right'}}>${(Number(qty||0)*Number(unit||0)).toFixed(2)}</strong>
+          </div>
+        })}
+        {customItems.map((item,idx)=><div key={idx} style={{display:'grid',gridTemplateColumns:'1.2fr .8fr 1.6fr 90px 110px 110px',gap:12,padding:'10px 8px',alignItems:'center',borderBottom:'1px solid #f1f2f4'}}>
+          <button type="button" onClick={()=>removeCustom(idx)} style={{...btn,justifySelf:'start'}}>Remove</button>
+          <span>Custom Item</span>
+          <input style={inp} placeholder="Description" value={item.description} onChange={e=>setCustom(idx,'description',e.target.value)}/>
+          <input style={inp} type="number" min="1" step="1" value={item.qty} onChange={e=>setCustom(idx,'qty',e.target.value)}/>
+          <input style={inp} type="number" min="0" step=".01" value={item.unitValue} onChange={e=>setCustom(idx,'unitValue',e.target.value)}/>
+          <strong style={{textAlign:'right'}}>${(Number(item.qty||0)*Number(item.unitValue||0)).toFixed(2)}</strong>
+        </div>)}
+        <button type="button" onClick={addCustom} style={{...btn,marginTop:14,border:0}}><Plus size={14}/> Add Custom Line Item</button>
+        <div style={{marginTop:24,textAlign:'right',fontSize:13,fontWeight:700}}>Total Parcel Quantity: {totalQty}<div style={{marginTop:5}}>Total Parcel Invoice: ${totalInvoice.toFixed(2)}</div></div>
         <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:14 }}>
           <button style={btn} onClick={onClose}>Cancel</button>
           <button style={{ ...btn, background:canCreate?'#111827':'#e5e7eb', color:canCreate?'#fff':'#9ca3af', borderColor:canCreate?'#111827':'#e5e7eb' }} disabled={!canCreate} onClick={() => onCreated({ items: allRows.map(r => ({ sampleId:r.sampleId,qty:Math.max(1,Number(sampleDetails[r.sampleId]?.qty??r.sample.req_pcs??1)),unitValue:Math.max(0,Number(sampleDetails[r.sampleId]?.unitValue??1)) })), customItems: customItems.filter(x => x.description?.trim()),buyerId,addressId,contactId:contactId||null })}>Create Parcel</button>
