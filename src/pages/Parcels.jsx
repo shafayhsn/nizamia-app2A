@@ -188,12 +188,13 @@ export default function Parcels() {
   useEffect(()=>{try{sessionStorage.setItem(PREF_KEY,JSON.stringify({sortBy,groupBy,statusFilter,customerFilter,periodFilter}))}catch{}},[sortBy,groupBy,statusFilter,customerFilter,periodFilter])
 
   async function load() {
-    const [{ data: s }, { data: o }, { data: b }, { data: dbParcels,error:parcelError }] = await Promise.all([
-      supabase.from('samples').select('id,order_id,sample_number,sample_type,stage,dispatch_status,req_pcs,qty,version_label,created_at').order('created_at', { ascending:false }),
+    const [{ data: s,error:sampleError }, { data: o }, { data: b }, { data: dbParcels,error:parcelError }] = await Promise.all([
+      supabase.from('samples').select('id,order_id,sample_number,sample_type,stage,dispatch_status,req_pcs,version_label,created_at').order('created_at', { ascending:false }),
       supabase.from('orders').select('id,buyer_id,buyer_name,style_number,job_number,po_number,description,factory_ref').order('created_at', { ascending:false }),
       supabase.from('buyers').select('*').order('name'),
       supabase.from('parcels').select('*').order('created_at',{ascending:false}),
     ])
+    if(sampleError)alert('Samples could not load: '+sampleError.message,{title:'Sample Loading Failed'})
     setSamples(s || [])
     setOrders(o || [])
     setBuyers(b || [])
