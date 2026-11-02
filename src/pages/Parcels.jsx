@@ -429,6 +429,20 @@ export default function Parcels() {
     const order=orderMap[sampleMap[item?.sampleId]?.order_id]||{}
     const buyerId=order.buyer_id
     if(!buyerId){alert('This parcel has no linked buyer. Add a buyer to its sample order before generating the invoice.',{title:'Buyer Required'});return}
+    // Reprints must use the original saved consignee without overwriting it.
+    try {
+      const response=await fetch('/api/oms?action=list&type=snapshots&parcelId='+encodeURIComponent(parcel.id))
+      const result=await response.json()
+      if(!response.ok)throw new Error(result.error||'Could not retrieve saved consignee')
+      if(result.data?.consignee && Object.keys(result.data.consignee).length){
+        printInvoice(parcel,result.data.consignee)
+        return
+      }
+    } catch(e) {
+      alert('Could not load saved invoice details: '+e.message,{title:'Invoice Error'})
+      return
+    }
+    // Legacy parcels without a saved snapshot need a one-time selection.
     setInvoiceChoice({parcel,buyerId})
     setInvoiceAddresses([]);setInvoiceContacts([]);setInvoiceError('');setInvoiceSnapshot(null)
     const api=async(type,parcelId)=>{
