@@ -39,12 +39,12 @@ export default function Buyers() {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const openNew = () => { setEditing(null); setForm({ currency: 'USD', default_ship_mode: 'Sea', default_incoterms: 'FOB', payment_terms_days: 30 }); setAddresses([]);setContacts([]);setDetailError('');setDetailsReady(false);setModal(true) }
+  const openNew = async () => { setEditing(null); setForm({ currency: 'USD', default_ship_mode: 'Sea', default_incoterms: 'FOB', payment_terms_days: 30 }); setAddresses([]);setContacts([]);setDetailError('');setDetailsReady(false);setModal(true); const [a,c]=await Promise.all([supabase.from('buyer_addresses').select('id').limit(1),supabase.from('buyer_contacts').select('id').limit(1)]);if(a.error||c.error){setDetailError('Buyer address/contact storage is not available. Saving is disabled until it is configured.');return}setDetailsReady(true) }
   const openEdit = async (b) => { setEditing(b); setForm({ ...b }); setAddresses([]);setContacts([]);setDetailError('');setDetailsReady(false);setModal(true); const [a,c]=await Promise.all([supabase.from('buyer_addresses').select('*').eq('buyer_id',b.id).order('created_at'),supabase.from('buyer_contacts').select('*').eq('buyer_id',b.id).order('created_at')]);if(a.error||c.error){setDetailError('Address/contact storage is not configured yet. Changes cannot be saved until the database migration is applied.');return}setAddresses(a.data||[]);setContacts(c.data||[]);setDetailsReady(true) }
 
   const handleSave = async () => {
     if (!form.name?.trim() || saving) return
-    if (!detailsReady && editing) {setDetailError('Address and contact records are unavailable. Saving is blocked to prevent partial changes.');return}
+    if (!detailsReady) {setDetailError('Address and contact records are unavailable. Saving is blocked to prevent partial changes.');return}
     if (addresses.length && addresses.filter(a=>a.is_default).length!==1){setDetailError('Select exactly one default address.');return}
     if (contacts.length && contacts.filter(c=>c.is_default).length!==1){setDetailError('Select exactly one default contact.');return}
     setSaving(true);setDetailError('')
@@ -159,7 +159,7 @@ export default function Buyers() {
             </div>
             {detailError&&<p role="alert" style={{color:'#b91c1c',fontSize:12}}>{detailError}</p>}
             <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:16,borderTop:'1px solid #e5e7eb',paddingTop:14}}>
-              <button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancel</button><button className="btn btn-primary" disabled={saving||!form.name?.trim()||(!!editing&&!detailsReady)} onClick={handleSave}>{saving?'Saving...':editing?'Save Changes':'Save Buyer'}</button>
+              <button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancel</button><button className="btn btn-primary" disabled={saving||!form.name?.trim()||!detailsReady} onClick={handleSave}>{saving?'Saving...':editing?'Save Changes':'Save Buyer'}</button>
             </div>
           </div>
         </MinimizableModal>
