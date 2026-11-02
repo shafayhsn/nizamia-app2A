@@ -149,7 +149,9 @@ export function AuthProvider({ children }) {
         if (!cancelled && saved?.id) {
           setUser(saved)
           setUserRole(saved)
-          await refreshUser()
+          const bridge=await fetch('/api/oms?action=session',{credentials:'same-origin'}).then(r=>r.ok).catch(()=>false)
+          if(bridge)await refreshUser()
+          else setAppUser(null)
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -164,6 +166,8 @@ export function AuthProvider({ children }) {
     const cleanPassword = String(password || '')
     if (!cleanIdentifier || !cleanPassword) return { user: null, error: new Error('Username/email and password are required.') }
 
+    const bridge = await fetch('/api/oms', {method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({action:'login',identifier:cleanIdentifier,password:cleanPassword})}).then(async r=>({ok:r.ok,message:(await r.json()).error})).catch(()=>({ok:false,message:'Server login unavailable'}))
+    if(!bridge.ok)return {user:null,error:new Error(bridge.message||'Invalid username/email or password.')}
     const { data, error } = await findUserByIdentifier(cleanIdentifier)
     if (error || !data) return { user: null, error: new Error('Invalid username/email or password.') }
     if (data.is_active === false) return { user: null, error: new Error('This user is inactive.') }
@@ -177,6 +181,7 @@ export function AuthProvider({ children }) {
   }
 
   const logout = async () => {
+    await fetch('/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})}).catch(()=>{})
     setAppUser(null)
   }
 
