@@ -1,7 +1,7 @@
 import MinimizableModal from '../components/ui/MinimizableModal'
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { Plus, Edit2, Trash2, Truck, X, Download } from 'lucide-react'
+import { Plus, Edit2, Trash2, Truck, X, Download, RefreshCw, Settings2, Search } from 'lucide-react'
 import { useAppDialogs } from '../components/ui/AppDialogs'
 
 const CATEGORIES = ['Fabric', 'Trims', 'Washing', 'Embellishment', 'CMT', 'Contractors']
@@ -53,6 +53,10 @@ export default function Suppliers() {
   const [form,       setForm]       = useState({})
   const [saving,     setSaving]     = useState(false)
   const [search,     setSearch]     = useState('')
+  const [sortBy, setSortBy] = useState('name-asc')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [selectedIds, setSelectedIds] = useState([])
+  const [showOptions, setShowOptions] = useState(false)
 
   useEffect(() => { load() }, [])
 
@@ -105,8 +109,11 @@ export default function Suppliers() {
     const matchTab = tab === 'All' || s.category === tab
     const q = search.toLowerCase()
     const matchSearch = !q || [s.name, s.contact_person, s.phone, s.process, ...(s.tags || [])].some(f => f?.toLowerCase().includes(q))
-    return matchTab && matchSearch
-  })
+    const matchStatus = statusFilter === 'all' || (statusFilter === 'active' ? s.is_active === true : s.is_active !== true)
+    return matchTab && matchSearch && matchStatus
+  }).sort((a,b)=>sortBy==='name-desc' ? (b.name||'').localeCompare(a.name||'') : sortBy==='category' ? (a.category||'').localeCompare(b.category||'') || (a.name||'').localeCompare(b.name||'') : (a.name||'').localeCompare(b.name||''))
+  const activeCount = suppliers.filter(s=>s.is_active===true).length
+  const selectedSupplier = selectedIds.length===1 ? suppliers.find(s=>s.id===selectedIds[0]) : null
 
   const isContractorsTab = tab === 'Contractors'
   const isTrimsTab = tab === 'Trims'
@@ -117,45 +124,35 @@ export default function Suppliers() {
   return (
     <div className="page-content">
       {/* Header */}
-      <div className="section-header">
-        <div style={{ fontSize: 13, color: 'var(--text-mid)' }}>{suppliers.length} suppliers</div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-secondary app-icon-only" title="Export CSV" onClick={() => exportToCSV(filtered)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Download size={14} />
-          </button>
-          <button className="btn btn-primary" onClick={openNew}><Plus size={14} /> New Supplier</button>
+      <div className="section-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,flexWrap:'wrap',paddingBottom:18}}>
+        <div style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
+          <h1 style={{fontSize:24,fontWeight:750,margin:0}}>Suppliers</h1>
+          <div style={{padding:'10px 18px',border:'1px solid #e5e7eb',borderRadius:12,minWidth:130,background:'#fff'}}>
+            <div style={{fontSize:10,fontWeight:700,color:'#9ca3af'}}>TOTAL SUPPLIERS</div><div style={{fontSize:23,fontWeight:700}}>{suppliers.length}</div>
+          </div>
+          <div style={{padding:'10px 18px',border:'1px solid #e5e7eb',borderRadius:12,minWidth:130,background:'#fff'}}>
+            <div style={{fontSize:10,fontWeight:700,color:'#9ca3af'}}>ACTIVE SUPPLIERS</div><div style={{fontSize:23,fontWeight:700,color:'#059669'}}>{activeCount}</div>
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={openNew}><Plus size={14}/> New Supplier</button>
+      </div>
+      {/* Search and actions */}
+      <div style={{display:'flex',alignItems:'center',gap:9,flexWrap:'wrap',padding:'12px 0 14px',borderBottom:'1px solid #e5e7eb'}}>
+        <div style={{position:'relative',minWidth:190,flex:'1 1 190px',maxWidth:250}}>
+          <Search size={15} style={{position:'absolute',left:11,top:10,color:'#9ca3af'}}/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search Suppliers" style={{...inp,paddingLeft:34,height:36}}/>
+        </div>
+        <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...inp,width:170,height:36,cursor:'pointer'}}><option value="name-asc">Name (A–Z)</option><option value="name-desc">Name (Z–A)</option><option value="category">Category</option></select>
+        <select value={tab} onChange={e=>setTab(e.target.value)} style={{...inp,width:160,height:36,cursor:'pointer'}}>{TABS.map(t=><option key={t} value={t}>{t==='All'?'All Categories':t}</option>)}</select>
+        <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{...inp,width:150,height:36,cursor:'pointer'}}><option value="all">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+        <div style={{marginLeft:'auto',display:'flex',gap:6}}>
+          <button className="btn btn-secondary app-icon-only" title="Edit selected supplier" disabled={!selectedSupplier} onClick={()=>selectedSupplier&&openEdit(selectedSupplier)}><Edit2 size={15}/></button>
+          <button className="btn btn-secondary app-icon-only" title="Deactivate selected supplier" disabled={!selectedSupplier} onClick={()=>selectedSupplier&&handleDelete(selectedSupplier.id)}><Trash2 size={15}/></button>
+          <button className="btn btn-secondary app-icon-only" title="Refresh" onClick={load}><RefreshCw size={15}/></button>
+          <button className="btn btn-secondary app-icon-only" title="Export options" onClick={()=>setShowOptions(v=>!v)}><Settings2 size={15}/></button>
         </div>
       </div>
-
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e5e7eb', marginBottom: 16, overflowX: 'auto' }}>
-        {TABS.map(t => {
-          const count = t === 'All' ? suppliers.length : (tabCounts[t] || 0)
-          const active = tab === t
-          return (
-            <button key={t} onClick={() => setTab(t)} style={{
-              padding: '8px 14px', background: 'none', border: 'none', cursor: 'pointer',
-              fontSize: 12, fontWeight: active ? 700 : 400,
-              color: active ? '#0d0d0d' : '#6b7280',
-              borderBottom: `2px solid ${active ? '#0d0d0d' : 'transparent'}`,
-              marginBottom: -1, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6,
-              fontFamily: 'Inter,sans-serif',
-            }}>
-              {t}
-              <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10,
-                background: active ? '#0d0d0d' : '#f0f0ee',
-                color: active ? '#fff' : '#9ca3af' }}>
-                {count}
-              </span>
-            </button>
-          )
-        })}
-        <div style={{ marginLeft: 'auto', padding: '6px 0', display: 'flex', alignItems: 'center' }}>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..."
-            style={{ ...inp, width: 200, height: 30, fontSize: 11 }} />
-        </div>
-      </div>
-
+      {showOptions&&<div style={{padding:'10px 0',display:'flex',gap:10,alignItems:'center',fontSize:12}}><button className="btn btn-secondary" onClick={()=>exportToCSV(filtered)}><Download size={14}/> Export filtered CSV</button><span style={{color:'#6b7280'}}>Supplier records are deactivated, not permanently deleted.</span></div>}
       {/* Table */}
       <div className="card">
         <div className="table-wrap">
@@ -169,6 +166,7 @@ export default function Suppliers() {
             <table>
               <thead>
                 <tr>
+                  <th style={{width:30}}><input type="checkbox" aria-label="Select all visible suppliers" checked={filtered.length>0&&filtered.every(x=>selectedIds.includes(x.id))} onChange={e=>setSelectedIds(e.target.checked?[...new Set([...selectedIds,...filtered.map(x=>x.id)])]:selectedIds.filter(id=>!filtered.some(x=>x.id===id)))}/></th>
                   <th>Name</th>
                   <th>Category</th>
                   {isContractorsTab && <th>Processes</th>}
@@ -188,7 +186,8 @@ export default function Suppliers() {
                   const woCount = woCounts[s.id] || 0
                   return (
                     <tr key={s.id}>
-                      <td style={{ fontWeight: 600 }}><span style={{ display:'inline-flex', alignItems:'center', gap:8 }}><span style={{ width:8, height:8, borderRadius:'50%', background: (poCount > 0 || woCount > 0) ? '#10B981' : '#D1D5DB', flexShrink:0 }} />{s.name}</span></td>
+                      <td><input type="checkbox" aria-label={`Select ${s.name}`} checked={selectedIds.includes(s.id)} onChange={e=>setSelectedIds(ids=>e.target.checked?[...ids,s.id]:ids.filter(id=>id!==s.id))}/></td>
+                      <td style={{ fontWeight: 600 }}><span style={{ display:'inline-flex', alignItems:'center', gap:8 }}><span style={{ width:8, height:8, borderRadius:'50%', background: s.is_active === true ? '#10B981' : '#D1D5DB', flexShrink:0 }} />{s.name}</span></td>
                       <td>
                         <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: cs.bg, color: cs.color }}>
                           {s.category}
@@ -237,6 +236,7 @@ export default function Suppliers() {
         </div>
       </div>
 
+      <div style={{display:'flex',justifyContent:'space-between',padding:'12px 0',fontSize:12,color:'#6b7280'}}><span>{filtered.length} Suppliers</span><span>{activeCount} active</span></div>
       {/* Modal */}
       {modal && (
         <MinimizableModal title={editing ? 'Edit Supplier' : 'New Supplier'} onClose={() => setModal(false)}>
