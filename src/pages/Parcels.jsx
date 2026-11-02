@@ -159,6 +159,14 @@ export default function Parcels() {
   const [selectedParcels,setSelectedParcels]=useState([])
   const [editing,setEditing]=useState(null)
   const [history,setHistory]=useState([])
+  const [invoiceChoice,setInvoiceChoice]=useState(null)
+  const [invoiceAddresses,setInvoiceAddresses]=useState([])
+  const [invoiceContacts,setInvoiceContacts]=useState([])
+  const [invoiceAddressId,setInvoiceAddressId]=useState('')
+  const [invoiceContactId,setInvoiceContactId]=useState('')
+  const [invoiceSnapshot,setInvoiceSnapshot]=useState(null)
+  const [invoiceError,setInvoiceError]=useState('')
+  const [invoiceBusy,setInvoiceBusy]=useState(false)
   const [busy,setBusy]=useState(false)
   const [deliveryOpen,setDeliveryOpen]=useState(false)
   const [deliveryDate,setDeliveryDate]=useState('')
@@ -363,11 +371,47 @@ export default function Parcels() {
     setHistory(data||[])
   }
 
-  function printInvoice(parcel) {
+  async function openInvoiceSelector(parcel) {
+    const item=parcel.items?.[0]
+    const order=orderMap[sampleMap[item?.sampleId]?.order_id]||{}
+    const buyerId=order.buyer_id
+    if(!buyerId){alert('This parcel has no linked buyer. Add a buyer to its sample order before generating the invoice.',{title:'Buyer Required'});return}
+    setInvoiceChoice({parcel,buyerId})
+    setInvoiceAddresses([]);setInvoiceContacts([]);setInvoiceError('');setInvoiceSnapshot(null)
+    const [a,c,snap]=await Promise.all([
+      supabase.from('buyer_addresses').select('*').eq('buyer_id',buyerId).order('created_at'),
+      supabase.from('buyer_contacts').select('*').eq('buyer_id',buyerId).order('created_at'),
+      supabase.from('parcel_invoice_snapshots').select('*').eq('parcel_id',parcel.id).maybeSingle()
+    ])
+    if(a.error||c.error||snap.error){setInvoiceError('Invoice address/contact storage is not accessible: '+(a.error?.message||c.error?.message||snap.error?.message));return}
+    setInvoiceAddresses(a.data||[]);setInvoiceContacts(c.data||[])
+    setInvoiceSnapshot(snap.data||null)
+    setInvoiceAddressId(snap.data?.address_id||(a.data||[]).find(x=>x.is_default)?.id||(a.data||[])[0]?.id||'')
+    setInvoiceContactId(snap.data?.contact_id||(c.data||[]).find(x=>x.is_default)?.id||(c.data||[])[0]?.id||'')
+  }
+  async function saveInvoiceAndPrint(){
+    if(!invoiceChoice||invoiceBusy||invoiceError)return
+    const {parcel,buyerId}=invoiceChoice
+    const address=invoiceAddresses.find(a=>a.id===invoiceAddressId)
+    const contact=invoiceContacts.find(c=>c.id===invoiceContactId)
+    if(!address){setInvoiceError('Select a saved buyer address before issuing an invoice.');return}
+    setInvoiceBusy(true)
+    const buyer=buyerMap[buyerId]||{}
+    const consignee={name:address.recipient||buyer.name||'',label:address.label||'',address_line1:address.address_line1||'',address_line2:address.address_line2||'',city:address.city||'',region:address.region||'',postal_code:address.postal_code||'',country:address.country||'',contact_name:contact?.name||buyer.contact_person||'',phone:contact?.phone||address.phone||'',email:contact?.email||address.email||''}
+    const {data,error}=await supabase.from('parcel_invoice_snapshots').upsert({parcel_id:parcel.id,buyer_id:buyerId,address_id:address.id,contact_id:contact?.id||null,consignee,updated_at:new Date().toISOString()},{onConflict:'parcel_id'}).select('*').single()
+    setInvoiceBusy(false)
+    if(error){setInvoiceError('Could not save invoice snapshot: '+error.message);return}
+    setInvoiceSnapshot(data);setInvoiceChoice(null);printInvoice(parcel,data.consignee)
+  }
+
+  function printInvoice(parcel, consignee = null) {
     const firstItem = parcel.items?.[0]
     const firstSample = sampleMap[firstItem?.sampleId] || {}
     const firstOrder = orderMap[firstSample.order_id] || {}
     const buyer = buyerMap[firstOrder.buyer_id] || {}
+    const esc = value => String(value ?? '').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))
+    const shipTo = consignee || {name:firstOrder.buyer_name||buyer.name||'',address_line1:buyer.address||buyer.country||'',contact_name:buyer.contact_person||'',phone:buyer.phone||''}
+    const addressText=[shipTo.address_line1,shipTo.address_line2,shipTo.city,shipTo.region,shipTo.postal_code,shipTo.country].filter(Boolean).map(esc).join(', ')
     const lines = [
       ...(parcel.items || []).map((it, idx) => {
         const s = sampleMap[it.sampleId] || {}
@@ -382,7 +426,7 @@ export default function Parcels() {
       <div class="head"><div><h1>NON-COMMERCIAL INVOICE</h1><div class="muted">FOR CUSTOM PURPOSE ONLY</div></div><div class="muted">Parcel ${parcel.id}</div></div>
       <div class="two">
         <div class="box"><h3>Shipper</h3><div>Nizamia Apparels</div><div class="muted">Karachi, Pakistan</div></div>
-        <div class="box"><h3>Consignee</h3><div>${firstOrder.buyer_name || '—'}</div><div>${buyer.address || buyer.country || '—'}</div><div>${buyer.contact_person || '—'}</div><div>${buyer.phone || '—'}</div></div>
+        <div class="box"><h3>Consignee</h3><div>${esc(shipTo.name||'—')}</div><div>${addressText||'—'}</div><div>${esc(shipTo.contact_name||'—')}</div><div>${esc(shipTo.phone||'—')}</div><div>${esc(shipTo.email||'')}</div></div>
       </div>
       <div class="section"><table><tr><th>Parcel ID</th><td>${parcel.id}</td><th>Courier</th><td>${parcel.courier || '—'}</td></tr><tr><th>Dispatch Date</th><td>${parcel.dispatchDate || '—'}</td><th>Tracking #</th><td>${parcel.trackingNo || '—'}</td></tr></table></div>
       <div class="section"><table><thead><tr><th>#</th><th>Description</th><th>Qty</th><th>Unit Value</th><th>Total</th></tr></thead><tbody>${lines.map(x => `<tr><td>${x.no}</td><td>${x.description}</td><td>${x.qty}</td><td class="right">$${x.unitValue.toFixed(2)}</td><td class="right">$${(x.qty * x.unitValue).toFixed(2)}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="2" class="right">Total</th><th>${totalQty}</th><th></th><th class="right">$${totalValue.toFixed(2)}</th></tr></tfoot></table></div>
@@ -441,7 +485,7 @@ export default function Parcels() {
               <td onClick={e=>e.stopPropagation()}>{validTrackingUrl(p.trackingUrl)?<a href={validTrackingUrl(p.trackingUrl)} target="_blank" rel="noopener noreferrer" title="Open courier tracking"><ExternalLink size={16}/></a>:<span style={{color:'#9ca3af'}}>—</span>}</td>
               <td>{formatDate(p.dispatchDate)||'—'}</td>
               <td>{p.deliveredAt?<><div>{formatDate(p.deliveredAt)}</div><div style={{fontSize:11,color:'#16a34a',marginTop:3}}>{p.dispatchDate?Math.max(0,Math.round((new Date(p.deliveredAt.slice(0,10)+'T12:00:00Z')-new Date(p.dispatchDate.slice(0,10)+'T12:00:00Z'))/86400000))+' Days Transit':'—'}</div>{p.receivedBy&&<div style={{fontSize:11,color:'#64748b',marginTop:3}}>Received by: {p.receivedBy}</div>}</>:'—'}</td>
-              <td onClick={e=>e.stopPropagation()}><div style={{display:'flex',gap:5,whiteSpace:'nowrap'}}><button style={btn} onClick={()=>{setActive(active===p.id?null:p.id);openHistory(p.id)}}>View</button><button style={btn} onClick={()=>printInvoice(p)}><FileText size={13}/> Invoice</button>{p.status==='Draft'&&<button style={btn} onClick={()=>setEditing(p)}><Pencil size={13}/> Edit / Dispatch</button>}</div></td>
+              <td onClick={e=>e.stopPropagation()}><div style={{display:'flex',gap:5,whiteSpace:'nowrap'}}><button style={btn} onClick={()=>{setActive(active===p.id?null:p.id);openHistory(p.id)}}>View</button><button style={btn} onClick={()=>openInvoiceSelector(p)}><FileText size={13}/> Invoice</button>{p.status==='Draft'&&<button style={btn} onClick={()=>setEditing(p)}><Pencil size={13}/> Edit / Dispatch</button>}</div></td>
             </tr>
             {active===p.id&&<tr><td colSpan={9} style={{background:'#f9fafb',padding:14}}><strong>Parcel Contents · {p.id}</strong>{(p.items||[]).map((it,i)=><div key={i}>{sampleMap[it.sampleId]?.sample_number||it.sampleId} · {orderMap[sampleMap[it.sampleId]?.order_id]?.style_number||'—'}</div>)}{(p.customItems||[]).map((it,i)=><div key={'c'+i}>{it.description} · {it.qty} pcs</div>)}<div style={{marginTop:10,fontWeight:700}}>Status History</div>{history.length?history.map(h=><div key={h.id} style={{fontSize:12,marginTop:5}}>{new Date(h.changed_at).toLocaleString('en-GB')} · {h.old_status||'New'} → {h.new_status}</div>):<div style={{color:'#9ca3af',fontSize:12}}>No status changes recorded yet.</div>}</td></tr>}
             </React.Fragment>)}
@@ -450,6 +494,30 @@ export default function Parcels() {
         </tbody></table>}
       </div>
       <div style={{height:34,borderTop:'1px solid #e5e7eb',padding:'8px 24px',fontSize:11,color:'#6b7280',flexShrink:0}}>{tab==='ready'?`${shownSamples.length} READY SAMPLES · ${shownParcels.length} PARCELS AWAITING DISPATCH`:`${shownParcels.length} DISPATCHED PARCELS`}</div>
+      {invoiceChoice&&<div style={{position:'fixed',inset:0,zIndex:10000,background:'#0006',display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <div role="dialog" aria-modal="true" aria-label="Parcel invoice consignee" style={{...card,padding:22,width:480,maxWidth:'92vw'}}>
+          <div style={{fontWeight:700,fontSize:17,marginBottom:8}}>Non-Commercial Invoice · {invoiceChoice.parcel.id}</div>
+          <p style={{fontSize:12,color:'#64748b'}}>Select the destination address and attention person. A copy is saved with this invoice so later buyer edits do not change it.</p>
+          {invoiceSnapshot&&<p style={{fontSize:12,color:'#92400e'}}>This invoice already has a saved consignee. Saving again will replace its snapshot.</p>}
+          <label style={{display:'block',fontSize:12,fontWeight:600,marginBottom:12}}>Ship-to address
+            <select style={{...inp,marginTop:6}} value={invoiceAddressId} onChange={e=>setInvoiceAddressId(e.target.value)}>
+              <option value="">Select address</option>
+              {invoiceAddresses.map(a=><option key={a.id} value={a.id}>{a.label||a.recipient||a.address_line1||'Address'}{a.is_default?' (Default)':''}</option>)}
+            </select>
+          </label>
+          <label style={{display:'block',fontSize:12,fontWeight:600,marginBottom:12}}>Attention person
+            <select style={{...inp,marginTop:6}} value={invoiceContactId} onChange={e=>setInvoiceContactId(e.target.value)}>
+              <option value="">Use buyer primary contact</option>
+              {invoiceContacts.map(c=><option key={c.id} value={c.id}>{c.name||c.email||'Contact'}{c.is_default?' (Default)':''}</option>)}
+            </select>
+          </label>
+          {invoiceError&&<p role="alert" style={{fontSize:12,color:'#b91c1c'}}>{invoiceError}</p>}
+          <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:18}}>
+            <button style={btn} onClick={()=>setInvoiceChoice(null)}>Cancel</button>
+            <button style={{...btn,background:'#111',color:'#fff'}} disabled={invoiceBusy||!!invoiceError||!invoiceAddressId} onClick={saveInvoiceAndPrint}>{invoiceBusy?'Saving...':'Save & Print Invoice'}</button>
+          </div>
+        </div>
+      </div>}
       {deliveryOpen&&<div style={{position:'fixed',inset:0,zIndex:10000,background:'#0006',display:'flex',alignItems:'center',justifyContent:'center'}}>
         <div role="dialog" aria-modal="true" aria-label="Confirm parcel delivery" style={{...card,padding:22,width:380,maxWidth:'92vw'}}>
           <div style={{fontWeight:700,fontSize:17,marginBottom:6}}>Mark Delivered</div>
