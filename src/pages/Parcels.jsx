@@ -64,9 +64,25 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
   const [selected, setSelected] = useState(poolRows.map(r => r.sampleId))
   const [customItems, setCustomItems] = useState([{ description:'', qty:1, unitValue:1 }])
   const [sampleDetails,setSampleDetails]=useState({})
+  const buyerIds=[...new Set(poolRows.map(r=>r.order.buyer_id).filter(Boolean))]
+  const buyerId=buyerIds.length===1?buyerIds[0]:null
+  const [addresses,setAddresses]=useState([])
+  const [contacts,setContacts]=useState([])
+  const [addressId,setAddressId]=useState('')
+  const [contactId,setContactId]=useState('')
+  const [consigneeError,setConsigneeError]=useState('')
+  useEffect(()=>{
+    if(!buyerId){setConsigneeError(buyerIds.length>1?'Select samples from one buyer per parcel':'No buyer linked to sample order');return}
+    let cancelled=false
+    Promise.all(['addresses','contacts'].map(async type=>{
+      const r=await fetch('/api/oms?action=list&type='+type+'&buyerId='+encodeURIComponent(buyerId))
+      const j=await r.json();if(!r.ok)throw Error(j.error||'Unable to load buyer details');return j.data||[]
+    })).then(([a,c])=>{if(cancelled)return;setAddresses(a);setContacts(c);setAddressId(a.find(x=>x.is_default)?.id||a[0]?.id||'');setContactId(c.find(x=>x.is_default)?.id||c[0]?.id||'');setConsigneeError('')}).catch(e=>{if(!cancelled)setConsigneeError(e.message)})
+    return()=>{cancelled=true}
+  },[buyerId])
   const updateSample=(id,key,value)=>setSampleDetails(prev=>({...prev,[id]:{...prev[id],[key]:value}}))
   const allRows = poolRows.filter(r => selected.includes(r.sampleId))
-  const canCreate = allRows.length > 0 || customItems.some(x => x.description?.trim())
+  const canCreate = (allRows.length > 0 || customItems.some(x => x.description?.trim())) && !!buyerId && !!addressId && !consigneeError
 
   const setCustom = (idx, key, value) => setCustomItems(arr => arr.map((x, i) => i === idx ? { ...x, [key]: value } : x))
   const addCustom = () => setCustomItems(arr => [...arr, { description:'', qty:1, unitValue:1 }])
@@ -91,6 +107,13 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
           ))}
         </div>
 
+        <div style={{fontWeight:700,margin:'14px 0 8px'}}>Consignee (Ship To)</div>
+        {consigneeError && <div style={{color:'#b91c1c',fontSize:12,marginBottom:8}}>{consigneeError}</div>}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          <div><div style={{fontSize:11,marginBottom:4}}>Saved Address</div><select aria-label="Consignee address" style={inp} value={addressId} onChange={e=>setAddressId(e.target.value)}><option value="">Select address</option>{addresses.map(a=><option key={a.id} value={a.id}>{a.label||a.recipient||a.address_line1} — {a.city}</option>)}</select></div>
+          <div><div style={{fontSize:11,marginBottom:4}}>Attention / Contact Person</div><select aria-label="Consignee contact" style={inp} value={contactId} onChange={e=>setContactId(e.target.value)}><option value="">No contact selected</option>{contacts.map(c=><option key={c.id} value={c.id}>{c.name} {c.designation?'— '+c.designation:''}</option>)}</select></div>
+        </div>
+        {!addresses.length && !consigneeError && <div style={{fontSize:11,color:'#6b7280',marginTop:6}}>No saved addresses for this buyer. Add one in Buyers before creating a parcel.</div>}
         <div style={{ fontWeight:700, margin:'14px 0 8px' }}>Custom Items</div>
         <div style={{ display:'grid', gap:8 }}>
           {customItems.map((item, idx) => (
@@ -105,7 +128,7 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
 
         <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:14 }}>
           <button style={btn} onClick={onClose}>Cancel</button>
-          <button style={{ ...btn, background:canCreate?'#111827':'#e5e7eb', color:canCreate?'#fff':'#9ca3af', borderColor:canCreate?'#111827':'#e5e7eb' }} disabled={!canCreate} onClick={() => onCreated({ items: allRows.map(r => ({ sampleId:r.sampleId,qty:Math.max(1,Number(sampleDetails[r.sampleId]?.qty??r.sample.req_pcs??1)),unitValue:Math.max(0,Number(sampleDetails[r.sampleId]?.unitValue??1)) })), customItems: customItems.filter(x => x.description?.trim()) })}>Create Parcel</button>
+          <button style={{ ...btn, background:canCreate?'#111827':'#e5e7eb', color:canCreate?'#fff':'#9ca3af', borderColor:canCreate?'#111827':'#e5e7eb' }} disabled={!canCreate} onClick={() => onCreated({ items: allRows.map(r => ({ sampleId:r.sampleId,qty:Math.max(1,Number(sampleDetails[r.sampleId]?.qty??r.sample.req_pcs??1)),unitValue:Math.max(0,Number(sampleDetails[r.sampleId]?.unitValue??1)) })), customItems: customItems.filter(x => x.description?.trim()),buyerId,addressId,contactId:contactId||null })}>Create Parcel</button>
         </div>
       </div>
       <Dialogs />
@@ -309,7 +332,12 @@ export default function Parcels() {
     const id='PAR-'+year+'-'+(globalThis.crypto?.randomUUID?.()||Math.random().toString(36).slice(2)).slice(0,8).toUpperCase()
     const {error}=await supabase.from('parcels').insert(toDb({id,...payload,status:'Draft'}))
     if(error)alert(error.message,{title:'Create Parcel Failed'})
-    else{setCreating(false);await load()}
+    else{
+      const response=await fetch('/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save',type:'snapshots',parcelId:id,addressId:payload.addressId,contactId:payload.contactId})})
+      const result=await response.json().catch(()=>({error:'Invoice details could not be saved'}))
+      if(!response.ok)alert('Parcel created, but consignee details could not be saved: '+(result.error||'Unknown error'),{title:'Consignee Save Warning'})
+      setCreating(false);await load()
+    }
     setBusy(false)
   }
   async function doDispatch(parcel){
