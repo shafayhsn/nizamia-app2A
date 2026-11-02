@@ -6,6 +6,7 @@ import { useAppDialogs } from '../components/ui/AppDialogs'
 
 const CATEGORIES = ['Fabric', 'Trims', 'Washing', 'Embellishment', 'CMT', 'Contractors']
 const TABS = ['All', ...CATEGORIES]
+const isOpenDocument = status => !!status && !['draft','cancelled','canceled','complete','completed','closed','delivered','received','rejected','void'].includes(String(status).trim().toLowerCase())
 
 const TRIM_TAGS = [
   'Thread', 'Zipper', 'Button', 'Rivet', 'Label', 'Lace',
@@ -63,15 +64,15 @@ export default function Suppliers() {
   async function load() {
     const [{ data: sups }, { data: pos }, { data: wos }] = await Promise.all([
       supabase.from('suppliers').select('*').order('name'),
-      supabase.from('purchase_orders').select('supplier_id'),
-      supabase.from('work_orders').select('vendor_id'),
+      supabase.from('purchase_orders').select('supplier_id,status'),
+      supabase.from('work_orders').select('vendor_id,status'),
     ])
     setSuppliers(sups || [])
     const pm = {}
-    ;(pos || []).forEach(p => { if (p.supplier_id) pm[p.supplier_id] = (pm[p.supplier_id] || 0) + 1 })
+    ;(pos || []).forEach(p => { if (p.supplier_id && isOpenDocument(p.status)) pm[p.supplier_id] = (pm[p.supplier_id] || 0) + 1 })
     setPoCounts(pm)
     const wm = {}
-    ;(wos || []).forEach(w => { if (w.vendor_id) wm[w.vendor_id] = (wm[w.vendor_id] || 0) + 1 })
+    ;(wos || []).forEach(w => { if (w.vendor_id && isOpenDocument(w.status)) wm[w.vendor_id] = (wm[w.vendor_id] || 0) + 1 })
     setWoCounts(wm)
   }
 
@@ -105,14 +106,15 @@ export default function Suppliers() {
   const tabCounts = {}
   suppliers.forEach(s => { tabCounts[s.category] = (tabCounts[s.category] || 0) + 1 })
 
+  const hasActiveDocument = s => (poCounts[s.id] || 0) + (woCounts[s.id] || 0) > 0
   const filtered = suppliers.filter(s => {
     const matchTab = tab === 'All' || s.category === tab
     const q = search.toLowerCase()
     const matchSearch = !q || [s.name, s.contact_person, s.phone, s.process, ...(s.tags || [])].some(f => f?.toLowerCase().includes(q))
-    const matchStatus = statusFilter === 'all' || (statusFilter === 'active' ? s.is_active === true : s.is_active !== true)
+    const matchStatus = statusFilter === 'all' || (statusFilter === 'active' ? hasActiveDocument(s) : !hasActiveDocument(s))
     return matchTab && matchSearch && matchStatus
   }).sort((a,b)=>sortBy==='name-desc' ? (b.name||'').localeCompare(a.name||'') : sortBy==='category' ? (a.category||'').localeCompare(b.category||'') || (a.name||'').localeCompare(b.name||'') : (a.name||'').localeCompare(b.name||''))
-  const activeCount = suppliers.filter(s=>s.is_active===true).length
+  const activeCount = suppliers.filter(hasActiveDocument).length
   const selectedSupplier = selectedIds.length===1 ? suppliers.find(s=>s.id===selectedIds[0]) : null
 
   const isContractorsTab = tab === 'Contractors'
@@ -124,11 +126,11 @@ export default function Suppliers() {
   return (
     <div className="page-content">
       {/* Header */}
-      <div className="section-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,flexWrap:'wrap',paddingBottom:18}}>
-        <div style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
-          <h1 style={{fontSize:24,fontWeight:750,margin:0}}>Suppliers</h1>
-          <div style={{padding:'10px 18px',border:'1px solid #e5e7eb',borderRadius:12,minWidth:130,background:'#fff'}}>
-            <div style={{fontSize:10,fontWeight:700,color:'#9ca3af'}}>TOTAL SUPPLIERS</div><div style={{fontSize:23,fontWeight:700}}>{suppliers.length}</div>
+      <div className="section-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',padding:'4px 0 12px',margin:'0 0 8px',minHeight:0}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+          <h1 style={{fontSize:22,fontWeight:750,margin:0}}>Suppliers</h1>
+          <div style={{padding:'6px 12px',border:'1px solid #e5e7eb',borderRadius:8,minWidth:105,background:'#fff'}}>
+            <div style={{fontSize:9,fontWeight:700,color:'#9ca3af'}}>TOTAL SUPPLIERS</div><div style={{fontSize:19,fontWeight:700}}>{suppliers.length}</div>
           </div>
           <div style={{padding:'10px 18px',border:'1px solid #e5e7eb',borderRadius:12,minWidth:130,background:'#fff'}}>
             <div style={{fontSize:10,fontWeight:700,color:'#9ca3af'}}>ACTIVE SUPPLIERS</div><div style={{fontSize:23,fontWeight:700,color:'#059669'}}>{activeCount}</div>
@@ -137,14 +139,14 @@ export default function Suppliers() {
         <button className="btn btn-primary" onClick={openNew}><Plus size={14}/> New Supplier</button>
       </div>
       {/* Search and actions */}
-      <div style={{display:'flex',alignItems:'center',gap:9,flexWrap:'wrap',padding:'12px 0 14px',borderBottom:'1px solid #e5e7eb'}}>
-        <div style={{position:'relative',minWidth:190,flex:'1 1 190px',maxWidth:250}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'6px 0 10px',marginBottom:0}}>
+        <div style={{position:'relative',minWidth:190,flex:'0 1 220px',maxWidth:240}}>
           <Search size={15} style={{position:'absolute',left:11,top:10,color:'#9ca3af'}}/>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search Suppliers" style={{...inp,paddingLeft:34,height:36}}/>
         </div>
-        <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...inp,width:170,height:36,cursor:'pointer'}}><option value="name-asc">Name (A–Z)</option><option value="name-desc">Name (Z–A)</option><option value="category">Category</option></select>
-        <select value={tab} onChange={e=>setTab(e.target.value)} style={{...inp,width:160,height:36,cursor:'pointer'}}>{TABS.map(t=><option key={t} value={t}>{t==='All'?'All Categories':t}</option>)}</select>
-        <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{...inp,width:150,height:36,cursor:'pointer'}}><option value="all">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+        <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...inp,width:155,height:36,cursor:'pointer'}}><option value="name-asc">Name (A–Z)</option><option value="name-desc">Name (Z–A)</option><option value="category">Category</option></select>
+        <select value={tab} onChange={e=>setTab(e.target.value)} style={{...inp,width:145,height:36,cursor:'pointer'}}>{TABS.map(t=><option key={t} value={t}>{t==='All'?'All Categories':t}</option>)}</select>
+        <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{...inp,width:140,height:36,cursor:'pointer'}}><option value="all">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
         <div style={{marginLeft:'auto',display:'flex',gap:6}}>
           <button className="btn btn-secondary app-icon-only" title="Edit selected supplier" disabled={!selectedSupplier} onClick={()=>selectedSupplier&&openEdit(selectedSupplier)}><Edit2 size={15}/></button>
           <button className="btn btn-secondary app-icon-only" title="Deactivate selected supplier" disabled={!selectedSupplier} onClick={()=>selectedSupplier&&handleDelete(selectedSupplier.id)}><Trash2 size={15}/></button>
@@ -154,7 +156,7 @@ export default function Suppliers() {
       </div>
       {showOptions&&<div style={{padding:'10px 0',display:'flex',gap:10,alignItems:'center',fontSize:12}}><button className="btn btn-secondary" onClick={()=>exportToCSV(filtered)}><Download size={14}/> Export filtered CSV</button><span style={{color:'#6b7280'}}>Supplier records are deactivated, not permanently deleted.</span></div>}
       {/* Table */}
-      <div className="card">
+      <div className="card" style={{marginTop:0}}>
         <div className="table-wrap">
           {filtered.length === 0 ? (
             <div className="empty-state">
@@ -187,7 +189,7 @@ export default function Suppliers() {
                   return (
                     <tr key={s.id}>
                       <td><input type="checkbox" aria-label={`Select ${s.name}`} checked={selectedIds.includes(s.id)} onChange={e=>setSelectedIds(ids=>e.target.checked?[...ids,s.id]:ids.filter(id=>id!==s.id))}/></td>
-                      <td style={{ fontWeight: 600 }}><span style={{ display:'inline-flex', alignItems:'center', gap:8 }}><span style={{ width:8, height:8, borderRadius:'50%', background: s.is_active === true ? '#10B981' : '#D1D5DB', flexShrink:0 }} />{s.name}</span></td>
+                      <td style={{ fontWeight: 600 }}><span style={{ display:'inline-flex', alignItems:'center', gap:8 }}><span style={{ width:8, height:8, borderRadius:'50%', background: hasActiveDocument(s) ? '#10B981' : '#D1D5DB', flexShrink:0 }} />{s.name}</span></td>
                       <td>
                         <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: cs.bg, color: cs.color }}>
                           {s.category}
