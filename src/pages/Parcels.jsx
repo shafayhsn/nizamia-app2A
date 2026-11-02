@@ -71,6 +71,7 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
   const [addressId,setAddressId]=useState('')
   const [contactId,setContactId]=useState('')
   const [consigneeError,setConsigneeError]=useState('')
+  const canCreate = (allRows.length > 0 || customItems.some(x => x.description?.trim())) && !!buyerId && !!addressId && !consigneeError
   useEffect(()=>{
     if(!buyerId){setConsigneeError(buyerIds.length>1?'Select samples from one buyer per parcel':'No buyer linked to sample order');return}
     let cancelled=false
@@ -82,7 +83,6 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
   },[buyerId])
   const updateSample=(id,key,value)=>setSampleDetails(prev=>({...prev,[id]:{...prev[id],[key]:value}}))
   const allRows = poolRows.filter(r => selected.includes(r.sampleId))
-  const canCreate = (allRows.length > 0 || customItems.some(x => x.description?.trim())) && !!buyerId && !!addressId && !consigneeError
 
   const setCustom = (idx, key, value) => setCustomItems(arr => arr.map((x, i) => i === idx ? { ...x, [key]: value } : x))
   const addCustom = () => setCustomItems(arr => [...arr, { description:'', qty:1, unitValue:1 }])
