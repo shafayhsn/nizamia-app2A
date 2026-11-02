@@ -48,6 +48,15 @@ export default async function handler(req,res){
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
  if(action==='session')return res.json({ok:true})
+ if(action==='createParcel'&&req.method==='POST'){
+   const payload=req.body?.parcel
+   if(!payload||typeof payload!=='object'||!Array.isArray(payload.items)||!Array.isArray(payload.custom_items))return err(res,400,'Invalid parcel data')
+   const {data:number,error:numberError}=await db.rpc('allocate_parcel_number_2026')
+   if(numberError||!number)return err(res,500,'Could not allocate parcel number')
+   const {data,error}=await db.from('parcels').insert({...payload,id:number}).select('id').single()
+   if(error)return err(res,500,'Could not create parcel: '+error.message)
+   return res.json({id:data.id})
+ }
  const type=req.method==='GET'?req.query.type:req.body?.type
  const table=tables[type]
  if(!table)return err(res,400,'Invalid data type')
