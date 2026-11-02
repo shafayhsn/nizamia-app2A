@@ -7,6 +7,8 @@ import { supabase } from './supabase'
 export const BACKUP_TABLES = [
   // Reference & Config (parents first)
   'buyers',
+  'buyer_addresses',
+  'buyer_contacts',
   'suppliers',
   'roles',
   'permissions',
@@ -69,6 +71,7 @@ export const BACKUP_TABLES = [
   'payment_settlements',
   'packing_snapshots',
   'parcels',
+  'parcel_invoice_snapshots',
   'sample_number_migration_20261016',
   'production_batches',
   'production_batch_orders',
@@ -93,6 +96,7 @@ const BATCH_SIZE = 500
  */
 const PAGE_SIZE = 500
 export const BACKUP_STORAGE_BUCKETS = ['company-assets']
+const PROTECTED_BACKUP_TABLES = new Set(['buyer_addresses','buyer_contacts','parcel_invoice_snapshots'])
 
 /** Fail closed: a missing or inaccessible table must never be recorded as empty. */
 async function fetchTable(tableName) {
@@ -150,10 +154,18 @@ export async function exportAppData() {
   const tables = {}
   let totalRows = 0
 
-  // Fetch all tables in parallel (any failed read aborts the backup)
-  const results = await Promise.all(
-    BACKUP_TABLES.map(tableName => fetchTable(tableName))
-  )
+  // Restricted tables must be exported through the authenticated admin endpoint.
+  const response = await fetch('/api/oms?action=backupProtected', {credentials:'same-origin'})
+  const protectedData = await response.json()
+  if (!response.ok || !protectedData.tables) throw new Error(protectedData.error || 'Protected tables could not be backed up')
+  const results = await Promise.all(BACKUP_TABLES.map(tableName => {
+    if (PROTECTED_BACKUP_TABLES.has(tableName)) {
+      const rows = protectedData.tables[tableName]
+      if (!Array.isArray(rows)) throw new Error('Protected backup missing '+tableName)
+      return rows
+    }
+    return fetchTable(tableName)
+  }))
 
   // Assign results to tables object
   for (let i = 0; i < BACKUP_TABLES.length; i++) {
