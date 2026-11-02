@@ -48,6 +48,20 @@ export default async function handler(req,res){
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
  if(action==='session')return res.json({ok:true})
+ if(action==='backupProtected'&&req.method==='GET'){
+   const role=String(user.role||'').toLowerCase()
+   const {data:roleRow}=await db.from('roles').select('name').eq('id',user.role).maybeSingle()
+   if(role!=='admin'&&String(roleRow?.name||'').toLowerCase()!=='admin')return err(res,403,'Admin access required')
+   const result={}
+   for(const [type,table] of Object.entries(tables)){
+     const {data,error}=await db.from(table).select('*').limit(10000)
+     if(error)return err(res,500,'Could not export '+type)
+     if(data.length===10000)return err(res,500,'Backup limit reached for '+type)
+     result[table]=data
+   }
+   return res.json({tables:result})
+ }
+
  if(action==='createParcel'&&req.method==='POST'){
    const payload=req.body?.parcel
    if(!payload||typeof payload!=='object'||!Array.isArray(payload.items)||!Array.isArray(payload.custom_items))return err(res,400,'Invalid parcel data')
