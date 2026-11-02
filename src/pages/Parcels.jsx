@@ -226,14 +226,16 @@ export default function Parcels() {
 
   const poolRows = useMemo(() => (store.parcelPool || []).map(p => ({ ...p, sample: sampleMap[p.sampleId] || {}, order: orderMap[(sampleMap[p.sampleId] || {}).order_id] || {} })).filter(x => x.sample.id), [store, sampleMap, orderMap])
 
-  const readySamples = useMemo(() => samples.filter(s => {
-    const stage = s.stage || store.sampleMeta?.[s.id]?.stage || ''
-    return stage === 'Ready'
-  }).map(s => ({ sampleId:s.id, sample:s, order:orderMap[s.order_id] || {}, meta:store.sampleMeta?.[s.id] || {} })), [samples,store,orderMap])
+  // The dispatch queue is derived from persisted sample stages only.
+  // Legacy local parcelPool entries are not authoritative and can be stale.
+  const readySamples = useMemo(() => samples.filter(s =>
+    String(s.stage||'').trim().toLowerCase()==='ready' &&
+    !['dispatched','delivered','received'].includes(String(s.dispatch_status||'').trim().toLowerCase())
+  ).map(s => ({ sampleId:s.id, sample:s, order:orderMap[s.order_id] || {}, meta:store.sampleMeta?.[s.id] || {} })), [samples,store,orderMap])
   const availableSamples = useMemo(() => {
     const inParcels = new Set(parcels.flatMap(p => (p.items || []).map(it => it.sampleId)))
-    return [...new Map([...readySamples,...poolRows].map(r=>[r.sampleId,r])).values()].filter(r=>!inParcels.has(r.sampleId))
-  },[readySamples,poolRows,parcels])
+    return readySamples.filter(r=>!inParcels.has(r.sampleId))
+  },[readySamples,parcels])
   const parcelCustomers=useMemo(()=>p=>{
     const names=(p.items||[]).map(it=>{
       const sample=sampleMap[it.sampleId]||{}
