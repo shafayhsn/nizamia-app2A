@@ -378,16 +378,20 @@ export default function Parcels() {
     if(!buyerId){alert('This parcel has no linked buyer. Add a buyer to its sample order before generating the invoice.',{title:'Buyer Required'});return}
     setInvoiceChoice({parcel,buyerId})
     setInvoiceAddresses([]);setInvoiceContacts([]);setInvoiceError('');setInvoiceSnapshot(null)
-    const [a,c,snap]=await Promise.all([
-      supabase.from('buyer_addresses').select('*').eq('buyer_id',buyerId).order('created_at'),
-      supabase.from('buyer_contacts').select('*').eq('buyer_id',buyerId).order('created_at'),
-      supabase.from('parcel_invoice_snapshots').select('*').eq('parcel_id',parcel.id).maybeSingle()
-    ])
-    if(a.error||c.error||snap.error){setInvoiceError('Invoice address/contact storage is not accessible: '+(a.error?.message||c.error?.message||snap.error?.message));return}
-    setInvoiceAddresses(a.data||[]);setInvoiceContacts(c.data||[])
-    setInvoiceSnapshot(snap.data||null)
-    setInvoiceAddressId(snap.data?.address_id||(a.data||[]).find(x=>x.is_default)?.id||(a.data||[])[0]?.id||'')
-    setInvoiceContactId(snap.data?.contact_id||(c.data||[]).find(x=>x.is_default)?.id||(c.data||[])[0]?.id||'')
+    const api=async(type,parcelId)=>{
+      const url='/api/oms?action=list&type='+type+'&'+(type==='snapshots'?'parcelId='+encodeURIComponent(parcelId):'buyerId='+encodeURIComponent(buyerId))
+      const response=await fetch(url)
+      const result=await response.json()
+      if(!response.ok)throw new Error(result.error||'Unable to load invoice details')
+      return result.data
+    }
+    let a,c,snap
+    try{[a,c,snap]=await Promise.all([api('addresses'),api('contacts'),api('snapshots',parcel.id)])}
+    catch(e){setInvoiceError(e.message);return}
+    setInvoiceAddresses(a||[]);setInvoiceContacts(c||[])
+    setInvoiceSnapshot(snap||null)
+    setInvoiceAddressId(snap?.address_id||(a||[]).find(x=>x.is_default)?.id||(a||[])[0]?.id||'')
+    setInvoiceContactId(snap?.contact_id||(c||[]).find(x=>x.is_default)?.id||(c||[])[0]?.id||'')
   }
   async function saveInvoiceAndPrint(){
     if(!invoiceChoice||invoiceBusy||invoiceError)return
@@ -398,7 +402,9 @@ export default function Parcels() {
     setInvoiceBusy(true)
     const buyer=buyerMap[buyerId]||{}
     const consignee={name:address.recipient||buyer.name||'',label:address.label||'',address_line1:address.address_line1||'',address_line2:address.address_line2||'',city:address.city||'',region:address.region||'',postal_code:address.postal_code||'',country:address.country||'',contact_name:contact?.name||buyer.contact_person||'',phone:contact?.phone||address.phone||'',email:contact?.email||address.email||''}
-    const {data,error}=await supabase.from('parcel_invoice_snapshots').upsert({parcel_id:parcel.id,buyer_id:buyerId,address_id:address.id,contact_id:contact?.id||null,consignee,updated_at:new Date().toISOString()},{onConflict:'parcel_id'}).select('*').single()
+    const response=await fetch('/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save',type:'snapshots',parcelId:parcel.id,addressId:address.id,contactId:contact?.id||null})})
+    const result=await response.json().catch(()=>({error:'Invoice server unavailable'}))
+    const {data,error}={data:result.data,error:response.ok?null:{message:result.error||'Could not save invoice'}}
     setInvoiceBusy(false)
     if(error){setInvoiceError('Could not save invoice snapshot: '+error.message);return}
     setInvoiceSnapshot(data);setInvoiceChoice(null);printInvoice(parcel,data.consignee)
