@@ -124,22 +124,22 @@ export default function Suppliers() {
   const lbl = { fontSize: 11, fontWeight: 500, color: '#6b7280', display: 'block', marginBottom: 4 }
 
   return (
-    <div className="page-content">
+    <div className="page-content" style={{padding:0,display:"flex",flexDirection:"column",height:"100%",minHeight:0}}>
       {/* Header */}
-      <div className="section-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',padding:'4px 0 12px',margin:'0 0 8px',minHeight:0}}>
+      <div className="section-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',padding:'14px 28px',margin:0,minHeight:74,borderBottom:'1px solid #e5e7eb',boxSizing:'border-box'}}>
         <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
           <h1 style={{fontSize:22,fontWeight:750,margin:0}}>Suppliers</h1>
-          <div style={{padding:'6px 12px',border:'1px solid #e5e7eb',borderRadius:8,minWidth:105,background:'#fff'}}>
-            <div style={{fontSize:9,fontWeight:700,color:'#9ca3af'}}>TOTAL SUPPLIERS</div><div style={{fontSize:19,fontWeight:700}}>{suppliers.length}</div>
+          <div style={{padding:'7px 13px',border:'1px solid #e5e7eb',borderRadius:8,minWidth:105,background:'#fff'}}>
+            <div style={{fontSize:10,fontWeight:700,color:'#9ca3af'}}>TOTAL SUPPLIERS</div><div style={{fontSize:19,fontWeight:700}}>{suppliers.length}</div>
           </div>
-          <div style={{padding:'10px 18px',border:'1px solid #e5e7eb',borderRadius:12,minWidth:130,background:'#fff'}}>
-            <div style={{fontSize:10,fontWeight:700,color:'#9ca3af'}}>ACTIVE SUPPLIERS</div><div style={{fontSize:23,fontWeight:700,color:'#059669'}}>{activeCount}</div>
+          <div style={{padding:'7px 13px',border:'1px solid #e5e7eb',borderRadius:8,minWidth:105,background:'#fff'}}>
+            <div style={{fontSize:10,fontWeight:700,color:'#9ca3af'}}>ACTIVE SUPPLIERS</div><div style={{fontSize:19,fontWeight:700,color:'#059669'}}>{activeCount}</div>
           </div>
         </div>
         <button className="btn btn-primary" onClick={openNew}><Plus size={14}/> New Supplier</button>
       </div>
       {/* Search and actions */}
-      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'6px 0 10px',marginBottom:0}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'10px 20px',marginBottom:0,borderBottom:'1px solid #e5e7eb',boxSizing:'border-box'}}>
         <div style={{position:'relative',minWidth:190,flex:'0 1 220px',maxWidth:240}}>
           <Search size={15} style={{position:'absolute',left:11,top:10,color:'#9ca3af'}}/>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search Suppliers" style={{...inp,paddingLeft:34,height:36}}/>
@@ -156,8 +156,8 @@ export default function Suppliers() {
       </div>
       {showOptions&&<div style={{padding:'10px 0',display:'flex',gap:10,alignItems:'center',fontSize:12}}><button className="btn btn-secondary" onClick={()=>exportToCSV(filtered)}><Download size={14}/> Export filtered CSV</button><span style={{color:'#6b7280'}}>Supplier records are deactivated, not permanently deleted.</span></div>}
       {/* Table */}
-      <div className="card" style={{marginTop:0}}>
-        <div className="table-wrap">
+      <div style={{margin:0,background:"#fff",flex:"1 1 auto",minHeight:0,overflow:"hidden"}}>
+        <div className="table-wrap" style={{height:"100%",overflow:"auto"}}>
           {filtered.length === 0 ? (
             <div className="empty-state">
               <Truck size={32} />
@@ -165,7 +165,7 @@ export default function Suppliers() {
               <button className="btn btn-primary" onClick={openNew}><Plus size={14} /> Add Supplier</button>
             </div>
           ) : (
-            <table>
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead>
                 <tr>
                   <th style={{width:30}}><input type="checkbox" aria-label="Select all visible suppliers" checked={filtered.length>0&&filtered.every(x=>selectedIds.includes(x.id))} onChange={e=>setSelectedIds(e.target.checked?[...new Set([...selectedIds,...filtered.map(x=>x.id)])]:selectedIds.filter(id=>!filtered.some(x=>x.id===id)))}/></th>
@@ -238,7 +238,7 @@ export default function Suppliers() {
         </div>
       </div>
 
-      <div style={{display:'flex',justifyContent:'space-between',padding:'12px 0',fontSize:12,color:'#6b7280'}}><span>{filtered.length} Suppliers</span><span>{activeCount} active</span></div>
+      <div style={{display:'flex',justifyContent:'space-between',padding:'10px 28px',fontSize:12,color:'#6b7280',borderTop:'1px solid #e5e7eb',background:'#f9fafb'}}><span>{filtered.length} Suppliers</span><span>{activeCount} active</span></div>
       {/* Modal */}
       {modal && (
         <MinimizableModal title={editing ? 'Edit Supplier' : 'New Supplier'} onClose={() => setModal(false)}>
