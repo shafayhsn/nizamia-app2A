@@ -63,6 +63,18 @@ export default async function handler(req,res){
    const {data,error}=await db.from('pp_meetings').insert({order_id:orderId,created_by:null}).select().single()
    return error?err(res,500,'Could not create PP Meeting: '+error.message):res.json({data})
  }
+ if(action==='ppmDelete'&&req.method==='POST'){
+   const id=String(req.body?.id||'')
+   if(!/^[0-9a-f-]{36}$/i.test(id))return err(res,400,'Invalid meeting')
+   const {data:meeting,error:readError}=await db.from('pp_meetings').select('*').eq('id',id).maybeSingle()
+   if(readError)return err(res,500,readError.message)
+   if(!meeting)return err(res,404,'Meeting not found')
+   const notes=Object.values(meeting.department_notes||{}).some(n=>n&&Object.values(n).some(v=>String(v||'').trim()))
+   const populated=notes||Object.values(meeting.technical_checks||{}).some(Boolean)||meeting.fit_approved!==null||!!meeting.meeting_date||!!meeting.decision||!!String(meeting.outstanding_actions||'').trim()||!!meeting.attachment_path||meeting.status!=='Draft'
+   if(populated)return err(res,409,'This meeting contains data and cannot be deleted. You can still edit it.')
+   const {error}=await db.from('pp_meetings').delete().eq('id',id)
+   return error?err(res,500,'Could not delete meeting: '+error.message):res.json({ok:true})
+ }
  if(action==='ppmSave'&&req.method==='POST'){
    const id=String(req.body?.id||'')
    if(!/^[0-9a-f-]{36}$/i.test(id))return err(res,400,'Invalid meeting')
