@@ -42,6 +42,24 @@ function aggregate(rows,groups,sortBy,descending){
   const c=compareValues(a[sortBy],b[sortBy]);return descending?-c:c
  })
 }
+function MultiSelectFields({label,options,selected,onChange,description}){
+ const [query,setQuery]=useState('')
+ const [open,setOpen]=useState(false)
+ const shown=options.filter(([,name])=>name.toLowerCase().includes(query.trim().toLowerCase()))
+ const names=selected.slice(0,2).map(k=>options.find(([id])=>id===k)?.[1]||k)
+ return <div style={{position:'relative',minWidth:0}}>
+  <div style={{fontSize:13,fontWeight:750,marginBottom:7}}>{label} <span style={{fontWeight:400,color:'#64748b'}}>· {description}</span></div>
+  <button type="button" aria-expanded={open} aria-haspopup="true" onClick={()=>setOpen(v=>!v)} style={{...box,width:'100%',minHeight:39,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,cursor:'pointer',textAlign:'left'}}>
+   <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:selected.length?'#202633':'#64748b'}}>{selected.length?names.join(', ')+(selected.length>2?` +${selected.length-2} more`:''):'Select fields…'}</span>
+   <span style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}><span style={{background:'#eef2ff',borderRadius:12,padding:'2px 8px',fontSize:11,fontWeight:700}}>{selected.length} selected</span><span style={{fontSize:13,color:'#64748b'}}>{open?'▴':'▾'}</span></span>
+  </button>
+  {open&&<div style={{position:'absolute',zIndex:30,top:'100%',left:0,right:0,minWidth:260,marginTop:5,background:'#fff',border:'1px solid #dce0e8',borderRadius:9,boxShadow:'0 12px 28px rgba(15,23,42,.14)',padding:10}}>
+   <input autoFocus aria-label={`Search ${label}`} placeholder="Search fields…" value={query} onChange={e=>setQuery(e.target.value)} style={{...box,width:'100%',boxSizing:'border-box',marginBottom:8}}/>
+   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginBottom:6}}><button type="button" style={{...action,padding:'5px 9px'}} onClick={()=>onChange(options.map(([k])=>k))}>Select all</button><button type="button" style={{...action,padding:'5px 9px'}} onClick={()=>onChange([])}>Clear all</button><button type="button" style={{...action,padding:'5px 9px'}} onClick={()=>setOpen(false)}>Done</button></div>
+   <div style={{maxHeight:240,overflowY:'auto'}}>{shown.map(([key,name])=><label key={key} style={{display:'flex',alignItems:'center',gap:9,padding:'7px 8px',fontSize:12,cursor:'pointer',borderRadius:5,background:selected.includes(key)?'#eff6ff':'transparent'}}><input type="checkbox" checked={selected.includes(key)} onChange={()=>onChange(selected.includes(key)?selected.filter(k=>k!==key):[...selected,key])}/>{name}</label>)}{!shown.length&&<div style={{padding:10,fontSize:12,color:'#64748b'}}>No matching fields</div>}</div>
+  </div>}
+ </div>
+}
 export default function CustomReportBuilder(){
  const navigate=useNavigate()
  const [name,setName]=useState('Style-wise Size Breakdown')
@@ -150,12 +168,12 @@ export default function CustomReportBuilder(){
     <div style={{maxHeight:235,overflow:'auto'}}>{available.map(x=><label key={x} style={{display:'flex',gap:8,padding:'6px 2px',fontSize:12}}><input type="checkbox" checked={styles.includes(x)} onChange={()=>toggle(x,styles,setStyles)}/>{x}</label>)}</div>
    </section>
    <section style={{background:'#fff',border:'1px solid #e4e7ec',borderRadius:10,padding:14}}>
-    <div style={{fontSize:13,fontWeight:750,marginBottom:9}}>Report Columns <span style={{fontWeight:400,color:'#64748b'}}>· Choose fields to display</span></div>
-    <div style={{display:'flex',gap:7,flexWrap:'wrap',marginBottom:14}}>{FIELDS.map(([key,label])=><label key={key} style={{...box,padding:'6px 9px',display:'flex',gap:6,alignItems:'center',background:fields.includes(key)?'#eff6ff':'#fff',cursor:'pointer'}}><input type="checkbox" checked={fields.includes(key)} onChange={()=>toggle(key,fields,setFields)}/>{label}</label>)}</div>
+    <MultiSelectFields label="Report Columns" description="Choose fields to display" options={FIELDS} selected={fields} onChange={v=>{setFields(v);setPreview(null)}}/>
+    <div style={{height:15}}/>
     <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Column Order <span style={{fontWeight:400,color:'#64748b'}}>· Use arrows to move columns; preview and exports follow this order</span></div>
     <div style={{display:'flex',flexWrap:'wrap',gap:7,marginBottom:15}}>{fields.map((key,i)=><div key={key} style={{...box,padding:'5px 6px',display:'flex',alignItems:'center',gap:5,background:'#f8fafc'}}><span style={{fontSize:11,fontWeight:650}}>{i+1}. {FIELDS.find(f=>f[0]===key)?.[1]||key}</span><button title="Move column left" aria-label={`Move ${key} left`} disabled={i===0} style={{border:0,background:'transparent',cursor:i===0?'default':'pointer',padding:2}} onClick={()=>moveColumn(i,-1)}><ChevronLeft size={15}/></button><button title="Move column right" aria-label={`Move ${key} right`} disabled={i===fields.length-1} style={{border:0,background:'transparent',cursor:i===fields.length-1?'default':'pointer',padding:2}} onClick={()=>moveColumn(i,1)}><ChevronRight size={15}/></button></div>)}</div>
-    <div style={{fontSize:13,fontWeight:750,marginBottom:8}}>Group By <span style={{fontWeight:400,color:'#64748b'}}>· Select dimensions</span></div>
-    <div style={{display:'flex',gap:7,flexWrap:'wrap',marginBottom:14}}>{FIELDS.filter(([k])=>!NON_GROUPABLE.includes(k)).map(([key,label])=><label key={key} style={{...box,padding:'6px 9px',display:'flex',gap:6,alignItems:'center'}}><input type="checkbox" checked={groups.includes(key)} onChange={()=>toggle(key,groups,setGroups)}/>{label}</label>)}</div>
+    <MultiSelectFields label="Group By" description="Select dimensions" options={FIELDS.filter(([k])=>!NON_GROUPABLE.includes(k))} selected={groups} onChange={v=>{setGroups(v);setPreview(null)}}/>
+    <div style={{height:14}}/>
     <div style={{display:'flex',alignItems:'center',gap:9,flexWrap:'wrap',marginBottom:12}}><strong style={{fontSize:12}}>First Row of Each Group</strong><input aria-label="Group highlight colour" title="Choose custom highlight colour" type="color" value={groupColor} onChange={e=>setGroupColor(e.target.value)} style={{width:36,height:30,cursor:'pointer',border:'1px solid #dce0e8',borderRadius:5}}/>{GROUP_COLORS.map(([hex,label])=><button key={hex} type="button" title={label} aria-label={`Use ${label} group highlight`} onClick={()=>setGroupColor(hex)} style={{width:23,height:23,background:hex,border:groupColor===hex?'2px solid #111827':'1px solid #cbd5e1',borderRadius:5,cursor:'pointer'}}/>)}<span style={{fontSize:11,color:'#64748b'}}>Highlights the first data row whenever a group changes.</span></div>
     <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'center'}}><label style={{fontSize:12,fontWeight:650}}>Sort by <select style={box} value={sortBy} onChange={e=>{setSortBy(e.target.value);setPreview(null)}}>{FIELDS.map(([k,l])=><option value={k} key={k}>{l}</option>)}</select></label><label style={{fontSize:12}}><input type="checkbox" checked={descending} onChange={e=>{setDescending(e.target.checked);setPreview(null)}}/> Descending</label><span style={{fontSize:11,color:'#64748b'}}>Changes require a new preview.</span></div>
    </section>
