@@ -3548,7 +3548,7 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
 
   async function load() {
     setLoading(true)
-    supabase.from('pp_meetings').select('id,ppm_number,status,meeting_date').eq('order_id',order.id).order('created_at',{ascending:false}).then(({data,error})=>{if(!error)setPPMeetings(data||[]);else console.warn('PPM lookup unavailable',error.message)})
+    fetch('/api/oms?action=ppmList&orderId='+encodeURIComponent(order.id),{credentials:'same-origin'}).then(async r=>{const j=await r.json();if(!r.ok)throw Error(j.error||'PPM lookup failed');setPPMeetings(j.data||[])}).catch(e=>console.warn('PPM lookup unavailable',e.message))
     const mainResults = await Promise.all([
       safeQuery(supabase.from('size_groups').select('*').eq('order_id', order.id).order('sort_order')),
       safeQuery(supabase.from('bom_items').select('*').eq('order_id', order.id).order('sort_order')),
