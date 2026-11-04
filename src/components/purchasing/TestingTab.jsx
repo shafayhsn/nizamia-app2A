@@ -42,6 +42,16 @@ export default function TestingTab(){
    await reload()
   }catch(e){setError(e.message)}finally{setBusy(false)}
  }
+
+ const printOrder=(o)=>{
+  const safe=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+  const lines=data.requirements.filter(r=>r.testing_order_id===o.id)
+  const html='<!doctype html><html><head><title>'+safe(o.order_number)+'</title><style>body{font:13px Arial;padding:35px;color:#111}h1{font-size:22px}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{border:1px solid #aaa;padding:9px;text-align:left}th{background:#eee}@media print{body{padding:0}}</style></head><body><h1>NIZAMIA APPARELS</h1><h2>TESTING ORDER · '+safe(o.order_number)+'</h2><p><b>Testing supplier:</b> '+safe(suppliersById[o.supplier_id]?.name||'')+'<br><b>Issue date:</b> '+safe(new Date(o.issued_at).toLocaleDateString())+'</p><table><thead><tr><th>#</th><th>Style / Job</th><th>Source</th><th>Item / Specification</th><th>Test required</th></tr></thead><tbody>'+lines.map((r,i)=>{const order=ordersById[r.order_id]||{};return '<tr><td>'+(i+1)+'</td><td>'+safe(order.style_number)+' / '+safe(order.job_number)+'</td><td>'+safe(r.source_type)+'</td><td>'+safe(r.item_name)+'<br>'+safe(r.specification)+'</td><td>'+safe(r.test_name||'As instructed')+'</td></tr>'}).join('')+'</tbody></table><p>'+safe(o.notes||'')+'</p><div style="margin-top:100px;border-top:1px solid #444;width:220px;padding-top:8px">Authorized Signatory</div></body></html>'
+  const win=window.open('','_blank')
+  if(!win){setError('Allow pop-ups to print testing orders.');return}
+  win.document.open();win.document.write(html);win.document.close();win.focus();win.print()
+ }
+
  const complete=async(id)=>{
   if(!window.confirm('Mark this testing order and all its requirements completed?'))return
   setBusy(true)
@@ -77,7 +87,7 @@ export default function TestingTab(){
     <button style={{...btn,background:'#111827',color:'#fff',borderColor:'#111827'}} disabled={busy||!supplier||!selected.length} onClick={issue}><Plus size={13} style={{verticalAlign:'middle',marginRight:6}}/>Issue Order ({selected.length})</button>
    </div>
   </>:<div style={{flex:1,overflow:'auto',padding:'16px 24px'}}>
-   <table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr>{['Testing Order','Supplier','Issued','Requirements','Status','Action'].map(x=><th key={x} style={th}>{x}</th>)}</tr></thead><tbody>{data.testingOrders.map(o=><tr key={o.id}><td style={td}><strong>{o.order_number}</strong></td><td style={td}>{suppliersById[o.supplier_id]?.name||'—'}</td><td style={td}>{new Date(o.issued_at).toLocaleDateString()}</td><td style={td}>{data.requirements.filter(r=>r.testing_order_id===o.id).map(r=>r.item_name).join(', ')||'—'}</td><td style={td}>{o.status}</td><td style={td}>{o.status==='ordered'&&<button style={btn} disabled={busy} onClick={()=>complete(o.id)}><Check size={12}/> Complete</button>}</td></tr>)}</tbody></table>
+   <table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr>{['Testing Order','Supplier','Issued','Requirements','Status','Action'].map(x=><th key={x} style={th}>{x}</th>)}</tr></thead><tbody>{data.testingOrders.map(o=><tr key={o.id}><td style={td}><strong>{o.order_number}</strong></td><td style={td}>{suppliersById[o.supplier_id]?.name||'—'}</td><td style={td}>{new Date(o.issued_at).toLocaleDateString()}</td><td style={td}>{data.requirements.filter(r=>r.testing_order_id===o.id).map(r=>r.item_name).join(', ')||'—'}</td><td style={td}>{o.status}</td><td style={td}><button style={btn} onClick={()=>printOrder(o)}>Print</button> {o.status==='ordered'&&<button style={btn} disabled={busy} onClick={()=>complete(o.id)}><Check size={12}/> Complete</button>}</td></tr>)}</tbody></table>
    {!data.testingOrders.length&&<p style={{padding:24,textAlign:'center',color:'#64748b'}}>No testing orders yet.</p>}
   </div>}
  </div>
