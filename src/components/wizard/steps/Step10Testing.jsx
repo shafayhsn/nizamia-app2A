@@ -7,6 +7,7 @@ const input = { width:'100%', padding:'7px 9px', border:'1px solid #d9dee8', bor
 export default function Step10Testing({ orderId, registerSave, onSaved }) {
   const [sources, setSources] = useState([])
   const [selected, setSelected] = useState({})
+  const [persisted, setPersisted] = useState([])
   const [names, setNames] = useState({})
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -29,7 +30,7 @@ export default function Step10Testing({ orderId, registerSave, onSaved }) {
       ]
       const chosen = {}, tests = {}
       for (const x of existing.data||[]) { chosen[x.source_type+':'+x.source_id]=x; tests[x.source_type+':'+x.source_id]=x.test_name||'' }
-      setSources(rows); setSelected(chosen); setNames(tests); setError('')
+      setSources(rows); setSelected(chosen); setPersisted(existing.data||[]); setNames(tests); setError('')
     }).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setLoading(false)})
     return ()=>{active=false}
   },[orderId])
@@ -37,8 +38,7 @@ export default function Step10Testing({ orderId, registerSave, onSaved }) {
   const save = useCallback(async () => {
     if (!orderId) throw new Error('Create the order before adding testing requirements.')
     const chosen = sources.filter(s=>selected[s.key])
-    const current = Object.values(selected).filter(v=>v && v.id)
-    const removals = current.filter(x=>!chosen.some(s=>s.source_type===x.source_type&&s.source_id===x.source_id))
+    const removals = persisted.filter(x=>!chosen.some(s=>s.source_type===x.source_type&&s.source_id===x.source_id))
     if (removals.some(x=>x.status!=='awaiting_order')) throw new Error('An ordered requirement cannot be removed. Request a retest instead.')
     if (removals.length) {
       const {error:e}=await supabase.from('testing_requirements').delete().in('id',removals.map(x=>x.id))
@@ -55,7 +55,7 @@ export default function Step10Testing({ orderId, registerSave, onSaved }) {
     const {error:e}=await supabase.from('orders').update({step_testing:true}).eq('id',orderId)
     if(e) throw e
     onSaved?.(orderId,{step_testing:true})
-  },[orderId,sources,selected,names,onSaved])
+  },[orderId,sources,selected,persisted,names,onSaved])
 
   useEffect(()=>{registerSave(save)},[registerSave,save])
 
