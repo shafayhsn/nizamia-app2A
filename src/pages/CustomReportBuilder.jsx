@@ -144,12 +144,39 @@ export default function CustomReportBuilder(){
   }catch(e){setError(e.message||'Unable to generate report')}finally{setLoading(false)}
  }
  const outputFields=fields.length?fields:INITIAL
- const exportExcel=()=>{
+ const exportExcel=async()=>{
   if(!preview)return
-  const data=[outputFields.map(k=>FIELDS.find(f=>f[0]===k)?.[1]||k),...preview.rows.map(r=>outputFields.map(k=>k==='picture'?'':r[k]??''))]
-  data.push(outputFields.map(k=>k==='qty'?preview.qty:k==='value'?preview.value:''))
-  const ws=XLSX.utils.aoa_to_sheet(data);ws['!cols']=outputFields.map(k=>({wch:k==='description'?34:18}))
-  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Report');XLSX.writeFile(wb,`${name.replace(/[^a-z0-9_-]+/gi,'-')||'Custom-Report'}.xlsx`)
+  try{
+   const data=[outputFields.map(k=>FIELDS.find(f=>f[0]===k)?.[1]||k),...preview.rows.map(r=>outputFields.map(k=>k==='picture'?'':r[k]??''))]
+   data.push(outputFields.map(k=>k==='qty'?preview.qty:k==='value'?preview.value:''))
+   const ws=XLSX.utils.aoa_to_sheet(data);ws['!cols']=outputFields.map(k=>({wch:k==='description'?34:18}))
+   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Report')
+   const bytes=XLSX.write(wb,{bookType:'xlsx',type:'array'})
+   const zip=await JSZip.loadAsync(bytes)
+   const styleFile='xl/styles.xml',sheetFile='xl/worksheets/sheet1.xml'
+   let styleXml=await zip.file(styleFile).async('string')
+   let sheetXml=await zip.file(sheetFile).async('string')
+   // SheetJS Community Edition does not write cell styles. Patch the OOXML package
+   // to add one fill and one cell style, without modifying the underlying data.
+   const hex=(/^#[0-9a-f]{6}$/i.test(groupColor)?groupColor:'#e0f2fe').slice(1).toUpperCase()
+   const fillMatch=styleXml.match(/<fills\\b[^>]*count="(\\d+)"[^>]*>/)
+   const xfMatch=styleXml.match(/<cellXfs\\b[^>]*count="(\\d+)"[^>]*>/)
+   if(!fillMatch||!xfMatch)throw new Error('Excel workbook style metadata unavailable')
+   const fillId=Number(fillMatch[1]),styleId=Number(xfMatch[1])
+   styleXml=styleXml.replace(fillMatch[0],fillMatch[0].replace(/count="\\d+"/,`count="${fillId+1}"`))
+   styleXml=styleXml.replace('</fills>',`<fill><patternFill patternType="solid"><fgColor rgb="FF${hex}"/><bgColor indexed="64"/></patternFill></fill></fills>`)
+   styleXml=styleXml.replace(xfMatch[0],xfMatch[0].replace(/count="\\d+"/,`count="${styleId+1}"`))
+   styleXml=styleXml.replace('</cellXfs>',`<xf numFmtId="0" fontId="0" fillId="${fillId}" borderId="0" xfId="0" applyFill="1"/></cellXfs>`)
+   const highlightRows=new Set(preview.rows.flatMap((row,i)=>isGroupStart(preview.rows,i,groups)?[i+2]:[]))
+   sheetXml=sheetXml.replace(/<row\\b[^>]*\\br="(\\d+)"[^>]*>[\\s\\S]*?<\\/row>/g,(xml,num)=>{
+    if(!highlightRows.has(Number(num)))return xml
+    return xml.replace(/<c\\b([^>]*?)(\\/?>)/g,(tag,attrs,ending)=>'<c'+( /\\bs="\\d+"/.test(attrs)?attrs.replace(/\\bs="\\d+"/,` s="${styleId}"`):attrs+` s="${styleId}"`)+ending)
+   })
+   zip.file(styleFile,styleXml);zip.file(sheetFile,sheetXml)
+   const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE'})
+   const url=URL.createObjectURL(blob),link=document.createElement('a')
+   link.href=url;link.download=`${name.replace(/[^a-z0-9_-]+/gi,'-')||'Custom-Report'}.xlsx`;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)
+  }catch(e){setError('Excel export failed: '+(e.message||String(e)))}
  }
  const print=()=>{
   if(!preview)return
