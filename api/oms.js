@@ -62,6 +62,30 @@ export default async function handler(req,res){
    return res.json({tables:result})
  }
 
+
+ if(action==='restoreProtected'&&req.method==='POST'){
+   const role=String(user.role||'').toLowerCase()
+   const {data:roleRow}=await db.from('roles').select('name').eq('id',user.role).maybeSingle()
+   if(role!=='admin'&&String(roleRow?.name||'').toLowerCase()!=='admin')return err(res,403,'Admin access required')
+   const table=String(req.body?.table||'')
+   if(!Object.values(tables).includes(table))return err(res,400,'Invalid protected table')
+   const phase=req.body?.phase
+   if(phase==='clear'){
+     const {error}=await db.from(table).delete().not(table==='parcel_invoice_snapshots'?'parcel_id':'id','is',null)
+     return error?err(res,500,'Could not clear '+table+': '+error.message):res.json({ok:true})
+   }
+   if(phase==='insert'){
+     const rows=req.body?.rows
+     if(!Array.isArray(rows)||rows.length>500)return err(res,400,'Invalid restore batch')
+     if(rows.length){
+       const {error}=await db.from(table).insert(rows)
+       if(error)return err(res,500,'Could not restore '+table+': '+error.message)
+     }
+     return res.json({ok:true})
+   }
+   return err(res,400,'Invalid restore phase')
+ }
+
  if(action==='createParcel'&&req.method==='POST'){
    const payload=req.body?.parcel
    if(!payload||typeof payload!=='object'||!Array.isArray(payload.items)||!Array.isArray(payload.custom_items))return err(res,400,'Invalid parcel data')
