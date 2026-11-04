@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { supabase } from '../../../lib/supabase'
 
 const cell = { padding:'10px 12px', borderBottom:'1px solid #e5e7eb', fontSize:12, textAlign:'left' }
 const input = { width:'100%', padding:'7px 9px', border:'1px solid #d9dee8', borderRadius:6, fontSize:12 }
@@ -17,45 +16,35 @@ export default function Step10Testing({ orderId, registerSave, onSaved }) {
     let active = true
     setLoading(true)
     Promise.all([
-      supabase.from('bom_items').select('id,name,category,specification,detail,unit').eq('order_id',orderId),
-      supabase.from('samples').select('id,sample_number,sample_type,size,color,status').eq('order_id',orderId),
-      supabase.from('testing_requirements').select('id,source_type,source_id,test_name,status').eq('order_id',orderId),
-    ]).then(([bom,samples,existing]) => {
-      if (!active) return
-      const err = bom.error || samples.error || existing.error
-      if (err) { setError(err.message); return }
-      const rows = [
-        ...(bom.data||[]).map(x=>({ key:'bom:'+x.id, source_type:'bom', source_id:x.id, name:x.name||x.category||'BOM item', detail:[x.specification,x.detail].filter(Boolean).join(' · ') })),
-        ...(samples.data||[]).map(x=>({ key:'sample:'+x.id, source_type:'sample', source_id:x.id, name:x.sample_number||x.sample_type||'Sample', detail:[x.sample_type,x.size,x.color].filter(Boolean).join(' · ') })),
+      fetch('/api/oms?action=testing',{credentials:'same-origin'}).then(async r=>{const j=await r.json();if(!r.ok)throw new Error(j.error||'Could not load testing data');return j}),
+      Promise.all([
+        import('../../../lib/supabase').then(({supabase})=>supabase.from('bom_items').select('id,name,category,specification,detail,unit').eq('order_id',orderId)),
+        import('../../../lib/supabase').then(({supabase})=>supabase.from('samples').select('id,sample_number,sample_type,size,color,status').eq('order_id',orderId))
+      ])
+    ]).then(([data,[bom,samples]])=>{
+      if(!active)return
+      if(bom.error||samples.error)throw new Error(bom.error?.message||samples.error?.message)
+      const rows=[
+        ...(bom.data||[]).map(x=>({key:'bom:'+x.id,source_type:'bom',source_id:x.id,name:x.name||x.category||'BOM item',detail:[x.specification,x.detail].filter(Boolean).join(' · ')})),
+        ...(samples.data||[]).map(x=>({key:'sample:'+x.id,source_type:'sample',source_id:x.id,name:x.sample_number||x.sample_type||'Sample',detail:[x.sample_type,x.size,x.color].filter(Boolean).join(' · ')}))
       ]
-      const chosen = {}, tests = {}
-      for (const x of existing.data||[]) { chosen[x.source_type+':'+x.source_id]=x; tests[x.source_type+':'+x.source_id]=x.test_name||'' }
-      setSources(rows); setSelected(chosen); setPersisted(existing.data||[]); setNames(tests); setError('')
+      const chosen={},tests={}
+      const existing=(data.requirements||[]).filter(x=>x.order_id===orderId)
+      for(const x of existing){chosen[x.source_type+':'+x.source_id]=x;tests[x.source_type+':'+x.source_id]=x.test_name||''}
+      setSources(rows);setSelected(chosen);setPersisted(existing);setNames(tests);setError('')
     }).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setLoading(false)})
     return ()=>{active=false}
   },[orderId])
 
-  const save = useCallback(async () => {
-    if (!orderId) throw new Error('Create the order before adding testing requirements.')
-    const chosen = sources.filter(s=>selected[s.key])
-    const removals = persisted.filter(x=>!chosen.some(s=>s.source_type===x.source_type&&s.source_id===x.source_id))
-    if (removals.some(x=>x.status!=='awaiting_order')) throw new Error('An ordered requirement cannot be removed. Request a retest instead.')
-    if (removals.length) {
-      const {error:e}=await supabase.from('testing_requirements').delete().in('id',removals.map(x=>x.id))
-      if(e) throw e
-    }
-    for(const s of chosen) {
-      const prior=selected[s.key]
-      const payload={order_id:orderId,source_type:s.source_type,source_id:s.source_id,item_name:s.name,specification:s.detail,test_name:names[s.key]||''}
-      if(prior?.id && prior.status!=='awaiting_order') continue
-      const query=prior?.id?supabase.from('testing_requirements').update(payload).eq('id',prior.id):supabase.from('testing_requirements').insert(payload)
-      const {error:e}=await query
-      if(e) throw e
-    }
-    const {error:e}=await supabase.from('orders').update({step_testing:true}).eq('id',orderId)
-    if(e) throw e
+  const save=useCallback(async()=>{
+    if(!orderId)throw new Error('Create the order before adding testing requirements.')
+    const rows=sources.filter(s=>selected[s.key]).map(s=>({source_type:s.source_type,source_id:s.source_id,test_name:names[s.key]||''}))
+    const response=await fetch('/api/oms',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'testingSave',orderId,rows})})
+    const result=await response.json()
+    if(!response.ok){setError(result.error||'Could not save testing requirements');throw new Error(result.error||'Save failed')}
+    setError('')
     onSaved?.(orderId,{step_testing:true})
-  },[orderId,sources,selected,persisted,names,onSaved])
+  },[orderId,sources,selected,names,onSaved])
 
   useEffect(()=>{registerSave(save)},[registerSave,save])
 
