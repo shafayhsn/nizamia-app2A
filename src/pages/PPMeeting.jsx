@@ -16,14 +16,33 @@ export default function PPMeeting(){
  const [current,setCurrent]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState(''),[orderSearch,setOrderSearch]=useState(''),[uploadFile,setUploadFile]=useState(null),[notice,setNotice]=useState('')
  const order=orders.find(o=>o.id===orderId)
  const loadOrders=async()=>{const {data,error}=await supabase.from('orders').select('id,job_number,style_number,factory_ref,po_number,buyer_name,store_name,merchandiser_name,total_qty,ship_date,planned_date').order('created_at',{ascending:false}) .limit(1000);if(error)throw error;setOrders(data||[])}
- const loadMeetings=async()=>{const q=supabase.from('pp_meetings').select('*').order('created_at',{ascending:false});const {data,error}=await (orderId?q.eq('order_id',orderId):q.limit(200));if(error)throw error;setMeetings(data||[])}
+ const api=async(action,payload=null)=>{
+  const isGet=payload===null
+  const url='/api/oms'+(isGet?'?action='+encodeURIComponent(action)+(action==='ppmList'&&orderId?'&orderId='+encodeURIComponent(orderId):''):'')
+  const res=await fetch(url,{method:isGet?'GET':'POST',credentials:'same-origin',headers:isGet?{}:{'Content-Type':'application/json'},...(isGet?{}:{body:JSON.stringify({action,...payload})})})
+  const json=await res.json().catch(()=>({}))
+  if(!res.ok)throw Error(json.error||'PP Meeting request failed')
+  return json
+ }
+ const loadMeetings=async()=>{const result=await api('ppmList');setMeetings(result.data||[])}
  useEffect(()=>{loadOrders().catch(e=>setError(e.message))},[])
  useEffect(()=>{loadMeetings().catch(e=>setError(e.message))},[orderId])
  useEffect(()=>{if(requestedOrder)setOrderId(requestedOrder)},[requestedOrder])
- const upload=async()=>{if(!current||!uploadFile)return;setBusy(true);setError('');try{if(!['application/pdf','image/jpeg','image/png'].includes(uploadFile.type)||uploadFile.size>10485760)throw Error('Attach a PDF, JPG or PNG up to 10 MB');const ext=uploadFile.name.split('.').pop().toLowerCase();const path=current.id+'/'+Date.now()+'.'+ext;const {error:upError}=await supabase.storage.from('ppm-attachments').upload(path,uploadFile,{contentType:uploadFile.type,upsert:false});if(upError)throw upError;const {data,error}=await supabase.from('pp_meetings').update({attachment_path:path,updated_at:new Date().toISOString()}).eq('id',current.id).select().single();if(error)throw error;setCurrent(data);setUploadFile(null);setNotice('Signed meeting sheet uploaded');await loadMeetings()}catch(e){setError(e.message)}finally{setBusy(false)}}
- const viewAttachment=async(m)=>{if(!m.attachment_path)return;const {data,error}=await supabase.storage.from('ppm-attachments').createSignedUrl(m.attachment_path,120);if(error){setError(error.message);return}window.open(data.signedUrl,'_blank','noopener,noreferrer')}
- const create=async()=>{if(!orderId)return;setBusy(true);setError('');try{const {data:{user}}=await supabase.auth.getUser();if(!user)throw Error('Please sign in again');const {data,error}=await supabase.from('pp_meetings').insert({order_id:orderId,created_by:user.id}).select().single();if(error)throw error;setCurrent(data);await loadMeetings()}catch(e){setError(e.message)}finally{setBusy(false)}}
- const save=async()=>{if(!current)return;setBusy(true);setError('');try{const payload={meeting_date:current.meeting_date||null,status:current.status,decision:current.decision||null,technical_checks:current.technical_checks||{},fit_approved:current.fit_approved,department_notes:current.department_notes||{},outstanding_actions:current.outstanding_actions||'',signatures:current.signatures||{},updated_at:new Date().toISOString()};const {data,error}=await supabase.from('pp_meetings').update(payload).eq('id',current.id).select().single();if(error)throw error;setCurrent(data);setNotice('Meeting saved');await loadMeetings()}catch(e){setError(e.message)}finally{setBusy(false)}}
+ const upload=async()=>{if(!current||!uploadFile)return;setBusy(true);setError('');try{
+  if(!['application/pdf','image/jpeg','image/png'].includes(uploadFile.type)||uploadFile.size>10485760)throw Error('Attach a PDF, JPG or PNG up to 10 MB')
+  const extension=uploadFile.name.split('.').pop().toLowerCase()
+  const signed=await api('ppmAttachmentUrl',{id:current.id,extension,contentType:uploadFile.type})
+  const {error:upError}=await supabase.storage.from('ppm-attachments').uploadToSignedUrl(signed.path,signed.token,uploadFile,{contentType:uploadFile.type})
+  if(upError)throw upError
+  const result=await api('ppmAttachmentSave',{id:current.id,path:signed.path})
+  setCurrent(result.data);setUploadFile(null);setNotice('Signed meeting sheet uploaded');await loadMeetings()
+ }catch(e){setError(e.message)}finally{setBusy(false)}}
+ const viewAttachment=async(m)=>{try{const res=await fetch('/api/oms?action=ppmAttachmentView&id='+encodeURIComponent(m.id),{credentials:'same-origin'});const result=await res.json();if(!res.ok)throw Error(result.error||'Cannot open attachment');window.open(result.url,'_blank','noopener,noreferrer')}catch(e){setError(e.message)}}
+ const create=async()=>{if(!orderId)return;setBusy(true);setError('');try{const result=await api('ppmCreate',{orderId});setCurrent(result.data);setNotice('PP Meeting created');await loadMeetings()}catch(e){setError(e.message)}finally{setBusy(false)}}
+ const save=async()=>{if(!current)return;setBusy(true);setError('');try{
+  const payload={meeting_date:current.meeting_date||null,status:current.status,decision:current.decision||null,technical_checks:current.technical_checks||{},fit_approved:current.fit_approved,department_notes:current.department_notes||{},outstanding_actions:current.outstanding_actions||'',signatures:current.signatures||{}}
+  const result=await api('ppmSave',{id:current.id,data:payload});setCurrent(result.data);setNotice('Meeting saved');await loadMeetings()
+ }catch(e){setError(e.message)}finally{setBusy(false)}}
  const patch=(key,value)=>setCurrent(c=>({...c,[key]:value}))
  const updateNote=(dept,key,value)=>setCurrent(c=>({...c,department_notes:{...c.department_notes,[dept]:{...blankNote(),...(c.department_notes?.[dept]||{}),[key]:value}}}))
  const print=(meeting,filled=false)=>{
