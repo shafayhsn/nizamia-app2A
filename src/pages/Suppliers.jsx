@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { Plus, Edit2, Trash2, Truck, X, Download, RefreshCw, Settings2, Search } from 'lucide-react'
 import { useAppDialogs } from '../components/ui/AppDialogs'
 
-const CATEGORIES = ['Fabric', 'Trims', 'Washing', 'Embellishment', 'CMT', 'Contractors']
+const CATEGORIES = ['Fabric', 'Trims', 'Washing', 'Embellishment', 'CMT', 'Contractors', 'Testing']
 const TABS = ['All', ...CATEGORIES]
 const isOpenDocument = status => !!status && !['draft','cancelled','canceled','complete','completed','closed','delivered','received','rejected','void'].includes(String(status).trim().toLowerCase())
 
@@ -21,6 +21,7 @@ const catColor = {
   Embellishment: { bg: '#fdf2f8', color: '#be185d' },
   CMT:           { bg: '#f5f3ff', color: '#7c3aed' },
   Contractors:   { bg: '#f0fdf4', color: '#16a34a' },
+  Testing:       { bg: '#eef2ff', color: '#4f46e5' },
 }
 
 function exportToCSV(suppliers) {
