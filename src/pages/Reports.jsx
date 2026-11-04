@@ -1,4 +1,6 @@
 import { formatDate as appFormatDate } from '../lib/utils'
+import { useNavigate } from 'react-router-dom'
+import { Plus } from 'lucide-react'
 import React, { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { Search, FileSpreadsheet, Printer, RefreshCw, ArrowLeft, FileText, Columns3, RotateCcw, Star } from 'lucide-react'
@@ -151,6 +153,7 @@ const escapeHTML = s => cell(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repla
 const btn = { border:'1px solid #d9dce4', background:'#fff', padding:'9px 13px', borderRadius:7, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:7, fontSize:12, fontWeight:600 }
 
 export default function Reports() {
+  const navigate = useNavigate()
   const [active,setActive] = useState(null)
   const [catalogSearch,setCatalogSearch] = useState('')
   const [favorites,setFavorites] = useState(()=>{try{return JSON.parse(window.localStorage.getItem('app2a-report-favorites')||'[]')}catch{return []}})
@@ -391,7 +394,7 @@ export default function Reports() {
   return <div style={{height:'100%',overflow:'auto',padding:'22px 26px',background:'#f8f9fb',fontFamily:'var(--font,Arial,sans-serif)',color:'#202633'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,gap:12}}>
       <div><div style={{fontSize:22,fontWeight:750}}>Reports</div><div style={{fontSize:12,color:'#6b7280',marginTop:4}}>Central read-only reporting · existing Supabase records · Excel and print/PDF</div></div>
-      {active&&<button style={btn} onClick={()=>setActive(null)}><ArrowLeft size={15}/> All Reports</button>}
+      <div style={{display:'flex',gap:8}}>{active&&<button style={btn} onClick={()=>setActive(null)}><ArrowLeft size={15}/> All Reports</button>}<button style={{...btn,background:'#141b2e',color:'#fff',borderColor:'#141b2e'}} onClick={()=>navigate('/reports/custom')}><Plus size={15}/> Create Custom Report</button></div>
     </div>
     {!active ? <>
       <div style={{display:'flex',gap:10,marginBottom:18,flexWrap:'wrap'}}>
