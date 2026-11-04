@@ -13,10 +13,10 @@ const hasContent=m=>!!m&&(m.status!=='Draft'||!!m.meeting_date||!!m.decision||!!
 export default function PPMeeting(){
  const [params]=useSearchParams(),navigate=useNavigate()
  const requestedOrder=params.get('order')
- const [orders,setOrders]=useState([]),[orderId,setOrderId]=useState(requestedOrder||''),[meetings,setMeetings]=useState([]),[showCreate,setShowCreate]=useState(false)
+ const [washes,setWashes]=useState({}),[orders,setOrders]=useState([]),[orderId,setOrderId]=useState(requestedOrder||''),[meetings,setMeetings]=useState([]),[showCreate,setShowCreate]=useState(false)
  const [current,setCurrent]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState(''),[orderSearch,setOrderSearch]=useState(''),[uploadFile,setUploadFile]=useState(null),[notice,setNotice]=useState('')
  const order=orders.find(o=>o.id===orderId)
- const loadOrders=async()=>{const {data,error}=await supabase.from('orders').select('id,job_number,style_number,factory_ref,po_number,buyer_name,store_name,merchandiser_name,total_qty,ship_date,planned_date').order('created_at',{ascending:false}) .limit(1000);if(error)throw error;setOrders(data||[])}
+ const loadOrders=async()=>{const {data,error}=await supabase.from('orders').select('id,job_number,style_number,factory_ref,po_number,buyer_name,store_name,merchandiser_name,total_qty,ship_date,planned_date').order('created_at',{ascending:false}) .limit(1000);if(error)throw error;setOrders(data||[]);const ids=(data||[]).map(o=>o.id);const mapping={};for(let i=0;i<ids.length;i+=150){const {data:rows,error:we}=await supabase.from('washing').select('order_id,color_name,wash_type,wash_ref').in('order_id',ids.slice(i,i+150));if(we){console.warn('PPM washing lookup:',we.message);break}for(const w of rows||[]){const label=[w.color_name,w.wash_type].filter(Boolean).join(' — ');if(label){mapping[w.order_id]??=new Set();mapping[w.order_id].add(label)}}}setWashes(Object.fromEntries(Object.entries(mapping).map(([id,v])=>[id,[...v].join(' / ')])))}
  const api=async(action,payload=null)=>{
   const isGet=payload===null
   const url='/api/oms'+(isGet?'?action='+encodeURIComponent(action)+(action==='ppmList'&&orderId?'&orderId='+encodeURIComponent(orderId):''):'')
@@ -58,7 +58,7 @@ export default function PPMeeting(){
   const col=(x,items)=>items.map((a,i)=>abs(x,60+i*23,181,18,f(a[0],a[1]),'field')).join('')
   const header=abs(25,24,792,31.6,'<b>NIZAMIA / PRE-PRODUCTION MEETING</b><strong>PPM NO. &nbsp; '+esc(meeting.ppm_number)+'</strong>','heading')
   const info=col(35,[['BUYER',o.buyer_name],['STORE',o.store_name],['MERCHANDISER',o.merchandiser_name]])+
-    col(230,[['STYLE',o.style_number],['WASH',o.wash_name||''],['FACTORY REF',o.factory_ref]])+
+    col(230,[['STYLE',o.style_number],['WASH',washes[meeting.order_id]||''],['FACTORY REF',o.factory_ref]])+
     col(415,[['JOB REF',o.job_number],['ORDER QTY',o.total_qty?o.total_qty+' pcs':''],['INSPECTION',formatDate(o.planned_date)]])+
     col(650,[['MEETING DATE',formatDate(meeting.meeting_date)||'____ / ____ / ______'],['PO',o.po_number],['SHIP DATE',formatDate(o.ship_date)]])
   const checks=abs(34,131,777,20,'<b>ORDER / TECHNICAL CHECK</b><span>'+CHECKS.map(c=>check(c,filled&&meeting.technical_checks?.[c])).join(' ')+'</span><span>Sample / FIT approved: '+check('Yes',filled&&meeting.fit_approved===true)+check('No',filled&&meeting.fit_approved===false)+'</span>','checks')
