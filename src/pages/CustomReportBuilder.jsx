@@ -1,5 +1,6 @@
 import React,{useEffect,useMemo,useState} from 'react'
 import * as XLSX from 'xlsx'
+import JSZip from 'jszip'
 import {useNavigate} from 'react-router-dom'
 import {ArrowLeft,Plus,Eye,FileSpreadsheet,Printer,Search,RefreshCw,Save,Trash2,ChevronLeft,ChevronRight} from 'lucide-react'
 import {supabase} from '../lib/supabase'
@@ -65,6 +66,15 @@ export default function CustomReportBuilder(){
  const [name,setName]=useState('Style-wise Size Breakdown')
  const [orders,setOrders]=useState([])
  const [buyer,setBuyer]=useState('All')
+ const [batch,setBatch]=useState('All')
+ const [store,setStore]=useState('All')
+ const [batches,setBatches]=useState([])
+ const [memberships,setMemberships]=useState([])
+ const [datesOpen,setDatesOpen]=useState(false)
+ const [poFrom,setPoFrom]=useState('')
+ const [poTo,setPoTo]=useState('')
+ const [shipFrom,setShipFrom]=useState('')
+ const [shipTo,setShipTo]=useState('')
  const [styles,setStyles]=useState([])
  const [fields,setFields]=useState(INITIAL)
  const [groups,setGroups]=useState(['style_number','wash','size_group','size'])
@@ -81,19 +91,22 @@ export default function CustomReportBuilder(){
  const [notice,setNotice]=useState('')
  const [groupColor,setGroupColor]=useState('#e0f2fe')
  useEffect(()=>{let live=true;(async()=>{try{const list=await fetchAll('orders','id,buyer_name,style_number,job_number,po_number,store_name,description,style_image_url,style_image_base64,status,ship_date,total_qty,factory_ref,brand_name,merchandiser_name,agent_name,product_id,po_date,planned_date,in_store_date,ship_mode,incoterms,currency,exchange_rate_snapshot,port_of_loading,port_of_discharge,notes,total_value_usd,excess_cutting_pct,queue_split_rule,created_at,updated_at,tech_pack_url');if(live)setOrders(list)}catch(e){if(live)setError(e.message)}})();return()=>{live=false}},[refresh])
+ useEffect(()=>{let live=true;(async()=>{const [a,b]=await Promise.all([supabase.from('production_batches').select('id,name').order('name'),supabase.from('production_batch_orders').select('order_id,batch_id')]);if(live){if(a.error||b.error){setError('Unable to load batch filters: '+(a.error?.message||b.error?.message))}else{setBatches(a.data||[]);setMemberships(b.data||[])}}})();return()=>{live=false}},[refresh])
+ const batchOrderIds=useMemo(()=>new Set(memberships.filter(x=>x.batch_id===batch).map(x=>x.order_id)),[memberships,batch])
+ const stores=useMemo(()=>[...new Set(orders.filter(o=>buyer==='All'||o.buyer_name===buyer).map(o=>o.store_name).filter(Boolean))].sort(),[orders,buyer])
  const buyers=useMemo(()=>[...new Set(orders.map(o=>o.buyer_name).filter(Boolean))].sort(),[orders])
  const available=useMemo(()=>[...new Set(orders.filter(o=>buyer==='All'||o.buyer_name===buyer).map(o=>o.style_number).filter(Boolean))].sort(),[orders,buyer])
- const filteredOrders=useMemo(()=>orders.filter(o=>(buyer==='All'||o.buyer_name===buyer)&&(!styles.length||styles.includes(o.style_number))&&(status==='All'||o.status===status)&&(!search||[o.style_number,o.po_number,o.description,o.job_number,o.store_name].some(x=>String(x||'').toLowerCase().includes(search.toLowerCase())))),[orders,buyer,styles,status,search])
+ const filteredOrders=useMemo(()=>orders.filter(o=>(buyer==='All'||o.buyer_name===buyer)&&(!styles.length||styles.includes(o.style_number))&&(status==='All'||o.status===status)&&(store==='All'||o.store_name===store)&&(batch==='All'||(batch==='__unbatched__'?!memberships.some(m=>m.order_id===o.id):batchOrderIds.has(o.id)))&&(!poFrom||String(o.po_date||'').slice(0,10)>=poFrom)&&(!poTo||String(o.po_date||'').slice(0,10)<=poTo)&&(!shipFrom||String(o.ship_date||'').slice(0,10)>=shipFrom)&&(!shipTo||String(o.ship_date||'').slice(0,10)<=shipTo)&&(!search||[o.style_number,o.po_number,o.description,o.job_number,o.store_name].some(x=>String(x||'').toLowerCase().includes(search.toLowerCase())))),[orders,buyer,styles,status,store,batch,memberships,batchOrderIds,poFrom,poTo,shipFrom,shipTo,search])
  const saveTemplate=()=>{
   const title=name.trim();if(!title){setError('Enter a report name before saving.');return}
   const id=selectedTemplate||`template-${Date.now()}`
-  const template={id,name:title,buyer,styles:[...styles],fields:[...fields],groups:[...groups],sortBy,descending,search,status,groupColor,updatedAt:new Date().toISOString()}
+  const template={id,name:title,buyer,styles:[...styles],fields:[...fields],groups:[...groups],sortBy,descending,search,status,batch,store,poFrom,poTo,shipFrom,shipTo,groupColor,updatedAt:new Date().toISOString()}
   const next=[...templates.filter(t=>t.id!==id),template].sort((a,b)=>a.name.localeCompare(b.name))
   try{localStorage.setItem(TEMPLATE_KEY,JSON.stringify(next));setTemplates(next);setSelectedTemplate(id);setNotice(`Saved template: ${title}`);setError('')}catch{setError('Unable to save template in this browser. Check browser storage settings.')}
  }
  const loadTemplate=id=>{
   const t=templates.find(x=>x.id===id);setSelectedTemplate(id);if(!t)return
-  setName(t.name||'Custom Report');setBuyer(t.buyer||'All');setStyles(Array.isArray(t.styles)?t.styles:[]);setFields(Array.isArray(t.fields)?t.fields:INITIAL);setGroups(Array.isArray(t.groups)?t.groups:[]);setSortBy(t.sortBy||'style_number');setDescending(!!t.descending);setSearch(t.search||'');setStatus(t.status||'All');setGroupColor(t.groupColor||'#e0f2fe');setPreview(null);setError('');setNotice(`Loaded template: ${t.name}`)
+  setName(t.name||'Custom Report');setBuyer(t.buyer||'All');setStyles(Array.isArray(t.styles)?t.styles:[]);setFields(Array.isArray(t.fields)?t.fields:INITIAL);setGroups(Array.isArray(t.groups)?t.groups:[]);setSortBy(t.sortBy||'style_number');setDescending(!!t.descending);setSearch(t.search||'');setStatus(t.status||'All');setBatch(t.batch||'All');setStore(t.store||'All');setPoFrom(t.poFrom||'');setPoTo(t.poTo||'');setShipFrom(t.shipFrom||'');setShipTo(t.shipTo||'');setDatesOpen(!!(t.poFrom||t.poTo||t.shipFrom||t.shipTo));setGroupColor(t.groupColor||'#e0f2fe');setPreview(null);setError('');setNotice(`Loaded template: ${t.name}`)
  }
  const deleteTemplate=()=>{
   if(!selectedTemplate)return
@@ -144,7 +157,7 @@ export default function CustomReportBuilder(){
   const body=preview.rows.map((r,i)=>'<tr'+(isGroupStart(preview.rows,i,groups)?' style="background:'+esc(groupColor)+';font-weight:600"':'')+'>'+outputFields.map(k=>'<td>'+(k==='picture'&&/^https:\/\//.test(r[k]||'')?'<img width="65" src="'+esc(r[k])+'"/>':esc(r[k]))+'</td>').join('')+'</tr>').join('')
   printHTML(`<!doctype html><html><head><title>${esc(name)}</title><style>@page{size:A4 landscape;margin:12mm}body{font:11px Arial;color:#111}h1{font-size:19px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:6px;text-align:left}th{background:#eee}tr{break-inside:avoid}tfoot{font-weight:bold}</style></head><body><h1>${esc(name)}</h1><p>Buyer: ${esc(buyer)} · Orders: ${preview.sourceOrders} · Quantity: ${money(preview.qty)}</p><table><thead><tr>${headers}</tr></thead><tbody>${body}</tbody></table><p>Total Quantity: ${money(preview.qty)} · Total Value: ${money(preview.value)}</p></body></html>`)
  }
- const changeBuyer=v=>{setBuyer(v);setStyles([]);setPreview(null)}
+ const changeBuyer=v=>{setBuyer(v);setStore('All');setStyles([]);setPreview(null)}
  return <div style={{height:'100%',overflow:'auto',padding:'20px 28px',background:'#f8f9fb',fontFamily:'var(--font,Arial,sans-serif)',color:'#202633'}}>
   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',marginBottom:17}}>
    <div style={{display:'flex',alignItems:'center',gap:12}}><button style={action} onClick={()=>navigate('/reports')}><ArrowLeft size={15}/> Reports</button><div><div style={{fontSize:21,fontWeight:750}}>Custom Report Builder</div><div style={{fontSize:12,color:'#64748b'}}>Orders & PO size matrix · Preview on demand</div></div></div>
@@ -158,6 +171,15 @@ export default function CustomReportBuilder(){
     <label style={{fontSize:12,fontWeight:700}}>Data Source<select style={{...box,width:'100%',marginTop:6}}><option>Orders & PO Matrix</option></select></label>
     <label style={{fontSize:12,fontWeight:700}}>Buyer<select style={{...box,width:'100%',marginTop:6}} value={buyer} onChange={e=>changeBuyer(e.target.value)}><option>All</option>{buyers.map(x=><option key={x}>{x}</option>)}</select></label>
     <label style={{fontSize:12,fontWeight:700}}>Status<select style={{...box,width:'100%',marginTop:6}} value={status} onChange={e=>{setStatus(e.target.value);setPreview(null)}}><option>All</option>{[...new Set(orders.map(o=>o.status).filter(Boolean))].sort().map(x=><option key={x}>{x}</option>)}</select></label>
+    <label style={{fontSize:12,fontWeight:700}}>Batch<select style={{...box,width:'100%',marginTop:6}} value={batch} onChange={e=>{setBatch(e.target.value);setPreview(null)}}><option value="All">All Batches</option><option value="__unbatched__">Unbatched</option>{batches.map(x=><option value={x.id} key={x.id}>{x.name}</option>)}</select></label>
+    <label style={{fontSize:12,fontWeight:700}}>Store<select style={{...box,width:'100%',marginTop:6}} value={store} onChange={e=>{setStore(e.target.value);setPreview(null)}}><option value="All">All Stores</option>{stores.map(x=><option key={x}>{x}</option>)}</select></label>
+   </div>
+   <div style={{marginTop:12,borderTop:'1px solid #edf0f3',paddingTop:10}}>
+    <button type="button" style={{...action,padding:'6px 10px'}} onClick={()=>setDatesOpen(v=>!v)}>{datesOpen?'▴':'▾'} Date Filters {(poFrom||poTo||shipFrom||shipTo)?'· Active':''}</button>
+    {datesOpen&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(175px,1fr))',gap:10,marginTop:11}}>
+     {[['PO Date From',poFrom,setPoFrom],['PO Date To',poTo,setPoTo],['Ship Date From',shipFrom,setShipFrom],['Ship Date To',shipTo,setShipTo]].map(([label,value,set])=><label key={label} style={{fontSize:12,fontWeight:650}}>{label}<input type="date" style={{...box,display:'block',width:'100%',boxSizing:'border-box',marginTop:5}} value={value} onChange={e=>{set(e.target.value);setPreview(null)}}/></label>)}
+     <div style={{display:'flex',alignItems:'end'}}><button style={action} onClick={()=>{setPoFrom('');setPoTo('');setShipFrom('');setShipTo('');setPreview(null)}}>Clear dates</button></div>
+    </div>}
    </div>
   </div>
   <div style={{display:'grid',gridTemplateColumns:'minmax(220px,1fr) minmax(0,3fr)',gap:12,alignItems:'start'}}>
