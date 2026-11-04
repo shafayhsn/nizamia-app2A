@@ -21,7 +21,7 @@ const session=async req=>{
  return data
 }
 const err=(res,code,message)=>res.status(code).json({error:message})
-const tables={addresses:'buyer_addresses',contacts:'buyer_contacts',snapshots:'parcel_invoice_snapshots'}
+const tables={addresses:'buyer_addresses',contacts:'buyer_contacts',snapshots:'parcel_invoice_snapshots',testing_orders:'testing_orders',testing_requirements:'testing_requirements'}
 export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store')
  if(!db)return err(res,503,'Backend Supabase configuration missing')
@@ -71,6 +71,90 @@ export default async function handler(req,res){
    if(error)return err(res,500,'Could not create parcel: '+error.message)
    return res.json({id:data.id})
  }
+
+ if(action==='testing'&&req.method==='GET'){
+   const [requirements,issued,suppliers,orders]=await Promise.all([
+     db.from('testing_requirements').select('*').order('created_at',{ascending:false}).limit(5000),
+     db.from('testing_orders').select('*').order('issued_at',{ascending:false}).limit(2000),
+     db.from('suppliers').select('id,name,category,phone,email').ilike('category','Testing'),
+     db.from('orders').select('id,job_number,style_number,buyer_name,po_number,factory_ref').limit(5000)
+   ])
+   for(const result of [requirements,issued,suppliers,orders])if(result.error)return err(res,500,'Could not load testing data: '+result.error.message)
+   return res.json({requirements:requirements.data||[],testingOrders:issued.data||[],suppliers:suppliers.data||[],orders:orders.data||[]})
+ }
+ if(action==='testingSave'&&req.method==='POST'){
+   const orderId=String(req.body?.orderId||'')
+   const rows=req.body?.rows
+   if(!orderId||!Array.isArray(rows)||rows.length>500)return err(res,400,'Invalid testing requirements')
+   const {data:order}=await db.from('orders').select('id').eq('id',orderId).maybeSingle()
+   if(!order)return err(res,404,'Order not found')
+   const {data:existing,error:existingError}=await db.from('testing_requirements').select('*').eq('order_id',orderId)
+   if(existingError)return err(res,500,'Could not load existing requirements')
+   const sourceRows={bom:[],sample:[]}
+   for(const row of rows){
+     if(!['bom','sample'].includes(row.source_type)||typeof row.source_id!=='string'||String(row.test_name||'').length>200)return err(res,400,'Invalid testing source or test name')
+     sourceRows[row.source_type].push(row.source_id)
+   }
+   const unique=new Set(rows.map(x=>x.source_type+':'+x.source_id))
+   if(unique.size!==rows.length)return err(res,400,'Duplicate testing sources')
+   const [bom,samples]=await Promise.all([
+     sourceRows.bom.length?db.from('bom_items').select('id,name,category,specification,detail').eq('order_id',orderId).in('id',sourceRows.bom):Promise.resolve({data:[]}),
+     sourceRows.sample.length?db.from('samples').select('id,sample_number,sample_type,size,color').eq('order_id',orderId).in('id',sourceRows.sample):Promise.resolve({data:[]})
+   ])
+   if(bom.error||samples.error)return err(res,500,'Could not validate testing sources')
+   if((bom.data||[]).length!==sourceRows.bom.length||(samples.data||[]).length!==sourceRows.sample.length)return err(res,400,'One or more sources do not belong to this order')
+   const bySource=new Map([...bom.data.map(x=>['bom:'+x.id,{name:x.name||x.category||'BOM item',specification:[x.specification,x.detail].filter(Boolean).join(' · ')}]),...samples.data.map(x=>['sample:'+x.id,{name:x.sample_number||x.sample_type||'Sample',specification:[x.sample_type,x.size,x.color].filter(Boolean).join(' · ')}])])
+   const previous=new Map((existing.data||[]).map(x=>[x.source_type+':'+x.source_id,x]))
+   for(const old of existing.data||[]){
+     const key=old.source_type+':'+old.source_id
+     if(!unique.has(key)){
+       if(old.status!=='awaiting_order')return err(res,409,'Issued testing requirements cannot be removed')
+       const {error}=await db.from('testing_requirements').delete().eq('id',old.id).eq('status','awaiting_order')
+       if(error)return err(res,500,'Could not remove requirement')
+     }
+   }
+   for(const row of rows){
+     const k=row.source_type+':'+row.source_id,old=previous.get(k)
+     if(old&&old.status!=='awaiting_order')continue
+     const details=bySource.get(k)
+     const payload={order_id:orderId,source_type:row.source_type,source_id:row.source_id,item_name:details.name,specification:details.specification,test_name:String(row.test_name||'').trim()}
+     const result=old?await db.from('testing_requirements').update(payload).eq('id',old.id).eq('status','awaiting_order'):await db.from('testing_requirements').insert(payload)
+     if(result.error)return err(res,500,'Could not save requirement: '+result.error.message)
+   }
+   const {error:flagError}=await db.from('orders').update({step_testing:true}).eq('id',orderId)
+   if(flagError)return err(res,500,'Could not update wizard step')
+   return res.json({ok:true})
+ }
+ if(action==='testingIssue'&&req.method==='POST'){
+   const supplierId=String(req.body?.supplierId||''),ids=req.body?.requirementIds
+   if(!supplierId||!Array.isArray(ids)||!ids.length||ids.length>200||new Set(ids).size!==ids.length)return err(res,400,'Choose a testing supplier and valid requirements')
+   const {data:supplier}=await db.from('suppliers').select('id').eq('id',supplierId).ilike('category','Testing').maybeSingle()
+   if(!supplier)return err(res,400,'Supplier must belong to the Testing category')
+   const {data:available,error:lookupError}=await db.from('testing_requirements').select('id,status').in('id',ids)
+   if(lookupError||available?.length!==ids.length||available.some(x=>x.status!=='awaiting_order'))return err(res,409,'One or more requirements are no longer available')
+   const {data:seq,error:seqError}=await db.rpc('next_testing_order_number')
+   if(seqError||!seq)return err(res,500,'Could not allocate testing order number')
+   const {data:issued,error:issueError}=await db.from('testing_orders').insert({supplier_id:supplierId,order_number:seq,notes:String(req.body?.notes||'').slice(0,2000)}).select('id,order_number').single()
+   if(issueError)return err(res,500,'Could not create testing order')
+   const {data:updated,error:updateError}=await db.from('testing_requirements').update({testing_order_id:issued.id,status:'ordered'}).in('id',ids).eq('status','awaiting_order').select('id')
+   if(updateError||updated.length!==ids.length){
+     await db.from('testing_requirements').update({testing_order_id:null,status:'awaiting_order'}).eq('testing_order_id',issued.id)
+     await db.from('testing_orders').delete().eq('id',issued.id)
+     return err(res,409,'Testing requirements changed during issue; please refresh')
+   }
+   return res.json({ok:true,testingOrder:issued})
+ }
+ if(action==='testingComplete'&&req.method==='POST'){
+   const id=String(req.body?.testingOrderId||'')
+   const {data:testingOrder}=await db.from('testing_orders').select('id,status').eq('id',id).maybeSingle()
+   if(!testingOrder||testingOrder.status!=='ordered')return err(res,409,'Testing order is not open')
+   const {error}=await db.from('testing_orders').update({status:'completed'}).eq('id',id).eq('status','ordered')
+   if(error)return err(res,500,'Could not complete testing order')
+   const {error:detailError}=await db.from('testing_requirements').update({status:'completed'}).eq('testing_order_id',id).eq('status','ordered')
+   if(detailError)return err(res,500,'Could not complete testing requirements')
+   return res.json({ok:true})
+ }
+
  const type=req.method==='GET'?req.query.type:req.body?.type
  const table=tables[type]
  if(!table)return err(res,400,'Invalid data type')
