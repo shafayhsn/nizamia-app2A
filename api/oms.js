@@ -48,6 +48,56 @@ export default async function handler(req,res){
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
  if(action==='session')return res.json({ok:true})
+ if(action==='ppmList'&&req.method==='GET'){
+   const orderId=String(req.query.orderId||'')
+   let q=db.from('pp_meetings').select('*').order('created_at',{ascending:false}).limit(200)
+   if(orderId)q=q.eq('order_id',orderId)
+   const {data,error}=await q
+   return error?err(res,500,'Could not load PP Meetings: '+error.message):res.json({data:data||[]})
+ }
+ if(action==='ppmCreate'&&req.method==='POST'){
+   const orderId=String(req.body?.orderId||'')
+   if(!/^[0-9a-f-]{36}$/i.test(orderId))return err(res,400,'Select a valid order')
+   const {data:order}=await db.from('orders').select('id').eq('id',orderId).maybeSingle()
+   if(!order)return err(res,404,'Order not found')
+   const {data,error}=await db.from('pp_meetings').insert({order_id:orderId,created_by:null}).select().single()
+   return error?err(res,500,'Could not create PP Meeting: '+error.message):res.json({data})
+ }
+ if(action==='ppmSave'&&req.method==='POST'){
+   const id=String(req.body?.id||'')
+   if(!/^[0-9a-f-]{36}$/i.test(id))return err(res,400,'Invalid meeting')
+   const input=req.body?.data||{}
+   const allowed=['meeting_date','status','decision','technical_checks','fit_approved','department_notes','outstanding_actions','signatures']
+   const payload=Object.fromEntries(allowed.filter(k=>Object.prototype.hasOwnProperty.call(input,k)).map(k=>[k,input[k]]))
+   if(!['Draft','Completed','Closed'].includes(payload.status))return err(res,400,'Invalid status')
+   payload.updated_at=new Date().toISOString()
+   const {data,error}=await db.from('pp_meetings').update(payload).eq('id',id).select().single()
+   return error?err(res,500,'Could not save PP Meeting: '+error.message):res.json({data})
+ }
+ if(action==='ppmAttachmentUrl'&&req.method==='POST'){
+   const id=String(req.body?.id||'')
+   const extension=String(req.body?.extension||'').toLowerCase()
+   const contentType=String(req.body?.contentType||'')
+   if(!/^[0-9a-f-]{36}$/i.test(id)||!({pdf:'application/pdf',jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png'}[extension]===contentType))return err(res,400,'Invalid attachment')
+   const {data:meeting}=await db.from('pp_meetings').select('id').eq('id',id).maybeSingle()
+   if(!meeting)return err(res,404,'Meeting not found')
+   const path=id+'/'+Date.now()+'.'+extension
+   const {data,error}=await db.storage.from('ppm-attachments').createSignedUploadUrl(path)
+   return error?err(res,500,'Could not prepare upload'):res.json({path,token:data.token})
+ }
+ if(action==='ppmAttachmentSave'&&req.method==='POST'){
+   const id=String(req.body?.id||''),path=String(req.body?.path||'')
+   if(!/^[0-9a-f-]{36}$/i.test(id)||!path.startsWith(id+'/'))return err(res,400,'Invalid attachment')
+   const {data,error}=await db.from('pp_meetings').update({attachment_path:path,updated_at:new Date().toISOString()}).eq('id',id).select().single()
+   return error?err(res,500,'Could not save attachment'):res.json({data})
+ }
+ if(action==='ppmAttachmentView'&&req.method==='GET'){
+   const id=String(req.query.id||'')
+   const {data:meeting}=await db.from('pp_meetings').select('attachment_path').eq('id',id).maybeSingle()
+   if(!meeting?.attachment_path)return err(res,404,'Attachment not found')
+   const {data,error}=await db.storage.from('ppm-attachments').createSignedUrl(meeting.attachment_path,120)
+   return error?err(res,500,'Could not open attachment'):res.json({url:data.signedUrl})
+ }
  if(action==='backupProtected'&&req.method==='GET'){
    const role=String(user.role||'').toLowerCase()
    const {data:roleRow}=await db.from('roles').select('name').eq('id',user.role).maybeSingle()
