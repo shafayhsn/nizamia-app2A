@@ -393,13 +393,13 @@ export default function Reports() {
   }
   const categories=[...new Set(flatten.map(r=>r.category))]
    const matches=flatten.filter(r=>(category==='All'||(category==='Favorites'?favorites.includes(favoriteKey(r)):r.category===category))&&`${r.title} ${r.category}`.toLowerCase().includes(catalogSearch.toLowerCase())).sort((a,b)=>catalogSort==='category'?a.category.localeCompare(b.category)||a.title.localeCompare(b.title):a.title.localeCompare(b.title))
-   return <div style={{height:'100%',overflow:'auto',padding:'22px 26px',background:'#f8f9fb',fontFamily:'var(--font,Arial,sans-serif)',color:'#202633'}}>
+   return <div style={{height:'100%',overflow:'auto',padding:'22px 26px',background:'#fff',fontFamily:'var(--font,Arial,sans-serif)',color:'#202633'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,gap:12}}>
       <div><div style={{fontSize:22,fontWeight:750}}>Reports</div><div style={{fontSize:12,color:'#6b7280',marginTop:4}}>Central read-only reporting · existing Supabase records · Excel and print/PDF</div></div>
       <div style={{display:'flex',gap:8}}>{active&&<button style={btn} onClick={()=>setActive(null)}><ArrowLeft size={15}/> All Reports</button>}<button style={{...btn,background:'#141b2e',color:'#fff',borderColor:'#141b2e'}} onClick={()=>navigate('/reports/custom')}><Plus size={15}/> Create Custom Report</button></div>
     </div>
     {!active ? <>
-<div style={{display:'flex',gap:4,overflowX:'auto',borderBottom:'1px solid #dce1e9',marginBottom:14}}>
+<div style={{display:'flex',flexWrap:'wrap',alignItems:'center',columnGap:6,rowGap:0,borderBottom:'1px solid #dce1e9',marginBottom:14}}>
 {[['All','All Reports'],['Favorites','★ Favorites'],...categories.map(c=>[c,c])].map(([key,label])=><button key={key} onClick={()=>setCategory(key)} style={{border:0,borderBottom:category===key?'3px solid #151b30':'3px solid transparent',background:'transparent',padding:'11px 13px',fontSize:12,fontWeight:category===key?750:550,color:category===key?'#111827':'#64748b',whiteSpace:'nowrap',cursor:'pointer'}}>{label} <span style={{color:'#94a3b8'}}>{key==='All'?flatten.length:key==='Favorites'?flatten.filter(r=>favorites.includes(favoriteKey(r))).length:flatten.filter(r=>r.category===key).length}</span></button>)}
 </div>
 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:12}}>
