@@ -25,3 +25,12 @@ create index if not exists testing_requirements_order_idx on public.testing_requ
 create index if not exists testing_requirements_testing_order_idx on public.testing_requirements(testing_order_id);
 alter table public.testing_orders enable row level security;
 alter table public.testing_requirements enable row level security;
+
+create sequence if not exists public.testing_order_number_seq start with 1;
+create or replace function public.next_testing_order_number()
+returns text language sql security invoker
+set search_path = public
+as $$ select 'TST-' || to_char(now(),'YY') || '-' || lpad(nextval('public.testing_order_number_seq')::text,4,'0') $$;
+revoke all on function public.next_testing_order_number() from public, anon, authenticated;
+grant execute on function public.next_testing_order_number() to service_role;
+grant usage, select on sequence public.testing_order_number_seq to service_role;
