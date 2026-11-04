@@ -17,6 +17,7 @@ const SamplingApprovals = lazy(() => import('./pages/SamplingApprovals'))
 const Parcels = lazy(() => import('./pages/Parcels'))
 const Shipping = lazy(() => import('./pages/Shipping'))
 const Reports = lazy(() => import('./pages/Reports'))
+const PPMeeting = lazy(() => import('./pages/PPMeeting'))
 const CustomReportBuilder = lazy(() => import('./pages/CustomReportBuilder'))
 const Tasks = lazy(() => import('./pages/Tasks'))
 const Production = lazy(() => import('./pages/Production'))
@@ -111,6 +112,7 @@ export default function App() {
             <Route path="production" element={<RequireRight module="orders"><Production /></RequireRight>} />
             <Route path="tasks" element={<RequireRight module="tasks"><Tasks /></RequireRight>} />
             <Route path="reports" element={<RequireRight module="reports"><Reports /></RequireRight>} />
+            <Route path="reports/pp-meeting" element={<RequireRight module="reports"><PPMeeting /></RequireRight>} />
             <Route path="reports/custom" element={<RequireRight module="reports"><CustomReportBuilder /></RequireRight>} />
             <Route path="shipping" element={<RequireRight module="shipping"><Shipping /></RequireRight>} />
             <Route path="library" element={<RequireRight module="library">{null}</RequireRight>} />

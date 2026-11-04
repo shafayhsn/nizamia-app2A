@@ -3531,6 +3531,7 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
   const [failedSources, setFailedSources] = useState([])
   const [showPOGrid, setShowPOGrid] = useState(false)
   const [linkedView, setLinkedView] = useState(null)
+  const [ppMeetings,setPPMeetings] = useState([])
   const [samplePlanOpen,setSamplePlanOpen] = useState(false)
   const [samplePlanIds,setSamplePlanIds] = useState([])
 
@@ -3547,6 +3548,7 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
 
   async function load() {
     setLoading(true)
+    supabase.from('pp_meetings').select('id,ppm_number,status,meeting_date').eq('order_id',order.id).order('created_at',{ascending:false}).then(({data,error})=>{if(!error)setPPMeetings(data||[]);else console.warn('PPM lookup unavailable',error.message)})
     const mainResults = await Promise.all([
       safeQuery(supabase.from('size_groups').select('*').eq('order_id', order.id).order('sort_order')),
       safeQuery(supabase.from('bom_items').select('*').eq('order_id', order.id).order('sort_order')),
@@ -3815,6 +3817,7 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
     'Work Orders': { rows:data?.workOrders || [], route:'/purchasing?tab=wos', number:r=>r.wo_number || r.work_order_number || r.id, detail:r=>r.status || r.process || '—' },
     'Queues': { rows:data?.queues || [], route:'/orders?tab=queues', number:r=>r.queue_number || r.queue_no || r.id, detail:r=>r.status || '—' },
     'Parcels': { rows:data?.parcels || [], route:'/parcels', number:r=>r.parcel_number || r.reference || r.id, detail:r=>r.status || '—' },
+    'PP Meetings': { rows:ppMeetings, route:'/reports/pp-meeting?order='+encodeURIComponent(order.id), number:r=>r.ppm_number, detail:r=>r.status || '—' },
   }
   const field = (k,v) => <div style={{display:'grid',gridTemplateColumns:'125px minmax(0,1fr)',alignItems:'center',gap:8,minWidth:0}}><span style={labelStyle}>{k}</span><span style={valueStyle} title={String(v||'')}>{v||'—'}</span></div>
   return (
@@ -3872,7 +3875,7 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
                 <div style={{display:'grid',gap:1}}>{validations.map(([name,detail,valid],i)=><button key={name} onClick={()=>onEdit(order,i+1)} style={{display:'grid',gridTemplateColumns:'155px minmax(0,1fr) 18px',gap:12,textAlign:'left',alignItems:'center',border:0,borderRadius:5,padding:'3px 5px',background:'transparent',cursor:'pointer',fontSize:12,color:'#1f2937'}} onMouseEnter={e=>e.currentTarget.style.background='#f1f5f9'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}><strong>{String(i+1).padStart(2,'0')}: {name}</strong><span style={{color:'#64748b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{detail}</span><span title={validationUnavailable(i)?'Unable to check: required database data did not load':valid?'Basic checks passed (not full downstream verification)':'Needs review'} style={{color:validationUnavailable(i)?'#64748b':valid?'#16a34a':'#d97706',fontWeight:900}}>{validationUnavailable(i)?'?':valid?'✓':'!'}</span></button>)}</div>
               </div>
               <div style={{borderLeft:'1px solid #e2e8f0',paddingLeft:14}}><h3 style={{fontSize:16,margin:'0 0 10px',fontWeight:800}}>Linked</h3>
-                {Object.entries(linkedDefinitions).map(([label,config])=><button type="button" key={label} onClick={()=>{setShowPOGrid(false);setLinkedView(label)}} style={{display:'flex',justifyContent:'space-between',alignItems:'center',width:'100%',padding:'7px 5px',border:0,borderRadius:5,background:'transparent',cursor:'pointer',fontSize:13,fontWeight:650,color:'#334155',textAlign:'left'}} onMouseEnter={e=>e.currentTarget.style.background='#f1f5f9'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}><span>{String(config.rows.length).padStart(2,'0')} {label}</span><span style={{color:'#94a3b8'}}>›</span></button>)}
+                {Object.entries(linkedDefinitions).map(([label,config])=><button type="button" key={label} onClick={()=>{if(label==='PP Meetings'){window.location.assign('/reports/pp-meeting?order='+encodeURIComponent(order.id));return}setShowPOGrid(false);setLinkedView(label)}} style={{display:'flex',justifyContent:'space-between',alignItems:'center',width:'100%',padding:'7px 5px',border:0,borderRadius:5,background:'transparent',cursor:'pointer',fontSize:13,fontWeight:650,color:'#334155',textAlign:'left'}} onMouseEnter={e=>e.currentTarget.style.background='#f1f5f9'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}><span>{String(config.rows.length).padStart(2,'0')} {label}</span><span style={{color:'#94a3b8'}}>›</span></button>)}
               </div>
             </div>
           </>}
@@ -3883,6 +3886,7 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
           <button className="btn btn-secondary" onClick={()=>runReport('trims')} disabled={loading||Boolean(reportBusy)}>Trims Plan</button>
           <button className="btn btn-secondary" onClick={openSamplePlan} disabled={loading||Boolean(reportBusy)}>Sampling Plan</button>
           <button className="btn btn-secondary" onClick={printFinishingPlan} disabled={loading||Boolean(reportBusy)}>Finishing Plan</button>
+          <button className="btn btn-secondary" onClick={()=>window.location.assign("/reports/pp-meeting?order="+encodeURIComponent(order.id))}>PP Meeting</button>
           <button className="btn" style={{background:showPOGrid ? "#ede9fe" : "#6d28d9",color:showPOGrid ? "#5b21b6" : "#ffffff",border:"1px solid #7c3aed",fontWeight:700}} onClick={()=>{setLinkedView(null);setShowPOGrid(v=>!v)}} disabled={loading}>{showPOGrid ? "Back to Metadata" : "View PO Grid"}</button>
         </div>
       </div>
