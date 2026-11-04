@@ -46,7 +46,7 @@ function aggregate(rows,groups,sortBy,descending){
 function MultiSelectFields({label,options,selected,onChange,description}){
  const [query,setQuery]=useState('')
  const [open,setOpen]=useState(false)
- const shown=options.filter(([,name])=>name.toLowerCase().includes(query.trim().toLowerCase()))
+ const shown=options.filter(([,name])=>name.toLowerCase().includes(query.trim().toLowerCase())).sort((a,b)=>Number(selected.includes(b[0]))-Number(selected.includes(a[0])))
  const names=selected.slice(0,2).map(k=>options.find(([id])=>id===k)?.[1]||k)
  return <div style={{position:'relative',minWidth:0}}>
   <div style={{fontSize:13,fontWeight:750,marginBottom:7}}>{label} <span style={{fontWeight:400,color:'#64748b'}}>· {description}</span></div>
@@ -95,12 +95,14 @@ export default function CustomReportBuilder(){
  const batchOrderIds=useMemo(()=>new Set(memberships.filter(x=>x.batch_id===batch).map(x=>x.order_id)),[memberships,batch])
  const stores=useMemo(()=>[...new Set(orders.filter(o=>buyer==='All'||o.buyer_name===buyer).map(o=>o.store_name).filter(Boolean))].sort(),[orders,buyer])
  const buyers=useMemo(()=>[...new Set(orders.map(o=>o.buyer_name).filter(Boolean))].sort(),[orders])
- const available=useMemo(()=>[...new Set(orders.filter(o=>buyer==='All'||o.buyer_name===buyer).map(o=>o.style_number).filter(Boolean))].sort(),[orders,buyer])
- const filteredOrders=useMemo(()=>orders.filter(o=>(buyer==='All'||o.buyer_name===buyer)&&(!styles.length||styles.includes(o.style_number))&&(status==='All'||o.status===status)&&(store==='All'||o.store_name===store)&&(batch==='All'||(batch==='__unbatched__'?!memberships.some(m=>m.order_id===o.id):batchOrderIds.has(o.id)))&&(!poFrom||String(o.po_date||'').slice(0,10)>=poFrom)&&(!poTo||String(o.po_date||'').slice(0,10)<=poTo)&&(!shipFrom||String(o.ship_date||'').slice(0,10)>=shipFrom)&&(!shipTo||String(o.ship_date||'').slice(0,10)<=shipTo)&&(!search||[o.style_number,o.po_number,o.description,o.job_number,o.store_name].some(x=>String(x||'').toLowerCase().includes(search.toLowerCase())))),[orders,buyer,styles,status,store,batch,memberships,batchOrderIds,poFrom,poTo,shipFrom,shipTo,search])
+ const matchesFilters=o=>(buyer==='All'||o.buyer_name===buyer)&&(status==='All'||o.status===status)&&(store==='All'||o.store_name===store)&&(batch==='All'||(batch==='__unbatched__'?!memberships.some(m=>m.order_id===o.id):batchOrderIds.has(o.id)))&&(!poFrom||String(o.po_date||'').slice(0,10)>=poFrom)&&(!poTo||String(o.po_date||'').slice(0,10)<=poTo)&&(!shipFrom||String(o.ship_date||'').slice(0,10)>=shipFrom)&&(!shipTo||String(o.ship_date||'').slice(0,10)<=shipTo)&&(!search||[o.style_number,o.po_number,o.description,o.job_number,o.store_name].some(x=>String(x||'').toLowerCase().includes(search.toLowerCase())))
+  const available=useMemo(()=>[...new Set(orders.filter(matchesFilters).map(o=>o.style_number).filter(Boolean))].sort(),[orders,buyer,status,store,batch,memberships,batchOrderIds,poFrom,poTo,shipFrom,shipTo,search])
+  const effectiveStyles=styles.filter(x=>available.includes(x))
+ const filteredOrders=useMemo(()=>orders.filter(o=>(buyer==='All'||o.buyer_name===buyer)&&(!effectiveStyles.length||effectiveStyles.includes(o.style_number))&&(status==='All'||o.status===status)&&(store==='All'||o.store_name===store)&&(batch==='All'||(batch==='__unbatched__'?!memberships.some(m=>m.order_id===o.id):batchOrderIds.has(o.id)))&&(!poFrom||String(o.po_date||'').slice(0,10)>=poFrom)&&(!poTo||String(o.po_date||'').slice(0,10)<=poTo)&&(!shipFrom||String(o.ship_date||'').slice(0,10)>=shipFrom)&&(!shipTo||String(o.ship_date||'').slice(0,10)<=shipTo)&&(!search||[o.style_number,o.po_number,o.description,o.job_number,o.store_name].some(x=>String(x||'').toLowerCase().includes(search.toLowerCase())))),[orders,buyer,styles,available,status,store,batch,memberships,batchOrderIds,poFrom,poTo,shipFrom,shipTo,search])
  const saveTemplate=()=>{
   const title=name.trim();if(!title){setError('Enter a report name before saving.');return}
   const id=selectedTemplate||`template-${Date.now()}`
-  const template={id,name:title,buyer,styles:[...styles],fields:[...fields],groups:[...groups],sortBy,descending,search,status,batch,store,poFrom,poTo,shipFrom,shipTo,groupColor,updatedAt:new Date().toISOString()}
+  const template={id,name:title,buyer,styles:[...effectiveStyles],fields:[...fields],groups:[...groups],sortBy,descending,search,status,batch,store,poFrom,poTo,shipFrom,shipTo,groupColor,updatedAt:new Date().toISOString()}
   const next=[...templates.filter(t=>t.id!==id),template].sort((a,b)=>a.name.localeCompare(b.name))
   try{localStorage.setItem(TEMPLATE_KEY,JSON.stringify(next));setTemplates(next);setSelectedTemplate(id);setNotice(`Saved template: ${title}`);setError('')}catch{setError('Unable to save template in this browser. Check browser storage settings.')}
  }
@@ -211,10 +213,10 @@ export default function CustomReportBuilder(){
   </div>
   <div style={{display:'grid',gridTemplateColumns:'minmax(220px,1fr) minmax(0,3fr)',gap:12,alignItems:'start'}}>
    <section style={{background:'#fff',border:'1px solid #e4e7ec',borderRadius:10,padding:14}}>
-    <div style={{fontSize:13,fontWeight:750,marginBottom:10}}>Select Styles <span style={{fontWeight:400,color:'#64748b'}}>({styles.length||'All'})</span></div>
+    <div style={{fontSize:13,fontWeight:750,marginBottom:10}}>Select Styles <span style={{fontWeight:400,color:'#64748b'}}>({effectiveStyles.length||'All'})</span></div>
     <input placeholder="Search styles / PO / job…" style={{...box,width:'100%',boxSizing:'border-box',marginBottom:9}} value={search} onChange={e=>{setSearch(e.target.value);setPreview(null)}}/>
     <div style={{display:'flex',gap:8,marginBottom:9}}><button style={action} onClick={()=>{setStyles([]);setPreview(null)}}>All styles</button><button style={action} onClick={()=>{setStyles(available);setPreview(null)}}>Select all</button></div>
-    <div style={{maxHeight:235,overflow:'auto'}}>{available.map(x=><label key={x} style={{display:'flex',gap:8,padding:'6px 2px',fontSize:12}}><input type="checkbox" checked={styles.includes(x)} onChange={()=>toggle(x,styles,setStyles)}/>{x}</label>)}</div>
+    <div style={{maxHeight:235,overflow:'auto'}}>{available.map(x=><label key={x} style={{display:'flex',gap:8,padding:'6px 2px',fontSize:12}}><input type="checkbox" checked={effectiveStyles.includes(x)} onChange={()=>toggle(x,effectiveStyles,setStyles)}/>{x}</label>)}</div>
    </section>
    <section style={{background:'#fff',border:'1px solid #e4e7ec',borderRadius:10,padding:14}}>
     <MultiSelectFields label="Report Columns" description="Choose fields to display" options={FIELDS} selected={fields} onChange={v=>{setFields(v);setPreview(null)}}/>
