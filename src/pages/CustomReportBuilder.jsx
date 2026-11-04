@@ -1,0 +1,130 @@
+import React,{useEffect,useMemo,useState} from 'react'
+import * as XLSX from 'xlsx'
+import {useNavigate} from 'react-router-dom'
+import {ArrowLeft,Plus,Eye,FileSpreadsheet,Printer,Search,RefreshCw} from 'lucide-react'
+import {supabase} from '../lib/supabase'
+import {printHTML} from '../components/PrintReports'
+
+const FIELDS=[['style_number','Style #'],['picture','Picture'],['buyer_name','Buyer'],['job_number','Job #'],['po_number','PO #'],['store_name','Store'],['description','Description'],['wash','Wash / Colour'],['size_group','Size Group'],['size','Size Breakdown'],['qty','Quantity'],['unit_price','Unit Price'],['value','Value'],['status','Status'],['ship_date','Ship Date']]
+const INITIAL=['style_number','wash','size_group','size','qty']
+const box={border:'1px solid #dce0e8',borderRadius:8,padding:'9px 11px',background:'#fff',fontSize:12}
+const action={...box,cursor:'pointer',display:'inline-flex',alignItems:'center',gap:7,fontWeight:650}
+const esc=x=>String(x??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+const money=x=>Number(x||0).toLocaleString('en-US',{maximumFractionDigits:2})
+async function fetchAll(table,columns='*',max=30000){
+ const result=[]
+ for(let start=0;start<max;start+=750){
+  const {data,error}=await supabase.from(table).select(columns).range(start,start+749)
+  if(error)throw error
+  result.push(...(data||[]))
+  if((data||[]).length<750)return result
+ }
+ throw new Error('Report exceeds 30,000 source records. Narrow the selection before exporting.')
+}
+function aggregate(rows,groups,sortBy,descending){
+ const map=new Map()
+ for(const r of rows){
+  const key=JSON.stringify(groups.map(k=>r[k]??''))
+  if(!map.has(key))map.set(key,{...r,qty:0,value:0,_count:0})
+  const x=map.get(key);x.qty+=Number(r.qty)||0;x.value+=Number(r.value)||0;x._count++
+ }
+ return [...map.values()].sort((a,b)=>{
+  const av=a[sortBy]??'',bv=b[sortBy]??''
+  const c=typeof av==='number'&&typeof bv==='number'?av-bv:String(av).localeCompare(String(bv),undefined,{numeric:true})
+  return descending?-c:c
+ })
+}
+export default function CustomReportBuilder(){
+ const navigate=useNavigate()
+ const [name,setName]=useState('Style-wise Size Breakdown')
+ const [orders,setOrders]=useState([])
+ const [buyer,setBuyer]=useState('All')
+ const [styles,setStyles]=useState([])
+ const [fields,setFields]=useState(INITIAL)
+ const [groups,setGroups]=useState(['style_number','wash','size_group','size'])
+ const [sortBy,setSortBy]=useState('style_number')
+ const [descending,setDescending]=useState(false)
+ const [search,setSearch]=useState('')
+ const [status,setStatus]=useState('All')
+ const [preview,setPreview]=useState(null)
+ const [loading,setLoading]=useState(false)
+ const [error,setError]=useState('')
+ const [refresh,setRefresh]=useState(0)
+ useEffect(()=>{let live=true;(async()=>{try{const list=await fetchAll('orders','id,buyer_name,style_number,job_number,po_number,store_name,description,style_image_url,style_image_base64,status,ship_date,total_qty');if(live)setOrders(list)}catch(e){if(live)setError(e.message)}})();return()=>{live=false}},[refresh])
+ const buyers=useMemo(()=>[...new Set(orders.map(o=>o.buyer_name).filter(Boolean))].sort(),[orders])
+ const available=useMemo(()=>[...new Set(orders.filter(o=>buyer==='All'||o.buyer_name===buyer).map(o=>o.style_number).filter(Boolean))].sort(),[orders,buyer])
+ const filteredOrders=useMemo(()=>orders.filter(o=>(buyer==='All'||o.buyer_name===buyer)&&(!styles.length||styles.includes(o.style_number))&&(status==='All'||o.status===status)&&(!search||[o.style_number,o.po_number,o.description,o.job_number,o.store_name].some(x=>String(x||'').toLowerCase().includes(search.toLowerCase())))),[orders,buyer,styles,status,search])
+ const toggle=(v,arr,set)=>{set(arr.includes(v)?arr.filter(x=>x!==v):[...arr,v]);setPreview(null)}
+ const generate=async()=>{
+  setLoading(true);setError('');setPreview(null)
+  try{
+   const chosen=filteredOrders
+   if(!chosen.length)throw new Error('No orders match these filters.')
+   const ids=new Set(chosen.map(o=>o.id))
+   const [sizeGroups,colors,breakdowns]=await Promise.all([fetchAll('size_groups','id,order_id,group_name,unit_price'),fetchAll('size_group_colors','id,size_group_id,color_name'),fetchAll('size_group_breakdown','size_group_id,color_id,size,qty')])
+   const orderMap=new Map(chosen.map(o=>[o.id,o]))
+   const groupMap=new Map(sizeGroups.filter(g=>ids.has(g.order_id)).map(g=>[g.id,g]))
+   const colorMap=new Map(colors.map(c=>[c.id,c]))
+   const detail=breakdowns.flatMap(b=>{
+    const g=groupMap.get(b.size_group_id);if(!g)return []
+    const o=orderMap.get(g.order_id);if(!o)return []
+    const qty=Number(b.qty)||0,price=Number(g.unit_price)||0
+    return [{style_number:o.style_number||'',picture:o.style_image_url||o.style_image_base64||'',buyer_name:o.buyer_name||'',job_number:o.job_number||'',po_number:o.po_number||'',store_name:o.store_name||'',description:o.description||'',wash:colorMap.get(b.color_id)?.color_name||'',size_group:g.group_name||'',size:b.size||'',qty,unit_price:price,value:qty*price,status:o.status||'',ship_date:o.ship_date||''}]
+   })
+   if(!detail.length)throw new Error('No saved size-matrix breakdown found for the selected orders.')
+   // Group on all selected nonnumeric fields to prevent merging distinct PO records accidentally.
+   const keys=[...new Set([...groups,...fields.filter(f=>!['qty','value','unit_price','picture'].includes(f))])]
+   const result=aggregate(detail,keys,sortBy,descending)
+   setPreview({rows:result,sourceRows:detail.length,sourceOrders:chosen.length,qty:detail.reduce((n,r)=>n+r.qty,0),value:detail.reduce((n,r)=>n+r.value,0)})
+  }catch(e){setError(e.message||'Unable to generate report')}finally{setLoading(false)}
+ }
+ const outputFields=fields.length?fields:INITIAL
+ const exportExcel=()=>{
+  if(!preview)return
+  const data=[outputFields.map(k=>FIELDS.find(f=>f[0]===k)?.[1]||k),...preview.rows.map(r=>outputFields.map(k=>k==='picture'?'':r[k]??''))]
+  data.push(outputFields.map(k=>k==='qty'?preview.qty:k==='value'?preview.value:''))
+  const ws=XLSX.utils.aoa_to_sheet(data);ws['!cols']=outputFields.map(k=>({wch:k==='description'?34:18}))
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Report');XLSX.writeFile(wb,`${name.replace(/[^a-z0-9_-]+/gi,'-')||'Custom-Report'}.xlsx`)
+ }
+ const print=()=>{
+  if(!preview)return
+  const headers=outputFields.map(k=>'<th>'+esc(FIELDS.find(f=>f[0]===k)?.[1]||k)+'</th>').join('')
+  const body=preview.rows.map(r=>'<tr>'+outputFields.map(k=>'<td>'+(k==='picture'&&/^https:\/\//.test(r[k]||'')?'<img width="65" src="'+esc(r[k])+'"/>':esc(r[k]))+'</td>').join('')+'</tr>').join('')
+  printHTML(`<!doctype html><html><head><title>${esc(name)}</title><style>@page{size:A4 landscape;margin:12mm}body{font:11px Arial;color:#111}h1{font-size:19px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:6px;text-align:left}th{background:#eee}tr{break-inside:avoid}tfoot{font-weight:bold}</style></head><body><h1>${esc(name)}</h1><p>Buyer: ${esc(buyer)} · Orders: ${preview.sourceOrders} · Quantity: ${money(preview.qty)}</p><table><thead><tr>${headers}</tr></thead><tbody>${body}</tbody></table><p>Total Quantity: ${money(preview.qty)} · Total Value: ${money(preview.value)}</p></body></html>`)
+ }
+ const changeBuyer=v=>{setBuyer(v);setStyles([]);setPreview(null)}
+ return <div style={{height:'100%',overflow:'auto',padding:'20px 28px',background:'#f8f9fb',fontFamily:'var(--font,Arial,sans-serif)',color:'#202633'}}>
+  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',marginBottom:17}}>
+   <div style={{display:'flex',alignItems:'center',gap:12}}><button style={action} onClick={()=>navigate('/reports')}><ArrowLeft size={15}/> Reports</button><div><div style={{fontSize:21,fontWeight:750}}>Custom Report Builder</div><div style={{fontSize:12,color:'#64748b'}}>Orders & PO size matrix · Preview on demand</div></div></div>
+   <div style={{display:'flex',gap:8}}><button style={action} onClick={()=>setRefresh(x=>x+1)}><RefreshCw size={14}/> Refresh</button><button style={{...action,background:'#141b2e',color:'#fff'}} disabled={loading} onClick={generate}><Eye size={15}/>{loading?'Generating…':'Preview Report'}</button></div>
+  </div>
+  <div style={{background:'#fff',border:'1px solid #e4e7ec',borderRadius:10,padding:16,marginBottom:12}}>
+   <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(185px,1fr))',gap:12}}>
+    <label style={{fontSize:12,fontWeight:700}}>Report Name<input style={{...box,width:'100%',marginTop:6,boxSizing:'border-box'}} value={name} onChange={e=>setName(e.target.value)}/></label>
+    <label style={{fontSize:12,fontWeight:700}}>Data Source<select style={{...box,width:'100%',marginTop:6}}><option>Orders & PO Matrix</option></select></label>
+    <label style={{fontSize:12,fontWeight:700}}>Buyer<select style={{...box,width:'100%',marginTop:6}} value={buyer} onChange={e=>changeBuyer(e.target.value)}><option>All</option>{buyers.map(x=><option key={x}>{x}</option>)}</select></label>
+    <label style={{fontSize:12,fontWeight:700}}>Status<select style={{...box,width:'100%',marginTop:6}} value={status} onChange={e=>{setStatus(e.target.value);setPreview(null)}}><option>All</option>{[...new Set(orders.map(o=>o.status).filter(Boolean))].sort().map(x=><option key={x}>{x}</option>)}</select></label>
+   </div>
+  </div>
+  <div style={{display:'grid',gridTemplateColumns:'minmax(220px,1fr) minmax(0,3fr)',gap:12,alignItems:'start'}}>
+   <section style={{background:'#fff',border:'1px solid #e4e7ec',borderRadius:10,padding:14}}>
+    <div style={{fontSize:13,fontWeight:750,marginBottom:10}}>Select Styles <span style={{fontWeight:400,color:'#64748b'}}>({styles.length||'All'})</span></div>
+    <input placeholder="Search styles / PO / job…" style={{...box,width:'100%',boxSizing:'border-box',marginBottom:9}} value={search} onChange={e=>{setSearch(e.target.value);setPreview(null)}}/>
+    <div style={{display:'flex',gap:8,marginBottom:9}}><button style={action} onClick={()=>{setStyles([]);setPreview(null)}}>All styles</button><button style={action} onClick={()=>{setStyles(available);setPreview(null)}}>Select all</button></div>
+    <div style={{maxHeight:235,overflow:'auto'}}>{available.map(x=><label key={x} style={{display:'flex',gap:8,padding:'6px 2px',fontSize:12}}><input type="checkbox" checked={styles.includes(x)} onChange={()=>toggle(x,styles,setStyles)}/>{x}</label>)}</div>
+   </section>
+   <section style={{background:'#fff',border:'1px solid #e4e7ec',borderRadius:10,padding:14}}>
+    <div style={{fontSize:13,fontWeight:750,marginBottom:9}}>Report Columns <span style={{fontWeight:400,color:'#64748b'}}>· Choose fields to display</span></div>
+    <div style={{display:'flex',gap:7,flexWrap:'wrap',marginBottom:14}}>{FIELDS.map(([key,label])=><label key={key} style={{...box,padding:'6px 9px',display:'flex',gap:6,alignItems:'center',background:fields.includes(key)?'#eff6ff':'#fff',cursor:'pointer'}}><input type="checkbox" checked={fields.includes(key)} onChange={()=>toggle(key,fields,setFields)}/>{label}</label>)}</div>
+    <div style={{fontSize:13,fontWeight:750,marginBottom:8}}>Group By <span style={{fontWeight:400,color:'#64748b'}}>· Select dimensions</span></div>
+    <div style={{display:'flex',gap:7,flexWrap:'wrap',marginBottom:14}}>{FIELDS.filter(([k])=>!['qty','value','unit_price','picture'].includes(k)).map(([key,label])=><label key={key} style={{...box,padding:'6px 9px',display:'flex',gap:6,alignItems:'center'}}><input type="checkbox" checked={groups.includes(key)} onChange={()=>toggle(key,groups,setGroups)}/>{label}</label>)}</div>
+    <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'center'}}><label style={{fontSize:12,fontWeight:650}}>Sort by <select style={box} value={sortBy} onChange={e=>{setSortBy(e.target.value);setPreview(null)}}>{FIELDS.map(([k,l])=><option value={k} key={k}>{l}</option>)}</select></label><label style={{fontSize:12}}><input type="checkbox" checked={descending} onChange={e=>{setDescending(e.target.checked);setPreview(null)}}/> Descending</label><span style={{fontSize:11,color:'#64748b'}}>Changes require a new preview.</span></div>
+   </section>
+  </div>
+  {error&&<div style={{marginTop:12,padding:12,background:'#fff1f2',color:'#b91c1c',borderRadius:8,fontSize:12}}>{error}</div>}
+  <section style={{background:'#fff',border:'1px solid #e4e7ec',borderRadius:10,marginTop:12,padding:14}}>
+   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap',marginBottom:12}}><div><strong style={{fontSize:14}}>Report Preview</strong><div style={{fontSize:11,color:'#64748b'}}>{preview?`${preview.rows.length} grouped rows · ${preview.sourceOrders} orders · ${money(preview.qty)} pieces`:'Select fields and click Preview Report'}</div></div><div style={{display:'flex',gap:8}}><button style={action} disabled={!preview} onClick={exportExcel}><FileSpreadsheet size={14}/> Excel</button><button style={action} disabled={!preview} onClick={print}><Printer size={14}/> Print / PDF</button></div></div>
+   {preview?<div style={{overflow:'auto',maxHeight:460}}><table style={{borderCollapse:'collapse',width:'100%',fontSize:12}}><thead><tr>{outputFields.map(k=><th key={k} style={{position:'sticky',top:0,background:'#f2f4f8',padding:9,borderBottom:'1px solid #dce0e8',textAlign:'left',whiteSpace:'nowrap'}}>{FIELDS.find(f=>f[0]===k)?.[1]||k}</th>)}</tr></thead><tbody>{preview.rows.slice(0,500).map((r,i)=><tr key={i}>{outputFields.map(k=><td key={k} style={{padding:8,borderBottom:'1px solid #eef0f3',whiteSpace:'nowrap'}}>{k==='picture'&&r[k]?<img src={r[k]} alt="" style={{width:42,height:46,objectFit:'contain'}}/>:k==='qty'||k==='value'?money(r[k]):String(r[k]??'')}</td>)}</tr>)}</tbody></table>{preview.rows.length>500&&<p style={{fontSize:12}}>Showing first 500 rows. Excel and PDF include the complete report.</p>}</div>:<div style={{padding:36,textAlign:'center',color:'#94a3b8',fontSize:12}}>Your report will appear here after preview.</div>}
+  </section>
+ </div>
+}
