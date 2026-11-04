@@ -1,4 +1,5 @@
 import useManagedPopup from '../components/ui/useManagedPopup'
+import TestingTab from '../components/purchasing/TestingTab'
 import { formatDate as appFormatDate } from '../lib/utils'
 import { usageObject } from '../lib/usageMath'
 import React, { useState, useEffect } from 'react'
@@ -1855,7 +1856,7 @@ export default function Purchasing() {
       {tab==='process'    && <ProcessDemandTab  suppliers={suppliers}/>}
       {tab==='pos'        && <PurchaseOrdersTab orders={orders} suppliers={suppliers}/>}
       {tab==='wos'        && <WorkOrdersTab     orders={orders} suppliers={suppliers}/>}
-      {tab==='testing'    && <div style={{ flex:1, minHeight:0, background:'#fff' }} aria-label="Testing workspace" />}
+      {tab==='testing'    && <TestingTab/>}
       {tab==='deliveries' && <DeliveriesTab     orders={orders} suppliers={suppliers}/>}
     </div>
   )
