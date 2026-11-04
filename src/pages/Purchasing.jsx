@@ -377,7 +377,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
           {!locked&&<button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving?'Saving...':isNew?'Create PO':'Save Changes'}</button>}
         </div>
       </div>
-      {quickSupplier && <div style={{position:'fixed',inset:0,zIndex:650,background:'rgba(0,0,0,.38)',display:'flex',alignItems:'center',justifyContent:'center'}}><div style={{width:500,maxWidth:'92vw',background:'#fff',borderRadius:12,boxShadow:'0 24px 70px rgba(0,0,0,.28)'}}><div style={{padding:'16px 20px',borderBottom:'1px solid #eee',display:'flex',alignItems:'center'}}><b>New Supplier</b><div style={{flex:1}}/><button className="btn btn-ghost" onClick={()=>setQuickSupplier(false)}><X size={15}/></button></div><div style={{padding:20,display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><div style={{gridColumn:'1/-1'}}><label style={lbl}>Supplier Name *</label><input style={mkInp(false)} autoFocus value={newSupplier.name||''} onChange={e=>setNewSupplier(f=>({...f,name:e.target.value}))}/></div><div><label style={lbl}>Category</label><select style={mkSel(false)} value={newSupplier.category||'Fabric'} onChange={e=>setNewSupplier(f=>({...f,category:e.target.value}))}>{['Fabric','Trims','Washing','Embellishment','CMT','Contractors'].map(x=><option key={x}>{x}</option>)}</select></div><div><label style={lbl}>Contact Person</label><input style={mkInp(false)} value={newSupplier.contact_person||''} onChange={e=>setNewSupplier(f=>({...f,contact_person:e.target.value}))}/></div><div><label style={lbl}>Phone</label><input style={mkInp(false)} value={newSupplier.phone||''} onChange={e=>setNewSupplier(f=>({...f,phone:e.target.value}))}/></div><div><label style={lbl}>Email</label><input style={mkInp(false)} value={newSupplier.email||''} onChange={e=>setNewSupplier(f=>({...f,email:e.target.value}))}/></div><div><label style={lbl}>Lead Time (days)</label><input style={mkInp(false)} type="number" value={newSupplier.lead_time_days||''} onChange={e=>setNewSupplier(f=>({...f,lead_time_days:e.target.value}))}/></div></div><div style={{padding:'12px 20px',borderTop:'1px solid #eee',display:'flex',justifyContent:'flex-end',gap:8}}><button className="btn btn-secondary" onClick={()=>setQuickSupplier(false)}>Cancel</button><button className="btn btn-primary" disabled={quickSupplierSaving||!newSupplier.name?.trim()} onClick={saveQuickSupplier}>{quickSupplierSaving?'Saving…':'Save & Select'}</button></div></div></div>}
+      {quickSupplier && <div style={{position:'fixed',inset:0,zIndex:650,background:'rgba(0,0,0,.38)',display:'flex',alignItems:'center',justifyContent:'center'}}><div style={{width:500,maxWidth:'92vw',background:'#fff',borderRadius:12,boxShadow:'0 24px 70px rgba(0,0,0,.28)'}}><div style={{padding:'16px 20px',borderBottom:'1px solid #eee',display:'flex',alignItems:'center'}}><b>New Supplier</b><div style={{flex:1}}/><button className="btn btn-ghost" onClick={()=>setQuickSupplier(false)}><X size={15}/></button></div><div style={{padding:20,display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><div style={{gridColumn:'1/-1'}}><label style={lbl}>Supplier Name *</label><input style={mkInp(false)} autoFocus value={newSupplier.name||''} onChange={e=>setNewSupplier(f=>({...f,name:e.target.value}))}/></div><div><label style={lbl}>Category</label><select style={mkSel(false)} value={newSupplier.category||'Fabric'} onChange={e=>setNewSupplier(f=>({...f,category:e.target.value}))}>{['Fabric','Trims','Washing','Embellishment','CMT','Contractors','Testing'].map(x=><option key={x}>{x}</option>)}</select></div><div><label style={lbl}>Contact Person</label><input style={mkInp(false)} value={newSupplier.contact_person||''} onChange={e=>setNewSupplier(f=>({...f,contact_person:e.target.value}))}/></div><div><label style={lbl}>Phone</label><input style={mkInp(false)} value={newSupplier.phone||''} onChange={e=>setNewSupplier(f=>({...f,phone:e.target.value}))}/></div><div><label style={lbl}>Email</label><input style={mkInp(false)} value={newSupplier.email||''} onChange={e=>setNewSupplier(f=>({...f,email:e.target.value}))}/></div><div><label style={lbl}>Lead Time (days)</label><input style={mkInp(false)} type="number" value={newSupplier.lead_time_days||''} onChange={e=>setNewSupplier(f=>({...f,lead_time_days:e.target.value}))}/></div></div><div style={{padding:'12px 20px',borderTop:'1px solid #eee',display:'flex',justifyContent:'flex-end',gap:8}}><button className="btn btn-secondary" onClick={()=>setQuickSupplier(false)}>Cancel</button><button className="btn btn-primary" disabled={quickSupplierSaving||!newSupplier.name?.trim()} onClick={saveQuickSupplier}>{quickSupplierSaving?'Saving…':'Save & Select'}</button></div></div></div>}
       {showPasskey&&<PasskeyModal onUnlock={()=>{setLocked(false);setShowPasskey(false)}} onClose={()=>setShowPasskey(false)}/>}
     </div>
   )
@@ -1819,24 +1819,25 @@ const TABS = [
   { id:'process',    label:'Process Demand' },
   { id:'pos',        label:'Purchase Orders' },
   { id:'wos',        label:'Work Orders' },
+  { id:'testing',    label:'Testing' },
   { id:'deliveries', label:'Expected Deliveries' },
 ]
 
 export default function Purchasing() {
-  const [tab, setTab] = useState(['pos','wos','material','process','deliveries'].includes(new URLSearchParams(window.location.search).get('tab')) ? new URLSearchParams(window.location.search).get('tab') : 'material')
+  const [tab, setTab] = useState(['pos','wos','material','process','testing','deliveries'].includes(new URLSearchParams(window.location.search).get('tab')) ? new URLSearchParams(window.location.search).get('tab') : 'material')
   const [orders, setOrders] = useState([])
   const [suppliers, setSuppliers] = useState([])
-  const [tabNotices, setTabNotices] = useState({ material:false, process:false, pos:false, wos:false, deliveries:false })
+  const [tabNotices, setTabNotices] = useState({ material:false, process:false, pos:false, wos:false, testing:false, deliveries:false })
 
   useEffect(() => {
     supabase.from('orders').select('id,job_id,job_number,buyer_name,style_number,total_qty,po_number,store_name,factory_ref').not('status','eq','Cancelled').order('job_number').then(({data})=>setOrders(data||[]))
     supabase.from('suppliers').select('id,name,address,phone').order('name').then(({data})=>setSuppliers(data||[]))
-    setTabNotices(getPageTabNoticeMap('purchasingPage', ['material','process','pos','wos','deliveries']))
+    setTabNotices(getPageTabNoticeMap('purchasingPage', ['material','process','pos','wos','testing','deliveries']))
   }, [])
 
   useEffect(() => {
     markTabSeen('purchasingPage', tab)
-    setTabNotices(getPageTabNoticeMap('purchasingPage', ['material','process','pos','wos','deliveries']))
+    setTabNotices(getPageTabNoticeMap('purchasingPage', ['material','process','pos','wos','testing','deliveries']))
   }, [tab])
 
   const tabStyle = t => ({ padding:'0 16px', height:44, background:'none', border:'none', cursor:'pointer', fontSize:13, fontWeight:tab===t?600:400, color:tab===t?'#0d0d0d':'#6b7280', borderBottom:`2px solid ${tab===t?'#0d0d0d':'transparent'}`, marginBottom:-1, fontFamily:'Inter,sans-serif', whiteSpace:'nowrap' })
@@ -1844,7 +1845,7 @@ export default function Purchasing() {
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'#fff' }}>
       <div style={{ padding:'16px 24px 0', flexShrink:0 }}>
-        <h1 style={{ fontSize:20, fontWeight:700, letterSpacing:'-0.4px', marginBottom:2 }}>Purchasing</h1>
+        <h1 style={{ fontSize:20, fontWeight:700, letterSpacing:'-0.4px', marginBottom:2 }}>Purchasing, Work Orders and Testing</h1>
 
         <div style={{ display:'flex', borderBottom:'1px solid #e5e7eb', overflowX:'visible' }}>
           {TABS.map(t=><button key={t.id} style={tabStyle(t.id)} onClick={()=>setTab(t.id)}><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{t.label}{tabNotices[t.id] && tab !== t.id ? <span style={{ width:8, height:8, borderRadius:'50%', background:'#F59E0B', display:'inline-block' }} /> : null}</span></button>)}
@@ -1854,6 +1855,7 @@ export default function Purchasing() {
       {tab==='process'    && <ProcessDemandTab  suppliers={suppliers}/>}
       {tab==='pos'        && <PurchaseOrdersTab orders={orders} suppliers={suppliers}/>}
       {tab==='wos'        && <WorkOrdersTab     orders={orders} suppliers={suppliers}/>}
+      {tab==='testing'    && <div style={{ flex:1, minHeight:0, background:'#fff' }} aria-label="Testing workspace" />}
       {tab==='deliveries' && <DeliveriesTab     orders={orders} suppliers={suppliers}/>}
     </div>
   )
