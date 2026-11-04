@@ -13,6 +13,7 @@ import Step7Embellishment from './steps/Step7Embellishment'
 import Step8Finishing     from './steps/Step8Finishing'
 import Step9Processes     from './steps/Step9Processes'
 import Step10Finalize     from './steps/Step10Finalize'
+import Step10Testing      from './steps/Step10Testing'
 
 const STEPS = [
   { num: 1,  label: 'General Info',  required: true },
@@ -24,14 +25,15 @@ const STEPS = [
   { num: 7,  label: 'Embellishment', required: false },
   { num: 8,  label: 'Finishing',     required: false },
   { num: 9,  label: 'Processes',     required: false },
-  { num: 10, label: 'Finalize',      required: true },
+  { num: 10, label: 'Testing',       required: false },
+  { num: 11, label: 'Finalize',      required: true },
 ]
 
 const STEP_COMPONENTS = {
   1: Step1GeneralInfo, 2: Step2POMatrix,      3: Step3BOM,
   4: Step4Fitting,     5: Step5Sampling,      6: Step6Washing,
   7: Step7Embellishment, 8: Step8Finishing,   9: Step9Processes,
-  10: Step10Finalize,
+  10: Step10Testing, 11: Step10Finalize,
 }
 
 export default function OrderWizard({ order, onClose, onMinimize, minimized = false, initialStep = 1 }) {
@@ -78,14 +80,14 @@ export default function OrderWizard({ order, onClose, onMinimize, minimized = fa
 
   // Save current step then advance
   const saveAndContinue = async () => {
-    if (!stepSaveRef.current) { setStep(s => Math.min(10, s + 1)); return }
+    if (!stepSaveRef.current) { setStep(s => Math.min(11, s + 1)); return }
     setSaveStatus('saving')
     try {
       await stepSaveRef.current()
       setSaveStatus('saved')
       setTimeout(() => {
         setSaveStatus(null)
-        if (step < 10) setStep(s => s + 1)
+        if (step < 11) setStep(s => s + 1)
       }, 800)
     } catch {
       setSaveStatus('error')
@@ -110,6 +112,7 @@ export default function OrderWizard({ order, onClose, onMinimize, minimized = fa
     if (s === 7) return !!orderData.step_embellishment
     if (s === 8) return !!orderData.step_finishing
     if (s === 9) return !!orderData.step_processes
+    if (s === 10) return !!orderData.step_testing
     return false
   }
 
@@ -147,7 +150,7 @@ export default function OrderWizard({ order, onClose, onMinimize, minimized = fa
 
   return (
     <div onWheelCapture={preventNumberWheelChange} style={{ display: minimized ? 'none' : 'flex', position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 24px 80px rgba(0,0,0,0.22)', width: '100%', maxWidth: 900, height: '88vh', maxHeight: 780, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 24px 80px rgba(0,0,0,0.22)', width: '92vw', maxWidth: 1480, height: '88vh', maxHeight: 780, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         {/* Top bar */}
         <div style={{ height: 52, borderBottom: '1px solid #f0f0ee', display: 'flex', alignItems: 'center', padding: '0 24px', gap: 10, flexShrink: 0 }}>
@@ -167,15 +170,15 @@ export default function OrderWizard({ order, onClose, onMinimize, minimized = fa
         </div>
 
         {/* Step tab bar */}
-        <div style={{ borderBottom: '1px solid #f0f0ee', display: 'flex', flexShrink: 0, overflowX: 'auto', background: '#fff' }}>
+        <div style={{ borderBottom: '1px solid #f0f0ee', display: 'flex', flexShrink: 0, overflowX: 'hidden', background: '#fff' }}>
           {STEPS.map((s) => {
             const done   = stepDone(s.num)
             const active = step === s.num
             const locked = !orderId && s.num > 1
             return (
               <button key={s.num} onClick={() => !locked && setStep(s.num)} style={{
-                flex: '1 1 0', minWidth: 80, display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center', gap: 3, padding: '10px 6px',
+                flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', gap: 3, padding: '10px 2px',
                 background: 'transparent', border: 'none',
                 borderBottom: active ? '2px solid #0d0d0d' : '2px solid transparent',
                 cursor: locked ? 'default' : 'pointer', opacity: locked ? 0.35 : 1,
@@ -186,7 +189,7 @@ export default function OrderWizard({ order, onClose, onMinimize, minimized = fa
                     : <span style={{ fontSize: 9, fontWeight: 700, color: active ? '#fff' : '#aaa' }}>{s.num}</span>
                   }
                 </div>
-                <span style={{ fontSize: 10, fontWeight: active ? 700 : 400, color: done ? '#16a34a' : active ? '#0d0d0d' : '#9ca3af', whiteSpace: 'nowrap', lineHeight: 1.2 }}>{s.label}</span>
+                <span style={{ fontSize: 10, fontWeight: active ? 700 : 400, color: done ? '#16a34a' : active ? '#0d0d0d' : '#9ca3af', whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.2 }}>{s.label}</span>
                 <span style={{ fontSize: 9, color: s.required ? '#d1d5db' : '#c4b5fd', lineHeight: 1 }}>{s.required ? 'req' : 'opt'}</span>
               </button>
             )
@@ -203,7 +206,7 @@ export default function OrderWizard({ order, onClose, onMinimize, minimized = fa
                 onSaved={handleSaved}
                 registerSave={makeRegisterSave(parseInt(num))}
                 setStep={setStep}
-                {...(parseInt(num) === 10 ? {registerCopyAction} : {})}
+                {...(parseInt(num) === 11 ? {registerCopyAction} : {})}
               />
             </div>
           ))}
@@ -215,7 +218,7 @@ export default function OrderWizard({ order, onClose, onMinimize, minimized = fa
             <ChevronLeft size={13} /> Back
           </button>
 
-          {step === 10 && orderId && (
+          {step === 11 && orderId && (
             <button className="btn btn-secondary btn-sm" onClick={() => copyActionRef.current?.()} style={{display:'flex',alignItems:'center',gap:6}}>
               <Copy size={13} /> Copy to Style Orders
             </button>
@@ -246,10 +249,10 @@ export default function OrderWizard({ order, onClose, onMinimize, minimized = fa
             </label>
           )}
 
-          <span style={{ fontSize: 11, color: '#9ca3af', minWidth: 50, textAlign: 'center' }}>Step {step} of 10</span>
+          <span style={{ fontSize: 11, color: '#9ca3af', minWidth: 50, textAlign: 'center' }}>Step {step} of 11</span>
 
             {/* Save & Continue / Done */}
-          {step < 10 ? (
+          {step < 11 ? (
             <button
               className="btn btn-primary btn-sm"
               onClick={saveAndContinue}
