@@ -159,18 +159,18 @@ export default function CustomReportBuilder(){
    // SheetJS Community Edition does not write cell styles. Patch the OOXML package
    // to add one fill and one cell style, without modifying the underlying data.
    const hex=(/^#[0-9a-f]{6}$/i.test(groupColor)?groupColor:'#e0f2fe').slice(1).toUpperCase()
-   const fillMatch=styleXml.match(/<fills\\b[^>]*count="(\\d+)"[^>]*>/)
-   const xfMatch=styleXml.match(/<cellXfs\\b[^>]*count="(\\d+)"[^>]*>/)
+   const fillMatch=styleXml.match(/<fills\b[^>]*count="(\d+)"[^>]*>/)
+   const xfMatch=styleXml.match(/<cellXfs\b[^>]*count="(\d+)"[^>]*>/)
    if(!fillMatch||!xfMatch)throw new Error('Excel workbook style metadata unavailable')
    const fillId=Number(fillMatch[1]),styleId=Number(xfMatch[1])
-   styleXml=styleXml.replace(fillMatch[0],fillMatch[0].replace(/count="\\d+"/,`count="${fillId+1}"`))
+   styleXml=styleXml.replace(fillMatch[0],fillMatch[0].replace(/count="\d+"/,`count="${fillId+1}"`))
    styleXml=styleXml.replace('</fills>',`<fill><patternFill patternType="solid"><fgColor rgb="FF${hex}"/><bgColor indexed="64"/></patternFill></fill></fills>`)
-   styleXml=styleXml.replace(xfMatch[0],xfMatch[0].replace(/count="\\d+"/,`count="${styleId+1}"`))
+   styleXml=styleXml.replace(xfMatch[0],xfMatch[0].replace(/count="\d+"/,`count="${styleId+1}"`))
    styleXml=styleXml.replace('</cellXfs>',`<xf numFmtId="0" fontId="0" fillId="${fillId}" borderId="0" xfId="0" applyFill="1"/></cellXfs>`)
    const highlightRows=new Set(preview.rows.flatMap((row,i)=>isGroupStart(preview.rows,i,groups)?[i+2]:[]))
-   sheetXml=sheetXml.replace(/<row\\b[^>]*\\br="(\\d+)"[^>]*>[\\s\\S]*?<\\/row>/g,(xml,num)=>{
+   sheetXml=sheetXml.replace(/<row\b[^>]*\br="(\d+)"[^>]*>[\s\S]*?<\/row>/g,(xml,num)=>{
     if(!highlightRows.has(Number(num)))return xml
-    return xml.replace(/<c\\b([^>]*?)(\\/?>)/g,(tag,attrs,ending)=>'<c'+( /\\bs="\\d+"/.test(attrs)?attrs.replace(/\\bs="\\d+"/,` s="${styleId}"`):attrs+` s="${styleId}"`)+ending)
+    return xml.replace(/<c\b([^>]*?)(\/?>)/g,(tag,attrs,ending)=>'<c'+( /\bs="\d+"/.test(attrs)?attrs.replace(/\bs="\d+"/,` s="${styleId}"`):attrs+` s="${styleId}"`)+ending)
    })
    zip.file(styleFile,styleXml);zip.file(sheetFile,sheetXml)
    const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE'})
