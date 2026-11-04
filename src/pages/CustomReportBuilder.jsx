@@ -1,12 +1,14 @@
 import React,{useEffect,useMemo,useState} from 'react'
 import * as XLSX from 'xlsx'
 import {useNavigate} from 'react-router-dom'
-import {ArrowLeft,Plus,Eye,FileSpreadsheet,Printer,Search,RefreshCw} from 'lucide-react'
+import {ArrowLeft,Plus,Eye,FileSpreadsheet,Printer,Search,RefreshCw,Save,Trash2,ChevronLeft,ChevronRight} from 'lucide-react'
 import {supabase} from '../lib/supabase'
 import {printHTML} from '../components/PrintReports'
 
 const FIELDS=[['style_number','Style #'],['picture','Picture'],['buyer_name','Buyer'],['job_number','Job #'],['po_number','PO #'],['store_name','Store'],['description','Description'],['wash','Wash / Colour'],['size_group','Size Group'],['size','Size Breakdown'],['qty','Quantity'],['unit_price','Unit Price'],['value','Value'],['status','Status'],['ship_date','Ship Date']]
 const INITIAL=['style_number','wash','size_group','size','qty']
+const TEMPLATE_KEY='nizamia_custom_report_templates_v1'
+const readTemplates=()=>{try{const v=JSON.parse(localStorage.getItem(TEMPLATE_KEY)||'[]');return Array.isArray(v)?v:[]}catch{return []}}
 const box={border:'1px solid #dce0e8',borderRadius:8,padding:'9px 11px',background:'#fff',fontSize:12}
 const action={...box,cursor:'pointer',display:'inline-flex',alignItems:'center',gap:7,fontWeight:650}
 const esc=x=>String(x??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
@@ -50,10 +52,35 @@ export default function CustomReportBuilder(){
  const [loading,setLoading]=useState(false)
  const [error,setError]=useState('')
  const [refresh,setRefresh]=useState(0)
+ const [templates,setTemplates]=useState(readTemplates)
+ const [selectedTemplate,setSelectedTemplate]=useState('')
+ const [notice,setNotice]=useState('')
  useEffect(()=>{let live=true;(async()=>{try{const list=await fetchAll('orders','id,buyer_name,style_number,job_number,po_number,store_name,description,style_image_url,style_image_base64,status,ship_date,total_qty');if(live)setOrders(list)}catch(e){if(live)setError(e.message)}})();return()=>{live=false}},[refresh])
  const buyers=useMemo(()=>[...new Set(orders.map(o=>o.buyer_name).filter(Boolean))].sort(),[orders])
  const available=useMemo(()=>[...new Set(orders.filter(o=>buyer==='All'||o.buyer_name===buyer).map(o=>o.style_number).filter(Boolean))].sort(),[orders,buyer])
  const filteredOrders=useMemo(()=>orders.filter(o=>(buyer==='All'||o.buyer_name===buyer)&&(!styles.length||styles.includes(o.style_number))&&(status==='All'||o.status===status)&&(!search||[o.style_number,o.po_number,o.description,o.job_number,o.store_name].some(x=>String(x||'').toLowerCase().includes(search.toLowerCase())))),[orders,buyer,styles,status,search])
+ const saveTemplate=()=>{
+  const title=name.trim();if(!title){setError('Enter a report name before saving.');return}
+  const id=selectedTemplate||`template-${Date.now()}`
+  const template={id,name:title,buyer,styles:[...styles],fields:[...fields],groups:[...groups],sortBy,descending,search,status,updatedAt:new Date().toISOString()}
+  const next=[...templates.filter(t=>t.id!==id),template].sort((a,b)=>a.name.localeCompare(b.name))
+  try{localStorage.setItem(TEMPLATE_KEY,JSON.stringify(next));setTemplates(next);setSelectedTemplate(id);setNotice(`Saved template: ${title}`);setError('')}catch{setError('Unable to save template in this browser. Check browser storage settings.')}
+ }
+ const loadTemplate=id=>{
+  const t=templates.find(x=>x.id===id);setSelectedTemplate(id);if(!t)return
+  setName(t.name||'Custom Report');setBuyer(t.buyer||'All');setStyles(Array.isArray(t.styles)?t.styles:[]);setFields(Array.isArray(t.fields)?t.fields:INITIAL);setGroups(Array.isArray(t.groups)?t.groups:[]);setSortBy(t.sortBy||'style_number');setDescending(!!t.descending);setSearch(t.search||'');setStatus(t.status||'All');setPreview(null);setError('');setNotice(`Loaded template: ${t.name}`)
+ }
+ const deleteTemplate=()=>{
+  if(!selectedTemplate)return
+  if(!window.confirm('Delete this saved report template?'))return
+  const next=templates.filter(t=>t.id!==selectedTemplate)
+  try{localStorage.setItem(TEMPLATE_KEY,JSON.stringify(next));setTemplates(next);setSelectedTemplate('');setNotice('Template deleted.')}catch{setError('Unable to delete template from browser storage.')}
+ }
+ const moveColumn=(index,step)=>{
+  const next=[...fields],target=index+step;if(target<0||target>=next.length)return
+  ;[next[index],next[target]]=[next[target],next[index]];setFields(next)
+  // Existing preview rows contain the same field data, so no new database query is necessary.
+ }
  const toggle=(v,arr,set)=>{set(arr.includes(v)?arr.filter(x=>x!==v):[...arr,v]);setPreview(null)}
  const generate=async()=>{
   setLoading(true);setError('');setPreview(null)
@@ -96,8 +123,10 @@ export default function CustomReportBuilder(){
  return <div style={{height:'100%',overflow:'auto',padding:'20px 28px',background:'#f8f9fb',fontFamily:'var(--font,Arial,sans-serif)',color:'#202633'}}>
   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',marginBottom:17}}>
    <div style={{display:'flex',alignItems:'center',gap:12}}><button style={action} onClick={()=>navigate('/reports')}><ArrowLeft size={15}/> Reports</button><div><div style={{fontSize:21,fontWeight:750}}>Custom Report Builder</div><div style={{fontSize:12,color:'#64748b'}}>Orders & PO size matrix · Preview on demand</div></div></div>
-   <div style={{display:'flex',gap:8}}><button style={action} onClick={()=>setRefresh(x=>x+1)}><RefreshCw size={14}/> Refresh</button><button style={{...action,background:'#141b2e',color:'#fff'}} disabled={loading} onClick={generate}><Eye size={15}/>{loading?'Generating…':'Preview Report'}</button></div>
+   <div style={{display:'flex',gap:8}}><button style={action} onClick={saveTemplate}><Save size={14}/> Save Template</button><button style={action} onClick={()=>setRefresh(x=>x+1)}><RefreshCw size={14}/> Refresh</button><button style={{...action,background:'#141b2e',color:'#fff'}} disabled={loading} onClick={generate}><Eye size={15}/>{loading?'Generating…':'Preview Report'}</button></div>
   </div>
+  <div style={{background:'#fff',border:'1px solid #e4e7ec',borderRadius:10,padding:12,marginBottom:12,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}><strong style={{fontSize:12}}>Saved Templates</strong><select aria-label="Saved report templates" style={{...box,minWidth:240}} value={selectedTemplate} onChange={e=>e.target.value?loadTemplate(e.target.value):setSelectedTemplate('')}><option value="">Select a saved template…</option>{templates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select><button style={action} onClick={()=>{setSelectedTemplate('');setNotice('New template: adjust your report and click Save Template.')}}>Save as New</button><button style={action} disabled={!selectedTemplate} onClick={deleteTemplate}><Trash2 size={13}/> Delete</button><span style={{fontSize:11,color:'#64748b'}}>Saved in this browser only</span></div>
+  {notice&&<div role="status" style={{fontSize:12,color:'#047857',marginBottom:9}}>{notice}</div>}
   <div style={{background:'#fff',border:'1px solid #e4e7ec',borderRadius:10,padding:16,marginBottom:12}}>
    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(185px,1fr))',gap:12}}>
     <label style={{fontSize:12,fontWeight:700}}>Report Name<input style={{...box,width:'100%',marginTop:6,boxSizing:'border-box'}} value={name} onChange={e=>setName(e.target.value)}/></label>
@@ -116,6 +145,8 @@ export default function CustomReportBuilder(){
    <section style={{background:'#fff',border:'1px solid #e4e7ec',borderRadius:10,padding:14}}>
     <div style={{fontSize:13,fontWeight:750,marginBottom:9}}>Report Columns <span style={{fontWeight:400,color:'#64748b'}}>· Choose fields to display</span></div>
     <div style={{display:'flex',gap:7,flexWrap:'wrap',marginBottom:14}}>{FIELDS.map(([key,label])=><label key={key} style={{...box,padding:'6px 9px',display:'flex',gap:6,alignItems:'center',background:fields.includes(key)?'#eff6ff':'#fff',cursor:'pointer'}}><input type="checkbox" checked={fields.includes(key)} onChange={()=>toggle(key,fields,setFields)}/>{label}</label>)}</div>
+    <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>Column Order <span style={{fontWeight:400,color:'#64748b'}}>· Use arrows to move columns; preview and exports follow this order</span></div>
+    <div style={{display:'flex',flexWrap:'wrap',gap:7,marginBottom:15}}>{fields.map((key,i)=><div key={key} style={{...box,padding:'5px 6px',display:'flex',alignItems:'center',gap:5,background:'#f8fafc'}}><span style={{fontSize:11,fontWeight:650}}>{i+1}. {FIELDS.find(f=>f[0]===key)?.[1]||key}</span><button title="Move column left" aria-label={`Move ${key} left`} disabled={i===0} style={{border:0,background:'transparent',cursor:i===0?'default':'pointer',padding:2}} onClick={()=>moveColumn(i,-1)}><ChevronLeft size={15}/></button><button title="Move column right" aria-label={`Move ${key} right`} disabled={i===fields.length-1} style={{border:0,background:'transparent',cursor:i===fields.length-1?'default':'pointer',padding:2}} onClick={()=>moveColumn(i,1)}><ChevronRight size={15}/></button></div>)}</div>
     <div style={{fontSize:13,fontWeight:750,marginBottom:8}}>Group By <span style={{fontWeight:400,color:'#64748b'}}>· Select dimensions</span></div>
     <div style={{display:'flex',gap:7,flexWrap:'wrap',marginBottom:14}}>{FIELDS.filter(([k])=>!['qty','value','unit_price','picture'].includes(k)).map(([key,label])=><label key={key} style={{...box,padding:'6px 9px',display:'flex',gap:6,alignItems:'center'}}><input type="checkbox" checked={groups.includes(key)} onChange={()=>toggle(key,groups,setGroups)}/>{label}</label>)}</div>
     <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'center'}}><label style={{fontSize:12,fontWeight:650}}>Sort by <select style={box} value={sortBy} onChange={e=>{setSortBy(e.target.value);setPreview(null)}}>{FIELDS.map(([k,l])=><option value={k} key={k}>{l}</option>)}</select></label><label style={{fontSize:12}}><input type="checkbox" checked={descending} onChange={e=>{setDescending(e.target.checked);setPreview(null)}}/> Descending</label><span style={{fontSize:11,color:'#64748b'}}>Changes require a new preview.</span></div>
