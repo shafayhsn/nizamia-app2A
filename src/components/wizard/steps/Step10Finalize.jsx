@@ -93,6 +93,7 @@ export default function Step10Finalize({ orderId, orderData, onSaved, setStep, r
     { num: 7, label: 'Embellishment', done: !!order.step_embellishment, required: false },
     { num: 8, label: 'Finishing',     done: !!order.step_finishing, required: false },
     { num: 9, label: 'Processes',     done: !!order.step_processes, required: false },
+    { num: 10, label: 'Testing',      done: !!order.step_testing, required: false },
   ]
 
   const requiredDone  = steps.filter(s => s.required).every(s => s.done)
