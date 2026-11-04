@@ -19,6 +19,8 @@ export const BACKUP_TABLES = [
   'orders',
   'order_queues',
   'order_processes',
+  'testing_orders',
+  'testing_requirements',
 
   // Size & Library
   'size_groups',
@@ -96,7 +98,7 @@ const BATCH_SIZE = 500
  */
 const PAGE_SIZE = 500
 export const BACKUP_STORAGE_BUCKETS = ['company-assets']
-const PROTECTED_BACKUP_TABLES = new Set(['buyer_addresses','buyer_contacts','parcel_invoice_snapshots'])
+const PROTECTED_BACKUP_TABLES = new Set(['buyer_addresses','buyer_contacts','parcel_invoice_snapshots','testing_orders','testing_requirements'])
 
 /** Fail closed: a missing or inaccessible table must never be recorded as empty. */
 async function fetchTable(tableName) {
