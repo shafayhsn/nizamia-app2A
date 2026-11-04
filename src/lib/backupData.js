@@ -19,6 +19,8 @@ export const BACKUP_TABLES = [
   'orders',
   'order_queues',
   'order_processes',
+  'testing_orders',
+  'testing_requirements',
 
   // Size & Library
   'size_groups',
@@ -96,7 +98,7 @@ const BATCH_SIZE = 500
  */
 const PAGE_SIZE = 500
 export const BACKUP_STORAGE_BUCKETS = ['company-assets']
-const PROTECTED_BACKUP_TABLES = new Set(['buyer_addresses','buyer_contacts','parcel_invoice_snapshots'])
+const PROTECTED_BACKUP_TABLES = new Set(['buyer_addresses','buyer_contacts','parcel_invoice_snapshots','testing_orders','testing_requirements'])
 
 /** Fail closed: a missing or inaccessible table must never be recorded as empty. */
 async function fetchTable(tableName) {
@@ -201,7 +203,15 @@ export function validateBackupPayload(payload) {
   }
 }
 
+
+async function protectedRestore(table, phase, rows = []) {
+  const response = await fetch('/api/oms', {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'restoreProtected',table,phase,rows})})
+  const result = await response.json()
+  if (!response.ok) throw new Error(result.error || 'Protected restore failed for '+table)
+}
+
 async function clearTable(tableName) {
+  if (PROTECTED_BACKUP_TABLES.has(tableName)) return protectedRestore(tableName, 'clear')
   // Supabase requires a filter for delete. All App-2A tables use UUID id.
   const { error } = await supabase.from(tableName).delete().neq('id', ZERO_UUID)
   if (error) throw new Error(`Clear failed for ${tableName}: ${error.message}`)
@@ -209,6 +219,10 @@ async function clearTable(tableName) {
 
 async function insertRows(tableName, rows = []) {
   if (!Array.isArray(rows) || rows.length === 0) return
+  if (PROTECTED_BACKUP_TABLES.has(tableName)) {
+    for (let i=0;i<rows.length;i+=BATCH_SIZE) await protectedRestore(tableName,'insert',rows.slice(i,i+BATCH_SIZE))
+    return
+  }
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE)
     const { error } = await supabase.from(tableName).insert(batch)
