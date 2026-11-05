@@ -58,6 +58,7 @@ export default async function handler(req,res){
      {table:'orders',category:'Orders',fields:'id,job_number,style_number,po_number,buyer_name,description',match:['job_number','style_number','po_number','buyer_name','description'],ref:'job_number',label:'style_number',path:'/orders'},
      {table:'samples',category:'Sampling',fields:'id,sample_number,order_id',match:['sample_number'],ref:'sample_number',label:'sample_number',path:'/sampling'},
      {table:'purchase_orders',category:'Purchasing',fields:'id,po_number,order_id,status',match:['po_number'],ref:'po_number',label:'status',path:'/purchasing'},
+     {table:'suppliers',category:'Suppliers',fields:'id,name,category,contact_person,email,phone,notes',match:['name','category','contact_person','email','phone','notes'],ref:'name',label:'category',path:'/suppliers'},
      {table:'parcels',category:'Parcels',fields:'id,tracking_no,courier,notes',match:['tracking_no','courier','notes'],ref:'tracking_no',label:'courier',path:'/parcels'},
      {table:'sample_comments',category:'Sampling comments',fields:'id,sam_number,comment_text,root_sample_id',match:['sam_number','comment_text'],ref:'sam_number',label:'comment_text',path:'/sampling'}
    ]
@@ -68,7 +69,7 @@ export default async function handler(req,res){
      if(permError)return err(res,500,'Search permissions unavailable')
      const permitted=new Set((permissions||[]).filter(p=>p.can_view).map(p=>p.module))
      const legacy=user.role==='merchandiser'&&!user.role_id
-     for(const src of sources){const mod=src.category==='Orders'?'orders':src.category==='Purchasing'?'purchasing':src.category==='Parcels'?'parcels':'sampling';if(permitted.has(mod)||legacy)allowed.add(src.category)}
+     for(const src of sources){const mod=src.category==='Orders'?'orders':src.category==='Purchasing'?'purchasing':src.category==='Suppliers'?'suppliers':src.category==='Parcels'?'parcels':'sampling';if(permitted.has(mod)||legacy)allowed.add(src.category)}
    }
    const out=await Promise.all(sources.filter(src=>allowed.has(src.category)).map(async src=>{
      const query=db.from(src.table).select(src.fields).or(src.match.map(f=>f+'.ilike.'+like).join(',')).limit(12)
