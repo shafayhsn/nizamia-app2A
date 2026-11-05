@@ -343,7 +343,7 @@ export default function SamplingApprovals() {
     const target=globalLocation.state?.globalSearch
     if(!target||!samples.length||handledGlobalSearch.current===globalLocation.key)return
     const found=samples.find(x=>String(x.id)===String(target.id)||String(x.id)===String(target.rootSampleId))
-    if(found){setViewTab('active');setQuery('');setMetadataSample(found)}
+    if(found){setViewTab('active');setQuery('');if(target.documentType==='sampling-program')printSampleProgram(found).catch(e=>console.error('Sampling PDF failed',e));else setMetadataSample(found)}
     handledGlobalSearch.current=globalLocation.key
   },[globalLocation.key,samples])
 
