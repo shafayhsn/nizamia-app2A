@@ -48,6 +48,27 @@ export default async function handler(req,res){
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
  if(action==='session')return res.json({ok:true})
+ if(action==='globalSearch'&&req.method==='GET'){
+   const q=String(req.query.q||'').trim().slice(0,100)
+   if(q.length<2)return res.json({results:[]})
+   const safe=q.replace(/[%,()]/g,' ').trim()
+   if(!safe)return res.json({results:[]})
+   const like='%'+safe+'%'
+   const sources=[
+     {table:'orders',category:'Orders',fields:'id,job_number,style_number,po_number,buyer_name,description',match:['job_number','style_number','po_number','buyer_name','description'],ref:'job_number',label:'style_number',path:'/orders'},
+     {table:'samples',category:'Sampling',fields:'id,sample_number,order_id',match:['sample_number'],ref:'sample_number',label:'sample_number',path:'/sampling'},
+     {table:'purchase_orders',category:'Purchasing',fields:'id,po_number,order_id,status',match:['po_number'],ref:'po_number',label:'status',path:'/purchasing'},
+     {table:'parcels',category:'Parcels',fields:'id,tracking_no,courier,notes',match:['tracking_no','courier','notes'],ref:'tracking_no',label:'courier',path:'/parcels'},
+     {table:'sample_comments',category:'Sampling comments',fields:'id,sam_number,comment_text,root_sample_id',match:['sam_number','comment_text'],ref:'sam_number',label:'comment_text',path:'/sampling'}
+   ]
+   const out=await Promise.all(sources.map(async src=>{
+     const query=db.from(src.table).select(src.fields).or(src.match.map(f=>f+'.ilike.'+like).join(',')).limit(12)
+     const {data,error}=await query
+     if(error)return {category:src.category,error:true,items:[]}
+     return {category:src.category,items:(data||[]).map(row=>({id:row.id,reference:String(row[src.ref]||''),detail:String(row[src.label]||'').slice(0,160),path:src.path,orderId:row.order_id||null,score:String(row[src.ref]||'').toLowerCase()===q.toLowerCase()?0:1}))}
+   }))
+   return res.json({results:out.flatMap(x=>x.items.map(item=>({...item,category:x.category}))).sort((a,b)=>a.score-b.score).slice(0,35),partial:out.some(x=>x.error)})
+ }
  if(action==='ppmList'&&req.method==='GET'){
    const orderId=String(req.query.orderId||'')
    let q=db.from('pp_meetings').select('*').order('created_at',{ascending:false}).limit(200)
