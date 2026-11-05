@@ -1,5 +1,5 @@
 import { useLocation } from 'react-router-dom'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
 import { useAppDialogs } from '../components/ui/AppDialogs'
