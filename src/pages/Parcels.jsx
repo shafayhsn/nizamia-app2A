@@ -230,12 +230,13 @@ export default function Parcels() {
   const [creating, setCreating] = useState(false)
   const [active, setActive] = useState(null)
   const globalLocation = useLocation()
+  const handledGlobalSearch = useRef(null)
   useEffect(()=>{
     const target=globalLocation.state?.globalSearch
-    if(!target||!parcels.length)return
+    if(!target||!parcels.length||handledGlobalSearch.current===globalLocation.key)return
     const found=parcels.find(x=>String(x.id)===String(target.id))
     if(found){setTab(found.status==='Draft'?'ready':'dispatched');setSearch('');setActive(found.id);openHistory(found.id)}
-    window.history.replaceState({...window.history.state,usr:null},'')
+    handledGlobalSearch.current=globalLocation.key
   },[globalLocation.key,parcels])
 
   const [tab, setTab] = useState('ready')
