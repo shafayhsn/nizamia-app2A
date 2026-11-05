@@ -11,6 +11,7 @@ import {TimeConverter,CurrencyConverter} from './TopbarConverters'
 import {SHORTCUT_CATALOG,DEFAULT_SHORTCUTS,TOPBAR_SHORTCUTS_KEY} from '../../lib/topbarShortcuts'
 import {loadSetting} from '../../lib/settingsStore'
 import {can} from '../../lib/permissions'
+import GlobalSearch from './GlobalSearch'
 
 function useSyncStatus() {
   const [snapshot, setSnapshot] = useState(syncSnapshot)
@@ -259,6 +260,7 @@ export default function Topbar({onOpenDeadlines}) {
       </div>
 
       <div style={{flex:1}} />
+      <GlobalSearch />
       <div style={{position:'relative',marginRight:6}}>
         <button onClick={()=>setSyncOpen(v=>!v)} aria-expanded={syncOpen} aria-label="Database sync status" style={{display:'flex',alignItems:'center',gap:5,padding:'3px 8px',borderRadius:6,background:syncConfig.bg,border:'none',cursor:'pointer'}}>
           <syncConfig.icon size={13} color={syncConfig.color} style={syncStatus==='syncing'?{animation:'spin 1s linear infinite'}:{}}/>
