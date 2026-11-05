@@ -16,7 +16,7 @@ const session=async req=>{
  if(mac.length!==expected.length||!timingSafeEqual(Buffer.from(mac),Buffer.from(expected)))return null
  let info;try{info=JSON.parse(Buffer.from(payload,'base64url').toString())}catch{return null}
  if(!info.id||!info.exp||Date.now()>info.exp)return null
- const {data,error}=await db.from('users').select('id,role,is_active,is_restricted').eq('id',info.id).maybeSingle()
+ const {data,error}=await db.from('users').select('id,role,role_id,is_active,is_restricted').eq('id',info.id).maybeSingle()
  if(error||!data||data.is_active===false||data.is_restricted===true)return null
  return data
 }
@@ -48,6 +48,69 @@ export default async function handler(req,res){
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
  if(action==='session')return res.json({ok:true})
+ if(action==='globalSearch'&&req.method==='GET'){
+   const q=String(req.query.q||'').trim().slice(0,100)
+   if(q.length<2)return res.json({results:[]})
+   const safe=q.replace(/[%,()]/g,' ').trim()
+   if(!safe)return res.json({results:[]})
+   const like='%'+safe+'%'
+   const sources=[
+     {table:'orders',category:'Orders',module:'orders',fields:'id,job_number,style_number,po_number,buyer_name,description,factory_ref,brand_name,store_name,notes',match:["job_number","style_number","po_number","buyer_name","description","factory_ref","brand_name","store_name","notes"],ref:'job_number',label:'style_number',path:'/orders'},
+     {table:'jobs',category:'Jobs',module:'orders',fields:'id,job_number,season,notes',match:["job_number","season","notes"],ref:'job_number',label:'season',path:'/orders'},
+     {table:'order_queues',category:'Order queues',module:'orders',fields:'id,q_number,label,color_name,notes,order_id',match:["q_number","label","color_name","notes"],ref:'q_number',label:'label',path:'/orders'},
+     {table:'buyers',category:'Buyers',module:'buyers',fields:'id,name,contact_person,email,phone,country,notes',match:["name","contact_person","email","phone","country","notes"],ref:'name',label:'contact_person',path:'/buyers'},
+     {table:'buyer_contacts',category:'Buyer contacts',module:'buyers',fields:'id,buyer_id,name,designation,department,email,phone',match:["name","designation","department","email","phone"],ref:'name',label:'designation',path:'/buyers'},
+     {table:'buyer_addresses',category:'Buyer addresses',module:'buyers',fields:'id,buyer_id,label,recipient,address_line1,city,country',match:["label","recipient","address_line1","city","country"],ref:'label',label:'city',path:'/buyers'},
+     {table:'suppliers',category:'Suppliers',module:'suppliers',fields:'id,name,category,contact_person,email,phone,notes',match:["name","category","contact_person","email","phone","notes"],ref:'name',label:'category',path:'/suppliers'},
+     {table:'samples',category:'Sampling',module:'sampling',fields:'id,sample_number,order_id',match:["sample_number"],ref:'sample_number',label:'sample_number',path:'/sampling'},
+     {table:'sample_comments',category:'Sampling comments',module:'sampling',fields:'id,sam_number,comment_text,root_sample_id',match:["sam_number","comment_text"],ref:'sam_number',label:'comment_text',path:'/sampling'},
+     {table:'sample_logs',category:'Sampling history',module:'sampling',fields:'id,sam_number,event_type,notes,root_sample_id',match:["sam_number","event_type","notes"],ref:'sam_number',label:'event_type',path:'/sampling'},
+     {table:'purchase_orders',category:'Purchasing',module:'purchasing',fields:'id,po_number,order_id,status',match:["po_number"],ref:'po_number',label:'status',path:'/purchasing'},
+     {table:'purchase_order_items',category:'PO line items',module:'purchasing',fields:'id,po_id,description,specification',match:["description","specification"],ref:'description',label:'specification',path:'/purchasing'},
+     {table:'work_orders',category:'Work orders',module:'purchasing',fields:'id,wo_number,order_id,factory_ref,notes',match:["wo_number","factory_ref","notes"],ref:'wo_number',label:'factory_ref',path:'/purchasing'},
+     {table:'work_order_items',category:'Work order items',module:'purchasing',fields:'id,wo_id,process_name,dept_info',match:["process_name","dept_info"],ref:'process_name',label:'dept_info',path:'/purchasing'},
+     {table:'testing_orders',category:'Testing orders',module:'purchasing',fields:'id,order_number,notes',match:["order_number","notes"],ref:'order_number',label:'notes',path:'/purchasing'},
+     {table:'testing_requirements',category:'Testing requirements',module:'purchasing',fields:'id,order_id,item_name,specification,test_name',match:["item_name","specification","test_name"],ref:'item_name',label:'test_name',path:'/purchasing'},
+     {table:'bom_items',category:'BOM materials',module:'orders',fields:'id,order_id,name,category,specification,notes',match:["name","category","specification","notes"],ref:'name',label:'specification',path:'/orders'},
+     {table:'washing',category:'Washing',module:'orders',fields:'id,order_id,color_name,wash_type,wash_ref,notes',match:["color_name","wash_type","wash_ref","notes"],ref:'wash_ref',label:'wash_type',path:'/orders'},
+     {table:'embellishments',category:'Embellishments',module:'orders',fields:'id,order_id,description,technique,placement,artwork_ref,notes',match:["description","technique","placement","artwork_ref","notes"],ref:'artwork_ref',label:'description',path:'/orders'},
+     {table:'fitting_blocks',category:'Fitting blocks',module:'orders',fields:'id,order_id,block_name,spec_code',match:["block_name","spec_code"],ref:'spec_code',label:'block_name',path:'/orders'},
+     {table:'order_processes',category:'Order processes',module:'orders',fields:'id,order_id,process_name',match:["process_name"],ref:'process_name',label:'process_name',path:'/orders'},
+     {table:'finishing_packs',category:'Packing',module:'orders',fields:'id,order_id,pack_name,pack_type',match:["pack_name","pack_type"],ref:'pack_name',label:'pack_type',path:'/orders'},
+     {table:'production_batches',category:'Production batches',module:'orders',fields:'id,name',match:["name"],ref:'name',label:'name',path:'/production'},
+     {table:'production_daily_entries',category:'Production entries',module:'orders',fields:'id,order_id,job_number,buyer_name,style_number,po_number,department,movement',match:["job_number","buyer_name","style_number","po_number","department","movement"],ref:'job_number',label:'department',path:'/production'},
+     {table:'shipping_bookings',category:'Bookings',module:'shipping',fields:'id,booking_no,status,notes',match:["booking_no","status","notes"],ref:'booking_no',label:'status',path:'/shipping'},
+     {table:'shipments',category:'Shipments',module:'shipping',fields:'id,shipment_no,container_no,booking_ref,gate_pass_no,delivery_challan_no,gd_no,hbl_hawb_no,fi_no,lc_no,notes',match:["shipment_no","container_no","booking_ref","gate_pass_no","delivery_challan_no","gd_no","hbl_hawb_no","fi_no","lc_no","notes"],ref:'shipment_no',label:'container_no',path:'/shipping'},
+     {table:'parcels',category:'Parcels',module:'parcels',fields:'id,tracking_no,courier,notes',match:["tracking_no","courier","notes"],ref:'tracking_no',label:'courier',path:'/parcels'},
+     {table:'app_tasks',category:'Tasks',module:'tasks',fields:'id,title,description,status,related_record',match:["title","description","status","related_record"],ref:'title',label:'description',path:'/tasks'},
+     {table:'app_task_comments',category:'Task comments',module:'tasks',fields:'id,task_id,body',match:["body"],ref:'body',label:'body',path:'/tasks'},
+     {table:'library_items',category:'Library items',module:'library',fields:'id,name,category,description,composition,colour,notes',match:["name","category","description","composition","colour","notes"],ref:'name',label:'category',path:'/library'},
+     {table:'bom_presets',category:'BOM presets',module:'library',fields:'id,name,description',match:["name","description"],ref:'name',label:'description',path:'/library'},
+     {table:'size_group_templates',category:'Size templates',module:'library',fields:'id,name,buyer_name',match:["name","buyer_name"],ref:'name',label:'buyer_name',path:'/library'},
+     {table:'pp_meetings',category:'PP meetings',module:'reports',fields:'id,order_id,ppm_number,status,decision',match:["ppm_number","status","decision"],ref:'ppm_number',label:'status',path:'/reports/pp-meeting'},
+     {table:'feature_certificates',category:'Certificates',module:'reports',fields:'id,certificate,certificate_number',match:["certificate","certificate_number"],ref:'certificate',label:'certificate_number',path:'/features'},
+     {table:'document_numbering',category:'Document numbering',module:'settings',fields:'id,doc_type,prefix,label,pattern',match:["doc_type","prefix","label","pattern"],ref:'label',label:'prefix',path:'/settings'},
+     {table:'uoms',category:'Units of measure',module:'settings',fields:'id,name,short_name,type',match:["name","short_name","type"],ref:'name',label:'short_name',path:'/settings'},
+     {table:'roles',category:'Roles',module:'settings',fields:'id,name',match:["name"],ref:'name',label:'name',path:'/settings/users'}
+   ]
+   const allowed=new Set();
+   if(String(user.role||'').toLowerCase()==='admin')sources.forEach(src=>allowed.add(src.category))
+   else {
+     const {data:permissions,error:permError}=user.role_id?await db.from('permissions').select('module,can_view').eq('role_id',user.role_id):{data:[],error:null}
+     if(permError)return err(res,500,'Search permissions unavailable')
+     const permitted=new Set((permissions||[]).filter(p=>p.can_view).map(p=>p.module))
+     const legacy=user.role==='merchandiser'&&!user.role_id
+     for(const src of sources){const mod=src.module;if(permitted.has(mod)||(legacy&&['orders','purchasing','buyers','suppliers','sampling','parcels','shipping','library','reports','tasks'].includes(mod)))allowed.add(src.category)}
+   }
+   const out=await Promise.all(sources.filter(src=>allowed.has(src.category)).map(async src=>{
+     const query=db.from(src.table).select(src.fields).or(src.match.map(f=>f+'.ilike.'+like).join(',')).limit(5)
+     const {data,error}=await query
+     if(error)return {category:src.category,error:true,items:[]}
+     return {category:src.category,module:src.module,items:(data||[]).map(row=>({id:row.id,reference:String(row[src.ref]||''),detail:String(row[src.label]||'').slice(0,160),path:src.path,orderId:row.order_id||null,taskId:row.task_id||null,buyerId:row.buyer_id||null,rootSampleId:row.root_sample_id||null,score:String(row[src.ref]||'').toLowerCase()===q.toLowerCase()?0:1}))}
+   }))
+   const results=out.flatMap(x=>x.items.flatMap(item=>x.category==='Sampling'?[{...item,category:x.category,module:x.module},{...item,module:x.module,category:'Sampling PDFs',documentType:'sampling-program',detail:'Generate and open sampling program PDF'}]:x.category==='Purchasing'?[{...item,category:x.category,module:x.module},{...item,module:x.module,category:'Purchase Order PDFs',documentType:'purchase-order',detail:'Generate and open supplier purchase order PDF'}]:[{...item,category:x.category,module:x.module}]))
+   return res.json({results:results.sort((a,b)=>a.score-b.score).slice(0,90),partial:out.some(x=>x.error)})
+ }
  if(action==='ppmList'&&req.method==='GET'){
    const orderId=String(req.query.orderId||'')
    let q=db.from('pp_meetings').select('*').order('created_at',{ascending:false}).limit(200)

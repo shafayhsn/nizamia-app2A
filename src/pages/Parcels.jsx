@@ -1,6 +1,7 @@
+import { useLocation } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import useManagedPopup from '../components/ui/useManagedPopup'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { statusBadgeStyle, statusDisplay } from '../lib/statusColors'
 import { loadSamplingStore } from '../lib/samplingStore'
@@ -228,6 +229,16 @@ export default function Parcels() {
   const [periodFilter,setPeriodFilter]=useState(()=>readPrefs().periodFilter||'All')
   const [creating, setCreating] = useState(false)
   const [active, setActive] = useState(null)
+  const globalLocation = useLocation()
+  const handledGlobalSearch = useRef(null)
+  useEffect(()=>{
+    const target=globalLocation.state?.globalSearch
+    if(!target||!parcels.length||handledGlobalSearch.current===globalLocation.key)return
+    const found=parcels.find(x=>String(x.id)===String(target.id))
+    if(found){setTab(found.status==='Draft'?'ready':'dispatched');setSearch('');setActive(found.id);openHistory(found.id)}
+    handledGlobalSearch.current=globalLocation.key
+  },[globalLocation.key,parcels])
+
   const [tab, setTab] = useState('ready')
   const [search, setSearch] = useState('')
   const [selectedSamples, setSelectedSamples] = useState([])

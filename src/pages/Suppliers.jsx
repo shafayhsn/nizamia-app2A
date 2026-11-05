@@ -1,5 +1,6 @@
 import MinimizableModal from '../components/ui/MinimizableModal'
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Plus, Edit2, Trash2, Truck, X, Download, RefreshCw, Settings2, Search } from 'lucide-react'
 import { useAppDialogs } from '../components/ui/AppDialogs'
@@ -61,6 +62,21 @@ export default function Suppliers() {
   const [showOptions, setShowOptions] = useState(false)
 
   useEffect(() => { load() }, [])
+  const globalLocation = useLocation()
+  const handledSearch = useRef(null)
+  useEffect(()=>{
+    const target=globalLocation.state?.globalSearch
+    if(!target||!suppliers.length||handledSearch.current===globalLocation.key)return
+    const found=suppliers.find(s=>String(s.id)===String(target.id))
+    if(!found)return
+    handledSearch.current=globalLocation.key
+    setTab('All')
+    setStatusFilter('all')
+    setSearch(found.name||'')
+    openEdit(found)
+  },[globalLocation.key,suppliers])
+
+
 
   async function load() {
     const [{ data: sups }, { data: pos }, { data: wos }] = await Promise.all([

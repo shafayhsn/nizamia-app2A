@@ -1,3 +1,4 @@
+import GlobalSearch from '../components/layout/GlobalSearch'
 import { formatDate as appFormatDate } from '../lib/utils'
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
@@ -234,6 +235,8 @@ export default function Dashboard() {
           Manage orders from tech-packs to shipment · SS26 Active Season
         </div>
       </div>
+
+      <div style={{display:'flex',justifyContent:'flex-end',marginBottom:12}}><GlobalSearch /></div>
 
       {/* Quick actions */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
