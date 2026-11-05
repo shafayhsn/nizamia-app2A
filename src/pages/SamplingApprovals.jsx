@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom'
 import React, { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
@@ -336,6 +337,15 @@ export default function SamplingApprovals() {
   const [revisionDue,setRevisionDue] = useState('')
   const [revisionSaving,setRevisionSaving] = useState(false)
   const [metadataSample,setMetadataSample]=useState(null)
+  const globalLocation = useLocation()
+  useEffect(()=>{
+    const target=globalLocation.state?.globalSearch
+    if(!target||!samples.length)return
+    const found=samples.find(x=>String(x.id)===String(target.id)||String(x.id)===String(target.rootSampleId))
+    if(found){setViewTab('active');setQuery('');setMetadataSample(found)}
+    window.history.replaceState({...window.history.state,usr:null},'')
+  },[globalLocation.key,samples])
+
   const initialTabSettings = useMemo(()=>{try{return JSON.parse(sessionStorage.getItem(SETTINGS_KEY)||'{}')}catch{return {}}},[])
   const initialFilters = {...TAB_DEFAULTS,...initialTabSettings.active}
   const [query, setQuery] = useState(() => initialFilters.query)
