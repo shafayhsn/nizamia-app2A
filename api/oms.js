@@ -62,7 +62,7 @@ export default async function handler(req,res){
      {table:'sample_comments',category:'Sampling comments',fields:'id,sam_number,comment_text,root_sample_id',match:['sam_number','comment_text'],ref:'sam_number',label:'comment_text',path:'/sampling'}
    ]
    const allowed=new Set();
-   if(user.role==='admin')sources.forEach(src=>allowed.add(src.category))
+   if(String(user.role||'').toLowerCase()==='admin')sources.forEach(src=>allowed.add(src.category))
    else {
      const {data:permissions,error:permError}=user.role_id?await db.from('permissions').select('module,can_view').eq('role_id',user.role_id):{data:[],error:null}
      if(permError)return err(res,500,'Search permissions unavailable')
@@ -74,7 +74,7 @@ export default async function handler(req,res){
      const query=db.from(src.table).select(src.fields).or(src.match.map(f=>f+'.ilike.'+like).join(',')).limit(12)
      const {data,error}=await query
      if(error)return {category:src.category,error:true,items:[]}
-     return {category:src.category,items:(data||[]).map(row=>({id:row.id,reference:String(row[src.ref]||''),detail:String(row[src.label]||'').slice(0,160),path:src.path,orderId:row.order_id||null,score:String(row[src.ref]||'').toLowerCase()===q.toLowerCase()?0:1}))}
+     return {category:src.category,items:(data||[]).map(row=>({id:row.id,reference:String(row[src.ref]||''),detail:String(row[src.label]||'').slice(0,160),path:src.path,orderId:row.order_id||null,rootSampleId:row.root_sample_id||null,score:String(row[src.ref]||'').toLowerCase()===q.toLowerCase()?0:1}))}
    }))
    return res.json({results:out.flatMap(x=>x.items.map(item=>({...item,category:x.category}))).sort((a,b)=>a.score-b.score).slice(0,35),partial:out.some(x=>x.error)})
  }
