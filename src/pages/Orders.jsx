@@ -4090,12 +4090,13 @@ export default function Orders() {
   const [showBulkEdit, setShowBulkEdit] = useState(false)
   const [metadataOrder, setMetadataOrder] = useState(null)
   const globalLocation = useLocation()
+  const handledGlobalSearch = useRef(null)
   useEffect(()=>{
     const target=globalLocation.state?.globalSearch
-    if(!target||!orders.length)return
+    if(!target||!orders.length||handledGlobalSearch.current===globalLocation.key)return
     const found=orders.find(o=>String(o.id)===String(target.id))
     if(found){setTab('orders');setSearch('');setFilterBuyer([]);setFilterStatus([]);setFilterBatches([]);setMetadataOrder(found)}
-    window.history.replaceState({...window.history.state,usr:null},'')
+    handledGlobalSearch.current=globalLocation.key
   },[globalLocation.key,orders])
 
   const [visibleColumns, setVisibleColumns] = useState(() => {
