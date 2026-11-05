@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom'
 import { buildOrderCuttingPlanHTML } from '../lib/orderCuttingPlanPrint.js'
 import { Minus } from 'lucide-react'
 import { useWindowManager } from '../components/ui/WindowManager'
@@ -4088,6 +4089,15 @@ export default function Orders() {
   const [newOrderMenu, setNewOrderMenu] = useState(false)
   const [showBulkEdit, setShowBulkEdit] = useState(false)
   const [metadataOrder, setMetadataOrder] = useState(null)
+  const globalLocation = useLocation()
+  useEffect(()=>{
+    const target=globalLocation.state?.globalSearch
+    if(!target||!orders.length)return
+    const found=orders.find(o=>String(o.id)===String(target.id))
+    if(found){setTab('orders');setSearch('');setFilterBuyer([]);setFilterStatus([]);setFilterBatches([]);setMetadataOrder(found)}
+    window.history.replaceState({...window.history.state,usr:null},'')
+  },[globalLocation.key,orders])
+
   const [visibleColumns, setVisibleColumns] = useState(() => {
     try {
       const saved = localStorage.getItem(orderTablePrefsKey + '.visible') || localStorage.getItem('orders.visibleColumns.v2') || localStorage.getItem('orders.visibleColumns.v1')
