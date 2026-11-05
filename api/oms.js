@@ -106,7 +106,7 @@ export default async function handler(req,res){
      const query=db.from(src.table).select(src.fields).or(src.match.map(f=>f+'.ilike.'+like).join(',')).limit(5)
      const {data,error}=await query
      if(error)return {category:src.category,error:true,items:[]}
-     return {category:src.category,module:src.module,items:(data||[]).map(row=>({id:row.id,reference:String(row[src.ref]||''),detail:String(row[src.label]||'').slice(0,160),path:src.path,orderId:row.order_id||null,rootSampleId:row.root_sample_id||null,score:String(row[src.ref]||'').toLowerCase()===q.toLowerCase()?0:1}))}
+     return {category:src.category,module:src.module,items:(data||[]).map(row=>({id:row.id,reference:String(row[src.ref]||''),detail:String(row[src.label]||'').slice(0,160),path:src.path,orderId:row.order_id||null,taskId:row.task_id||null,buyerId:row.buyer_id||null,rootSampleId:row.root_sample_id||null,score:String(row[src.ref]||'').toLowerCase()===q.toLowerCase()?0:1}))}
    }))
    const results=out.flatMap(x=>x.items.flatMap(item=>x.category==='Sampling'?[{...item,category:x.category,module:x.module},{...item,module:x.module,category:'Sampling PDFs',documentType:'sampling-program',detail:'Generate and open sampling program PDF'}]:x.category==='Purchasing'?[{...item,category:x.category,module:x.module},{...item,module:x.module,category:'Purchase Order PDFs',documentType:'purchase-order',detail:'Generate and open supplier purchase order PDF'}]:[{...item,category:x.category,module:x.module}]))
    return res.json({results:results.sort((a,b)=>a.score-b.score).slice(0,90),partial:out.some(x=>x.error)})
