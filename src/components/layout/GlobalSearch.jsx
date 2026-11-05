@@ -4,7 +4,7 @@ import {useNavigate} from 'react-router-dom'
 import {useAuth} from '../../lib/authContext'
 import {can} from '../../lib/permissions'
 
-const moduleFor={Orders:'orders',Sampling:'sampling',Purchasing:'purchasing',Parcels:'parcels','Sampling comments':'sampling','Sampling PDFs':'sampling','Purchase Order PDFs':'purchasing'}
+const moduleFor={Orders:'orders',Sampling:'sampling',Purchasing:'purchasing',Suppliers:'suppliers',Parcels:'parcels','Sampling comments':'sampling','Sampling PDFs':'sampling','Purchase Order PDFs':'purchasing'}
 export default function GlobalSearch(){
  const [query,setQuery]=useState(''),[items,setItems]=useState([]),[open,setOpen]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState(''),[partial,setPartial]=useState(false),[selected,setSelected]=useState(0)
  const {user}=useAuth(),navigate=useNavigate(),input=useRef(null),root=useRef(null)
