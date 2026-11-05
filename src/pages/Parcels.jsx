@@ -1,7 +1,7 @@
 import { useLocation } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import useManagedPopup from '../components/ui/useManagedPopup'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { statusBadgeStyle, statusDisplay } from '../lib/statusColors'
 import { loadSamplingStore } from '../lib/samplingStore'
