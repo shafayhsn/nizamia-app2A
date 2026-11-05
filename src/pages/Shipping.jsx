@@ -1,8 +1,9 @@
+import {useLocation} from 'react-router-dom'
 import BookingRecords from './BookingRecords'
 import DirectShipment from './DirectShipment'
 import useManagedPopup from '../components/ui/useManagedPopup'
 import { formatDate as appFormatDate } from '../lib/utils'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { Plus, X, Search, Settings, Printer, Edit3, Trash2, Download, RefreshCw, RefreshCcw, ExternalLink, ListChecks } from 'lucide-react'
 import { printHTML } from '../components/PrintReports'
@@ -1136,6 +1137,24 @@ export default function Shipping() {
     const enrichedOrders = (ors || []).map(o => ({ ...o, buyer: buyerMap[o.buyer_id] || {}, buyer_payment_terms_days: buyerMap[o.buyer_id]?.payment_terms_days || buyerMap[o.buyer_id]?.payment_terms || o.buyer_payment_terms_days || o.payment_terms_days, purchase_tax_pkr: taxByOrder[o.id] || 0 }))
     setQueues(qs || []); setOrders(enrichedOrders); setBuyers(bs || []); setSizeGroups(sg || []); setSizeBreakdown(bd || []); setShipments(sh || []); setShipmentLines(sl || []); setBookings(bookingHeaders || []); setBookingLines(bookingItems || []); setBookingAllocations(bookingShips || []); setLoading(false)
   }
+  const globalLocation=useLocation()
+  const handledGlobalSearch=useRef(null)
+  useEffect(()=>{
+    const target=globalLocation.state?.globalSearch
+    if(!target||loading||handledGlobalSearch.current===globalLocation.key)return
+    if(target.category==='Shipments'){
+      const match=shipments.find(x=>String(x.id)===String(target.id))
+      if(!match)return
+      handledGlobalSearch.current=globalLocation.key
+      setActiveTab('shipments')
+      openEditShipment(match)
+    }else if(target.category==='Bookings'){
+      const match=bookings.find(x=>String(x.id)===String(target.id))
+      if(!match)return
+      handledGlobalSearch.current=globalLocation.key
+      setActiveTab('create')
+    }
+  },[globalLocation.key,loading,shipments,bookings])
   const rows = useMemo(() => buildQueueRows(queues, orders, shipmentLines, sizeGroups, sizeBreakdown), [queues, orders, shipmentLines, sizeGroups, sizeBreakdown])
   const selectedQueues = [...selectedIds].map(id => rows.find(q => q.id === id)).filter(Boolean)
   function openNewShipment() { if (!selectedQueues.length) { alert('Select at least one queue to create shipment.'); return } if (!isAdmin && selectedQueues.some(isQueueRestricted)) { alert('Only admins can book/ship inactive or unassigned Qs.'); return } setEditDraft(null); setShowModal(true) }
