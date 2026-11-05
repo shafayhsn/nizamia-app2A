@@ -2,7 +2,8 @@ import useManagedPopup from '../components/ui/useManagedPopup'
 import TestingTab from '../components/purchasing/TestingTab'
 import { formatDate as appFormatDate } from '../lib/utils'
 import { usageObject } from '../lib/usageMath'
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { statusBadgeStyle, statusDisplay, configuredStatusOptions } from '../lib/statusColors'
 import { Search, Plus, Trash2, X, Lock, Unlock, Printer, Pencil } from 'lucide-react'
@@ -1582,6 +1583,20 @@ function PurchaseOrdersTab({ orders, suppliers }) {
     setLoading(false)
   }
 
+  const globalSearchLocation = useLocation()
+  const handledSearch = useRef(null)
+  useEffect(()=>{
+    const target=globalSearchLocation.state?.globalSearch
+    if(!target||!pos.length||handledSearch.current===globalSearchLocation.key)return
+    const match=pos.find(p=>String(p.id)===String(target.id)||String(p.po_number)===String(target.reference))
+    if(!match)return
+    handledSearch.current=globalSearchLocation.key
+    setSearch(match.po_number||'')
+    if(target.documentType==='purchase-order'){
+      if(!access.canPrintPO(user)){alert('Access Denied');return}
+      printPurchaseOrder({...match,items:match.purchase_order_items||[]},suppliers.find(x=>x.id===match.supplier_id),orders.find(x=>x.id===match.order_id),null).catch(e=>alert('Could not open PO PDF: '+e.message))
+    }else{setEditPO({...match,items:match.purchase_order_items||[]});setShowModal(true)}
+  },[globalSearchLocation.key,pos,orders,suppliers,user])
   const filtered = pos.filter(p=>{ const q=search.toLowerCase(); return !q||[p.po_number,suppliers.find(s=>s.id===p.supplier_id)?.name,p.notes].some(f=>f?.toLowerCase().includes(q)) })
   const stStyle = { draft:{color:'#d97706',bg:'#fff7ed'}, approved:{color:'#16a34a',bg:'#f0fdf4'}, Draft:{color:'#d97706',bg:'#fff7ed'}, Issued:{color:'#2563eb',bg:'#eff6ff'}, Acknowledged:{color:'#7c3aed',bg:'#f5f3ff'}, Delivered:{color:'#16a34a',bg:'#f0fdf4'}, Cancelled:{color:'#dc2626',bg:'#fef2f2'} }
 
