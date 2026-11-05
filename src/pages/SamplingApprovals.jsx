@@ -338,12 +338,13 @@ export default function SamplingApprovals() {
   const [revisionSaving,setRevisionSaving] = useState(false)
   const [metadataSample,setMetadataSample]=useState(null)
   const globalLocation = useLocation()
+  const handledGlobalSearch = useRef(null)
   useEffect(()=>{
     const target=globalLocation.state?.globalSearch
-    if(!target||!samples.length)return
+    if(!target||!samples.length||handledGlobalSearch.current===globalLocation.key)return
     const found=samples.find(x=>String(x.id)===String(target.id)||String(x.id)===String(target.rootSampleId))
     if(found){setViewTab('active');setQuery('');setMetadataSample(found)}
-    window.history.replaceState({...window.history.state,usr:null},'')
+    handledGlobalSearch.current=globalLocation.key
   },[globalLocation.key,samples])
 
   const initialTabSettings = useMemo(()=>{try{return JSON.parse(sessionStorage.getItem(SETTINGS_KEY)||'{}')}catch{return {}}},[])
