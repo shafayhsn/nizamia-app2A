@@ -1,4 +1,5 @@
-import React, {useEffect,useMemo,useState} from 'react'
+import {useLocation} from 'react-router-dom'
+import React, {useEffect,useMemo,useState,useRef} from 'react'
 import {supabase} from '../lib/supabase'
 import {configuredStatusOptions,statusDisplay,statusBadgeStyle} from '../lib/statusColors'
 import {useAuth} from '../lib/authContext'
@@ -18,6 +19,16 @@ export default function Tasks(){
  const overdue=r=>r.status!=='Completed'&&r.due_date&&r.due_date<new Date().toISOString().slice(0,10)
  async function save(e){e.preventDefault();if(!form?.title.trim()||!form?.assignee_id||!form?.due_date)return;setBusy(true);const payload={title:form.title.trim(),assignee_id:form.assignee_id,due_date:form.due_date,priority:form.priority,description:form.description,related_record:form.related_record};const result=form.id?await supabase.from('app_tasks').update(payload).eq('id',form.id):await supabase.from('app_tasks').insert({...payload,created_by:id});setBusy(false);if(result.error){setError(result.error.message);return}setForm(null);window.dispatchEvent(new Event('app2a-tasks-changed'));await load()}
  async function status(r,next){const {error}=await supabase.from('app_tasks').update({status:next,completed_at:next==='Completed'?new Date().toISOString():null}).eq('id',r.id);if(error)setError(error.message);else {window.dispatchEvent(new Event('app2a-tasks-changed'));await load()}}
+ const globalLocation=useLocation()
+ const handledSearch=useRef(null)
+ useEffect(()=>{
+   const target=globalLocation.state?.globalSearch
+   if(!target||!rows.length||handledSearch.current===globalLocation.key)return
+   const match=rows.find(x=>String(x.id)===String(target.id)||String(x.id)===String(target.taskId))
+   if(!match)return
+   handledSearch.current=globalLocation.key
+   setTab('all');setSearch('');openDetail(match)
+ },[globalLocation.key,rows])
  async function openDetail(r){setDetail(r);const {data}=await supabase.from('app_task_comments').select('*').eq('task_id',r.id).order('created_at');setComments(data||[])}
  async function addComment(){if(!comment.trim())return;const {error}=await supabase.from('app_task_comments').insert({task_id:detail.id,user_id:id,body:comment.trim()});if(error){setError(error.message);return}setComment('');openDetail(detail)}
  const kpis=[['OPEN TASKS',rows.filter(r=>r.assignee_id===id&&r.status!=='Completed').length],['DUE TODAY',rows.filter(r=>r.assignee_id===id&&r.status!=='Completed'&&r.due_date===new Date().toISOString().slice(0,10)).length],['OVERDUE',rows.filter(r=>r.assignee_id===id&&overdue(r)).length]]
