@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import useManagedPopup from '../components/ui/useManagedPopup'
 import React, { useEffect, useMemo, useState } from 'react'
@@ -228,6 +229,15 @@ export default function Parcels() {
   const [periodFilter,setPeriodFilter]=useState(()=>readPrefs().periodFilter||'All')
   const [creating, setCreating] = useState(false)
   const [active, setActive] = useState(null)
+  const globalLocation = useLocation()
+  useEffect(()=>{
+    const target=globalLocation.state?.globalSearch
+    if(!target||!parcels.length)return
+    const found=parcels.find(x=>String(x.id)===String(target.id))
+    if(found){setTab(found.status==='Draft'?'ready':'dispatched');setSearch('');setActive(found.id);openHistory(found.id)}
+    window.history.replaceState({...window.history.state,usr:null},'')
+  },[globalLocation.key,parcels])
+
   const [tab, setTab] = useState('ready')
   const [search, setSearch] = useState('')
   const [selectedSamples, setSelectedSamples] = useState([])
