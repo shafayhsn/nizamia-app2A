@@ -76,7 +76,8 @@ export default async function handler(req,res){
      if(error)return {category:src.category,error:true,items:[]}
      return {category:src.category,items:(data||[]).map(row=>({id:row.id,reference:String(row[src.ref]||''),detail:String(row[src.label]||'').slice(0,160),path:src.path,orderId:row.order_id||null,rootSampleId:row.root_sample_id||null,score:String(row[src.ref]||'').toLowerCase()===q.toLowerCase()?0:1}))}
    }))
-   return res.json({results:out.flatMap(x=>x.items.map(item=>({...item,category:x.category}))).sort((a,b)=>a.score-b.score).slice(0,35),partial:out.some(x=>x.error)})
+   const results=out.flatMap(x=>x.items.flatMap(item=>x.category==='Sampling'?[{...item,category:x.category},{...item,category:'Sampling PDFs',documentType:'sampling-program',detail:'Generate and open sampling program PDF'}]:[{...item,category:x.category}]))
+   return res.json({results:results.sort((a,b)=>a.score-b.score).slice(0,35),partial:out.some(x=>x.error)})
  }
  if(action==='ppmList'&&req.method==='GET'){
    const orderId=String(req.query.orderId||'')
