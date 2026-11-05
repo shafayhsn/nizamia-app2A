@@ -16,7 +16,7 @@ const session=async req=>{
  if(mac.length!==expected.length||!timingSafeEqual(Buffer.from(mac),Buffer.from(expected)))return null
  let info;try{info=JSON.parse(Buffer.from(payload,'base64url').toString())}catch{return null}
  if(!info.id||!info.exp||Date.now()>info.exp)return null
- const {data,error}=await db.from('users').select('id,role,is_active,is_restricted').eq('id',info.id).maybeSingle()
+ const {data,error}=await db.from('users').select('id,role,role_id,is_active,is_restricted').eq('id',info.id).maybeSingle()
  if(error||!data||data.is_active===false||data.is_restricted===true)return null
  return data
 }
@@ -61,7 +61,16 @@ export default async function handler(req,res){
      {table:'parcels',category:'Parcels',fields:'id,tracking_no,courier,notes',match:['tracking_no','courier','notes'],ref:'tracking_no',label:'courier',path:'/parcels'},
      {table:'sample_comments',category:'Sampling comments',fields:'id,sam_number,comment_text,root_sample_id',match:['sam_number','comment_text'],ref:'sam_number',label:'comment_text',path:'/sampling'}
    ]
-   const out=await Promise.all(sources.map(async src=>{
+   const allowed=new Set();
+   if(user.role==='admin')sources.forEach(src=>allowed.add(src.category))
+   else {
+     const {data:permissions,error:permError}=user.role_id?await db.from('permissions').select('module,can_view').eq('role_id',user.role_id):{data:[],error:null}
+     if(permError)return err(res,500,'Search permissions unavailable')
+     const permitted=new Set((permissions||[]).filter(p=>p.can_view).map(p=>p.module))
+     const legacy=user.role==='merchandiser'&&!user.role_id
+     for(const src of sources){const mod=src.category==='Orders'?'orders':src.category==='Purchasing'?'purchasing':src.category==='Parcels'?'parcels':'sampling';if(permitted.has(mod)||legacy)allowed.add(src.category)}
+   }
+   const out=await Promise.all(sources.filter(src=>allowed.has(src.category)).map(async src=>{
      const query=db.from(src.table).select(src.fields).or(src.match.map(f=>f+'.ilike.'+like).join(',')).limit(12)
      const {data,error}=await query
      if(error)return {category:src.category,error:true,items:[]}
