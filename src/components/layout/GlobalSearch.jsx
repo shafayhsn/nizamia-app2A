@@ -1,0 +1,24 @@
+import React,{useEffect,useRef,useState} from 'react'
+import {Search,X,FileText} from 'lucide-react'
+import {useNavigate} from 'react-router-dom'
+import {useAuth} from '../../lib/authContext'
+import {can} from '../../lib/permissions'
+
+const moduleFor={Orders:'orders',Sampling:'sampling',Purchasing:'purchasing',Parcels:'parcels','Sampling comments':'sampling'}
+export default function GlobalSearch(){
+ const [query,setQuery]=useState(''),[items,setItems]=useState([]),[open,setOpen]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState(''),[partial,setPartial]=useState(false),[selected,setSelected]=useState(0)
+ const {userRole}=useAuth(),navigate=useNavigate(),input=useRef(null),root=useRef(null)
+ useEffect(()=>{const key=e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();input.current?.focus();setOpen(true)}if(e.key==='Escape')setOpen(false)};const outside=e=>{if(!root.current?.contains(e.target))setOpen(false)};document.addEventListener('keydown',key);document.addEventListener('mousedown',outside);return()=>{document.removeEventListener('keydown',key);document.removeEventListener('mousedown',outside)}},[])
+ useEffect(()=>{const q=query.trim();if(q.length<2){setItems([]);setLoading(false);return}let alive=true;const controller=new AbortController();const timer=setTimeout(async()=>{setLoading(true);setError('');try{const r=await fetch('/api/oms?action=globalSearch&q='+encodeURIComponent(q),{credentials:'same-origin',signal:controller.signal});const j=await r.json();if(!r.ok)throw Error(j.error||'Search unavailable');if(alive){setItems((j.results||[]).filter(x=>can(userRole,moduleFor[x.category]||'dashboard','view')));setPartial(!!j.partial);setSelected(0)}}catch(e){if(alive&&e.name!=='AbortError')setError(e.message)}finally{if(alive)setLoading(false)}},250);return()=>{alive=false;clearTimeout(timer);controller.abort()}},[query,userRole])
+ const go=item=>{setOpen(false);setQuery('');navigate(item.path,{state:{globalSearch:{id:item.id,reference:item.reference,orderId:item.orderId}}})}
+ const groups=[...new Set(items.map(x=>x.category))]
+ return <div ref={root} style={{position:'relative',width:230,flexShrink:0,marginRight:10}}>
+ <div style={{display:'flex',alignItems:'center',gap:5,border:'1px solid #d1d5db',borderRadius:8,padding:'5px 8px',background:'#fff'}}>
+ <Search size={15} color="#64748b"/><input ref={input} aria-label="Global search" placeholder="Search anything in Nizamia" value={query} onFocus={()=>setOpen(true)} onChange={e=>{setQuery(e.target.value);setOpen(true)}} onKeyDown={e=>{if(e.key==='ArrowDown'){e.preventDefault();setSelected(v=>Math.min(items.length-1,v+1))}if(e.key==='ArrowUp'){e.preventDefault();setSelected(v=>Math.max(0,v-1))}if(e.key==='Enter'&&items[selected])go(items[selected])}} style={{width:'100%',minWidth:0,border:0,outline:0,fontSize:12}}/>{query&&<button aria-label="Clear search" onClick={()=>{setQuery('');input.current?.focus()}} style={{border:0,background:'none',cursor:'pointer'}}><X size={13}/></button>}</div>
+ {open&&query.trim().length>=2&&<div style={{position:'absolute',right:0,top:'calc(100% + 8px)',width:440,maxWidth:'85vw',maxHeight:'min(65vh,520px)',overflowY:'auto',zIndex:300,background:'#fff',border:'1px solid #dbe2eb',boxShadow:'0 15px 40px #0f172a25',borderRadius:10,padding:8}}>
+ {loading&&<div style={{padding:12,color:'#64748b'}}>Searching…</div>}{error&&<div role="alert" style={{padding:12,color:'#b91c1c'}}>{error}</div>}{!loading&&!error&&!items.length&&<div style={{padding:12,color:'#64748b'}}>No matching records</div>}
+ {groups.map(group=><div key={group}><div style={{padding:'10px 8px 5px',fontSize:10,fontWeight:750,color:'#64748b',textTransform:'uppercase'}}>{group}</div>{items.map((item,i)=>item.category!==group?null:<button key={group+item.id} onMouseEnter={()=>setSelected(i)} onClick={()=>go(item)} style={{display:'flex',width:'100%',gap:9,textAlign:'left',border:0,borderRadius:6,padding:9,background:selected===i?'#eff4ff':'transparent',cursor:'pointer'}}><FileText size={16}/><span style={{display:'flex',flexDirection:'column',minWidth:0}}><strong style={{fontSize:12}}>{item.reference||item.category}</strong><span style={{fontSize:11,color:'#64748b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.detail}</span></span></button>)}</div>)}
+ {partial&&<div style={{padding:10,fontSize:11,color:'#b45309'}}>Some sources could not be searched.</div>}
+ <div style={{padding:8,fontSize:10,color:'#94a3b8'}}>Enter to open · Esc to close · Ctrl/Cmd + K</div></div>}
+ </div>
+}
