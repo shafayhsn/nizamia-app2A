@@ -19,22 +19,22 @@ const field={padding:'9px 10px',border:'1px solid #d5d9e2',borderRadius:7,width:
 const label={fontSize:11,fontWeight:700,color:'#475569',display:'block',marginBottom:5}
 export default function ProformaInvoice({onBack}){
  const [buyers,setBuyers]=useState([]),[orders,setOrders]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState('')
- const [buyerId,setBuyerId]=useState(''),[selected,setSelected]=useState([]),[query,setQuery]=useState('')
+ const [buyerId,setBuyerId]=useState(''),[selected,setSelected]=useState([]),[query,setQuery]=useState(''),[manual,setManual]=useState([])
  const [form,setForm]=useState({number:'',date:today(),seller:'Nizamia Apparels',sellerAddress:'Karachi, Pakistan',buyerAddress:'',paymentTerms:'',shipmentDate:'',shipMode:'SEA',incoterms:'FOB',portLoading:'Karachi, Pakistan',portDischarge:'',currency:'USD',terms:TERMS,remarks:'',acceptance:'Awaiting buyer email acceptance'})
  const change=(k,v)=>setForm(f=>({...f,[k]:v}))
  useEffect(()=>{let alive=true;(async()=>{try{const [b,o]=await Promise.all([supabase.from('buyers').select('id,name,address,country,currency,payment_terms_days').order('name'),supabase.from('orders').select('id,buyer_id,buyer_name,job_number,po_number,style_number,description,total_qty,total_value_usd,ship_date,currency,incoterms,ship_mode,po_date').order('created_at',{ascending:false}).limit(3000)]);if(b.error)throw b.error;if(o.error)throw o.error;if(alive){setBuyers(b.data||[]);setOrders(o.data||[])}}catch(e){if(alive)setError(e.message)}finally{if(alive)setLoading(false)}})();return()=>{alive=false}},[])
  const buyer=buyers.find(x=>x.id===buyerId)
  const available=useMemo(()=>orders.filter(o=>buyer&&(o.buyer_id===buyerId||(!o.buyer_id&&o.buyer_name?.trim().toLowerCase()===buyer.name?.trim().toLowerCase()))),[orders,buyer,buyerId])
- const chosen=available.filter(o=>selected.includes(o.id))
+ const chosen=[...available.filter(o=>selected.includes(o.id)),...manual.filter(o=>o.style_number||o.po_number||o.job_number).map(o=>({...o,id:o.id||'manual',total_qty:Number(o.total_qty)||0,total_value_usd:(Number(o.total_qty)||0)*(Number(o.unit_price)||0),currency:form.currency}))]
  const filtered=available.filter(o=>[o.job_number,o.po_number,o.style_number,o.description].some(x=>String(x||'').toLowerCase().includes(query.toLowerCase())))
  const currencySet=[...new Set(chosen.map(o=>o.currency||'USD'))]
  const currency=currencySet.length===1?currencySet[0]:form.currency
  const totalQty=chosen.reduce((s,o)=>s+(Number(o.total_qty)||0),0)
  const totalValue=chosen.reduce((s,o)=>s+(Number(o.total_value_usd)||0),0)
- const updateBuyer=id=>{setBuyerId(id);setSelected([]);const b=buyers.find(x=>x.id===id);setForm(f=>({...f,buyerAddress:b?.address||'',currency:b?.currency||'USD',paymentTerms:b?.payment_terms_days!=null?'Net '+b.payment_terms_days+' days':''}))}
+ const updateBuyer=id=>{setBuyerId(id);setSelected([]);setManual([]);const b=buyers.find(x=>x.id===id);setForm(f=>({...f,buyerAddress:b?.address||'',currency:b?.currency||'USD',paymentTerms:b?.payment_terms_days!=null?'Net '+b.payment_terms_days+' days':''}))}
  const toggle=id=>setSelected(a=>a.includes(id)?a.filter(x=>x!==id):[...a,id])
  const generate=()=>{
-  if(!buyer||!chosen.length)return alert('Select a customer and at least one order.')
+  if(!buyer||!chosen.length)return alert('Select a customer and at least one order or manual PI line.')
   if(currencySet.length>1)return alert('Selected orders use different currencies. Create separate proforma invoices.')
   if(!form.number.trim())return alert('Enter a unique PI number before printing.')
   if(!form.paymentTerms.trim())return alert('Enter agreed payment terms.')
@@ -67,9 +67,11 @@ export default function ProformaInvoice({onBack}){
  <section style={{background:'#fff',border:'1px solid #e2e8f0',borderRadius:10,padding:18}}>
  <h3>1. Customer and order selection</h3>
  <label style={label}>Customer</label><select style={field} value={buyerId} onChange={e=>updateBuyer(e.target.value)}><option value="">Select customer</option>{buyers.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>
- <p style={{fontSize:11,color:'#64748b'}}>Select existing orders below, or leave blank and complete the PI manually once standalone draft entry is enabled.</p>
+ <p style={{fontSize:11,color:'#64748b'}}>Select existing orders, or add manual lines for a PI before an order is created.</p>
  <input style={{...field,margin:'10px 0'}} placeholder="Search PO, job, style..." value={query} onChange={e=>setQuery(e.target.value)}/>
  <div style={{maxHeight:280,overflow:'auto'}}>{loading?'Loading orders…':filtered.map(o=><label key={o.id} style={{display:'flex',gap:9,padding:'8px 3px',borderBottom:'1px solid #f1f5f9',fontSize:11}}><input type="checkbox" checked={selected.includes(o.id)} onChange={()=>toggle(o.id)}/><span><b>{o.po_number||'No PO'} · {o.job_number||'No job'}</b><br/>{o.style_number} · {Number(o.total_qty||0).toLocaleString()} pcs · {money(o.total_value_usd,o.currency||'USD')}</span></label>)}</div>
+ <button type='button' style={{...field,width:'auto',cursor:'pointer',marginTop:12}} onClick={()=>setManual(v=>[...v,{id:'manual-'+(v.length+1),po_number:'',job_number:'',style_number:'',description:'',total_qty:'',unit_price:''}])}>+ Add pre-order PI line</button>
+ {manual.map((o,i)=><div key={o.id} style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginTop:9,padding:9,background:'#f8fafc',borderRadius:7}}>{[['po_number','Customer PO'],['job_number','Job #'],['style_number','Style'],['description','Description'],['total_qty','Quantity'],['unit_price','Unit Price']].map(([k,l])=><label key={k} style={label}>{l}<input style={field} value={o[k]} type={k==='total_qty'||k==='unit_price'?'number':'text'} min={k==='total_qty'||k==='unit_price'?0:undefined} onChange={e=>setManual(v=>v.map((x,j)=>j===i?{...x,[k]:e.target.value}:x))}/></label>)}<button type='button' onClick={()=>setManual(v=>v.filter((_,j)=>j!==i))}>Remove line</button></div>)}
  <p style={{fontSize:12,fontWeight:700}}>Selected: {chosen.length} records · {totalQty.toLocaleString()} pcs · {money(totalValue,currency)}</p>
  {currencySet.length>1&&<p style={{color:'#b91c1c',fontSize:12}}>Mixed currencies detected. Separate the invoices.</p>}
  </section>
