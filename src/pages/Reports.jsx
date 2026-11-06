@@ -1,3 +1,4 @@
+import ProformaInvoice from './ProformaInvoice'
 import { formatDate as appFormatDate } from '../lib/utils'
 import { useNavigate } from 'react-router-dom'
 import { Plus } from 'lucide-react'
@@ -130,7 +131,7 @@ const businessRows = (report, rows) => {
   if(report.mode==='overdue')return rows.filter(r=>r.due_date && r.due_date.slice(0,10)<new Date().toISOString().slice(0,10) && !completedStatus(r.status) && !completedStatus(r.approval_status))
   return rows
 }
-const flatten = [...PHASE4.flatMap(group=>group.reports.map(([title,table,kind,mode])=>({title,table,kind,mode,category:group.category,phase4:true}))),...OPERATIONS.flatMap(group=>group.reports.map(([title,table,kind])=>({title,table,kind,category:group.category,operations:true}))),...BUSINESS.flatMap(group => group.reports.map(([title,table,kind,mode,groupBy,defaultDate])=>({title,table,kind,mode,groupBy,defaultDate,category:group.category,business:true}))),...CATALOG.flatMap(group => group.reports.map(([title,table,fields])=>({ title,table,fields,category:group.category })))]
+const flatten = [{title:'Proforma Invoice',table:'orders',category:'Orders & Customers',proforma:true},...PHASE4.flatMap(group=>group.reports.map(([title,table,kind,mode])=>({title,table,kind,mode,category:group.category,phase4:true}))),...OPERATIONS.flatMap(group=>group.reports.map(([title,table,kind])=>({title,table,kind,category:group.category,operations:true}))),...BUSINESS.flatMap(group => group.reports.map(([title,table,kind,mode,groupBy,defaultDate])=>({title,table,kind,mode,groupBy,defaultDate,category:group.category,business:true}))),...CATALOG.flatMap(group => group.reports.map(([title,table,fields])=>({ title,table,fields,category:group.category })))]
 const safe = s => String(s||'').replace(/[^a-zA-Z0-9_-]+/g,'-').replace(/^-|-$/g,'').slice(0,70)
 const stamp = () => new Date().toISOString().slice(0,10)
 const cell = value => value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
@@ -394,6 +395,7 @@ export default function Reports() {
   const reportCatalog=[...flatten,{title:'PP Meeting',table:'pp_meetings',category:'Orders & Customers',ppm:true}]
   const categories=[...new Set(reportCatalog.map(r=>r.category))]
    const matches=reportCatalog.filter(r=>(category==='All'||(category==='Favorites'?favorites.includes(favoriteKey(r)):r.category===category))&&`${r.title} ${r.category}`.toLowerCase().includes(catalogSearch.toLowerCase())).sort((a,b)=>catalogSort==='category'?a.category.localeCompare(b.category)||a.title.localeCompare(b.title):a.title.localeCompare(b.title))
+   if(active?.proforma)return <div style={{height:'100%',overflow:'auto',background:'#f8fafc'}}><ProformaInvoice onBack={()=>setActive(null)}/></div>
    return <div style={{height:'100%',overflow:'auto',padding:'22px 26px',background:'#fff',fontFamily:'var(--font,Arial,sans-serif)',color:'#202633'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,gap:12}}>
       <div><div style={{fontSize:22,fontWeight:750}}>Reports</div><div style={{fontSize:12,color:'#6b7280',marginTop:4}}>Central read-only reporting · existing Supabase records · Excel and print/PDF</div></div>
