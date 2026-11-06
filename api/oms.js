@@ -83,8 +83,6 @@ export default async function handler(req,res){
      if(!input.id){
        const {data,error}=await db.from('proforma_invoices').insert({pi_number:number,buyer_id:snapshot.buyer.id,snapshot,status:'draft',created_by:user.id,updated_by:user.id}).select('*').single()
        if(error)return err(res,error.code==='23505'?409:500,error.code==='23505'?'PI number already exists':'Could not save invoice')
-       const {error:revisionError}=await db.from('proforma_invoice_revisions').insert({invoice_id:data.id,revision:1,snapshot,action:'created',actor_id:user.id})
-       if(revisionError)return err(res,500,'Invoice saved but revision history failed; contact administrator')
        return res.json({invoice:data})
      }
      const id=String(input.id)
@@ -95,8 +93,6 @@ export default async function handler(req,res){
      const next=existing.revision+1
      const {data,error}=await db.from('proforma_invoices').update({pi_number:number,buyer_id:snapshot.buyer.id,snapshot,revision:next,updated_by:user.id,updated_at:new Date().toISOString()}).eq('id',id).eq('revision',existing.revision).eq('status','draft').select('*').maybeSingle()
      if(error||!data)return err(res,409,'Invoice was changed or number is already in use')
-     const {error:revisionError}=await db.from('proforma_invoice_revisions').insert({invoice_id:id,revision:next,snapshot,action:'updated',actor_id:user.id})
-     if(revisionError)return err(res,500,'Invoice updated but revision history failed; contact administrator')
      return res.json({invoice:data})
    }
    if(action==='transitionProforma'&&req.method==='POST'){
@@ -111,8 +107,6 @@ export default async function handler(req,res){
      const patch={status,revision:next,updated_by:user.id,updated_at:new Date().toISOString(),...(status==='issued'?{issued_at:new Date().toISOString()}:{}),...(status==='accepted'?{accepted_at:new Date().toISOString(),acceptance_email_from:String(emailFrom).slice(0,320),acceptance_email_date:emailDate,acceptance_email_reference:String(emailReference).slice(0,1000)}:{}),...(status==='cancelled'?{cancelled_at:new Date().toISOString()}: {})}
      const {data,error}=await db.from('proforma_invoices').update(patch).eq('id',id).eq('revision',existing.revision).eq('status',existing.status).select('*').maybeSingle()
      if(error||!data)return err(res,409,'Invoice status changed elsewhere')
-     const {error:revisionError}=await db.from('proforma_invoice_revisions').insert({invoice_id:id,revision:next,snapshot:existing.snapshot,action:status,actor_id:user.id})
-     if(revisionError)return err(res,500,'Status saved but audit history failed; contact administrator')
      return res.json({invoice:data})
    }
    return err(res,405,'Method not allowed')
