@@ -73,9 +73,11 @@ export default async function handler(req,res){
    if(!canEdit)return err(res,403,'Report editing access required')
    if(action==='saveProforma'&&req.method==='POST'){
      const input=req.body||{}
-     const number=String(input.piNumber||'').trim().slice(0,80)
+     let number=String(input.piNumber||'').trim().slice(0,80)
      const snapshot=input.snapshot
-     if(!number||!snapshot||typeof snapshot!=='object'||Array.isArray(snapshot))return err(res,400,'Invoice number and details required')
+     if(!snapshot||typeof snapshot!=='object'||Array.isArray(snapshot))return err(res,400,'Invoice details required')
+     if(!number&&!input.id){const {data:generated,error:sequenceError}=await db.rpc('allocate_proforma_number');if(sequenceError)return err(res,500,'Could not allocate PI number');number=generated}
+     if(!number)return err(res,400,'PI number required')
      if(JSON.stringify(snapshot).length>150000)return err(res,413,'Invoice too large')
      if(!snapshot.buyer?.id||!Array.isArray(snapshot.lines)||!snapshot.lines.length||snapshot.lines.length>500)return err(res,400,'Customer and order lines required')
      if(!snapshot.form?.paymentTerms||!snapshot.form?.shipmentDate||!snapshot.form?.terms)return err(res,400,'Commercial terms and shipment date required')
