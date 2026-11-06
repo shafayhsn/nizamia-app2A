@@ -49,13 +49,13 @@ export default function ProformaInvoice({onBack}){
    }catch(e){setError(e.message)}finally{setBusy(false)}
  }
  const save=async()=>{
-   if(!buyer||!chosen.length||!form.number.trim()||!form.paymentTerms.trim()||!form.shipmentDate||!form.terms.trim())return alert('Customer, lines, PI number, payment, shipment date and terms are required.')
+   if(!buyer||!chosen.length||!form.paymentTerms.trim()||!form.shipmentDate||!form.terms.trim())return alert('Customer, lines, payment, shipment date and terms are required.')
    if(currencySet.length>1)return alert('Use one currency per PI.')
    if(chosen.some(o=>!(Number(o.total_qty)>0)||Number(o.total_value_usd)<0))return alert('Check line quantities and values.')
    try{setBusy(true);setError('')
      const snapshot={buyer:{id:buyer.id,name:buyer.name},form:{...form},lines:chosen.map(o=>({id:o.id,po_number:o.po_number,job_number:o.job_number,style_number:o.style_number,description:o.description,total_qty:Number(o.total_qty),total_value_usd:Number(o.total_value_usd),currency:o.currency||currency})),currency}
      const data=await api('saveProforma',{id:invoice?.id,revision:invoice?.revision,piNumber:form.number,snapshot})
-     setInvoice(data.invoice);setSavedLines(snapshot.lines);await refresh();alert('Draft saved, revision '+data.invoice.revision)
+     setInvoice(data.invoice);setForm(f=>({...f,number:data.invoice.pi_number}));setSavedLines(snapshot.lines);await refresh();alert('Draft saved as '+data.invoice.pi_number+', revision '+data.invoice.revision)
    }catch(e){setError(e.message)}finally{setBusy(false)}
  }
  const transition=async status=>{
@@ -112,7 +112,7 @@ export default function ProformaInvoice({onBack}){
  {currencySet.length>1&&<p style={{color:'#b91c1c',fontSize:12}}>Mixed currencies detected. Separate the invoices.</p>}
  </section>
  <section style={{background:'#fff',border:'1px solid #e2e8f0',borderRadius:10,padding:18}}>
- <h3>2. Invoice and shipping details</h3>
+ <h3>2. Invoice and shipping details</h3><p style={{fontSize:11,color:'#64748b'}}>Leave PI Number blank for automatic numbering when saving.</p>
  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>{[['number','PI Number'],['date','Issue Date'],['seller','Shipper / Seller'],['paymentTerms','Payment Terms'],['shipmentDate','Shipment Date'],['shipMode','Shipment Mode'],['incoterms','Incoterms'],['portLoading','Port of Loading'],['portDischarge','Port of Discharge']].map(([k,title])=><div key={k}><label style={label}>{title}</label><input style={field} type={k==='date'||k==='shipmentDate'?'date':'text'} value={form[k]} onChange={e=>change(k,e.target.value)}/></div>)}</div>
  <label style={{...label,marginTop:12}}>Seller address</label><textarea style={field} rows={2} value={form.sellerAddress} onChange={e=>change('sellerAddress',e.target.value)}/>
  <label style={{...label,marginTop:12}}>Buyer address</label><textarea style={field} rows={2} value={form.buyerAddress} onChange={e=>change('buyerAddress',e.target.value)}/>
