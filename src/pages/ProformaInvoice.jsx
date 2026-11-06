@@ -19,20 +19,55 @@ const field={padding:'9px 10px',border:'1px solid #d5d9e2',borderRadius:7,width:
 const label={fontSize:11,fontWeight:700,color:'#475569',display:'block',marginBottom:5}
 export default function ProformaInvoice({onBack}){
  const [buyers,setBuyers]=useState([]),[orders,setOrders]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState('')
- const [buyerId,setBuyerId]=useState(''),[selected,setSelected]=useState([]),[query,setQuery]=useState(''),[manual,setManual]=useState([])
+ const [buyerId,setBuyerId]=useState(''),[selected,setSelected]=useState([]),[query,setQuery]=useState(''),[manual,setManual]=useState([]),[savedLines,setSavedLines]=useState(null)
+ const [invoices,setInvoices]=useState([]),[invoice,setInvoice]=useState(null),[history,setHistory]=useState([]),[busy,setBusy]=useState(false)
+ const [emailFrom,setEmailFrom]=useState(''),[emailDate,setEmailDate]=useState(''),[emailReference,setEmailReference]=useState('')
  const [form,setForm]=useState({number:'',date:today(),seller:'Nizamia Apparels',sellerAddress:'Karachi, Pakistan',buyerAddress:'',paymentTerms:'',shipmentDate:'',shipMode:'SEA',incoterms:'FOB',portLoading:'Karachi, Pakistan',portDischarge:'',currency:'USD',terms:TERMS,remarks:'',acceptance:'Awaiting buyer email acceptance'})
  const change=(k,v)=>setForm(f=>({...f,[k]:v}))
  useEffect(()=>{let alive=true;(async()=>{try{const [b,o]=await Promise.all([supabase.from('buyers').select('id,name,address,country,currency,payment_terms_days').order('name'),supabase.from('orders').select('id,buyer_id,buyer_name,job_number,po_number,style_number,description,total_qty,total_value_usd,ship_date,currency,incoterms,ship_mode,po_date').order('created_at',{ascending:false}).limit(3000)]);if(b.error)throw b.error;if(o.error)throw o.error;if(alive){setBuyers(b.data||[]);setOrders(o.data||[])}}catch(e){if(alive)setError(e.message)}finally{if(alive)setLoading(false)}})();return()=>{alive=false}},[])
  const buyer=buyers.find(x=>x.id===buyerId)
  const available=useMemo(()=>orders.filter(o=>buyer&&(o.buyer_id===buyerId||(!o.buyer_id&&o.buyer_name?.trim().toLowerCase()===buyer.name?.trim().toLowerCase()))),[orders,buyer,buyerId])
- const chosen=[...available.filter(o=>selected.includes(o.id)),...manual.filter(o=>o.style_number||o.po_number||o.job_number).map(o=>({...o,id:o.id||'manual',total_qty:Number(o.total_qty)||0,total_value_usd:(Number(o.total_qty)||0)*(Number(o.unit_price)||0),currency:form.currency}))]
+ const chosen=savedLines||[...available.filter(o=>selected.includes(o.id)),...manual.filter(o=>o.style_number||o.po_number||o.job_number).map(o=>({...o,id:o.id||'manual',total_qty:Number(o.total_qty)||0,total_value_usd:(Number(o.total_qty)||0)*(Number(o.unit_price)||0),currency:form.currency}))]
  const filtered=available.filter(o=>[o.job_number,o.po_number,o.style_number,o.description].some(x=>String(x||'').toLowerCase().includes(query.toLowerCase())))
  const currencySet=[...new Set(chosen.map(o=>o.currency||'USD'))]
  const currency=currencySet.length===1?currencySet[0]:form.currency
  const totalQty=chosen.reduce((s,o)=>s+(Number(o.total_qty)||0),0)
  const totalValue=chosen.reduce((s,o)=>s+(Number(o.total_value_usd)||0),0)
- const updateBuyer=id=>{setBuyerId(id);setSelected([]);setManual([]);const b=buyers.find(x=>x.id===id);setForm(f=>({...f,buyerAddress:b?.address||'',currency:b?.currency||'USD',paymentTerms:b?.payment_terms_days!=null?'Net '+b.payment_terms_days+' days':''}))}
- const toggle=id=>setSelected(a=>a.includes(id)?a.filter(x=>x!==id):[...a,id])
+ const updateBuyer=id=>{setBuyerId(id);setSelected([]);setManual([]);setSavedLines(null);const b=buyers.find(x=>x.id===id);setForm(f=>({...f,buyerAddress:b?.address||'',currency:b?.currency||'USD',paymentTerms:b?.payment_terms_days!=null?'Net '+b.payment_terms_days+' days':''}))}
+ const toggle=id=>{setSavedLines(null);setSelected(a=>a.includes(id)?a.filter(x=>x!==id):[...a,id])}
+ const api=async(action,payload,method='POST')=>{
+   const url='/api/oms?action='+encodeURIComponent(action)+(method==='GET'&&payload?.id?'&id='+encodeURIComponent(payload.id):'')
+   const r=await fetch(url,{method,credentials:'same-origin',headers:{'Content-Type':'application/json'},...(method==='POST'?{body:JSON.stringify({action,...payload})}:{})})
+   const data=await r.json();if(!r.ok)throw Error(data.error||'Request failed');return data
+ }
+ const refresh=async()=>{try{const data=await api('listProformas',{},'GET');setInvoices(data.invoices||[])}catch(e){setError(e.message)}}
+ useEffect(()=>{refresh()},[])
+ const loadInvoice=async id=>{
+   try{setBusy(true);setError('');const data=await api('getProforma',{id},'GET');const snap=data.invoice.snapshot
+   setInvoice(data.invoice);setHistory(data.history||[]);setBuyerId(snap.buyer?.id||'');setForm(snap.form);setSavedLines(snap.lines||[]);setSelected([]);setManual([])
+   setEmailFrom(data.invoice.acceptance_email_from||'');setEmailDate(data.invoice.acceptance_email_date?.slice(0,10)||'');setEmailReference(data.invoice.acceptance_email_reference||'')
+   }catch(e){setError(e.message)}finally{setBusy(false)}
+ }
+ const save=async()=>{
+   if(!buyer||!chosen.length||!form.number.trim()||!form.paymentTerms.trim()||!form.shipmentDate||!form.terms.trim())return alert('Customer, lines, PI number, payment, shipment date and terms are required.')
+   if(currencySet.length>1)return alert('Use one currency per PI.')
+   if(chosen.some(o=>!(Number(o.total_qty)>0)||Number(o.total_value_usd)<0))return alert('Check line quantities and values.')
+   try{setBusy(true);setError('')
+     const snapshot={buyer:{id:buyer.id,name:buyer.name},form:{...form},lines:chosen.map(o=>({id:o.id,po_number:o.po_number,job_number:o.job_number,style_number:o.style_number,description:o.description,total_qty:Number(o.total_qty),total_value_usd:Number(o.total_value_usd),currency:o.currency||currency})),currency}
+     const data=await api('saveProforma',{id:invoice?.id,revision:invoice?.revision,piNumber:form.number,snapshot})
+     setInvoice(data.invoice);setSavedLines(snapshot.lines);await refresh();alert('Draft saved, revision '+data.invoice.revision)
+   }catch(e){setError(e.message)}finally{setBusy(false)}
+ }
+ const transition=async status=>{
+   if(!invoice)return alert('Save the draft first.')
+   if(status==='issued'&&!window.confirm('Issue this PI and lock its commercial details?'))return
+   if(status==='cancelled'&&!window.confirm('Cancel this issued PI?'))return
+   try{setBusy(true);setError('');const data=await api('transitionProforma',{id:invoice.id,revision:invoice.revision,status,emailFrom,emailDate,emailReference})
+     setInvoice(data.invoice);await refresh();await loadInvoice(data.invoice.id)
+   }catch(e){setError(e.message)}finally{setBusy(false)}
+ }
+ const newInvoice=()=>{setInvoice(null);setHistory([]);setBuyerId('');setSelected([]);setManual([]);setSavedLines(null);setForm({number:'',date:today(),seller:'Nizamia Apparels',sellerAddress:'Karachi, Pakistan',buyerAddress:'',paymentTerms:'',shipmentDate:'',shipMode:'SEA',incoterms:'FOB',portLoading:'Karachi, Pakistan',portDischarge:'',currency:'USD',terms:TERMS,remarks:'',acceptance:'Awaiting buyer email acceptance'})}
+ const locked=!!invoice&&invoice.status!=='draft'
  const generate=()=>{
   if(!buyer||!chosen.length)return alert('Select a customer and at least one order or manual PI line.')
   if(currencySet.length>1)return alert('Selected orders use different currencies. Create separate proforma invoices.')
@@ -61,9 +96,10 @@ export default function ProformaInvoice({onBack}){
  }
  return <div style={{padding:24,maxWidth:1200,margin:'0 auto'}}>
  <button onClick={onBack} style={{...field,width:'auto',cursor:'pointer',marginBottom:14}}>← All Reports</button>
- <h2 style={{margin:'0 0 5px'}}>Proforma Invoice & Sales Confirmation</h2><p style={{fontSize:12,color:'#64748b'}}>Create before or after order entry. Select one or more customer POs or jobs, review terms, then print to A4 PDF. Draft preparation does not create an order.</p>
+ <h2 style={{margin:'0 0 5px'}}>Proforma Invoice & Sales Confirmation</h2>
+ <div style={{display:'flex',gap:10,alignItems:'center',margin:'12px 0',flexWrap:'wrap'}}><button onClick={newInvoice} style={{...field,width:'auto',cursor:'pointer'}}>+ New PI</button><select style={{...field,width:340}} value={invoice?.id||''} onChange={e=>e.target.value?loadInvoice(e.target.value):newInvoice()}><option value=''>New / unsaved PI</option>{invoices.map(x=><option key={x.id} value={x.id}>{x.pi_number} · {x.status.toUpperCase()} · Rev {x.revision}</option>)}</select>{invoice&&<b style={{fontSize:12}}>Status: {invoice.status.toUpperCase()} · Revision {invoice.revision}</b>}</div><p style={{fontSize:12,color:'#64748b'}}>Create before or after order entry. Select one or more customer POs or jobs, review terms, then print to A4 PDF. Draft preparation does not create an order.</p>
  {error&&<p style={{color:'#b91c1c'}}>{error}</p>}
- <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18,marginTop:18}}>
+ <fieldset disabled={locked||busy} style={{border:0,padding:0,margin:0}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18,marginTop:18}}>
  <section style={{background:'#fff',border:'1px solid #e2e8f0',borderRadius:10,padding:18}}>
  <h3>1. Customer and order selection</h3>
  <label style={label}>Customer</label><select style={field} value={buyerId} onChange={e=>updateBuyer(e.target.value)}><option value="">Select customer</option>{buyers.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>
@@ -86,6 +122,9 @@ export default function ProformaInvoice({onBack}){
  <h3>3. Standard terms — editable per invoice</h3><textarea style={{...field,lineHeight:1.5}} rows={12} value={form.terms} onChange={e=>change('terms',e.target.value)}/>
  <label style={{...label,marginTop:12}}>Special conditions / remarks</label><textarea style={field} rows={2} value={form.remarks} onChange={e=>change('remarks',e.target.value)}/>
  <p style={{fontSize:11,color:'#92400e'}}>Terms are a working commercial template, not legal advice. Have them reviewed before issuing to customers. Acceptance is by email, not an assumed signature.</p>
- <button onClick={generate} style={{background:'#171b30',color:'#fff',border:0,borderRadius:7,padding:'11px 18px',fontWeight:700,cursor:'pointer'}}>Preview / Print A4 PDF</button>
+ </fieldset>
+ <div style={{display:'flex',gap:9,flexWrap:'wrap'}}><button disabled={locked||busy} onClick={save} style={{background:'#171b30',color:'#fff',border:0,borderRadius:7,padding:'11px 18px',fontWeight:700,cursor:'pointer'}}>Save Draft</button><button onClick={generate} style={{background:'#fff',border:'1px solid #94a3b8',borderRadius:7,padding:'11px 18px',cursor:'pointer'}}>Preview / Print A4 PDF</button>{invoice?.status==='draft'&&<button disabled={busy} onClick={()=>transition('issued')} style={{...field,width:'auto',cursor:'pointer'}}>Issue PI</button>}{invoice?.status==='issued'&&<button disabled={busy} onClick={()=>transition('cancelled')} style={{...field,width:'auto',cursor:'pointer'}}>Cancel PI</button>}</div>
+ {invoice?.status==='issued'&&<div style={{marginTop:16,padding:14,border:'1px solid #cbd5e1',borderRadius:8}}><h3>Record buyer acceptance by email</h3><div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:9}}><label style={label}>Sender email<input style={field} value={emailFrom} onChange={e=>setEmailFrom(e.target.value)} placeholder='buyer@example.com'/></label><label style={label}>Acceptance date<input style={field} type='date' value={emailDate} onChange={e=>setEmailDate(e.target.value)}/></label><label style={label}>Email subject / reference<input style={field} value={emailReference} onChange={e=>setEmailReference(e.target.value)}/></label></div><button disabled={busy} onClick={()=>transition('accepted')} style={{...field,width:'auto',cursor:'pointer',marginTop:10}}>Mark Accepted</button><p style={{fontSize:11,color:'#64748b'}}>This records acceptance evidence manually. It does not send or verify the email.</p></div>}
+ {!!history.length&&<div style={{marginTop:15,fontSize:11,color:'#64748b'}}>Revision history: {history.map(h=>`Rev ${h.revision} ${h.action} (${new Date(h.created_at).toLocaleString()})`).join(' · ')}</div>}
  </section></div>
 }
