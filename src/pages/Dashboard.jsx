@@ -227,16 +227,15 @@ export default function Dashboard() {
     <div style={{ padding: '20px 28px', overflowY: 'hidden', height: '100%', display:'flex', flexDirection:'column', boxSizing:'border-box' }}>
 
       {/* Greeting */}
-      <div style={{ marginBottom: 18 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.4px' }}>
+      <div style={{ marginBottom: 18, display:'flex', justifyContent:'space-between', alignItems:'center', gap:16 }}>
+        <div><h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.4px' }}>
           Welcome back, {displayName}. Let's get to work!
         </h1>
         <div style={{ fontSize: 12, color: 'var(--text-light)', marginTop: 3 }}>
           Manage orders from tech-packs to shipment · SS26 Active Season
-        </div>
+        </div></div>
+        <GlobalSearch />
       </div>
-
-      <div style={{display:'flex',justifyContent:'flex-end',marginBottom:12}}><GlobalSearch /></div>
 
       {/* Quick actions */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
