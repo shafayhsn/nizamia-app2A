@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useState} from 'react'
 import {supabase} from '../lib/supabase'
-import {openPrintWindow,printHTML} from '../components/PrintReports'
+import {openPrintWindow} from '../components/PrintReports'
 
 const TERMS = `1. This proforma invoice is an offer subject to the buyer's written acceptance and confirmation of all specifications, quantities, prices, delivery dates and payment terms.
 2. Production lead time starts only after timely receipt of all required purchase orders, approvals, materials, artwork and payment/security arrangements agreed in writing. Buyer delays may require a revised shipment date.
@@ -57,7 +57,7 @@ export default function ProformaInvoice({onBack}){
   <div class="foot">This proforma invoice is not a customs or final commercial invoice. Terms are subject to legal review and mutual written acceptance.</div>
   ${detail?`<section class="annex"><header><h2>ANNEXURE A — DETAILED ORDER SCHEDULE</h2><div>${esc(form.number)}</div></header><table><thead><tr><th>PO</th><th>Job</th><th>Style</th><th>Description</th><th>Qty</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table><div class="total">TOTAL: ${totalQty.toLocaleString()} PCS · ${money(totalValue,currency)}</div></section>`:''}
   </body></html>`
-  printHTML(html,w)
+  w.document.open();w.document.write(html);w.document.close();setTimeout(()=>{try{w.focus();w.print()}catch(e){alert('Print preview unavailable: '+e.message)}},350)
  }
  return <div style={{padding:24,maxWidth:1200,margin:'0 auto'}}>
  <button onClick={onBack} style={{...field,width:'auto',cursor:'pointer',marginBottom:14}}>← All Reports</button>
