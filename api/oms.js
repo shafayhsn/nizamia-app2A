@@ -48,6 +48,75 @@ export default async function handler(req,res){
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
  if(action==='session')return res.json({ok:true})
+ if(['listProformas','saveProforma','transitionProforma','getProforma'].includes(action)){
+   const admin=String(user.role||'').toLowerCase()==='admin'
+   let canView=admin,canEdit=admin
+   if(!admin&&user.role_id){
+     const {data:perms,error:pe}=await db.from('permissions').select('can_view,can_create,can_edit').eq('role_id',user.role_id).eq('module','reports').maybeSingle()
+     if(pe)return err(res,500,'Cannot check report permissions')
+     canView=!!perms?.can_view;canEdit=!!(perms?.can_create||perms?.can_edit)
+   }
+   if(!admin&&!user.role_id&&user.role==='merchandiser'){canView=true;canEdit=true}
+   if(!canView)return err(res,403,'Reports access required')
+   if(action==='listProformas'&&req.method==='GET'){
+     const {data,error}=await db.from('proforma_invoices').select('id,pi_number,buyer_id,status,revision,created_at,updated_at,issued_at,accepted_at,acceptance_email_from,acceptance_email_date').order('updated_at',{ascending:false}).limit(200)
+     return error?err(res,500,'Could not load invoices'):res.json({invoices:data||[]})
+   }
+   if(action==='getProforma'&&req.method==='GET'){
+     const id=String(req.query.id||'')
+     if(!/^[0-9a-f-]{36}$/i.test(id))return err(res,400,'Invalid invoice ID')
+     const {data,error}=await db.from('proforma_invoices').select('*').eq('id',id).maybeSingle()
+     if(error||!data)return err(res,404,'Invoice not found')
+     const {data:history}=await db.from('proforma_invoice_revisions').select('revision,action,actor_id,created_at').eq('invoice_id',id).order('revision',{ascending:false})
+     return res.json({invoice:data,history:history||[]})
+   }
+   if(!canEdit)return err(res,403,'Report editing access required')
+   if(action==='saveProforma'&&req.method==='POST'){
+     const input=req.body||{}
+     const number=String(input.piNumber||'').trim().slice(0,80)
+     const snapshot=input.snapshot
+     if(!number||!snapshot||typeof snapshot!=='object'||Array.isArray(snapshot))return err(res,400,'Invoice number and details required')
+     if(JSON.stringify(snapshot).length>150000)return err(res,413,'Invoice too large')
+     if(!snapshot.buyer?.id||!Array.isArray(snapshot.lines)||!snapshot.lines.length||snapshot.lines.length>500)return err(res,400,'Customer and order lines required')
+     if(!snapshot.form?.paymentTerms||!snapshot.form?.shipmentDate||!snapshot.form?.terms)return err(res,400,'Commercial terms and shipment date required')
+     if(snapshot.lines.some(l=>!Number.isFinite(Number(l.total_qty))||Number(l.total_qty)<=0||!Number.isFinite(Number(l.total_value_usd))||Number(l.total_value_usd)<0))return err(res,400,'Invalid line quantities or values')
+     if(!input.id){
+       const {data,error}=await db.from('proforma_invoices').insert({pi_number:number,buyer_id:snapshot.buyer.id,snapshot,status:'draft',created_by:user.id,updated_by:user.id}).select('*').single()
+       if(error)return err(res,error.code==='23505'?409:500,error.code==='23505'?'PI number already exists':'Could not save invoice')
+       const {error:revisionError}=await db.from('proforma_invoice_revisions').insert({invoice_id:data.id,revision:1,snapshot,action:'created',actor_id:user.id})
+       if(revisionError)return err(res,500,'Invoice saved but revision history failed; contact administrator')
+       return res.json({invoice:data})
+     }
+     const id=String(input.id)
+     const {data:existing,error:readError}=await db.from('proforma_invoices').select('*').eq('id',id).maybeSingle()
+     if(readError||!existing)return err(res,404,'Invoice not found')
+     if(existing.status!=='draft')return err(res,409,'Issued invoices are locked. Create a new revision or cancel and reissue.')
+     if(Number(input.revision)!==existing.revision)return err(res,409,'Invoice changed in another session. Reload before editing.')
+     const next=existing.revision+1
+     const {data,error}=await db.from('proforma_invoices').update({pi_number:number,buyer_id:snapshot.buyer.id,snapshot,revision:next,updated_by:user.id,updated_at:new Date().toISOString()}).eq('id',id).eq('revision',existing.revision).eq('status','draft').select('*').maybeSingle()
+     if(error||!data)return err(res,409,'Invoice was changed or number is already in use')
+     const {error:revisionError}=await db.from('proforma_invoice_revisions').insert({invoice_id:id,revision:next,snapshot,action:'updated',actor_id:user.id})
+     if(revisionError)return err(res,500,'Invoice updated but revision history failed; contact administrator')
+     return res.json({invoice:data})
+   }
+   if(action==='transitionProforma'&&req.method==='POST'){
+     const {id,revision,status,emailFrom,emailDate,emailReference}=req.body||{}
+     if(!['issued','accepted','cancelled'].includes(status))return err(res,400,'Invalid status')
+     const {data:existing,error:readError}=await db.from('proforma_invoices').select('*').eq('id',id).maybeSingle()
+     if(readError||!existing)return err(res,404,'Invoice not found')
+     if(Number(revision)!==existing.revision)return err(res,409,'Invoice changed. Reload first.')
+     if(!((existing.status==='draft'&&status==='issued')||(existing.status==='issued'&&['accepted','cancelled'].includes(status))))return err(res,409,'Invalid invoice status transition')
+     if(status==='accepted'&&(!String(emailFrom||'').trim()||!emailDate||!String(emailReference||'').trim()))return err(res,400,'Record sender, date and email reference for acceptance')
+     const next=existing.revision+1
+     const patch={status,revision:next,updated_by:user.id,updated_at:new Date().toISOString(),...(status==='issued'?{issued_at:new Date().toISOString()}:{}),...(status==='accepted'?{accepted_at:new Date().toISOString(),acceptance_email_from:String(emailFrom).slice(0,320),acceptance_email_date:emailDate,acceptance_email_reference:String(emailReference).slice(0,1000)}:{}),...(status==='cancelled'?{cancelled_at:new Date().toISOString()}: {})}
+     const {data,error}=await db.from('proforma_invoices').update(patch).eq('id',id).eq('revision',existing.revision).eq('status',existing.status).select('*').maybeSingle()
+     if(error||!data)return err(res,409,'Invoice status changed elsewhere')
+     const {error:revisionError}=await db.from('proforma_invoice_revisions').insert({invoice_id:id,revision:next,snapshot:existing.snapshot,action:status,actor_id:user.id})
+     if(revisionError)return err(res,500,'Status saved but audit history failed; contact administrator')
+     return res.json({invoice:data})
+   }
+   return err(res,405,'Method not allowed')
+ }
  if(action==='globalSearch'&&req.method==='GET'){
    const q=String(req.query.q||'').trim().slice(0,100)
    if(q.length<2)return res.json({results:[]})
