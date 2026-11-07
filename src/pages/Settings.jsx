@@ -67,6 +67,7 @@ export default function Settings() {
   const [termsError, setTermsError] = useState('')
 
   useEffect(() => {
+    loadSetting(COMPANY_INFO_KEY, companyInfo).then(setCompanyInfo).catch(()=>{})
     loadSetting('tax', DEFAULT_SETTINGS.tax).then(v => { setTaxSettings(v); if (v.sales_tax_rate != null) setPoTaxRate(String(v.sales_tax_rate)) })
     loadSetting('defaults', DEFAULT_SETTINGS.defaults).then(setDefaultSettings)
     loadList('document_numbering', DEFAULT_NUMBERING).then(rows => setNumbering(mergeNumberingDefaults(rows)))
@@ -94,7 +95,7 @@ export default function Settings() {
     setTaxSettings(next); setPoTaxRate(String(next.sales_tax_rate ?? 18)); localStorage.setItem(PO_TAX_RATE_KEY, String(next.sales_tax_rate ?? 18)); await saveSetting('tax', next); flashSaved()
   }
   const saveTerms = () => { localStorage.setItem(PO_TERMS_KEY, poTerms); setTermsUnlocked(false); flashSaved() }
-  const saveCompany = () => { localStorage.setItem(COMPANY_INFO_KEY, JSON.stringify(companyInfo)); setCompanyUnlocked(false); flashSaved() }
+  const saveCompany = async () => { try { await saveSetting(COMPANY_INFO_KEY,companyInfo);localStorage.setItem(COMPANY_INFO_KEY, JSON.stringify(companyInfo));setCompanyUnlocked(false);setCompanyError('');flashSaved() } catch(e) { setCompanyError('Could not save company details: '+e.message) } }
   const setCompanyField = field => e => setCompanyInfo(prev => ({ ...prev, [field]: e.target.value }))
 
   const cards = [
