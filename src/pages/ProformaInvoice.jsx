@@ -42,7 +42,7 @@ export default function ProformaInvoice({onBack}){
    let active=true
    setForm(f=>({...f,number:''}))
    ;(async()=>{try{
-     const r=await fetch('/api/oms?action=previewProformaNumber',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobs:numberJobs})})
+     const r=await fetch('/api/oms?action=previewProformaNumber',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'previewProformaNumber',jobs:numberJobs})})
      const data=await r.json();if(!r.ok)throw Error(data.error||'PI numbering unavailable')
      if(active)setForm(f=>({...f,number:data.number}))
    }catch(e){if(active)setError(e.message)}})()
