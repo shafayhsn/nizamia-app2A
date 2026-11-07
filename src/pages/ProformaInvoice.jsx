@@ -64,7 +64,7 @@ export default function ProformaInvoice({onBack}){
    if(currencySet.length>1)return alert('Use one currency per PI.')
    if(chosen.some(o=>!(Number(o.total_qty)>0)||Number(o.total_value_usd)<0))return alert('Check line quantities and values.')
    try{setBusy(true);setError('')
-     const snapshot={summaryGroup,buyer:{id:buyer.id,name:buyer.name},form:{...form},lines:chosen.map(o=>({id:o.id,po_number:o.po_number,job_number:o.job_number,style_number:o.style_number,description:o.description,total_qty:Number(o.total_qty),total_value_usd:Number(o.total_value_usd),currency:o.currency||currency})),currency}
+     const snapshot={summaryGroup,buyer:{id:buyer.id,name:buyer.name},form:{...form},lines:chosen.map(o=>({id:o.id,po_number:o.po_number,job_number:o.job_number,style_number:o.style_number,description:o.description,ship_date:o.ship_date,total_qty:Number(o.total_qty),total_value_usd:Number(o.total_value_usd),currency:o.currency||currency})),currency}
      const data=await api('saveProforma',{id:invoice?.id,revision:invoice?.revision,piNumber:invoice?.pi_number||form.number,snapshot})
      setInvoice(data.invoice);setForm(f=>({...f,number:data.invoice.pi_number}));setSavedLines(snapshot.lines);await refresh();alert('Draft saved as '+data.invoice.pi_number+', revision '+data.invoice.revision)
    }catch(e){setError(e.message)}finally{setBusy(false)}
