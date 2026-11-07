@@ -76,7 +76,7 @@ export default async function handler(req,res){
      let number=String(input.piNumber||'').trim().slice(0,80)
      const snapshot=input.snapshot
      if(!snapshot||typeof snapshot!=='object'||Array.isArray(snapshot))return err(res,400,'Invoice details required')
-     if(!number&&!input.id){const {data:generated,error:sequenceError}=await db.rpc('allocate_proforma_number');if(sequenceError)return err(res,500,'Could not allocate PI number');number=generated}
+     if(!input.id){const jobs=[...new Set((snapshot.lines||[]).map(l=>String(l.job_number||'').trim()).filter(Boolean))];const jobPart=jobs.length===1?jobs[0]:jobs.length>1?'MULTI':'PREORDER';const {data:generated,error:sequenceError}=await db.rpc('allocate_proforma_number');if(sequenceError)return err(res,500,'Could not allocate PI number');number='PI-'+jobPart.replace(/[^A-Za-z0-9-]/g,'').slice(0,40)+'-'+String(generated).split('-').pop()}
      if(!number)return err(res,400,'PI number required')
      snapshot.form={...snapshot.form,number}
      if(JSON.stringify(snapshot).length>150000)return err(res,413,'Invoice too large')
