@@ -35,6 +35,19 @@ export default function ProformaInvoice({onBack}){
  const filtered=available.filter(o=>(!batchFilter||batchLinks.some(link=>link.batch_id===batchFilter&&link.order_id===o.id))&&(!jobFilter||o.job_number===jobFilter)&&(!styleFilter||o.style_number===styleFilter)&&[o.job_number,o.po_number,o.style_number,o.description].some(x=>String(x||'').toLowerCase().includes(query.toLowerCase())))
  const selectVisible=()=>{setSavedLines(null);setSelected(a=>[...new Set([...a,...filtered.map(o=>o.id)])])}
  const deselectVisible=()=>{setSavedLines(null);const ids=new Set(filtered.map(o=>o.id));setSelected(a=>a.filter(id=>!ids.has(id)))}
+ const numberJobs=[...new Set(chosen.map(o=>String(o.job_number||'').trim()).filter(Boolean))].sort()
+ const numberKey=numberJobs.join('|')||'PREORDER'
+ useEffect(()=>{
+   if(invoice?.id||!chosen.length)return
+   let active=true
+   setForm(f=>({...f,number:''}))
+   ;(async()=>{try{
+     const r=await fetch('/api/oms?action=previewProformaNumber',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobs:numberJobs})})
+     const data=await r.json();if(!r.ok)throw Error(data.error||'PI numbering unavailable')
+     if(active)setForm(f=>({...f,number:data.number}))
+   }catch(e){if(active)setError(e.message)}})()
+   return()=>{active=false}
+ },[numberKey,chosen.length,invoice?.id])
  const currencySet=[...new Set(chosen.map(o=>o.currency||'USD'))]
  const currency=currencySet.length===1?currencySet[0]:form.currency
  const totalQty=chosen.reduce((s,o)=>s+(Number(o.total_qty)||0),0)
@@ -60,7 +73,7 @@ export default function ProformaInvoice({onBack}){
    if(chosen.some(o=>!(Number(o.total_qty)>0)||Number(o.total_value_usd)<0))return alert('Check line quantities and values.')
    try{setBusy(true);setError('')
      const snapshot={summaryGroup,buyer:{id:buyer.id,name:buyer.name},form:{...form},lines:chosen.map(o=>({id:o.id,po_number:o.po_number,job_number:o.job_number,style_number:o.style_number,description:o.description,total_qty:Number(o.total_qty),total_value_usd:Number(o.total_value_usd),currency:o.currency||currency})),currency}
-     const data=await api('saveProforma',{id:invoice?.id,revision:invoice?.revision,piNumber:invoice?.pi_number||'',snapshot})
+     const data=await api('saveProforma',{id:invoice?.id,revision:invoice?.revision,piNumber:invoice?.pi_number||form.number,snapshot})
      setInvoice(data.invoice);setForm(f=>({...f,number:data.invoice.pi_number}));setSavedLines(snapshot.lines);await refresh();alert('Draft saved as '+data.invoice.pi_number+', revision '+data.invoice.revision)
    }catch(e){setError(e.message)}finally{setBusy(false)}
  }
@@ -77,7 +90,7 @@ export default function ProformaInvoice({onBack}){
  const generate=async()=>{
   if(!buyer||!chosen.length)return alert('Select a customer and at least one order or manual PI line.')
   if(currencySet.length>1)return alert('Selected orders use different currencies. Create separate proforma invoices.')
-  if(!invoice?.pi_number)return alert('Save the PI first to generate its unique PI number before printing.')
+  if(!form.number.trim())return alert('Please wait for automatic PI number generation.')
   if(!form.paymentTerms.trim())return alert('Enter agreed payment terms.')
   if(!form.shipmentDate)return alert('Confirm the proposed shipment date.')
   const w=openPrintWindow();if(!w)return
@@ -132,7 +145,7 @@ export default function ProformaInvoice({onBack}){
   </div>}
   {step===1&&<div style={panel}>
    <h3 style={{margin:'0 0 6px'}}>Commercial details</h3><p style={{fontSize:12,color:'#64748b',marginBottom:20}}>Check the details that will appear on the customer's confirmation.</p>
-   <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:16}}>{[['number','PI Number (generated when saved)'],['date','Issue Date'],['seller','Seller / Shipper'],['paymentTerms','Payment Terms'],['shipmentDate','Shipment Date'],['shipMode','Shipment Mode'],['incoterms','Incoterms'],['portLoading','Port of Loading'],['portDischarge','Port of Discharge']].map(([k,l])=><label key={k} style={label}>{l}<input style={{...field,marginTop:5,fontSize:13}} type={['date','shipmentDate'].includes(k)?'date':'text'} value={k==='number'?(invoice?.pi_number||'Assigned on save'):form[k]||''} readOnly={k==='number'} onChange={e=>change(k,e.target.value)}/></label>)}</div>
+   <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:16}}>{[['number','PI Number (generated when saved)'],['date','Issue Date'],['seller','Seller / Shipper'],['paymentTerms','Payment Terms'],['shipmentDate','Shipment Date'],['shipMode','Shipment Mode'],['incoterms','Incoterms'],['portLoading','Port of Loading'],['portDischarge','Port of Discharge']].map(([k,l])=><label key={k} style={label}>{l}<input style={{...field,marginTop:5,fontSize:13}} type={['date','shipmentDate'].includes(k)?'date':'text'} value={k==='number'?(invoice?.pi_number||form.number||'Generating…'):form[k]||''} readOnly={k==='number'} onChange={e=>change(k,e.target.value)}/></label>)}</div>
    <button type="button" style={{...btn,marginTop:20}} onClick={()=>setShowAdvanced(v=>!v)}>{showAdvanced?'− Hide addresses':'+ View / edit addresses'}</button>
    {showAdvanced&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:14}}>{[['sellerAddress','Seller address'],['buyerAddress','Buyer address']].map(([k,l])=><label key={k} style={label}>{l}<textarea style={{...field,marginTop:5}} rows={3} value={form[k]||''} onChange={e=>change(k,e.target.value)}/></label>)}</div>}
    <div style={{display:'flex',justifyContent:'space-between',marginTop:22}}><button type="button" style={btn} onClick={()=>setStep(0)}>← Back</button><button type="button" style={primary} onClick={()=>setStep(2)}>Review confirmation →</button></div>
