@@ -48,7 +48,7 @@ export default async function handler(req,res){
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
  if(action==='session')return res.json({ok:true})
- if(['listProformas','saveProforma','transitionProforma','getProforma'].includes(action)){
+ if(['listProformas','saveProforma','transitionProforma','getProforma','previewProformaNumber'].includes(action)){
    const admin=String(user.role||'').toLowerCase()==='admin'
    let canView=admin,canEdit=admin
    if(!admin&&user.role_id){
