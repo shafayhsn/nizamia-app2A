@@ -1,6 +1,6 @@
 import ProformaInvoice from './ProformaInvoice'
 import { formatDate as appFormatDate } from '../lib/utils'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import React, { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
@@ -155,7 +155,9 @@ const btn = { border:'1px solid #d9dce4', background:'#fff', padding:'9px 13px',
 
 export default function Reports() {
   const navigate = useNavigate()
-  const [active,setActive] = useState(null)
+  const location = useLocation()
+  const incomingPI = location.state?.proformaOrderIds?.length ? location.state : null
+  const [active,setActive] = useState(()=>incomingPI ? {title:'Proforma Invoice',proforma:true} : null)
   const [catalogSearch,setCatalogSearch] = useState('')
   const [favorites,setFavorites] = useState(()=>{try{return JSON.parse(window.localStorage.getItem('app2a-report-favorites')||'[]')}catch{return []}})
   const favoriteKey=r=>`${r.category}:${r.title}`
@@ -395,7 +397,7 @@ export default function Reports() {
   const reportCatalog=[...flatten,{title:'PP Meeting',table:'pp_meetings',category:'Orders & Customers',ppm:true}]
   const categories=[...new Set(reportCatalog.map(r=>r.category))]
    const matches=reportCatalog.filter(r=>(category==='All'||(category==='Favorites'?favorites.includes(favoriteKey(r)):r.category===category))&&`${r.title} ${r.category}`.toLowerCase().includes(catalogSearch.toLowerCase())).sort((a,b)=>catalogSort==='category'?a.category.localeCompare(b.category)||a.title.localeCompare(b.title):a.title.localeCompare(b.title))
-   if(active?.proforma)return <div style={{height:'100%',overflow:'auto',background:'#f8fafc'}}><ProformaInvoice onBack={()=>setActive(null)}/></div>
+   if(active?.proforma)return <div style={{height:'100%',overflow:'auto',background:'#f8fafc'}}><ProformaInvoice initialSelection={incomingPI} onBack={()=>{setActive(null);if(incomingPI)navigate('/reports',{replace:true,state:null})}}/></div>
    return <div style={{height:'100%',overflow:'auto',padding:'22px 26px',background:'#fff',fontFamily:'var(--font,Arial,sans-serif)',color:'#202633'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,gap:12}}>
       <div><div style={{fontSize:22,fontWeight:750}}>Reports</div><div style={{fontSize:12,color:'#6b7280',marginTop:4}}>Central read-only reporting · existing Supabase records · Excel and print/PDF</div></div>
