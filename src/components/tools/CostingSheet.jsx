@@ -39,33 +39,33 @@ function totals(doc){
 
 }
 const reportPrintCss = `
-@page{size:A4 portrait;margin:7mm}
+@page{size:A4 portrait;margin:12mm}
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;color:#101010;font:8px Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.costing-report{display:block!important;width:100%;color:#111}
-.cr-header{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;margin-bottom:9px}
+html,body{margin:0;padding:0;color:#101010;font:9px Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.costing-report{display:block!important;width:100%;max-width:100%;color:#111;padding:5mm 4mm;overflow:visible}
+.cr-header{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;margin-bottom:14px;padding-bottom:7px;border-bottom:1px solid #111}
 .cr-header b{font-size:17px}.cr-header .cr-center{text-align:center}.cr-header .cr-right{text-align:right}
 .cr-header .cr-right b{font-size:16px}.cr-header small{font-size:8px;display:block;font-weight:400}
-.cr-columns{display:grid;grid-template-columns:minmax(0,65fr) minmax(0,35fr);gap:12px;align-items:start}
+.cr-columns{display:grid;grid-template-columns:minmax(0,63fr) minmax(0,37fr);gap:10px;align-items:start}
 .cr-left,.cr-right{min-width:0}
-.cr-section{border:1.3px solid #111;margin:0 0 9px;break-inside:avoid}
+.cr-section{border:1px solid #111;margin:0 0 11px;break-inside:avoid}
 .cr-section-title{display:flex;justify-content:space-between;align-items:center;gap:5px;font-weight:700;font-size:9px;min-height:19px;padding:3px 5px;border-bottom:1.2px solid #111}
 .cr-section-title span:last-child{font-size:7px;white-space:nowrap}
 .cr-table{border-collapse:collapse;width:100%;table-layout:fixed}
 .cr-table thead{display:table-header-group}
 .cr-table th{background:#e4e5e7;text-transform:uppercase;font-size:7px;font-weight:700;border-bottom:1px solid #111;padding:3px 4px;text-align:right}
 .cr-table th:first-child,.cr-table td:first-child{text-align:left}
-.cr-table td{padding:2px 4px;vertical-align:top;line-height:1.15;text-align:right;font-size:7.6px;overflow-wrap:anywhere}
+.cr-table td{padding:3px 4px;vertical-align:top;line-height:1.15;text-align:right;font-size:8.3px;overflow-wrap:anywhere}
 .cr-table tbody tr{break-inside:avoid}
 .cr-table tfoot td{font-weight:700;border-top:1px solid #111;padding:4px}
 .cr-meta{border:1.3px solid #111;border-collapse:collapse;width:100%;table-layout:fixed;margin-bottom:12px}
-.cr-meta td{border:1px solid #111;padding:5px 6px;vertical-align:middle;font-size:8px;overflow-wrap:anywhere}
+.cr-meta td{border:1px solid #111;padding:6px 6px;vertical-align:middle;font-size:8px;overflow-wrap:anywhere}
 .cr-meta td:first-child{width:37%;font-weight:700;text-transform:uppercase;font-size:7.3px}
 .cr-summary{border:1.3px solid #111;margin-bottom:12px;break-inside:avoid}
 .cr-summary-title{text-align:center;font-size:10px;font-weight:700;padding:5px;border-bottom:1px solid #111}
 .cr-summary table{width:100%;border-collapse:collapse;table-layout:fixed}
 .cr-summary th{background:#e4e5e7;font-size:7px;text-align:left;padding:4px;border-bottom:1px solid #111}
-.cr-summary td{font-size:7.6px;padding:3px 4px;vertical-align:top;overflow-wrap:anywhere}
+.cr-summary td{font-size:8.3px;padding:4px 4px;vertical-align:top;overflow-wrap:anywhere}
 .cr-summary th:nth-child(2),.cr-summary th:nth-child(3),.cr-summary td:nth-child(2),.cr-summary td:nth-child(3){text-align:right}
 .cr-summary .cr-rule td{border-top:1px solid #111;font-weight:700}
 .cr-summary .cr-highlight td{border-top:1px solid #111;font-weight:700}
