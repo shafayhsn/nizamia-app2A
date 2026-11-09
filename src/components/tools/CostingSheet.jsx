@@ -39,7 +39,7 @@ function totals(doc){
 const inputStyle={height:32,border:'1px solid #d5dae2',borderRadius:6,padding:'4px 8px',width:'100%',boxSizing:'border-box',fontSize:12}
 const btn={padding:'8px 12px',border:'1px solid #d5dae2',borderRadius:7,background:'#fff',cursor:'pointer',fontSize:12}
 export default function CostingSheet({onClose}){
-  const [records,setRecords]=useState([]),[buyers,setBuyers]=useState([]),[doc,setDoc]=useState(null),[current,setCurrent]=useState(null),[history,setHistory]=useState([]),[historyOpen,setHistoryOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState('')
+  const [viewingVersion,setViewingVersion]=useState(null),[records,setRecords]=useState([]),[buyers,setBuyers]=useState([]),[doc,setDoc]=useState(null),[current,setCurrent]=useState(null),[history,setHistory]=useState([]),[historyOpen,setHistoryOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState('')
   const update=(key,value)=>setDoc(d=>({...d,[key]:value}))
   async function refresh(){
     const [r,b]=await Promise.all([supabase.from('costing_sheets').select('id,reference,customer,style,type,version,updated_at,document').order('updated_at',{ascending:false}),supabase.from('buyers').select('id,name').order('name')])
@@ -49,10 +49,11 @@ export default function CostingSheet({onClose}){
   }
   useEffect(()=>{refresh()},[])
   const calculated=useMemo(()=>doc?totals(doc):null,[doc])
-  function open(record){setCurrent(record);setDoc(structuredClone(record.document));setHistoryOpen(false);setError('')}
-  function start(type){setCurrent(null);setDoc(blank(type));setHistory([]);setHistoryOpen(false);setError('')}
+  function open(record){setCurrent(record);setDoc(structuredClone(record.document));setViewingVersion(null);setHistoryOpen(false);setError('')}
+  function start(type){setCurrent(null);setDoc(blank(type));setViewingVersion(null);setHistory([]);setHistoryOpen(false);setError('')}
   function changeCell(section,row,index,value){setDoc(d=>{const next=structuredClone(d);next.sections[section].rows[row].values[index]=value;return next})}
   async function save(){
+    if(viewingVersion){setError('Historical versions are read-only. Return to the latest version before editing.');return}
     if(!doc?.customer.trim()){setError('Customer is required.');return}
     if(num(doc.exchange_rate)<=0){setError('Exchange rate must be greater than zero.');return}
     setBusy(true);setError('')
@@ -60,15 +61,17 @@ export default function CostingSheet({onClose}){
       if(current){
         const version=num(current.version)+1
         const snapshot={costing_id:current.id,version:current.version,document:current.document}
-        const archived=await supabase.from('costing_sheet_versions').insert(snapshot)
+        const archived=await supabase.from('costing_sheet_versions').upsert(snapshot,{onConflict:'costing_id,version',ignoreDuplicates:true})
         if(archived.error)throw archived.error
         const updated=await supabase.from('costing_sheets').update({customer:doc.customer,buyer_id:doc.buyer_id,style:doc.style,document:doc,version,updated_at:new Date().toISOString()}).eq('id',current.id).eq('version',current.version).select('*').single()
         if(updated.error)throw updated.error
         setCurrent(updated.data)
+        setViewingVersion(null)
       }else{
         const created=await supabase.from('costing_sheets').insert({type:doc.type,customer:doc.customer,buyer_id:doc.buyer_id,style:doc.style,document:doc}).select('*').single()
         if(created.error)throw created.error
         setCurrent(created.data)
+        setViewingVersion(null)
       }
       await refresh()
     }catch(e){setError(e.message||String(e))}finally{setBusy(false)}
@@ -83,13 +86,13 @@ export default function CostingSheet({onClose}){
     <style>{`@media print {body *{visibility:hidden!important}.costing-print,.costing-print *{visibility:visible!important}.costing-print{position:absolute!important;inset:0!important;width:100%!important;overflow:visible!important}.costing-actions,.costing-no-print{display:none!important}@page{size:A4 landscape;margin:8mm}}`}</style>
     <div className="costing-actions" style={{display:'flex',alignItems:'center',gap:8,padding:12,borderBottom:'1px solid #e5e7eb',flexWrap:'wrap'}}>
       <strong style={{fontSize:16,marginRight:'auto'}}>Costing Sheet {current?.reference||''}</strong>
-      {doc?<><button style={btn} onClick={()=>{setDoc(null);setCurrent(null)}}>All Costings</button><button style={btn} onClick={loadHistory} disabled={!current}>History</button><button style={btn} onClick={printable} disabled={!current}>Print / PDF</button><button style={{...btn,background:'#111827',color:'#fff'}} disabled={busy} onClick={save}>{busy?'Saving…':'Save'}</button></>:<><button style={btn} onClick={()=>start('woven')}>+ Woven Costing</button><button style={btn} onClick={()=>start('knits')}>+ Knits Costing</button></>}
+      {doc?<><button style={btn} onClick={()=>{setDoc(null);setCurrent(null);setViewingVersion(null)}}>All Costings</button><button style={btn} onClick={loadHistory} disabled={!current}>History</button>{viewingVersion&&<button style={btn} onClick={()=>{setDoc(structuredClone(current.document));setViewingVersion(null);setError('')}}>Return to Latest</button>}<button style={btn} onClick={printable} disabled={!current}>Print / PDF</button><button style={{...btn,background:'#111827',color:'#fff'}} disabled={busy||!!viewingVersion} onClick={save}>{busy?'Saving…':'Save'}</button></>:<><button style={btn} onClick={()=>start('woven')}>+ Woven Costing</button><button style={btn} onClick={()=>start('knits')}>+ Knits Costing</button></>}
       <button style={btn} onClick={onClose}>Close</button>
     </div>
     {error&&<div role="alert" style={{color:'#b42318',background:'#fff3f2',padding:10}}>{error}</div>}
     {!doc?<div style={{padding:16,overflow:'auto'}}><input placeholder="Search customer, style or reference" style={{...inputStyle,maxWidth:350,marginBottom:12}} value={search} onChange={e=>setSearch(e.target.value)}/><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr>{['Reference','Customer','Style','Type','Version','Last Edited'].map(x=><th key={x} style={{textAlign:'left',padding:10,borderBottom:'1px solid #ddd'}}>{x}</th>)}</tr></thead><tbody>{records.filter(r=>[r.reference,r.customer,r.style].join(' ').toLowerCase().includes(search.toLowerCase())).map(r=><tr key={r.id} onDoubleClick={()=>open(r)} onClick={()=>open(r)} style={{cursor:'pointer',borderBottom:'1px solid #eee'}}><td style={{padding:10}}>{r.reference}</td><td>{r.customer}</td><td>{r.style||'—'}</td><td>{r.type}</td><td>V{r.version}</td><td>{new Date(r.updated_at).toLocaleDateString()}</td></tr>)}</tbody></table></div>:
     <div className="costing-print" style={{flex:1,overflow:'auto',padding:18}}>
-      <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}><strong style={{fontSize:18}}>NIZAMIA APPARELS · COSTING SHEET</strong><span>{current?.reference||'UNSAVED'} · {doc.type.toUpperCase()} · V{current?.version||1}</span></div>
+      <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}><strong style={{fontSize:18}}>NIZAMIA APPARELS · COSTING SHEET</strong><span>{current?.reference||'UNSAVED'} · {doc.type.toUpperCase()} · V{viewingVersion||current?.version||1}</span></div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:10,marginBottom:16}}>
         {[[ 'Customer',<><input list="costing-buyers" value={doc.customer} onChange={e=>{const buyer=buyers.find(b=>b.name===e.target.value);setDoc(d=>({...d,customer:e.target.value,buyer_id:buyer?.id||null}))}} style={inputStyle}/><datalist id="costing-buyers">{buyers.map(b=><option key={b.id} value={b.name}/>)}</datalist></>],['Style / Reference',<input value={doc.style} onChange={e=>update('style',e.target.value)} style={inputStyle}/>],['Description',<input value={doc.description} onChange={e=>update('description',e.target.value)} style={inputStyle}/>],['Size Range',<input value={doc.size_range} onChange={e=>update('size_range',e.target.value)} style={inputStyle}/>],['Quantity (pieces)',<input type="number" value={doc.quantity} onChange={e=>update('quantity',e.target.value)} style={inputStyle}/>],['PKR / USD',<input type="number" value={doc.exchange_rate} onChange={e=>update('exchange_rate',e.target.value)} style={inputStyle}/>],['Profit %',<input type="number" value={doc.profit_pct} onChange={e=>update('profit_pct',e.target.value)} style={inputStyle}/>],['Agency %',<input type="number" value={doc.agency_pct} onChange={e=>update('agency_pct',e.target.value)} style={inputStyle}/>]].map(([label,control])=><label key={label}><div style={{fontSize:10,color:'#667085',marginBottom:3}}>{label}</div>{control}</label>)}
       </div>
@@ -108,7 +111,7 @@ export default function CostingSheet({onClose}){
           <label style={{display:'block',marginTop:16}}>Notes<textarea rows={3} value={doc.notes} onChange={e=>update('notes',e.target.value)} style={{...inputStyle,height:70}}/></label>
         </div>
       </div>
-      {historyOpen&&<div className="costing-no-print" style={{position:'fixed',inset:0,background:'#0006',display:'grid',placeItems:'center',zIndex:1200}}><div style={{background:'#fff',borderRadius:10,padding:20,width:430,maxHeight:'80vh',overflow:'auto'}}><div style={{display:'flex',justifyContent:'space-between'}}><strong>Edit History</strong><button style={btn} onClick={()=>setHistoryOpen(false)}>Close</button></div>{history.map(h=><div key={h.version} style={{padding:10,borderBottom:'1px solid #eee',display:'flex',justifyContent:'space-between'}}><span>V{h.version} · {new Date(h.created_at).toLocaleString()}</span><button style={btn} onClick={()=>{setDoc(structuredClone(h.document));setHistoryOpen(false);setError('Historical version loaded for viewing. Saving will create a new version of the current costing.')}}>View</button></div>)}<div style={{padding:10}}>Current: V{current?.version}</div></div></div>}
+      {historyOpen&&<div className="costing-no-print" style={{position:'fixed',inset:0,background:'#0006',display:'grid',placeItems:'center',zIndex:1200}}><div style={{background:'#fff',borderRadius:10,padding:20,width:430,maxHeight:'80vh',overflow:'auto'}}><div style={{display:'flex',justifyContent:'space-between'}}><strong>Edit History</strong><button style={btn} onClick={()=>setHistoryOpen(false)}>Close</button></div>{history.map(h=><div key={h.version} style={{padding:10,borderBottom:'1px solid #eee',display:'flex',justifyContent:'space-between'}}><span>V{h.version} · {new Date(h.created_at).toLocaleString()}</span><button style={btn} onClick={()=>{setDoc(structuredClone(h.document));setViewingVersion(h.version);setHistoryOpen(false);setError('Viewing a read-only historical snapshot. Use Return to Latest to edit.')}}>View</button></div>)}<div style={{padding:10}}>Current: V{current?.version}</div></div></div>}
     </div>}
   </div>
 }
