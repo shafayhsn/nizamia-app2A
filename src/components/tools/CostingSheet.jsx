@@ -137,6 +137,7 @@ export default function CostingSheet({onClose}){
           </div>
         </div>
       </div>
+      </div>
       <div className="costing-report">
         <header style={{display:'flex',justifyContent:'space-between',borderBottom:'2px solid #222',paddingBottom:8}}><strong style={{fontSize:17}}>NIZAMIA APPARELS · COSTING REPORT</strong><span>{current?.reference||'UNSAVED'} · {doc.type.toUpperCase()} · V{viewingVersion||current?.version||1}</span></header>
         <div className="report-meta">{[['Customer',doc.customer],['Style / Reference',doc.style],['Target Price',symbol[doc.quote_currency]+money(doc.target_price)],['Size Range',doc.size_range],['Currency',doc.quote_currency],['Buying Agency',doc.buying_agency],['Description',doc.description],['Estimated Qty',formattedNumber(doc.quantity)],['Base Size',doc.base_size],['PKR / '+doc.quote_currency,money(doc.rates?.[doc.quote_currency]??doc.exchange_rate)]].map(([label,value])=><div key={label}><small style={{color:'#555'}}>{label}</small><div style={{fontWeight:600}}>{value||'—'}</div></div>)}</div>
@@ -262,6 +263,6 @@ export default function CostingSheet({onClose}){
         </div>
       </div>
       {historyOpen&&<div className="costing-no-print" style={{position:'fixed',inset:0,background:'#0006',display:'grid',placeItems:'center',zIndex:1200}}><div style={{background:'#fff',borderRadius:10,padding:20,width:430,maxHeight:'80vh',overflow:'auto'}}><div style={{display:'flex',justifyContent:'space-between'}}><strong>Edit History</strong><button style={btn} onClick={()=>setHistoryOpen(false)}>Close</button></div>{history.map(h=><div key={h.version} style={{padding:10,borderBottom:'1px solid #eee',display:'flex',justifyContent:'space-between'}}><span>V{h.version} · {new Date(h.created_at).toLocaleString()}</span><button style={btn} onClick={()=>{setDoc(structuredClone(h.document));setViewingVersion(h.version);setHistoryOpen(false);setError('Viewing a read-only historical snapshot. Use Return to Latest to edit.')}}>View</button></div>)}<div style={{padding:10}}>Current: V{current?.version}</div></div></div>}
-    </div>}
+    </>}
   </div>
 }
