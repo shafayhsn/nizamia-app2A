@@ -138,7 +138,8 @@ export default function CostingSheet({onClose}){
       setHistoryOpen(true)
     }catch(e){setError(e.message||String(e))}
   }
-  const printable=async()=>{\n    if(current){try{const response=await fetch('/api/oms?action=costingHistory&id='+encodeURIComponent(current.id),{credentials:'same-origin'});if(response.ok){const data=await response.json();setHistory(data.history||[])}}catch(e){console.warn('Costing history unavailable for print',e)}}
+  const printable=async()=>{
+    if(current){try{const response=await fetch('/api/oms?action=costingHistory&id='+encodeURIComponent(current.id),{credentials:'same-origin'});if(response.ok){const data=await response.json();setHistory(data.history||[])}}catch(e){console.warn('Costing history unavailable for print',e)}}
     const report=document.querySelector('.costing-report')
     if(!report)return
     const frame=document.createElement('iframe')
@@ -146,7 +147,8 @@ export default function CostingSheet({onClose}){
     frame.style.cssText='position:fixed;width:0;height:0;border:0;opacity:0;pointer-events:none'
     document.body.appendChild(frame)
     const css=reportPrintCss
-    await new Promise(resolve=>setTimeout(resolve,50))\n    const page=frame.contentDocument
+    await new Promise(resolve=>setTimeout(resolve,50))
+    const page=frame.contentDocument
     page.open()
     page.write('<!doctype html><html><head><title>Costing Report</title><style>'+css+'</style></head><body>'+report.innerHTML+'</body></html>')
     page.close()
