@@ -45,14 +45,24 @@ function FormattedInput({value,onChange,prefix='',style,decimals=5,ariaLabel}){
  const display=raw===''?'':prefix+Number(raw).toLocaleString('en-US',{maximumFractionDigits:decimals})
  return <input aria-label={ariaLabel} type="text" inputMode="decimal" value={editing?raw:display} onFocus={e=>{setEditing(true);e.target.select()}} onBlur={()=>setEditing(false)} onChange={e=>{const v=e.target.value.replace(/,/g,'').replace(prefix,'');if(v===''||/^-?\d*\.?\d*$/.test(v))onChange(v)}} style={style}/>
 }
+async function costingApi(action,payload=null){
+ const get=payload===null
+ const url='/api/oms?action='+encodeURIComponent(action)+(get&&action==='costingHistory'?'':'')
+ const response=await fetch(url,{method:get?'GET':'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},...(get?{}:{body:JSON.stringify({action,...payload})})})
+ const data=await response.json().catch(()=>({}))
+ if(!response.ok)throw new Error(data.error||'Costing request failed')
+ return data
+}
 export default function CostingSheet({onClose}){
   const [viewingVersion,setViewingVersion]=useState(null),[records,setRecords]=useState([]),[buyers,setBuyers]=useState([]),[doc,setDoc]=useState(null),[current,setCurrent]=useState(null),[history,setHistory]=useState([]),[historyOpen,setHistoryOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState('')
   const update=(key,value)=>setDoc(d=>({...d,[key]:value}))
   async function refresh(){
-    const [r,b]=await Promise.all([supabase.from('costing_sheets').select('id,reference,customer,style,type,version,updated_at,document').order('updated_at',{ascending:false}),supabase.from('buyers').select('id,name').order('name')])
-    if(r.error)setError('Costing database is not configured in this preview: '+r.error.message)
-    else {setRecords(r.data||[]);setError('')}
-    if(!b.error)setBuyers(b.data||[])
+    try{
+      const [result,b]=await Promise.all([costingApi('listCostings'),supabase.from('buyers').select('id,name').order('name')])
+      setRecords(result.costings||[])
+      setError('')
+      if(!b.error)setBuyers(b.data||[])
+    }catch(e){setError(e.message||String(e))}
   }
   useEffect(()=>{refresh()},[])
   const calculated=useMemo(()=>doc?totals(doc):null,[doc])
@@ -72,25 +82,21 @@ export default function CostingSheet({onClose}){
     if(doc.sections.some(s=>s.rows.some(r=>r.values.some(v=>!Number.isFinite(Number(v)))))){setError('Enter valid numeric cost values.');return}
     setBusy(true);setError('')
     try{
-      if(current){
-        const version=num(current.version)+1
-        const updated=await supabase.rpc('save_costing_revision',{p_id:current.id,p_expected_version:current.version,p_customer:doc.customer,p_buyer_id:doc.buyer_id,p_style:doc.style,p_document:doc})
-        if(updated.error)throw updated.error
-        setCurrent(updated.data)
-        setViewingVersion(null)
-      }else{
-        const created=await supabase.from('costing_sheets').insert({type:doc.type,customer:doc.customer,buyer_id:doc.buyer_id,style:doc.style,document:doc}).select('*').single()
-        if(created.error)throw created.error
-        setCurrent(created.data)
-        setViewingVersion(null)
-      }
+      const result=await costingApi('saveCosting',{id:current?.id||null,expected_version:current?.version||null,buyer_id:doc.buyer_id,document:doc})
+      setCurrent(result.costing)
+      setViewingVersion(null)
       await refresh()
     }catch(e){setError(e.message||String(e))}finally{setBusy(false)}
   }
   async function loadHistory(){
     if(!current)return
-    const r=await supabase.from('costing_sheet_versions').select('version,document,created_at').eq('costing_id',current.id).order('version',{ascending:false})
-    if(r.error)setError(r.error.message);else {setHistory(r.data||[]);setHistoryOpen(true)}
+    try{
+      const response=await fetch('/api/oms?action=costingHistory&id='+encodeURIComponent(current.id),{credentials:'same-origin'})
+      const data=await response.json()
+      if(!response.ok)throw new Error(data.error||'History unavailable')
+      setHistory(data.history||[])
+      setHistoryOpen(true)
+    }catch(e){setError(e.message||String(e))}
   }
   const printable=()=>{
     const report=document.querySelector('.costing-report')
