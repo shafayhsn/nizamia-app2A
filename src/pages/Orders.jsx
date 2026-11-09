@@ -1,4 +1,4 @@
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { buildOrderCuttingPlanHTML } from '../lib/orderCuttingPlanPrint.js'
 import { Minus } from 'lucide-react'
 import { useWindowManager } from '../components/ui/WindowManager'
@@ -4050,6 +4050,7 @@ function BulkEditOrdersModal({ selectedOrders, onClose, onDone }) {
 }
 
 export default function Orders() {
+  const navigate = useNavigate()
   const { alert, confirm, prompt, Dialogs } = useAppDialogs()
   const { user } = useAuth()
   const orderTablePrefsKey = `app2a.tableView.${user?.id || user?.username || user?.email || 'user'}.orders.main`
@@ -5076,6 +5077,7 @@ export default function Orders() {
       {showPrint && (
         <PrintPopup
           selectedOrders={selectedOrderObjs}
+          onCreateProforma={async () => {const orders=selectedOrderObjs;const keys=[...new Set(orders.map(o=>o.buyer_id||o.buyer_name?.trim().toLowerCase()).filter(Boolean))];if(!orders.length||keys.length!==1||orders.some(o=>!o.buyer_id&&!o.buyer_name)){await alert('Proforma Invoice can only be created for one buyer at a time. Please select orders belonging to the same buyer.',{title:'Select one buyer'});return}setShowPrint(false);navigate('/reports',{state:{proformaOrderIds:orders.map(o=>o.id),proformaBuyerId:orders[0].buyer_id||null,proformaBuyerName:orders[0].buyer_name||null}})}}
           onClose={() => setShowPrint(false)}
         />
       )}
