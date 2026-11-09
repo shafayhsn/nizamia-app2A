@@ -24,4 +24,13 @@ create index if not exists costing_sheets_customer_idx on public.costing_sheets(
 create index if not exists costing_sheets_updated_idx on public.costing_sheets(updated_at desc);
 alter table public.costing_sheets enable row level security;
 alter table public.costing_sheet_versions enable row level security;
--- Match existing application access policies before applying; no blanket public grants.
+-- No anonymous access. This module is intentionally shared with authenticated staff.
+-- Review the app's existing user-rights model before enabling in production.
+create policy costing_sheets_staff_select on public.costing_sheets for select to authenticated using (true);
+create policy costing_sheets_staff_insert on public.costing_sheets for insert to authenticated with check (true);
+create policy costing_sheets_staff_update on public.costing_sheets for update to authenticated using (true) with check (true);
+create policy costing_history_staff_select on public.costing_sheet_versions for select to authenticated using (true);
+create policy costing_history_staff_insert on public.costing_sheet_versions for insert to authenticated with check (true);
+grant usage on sequence public.costing_reference_seq to authenticated;
+grant select,insert,update on public.costing_sheets to authenticated;
+grant select,insert on public.costing_sheet_versions to authenticated;
