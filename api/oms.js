@@ -52,7 +52,7 @@ export default async function handler(req,res){
    const admin=String(user.role||'').toLowerCase()==='admin'
    let canView=admin,canEdit=admin
    if(!admin&&user.role_id){
-     const {data:perms,error:pe}=await db.from('permissions').select('can_view,can_create,can_edit').eq('role_id',user.role_id).eq('module','features').maybeSingle()
+     const {data:perms,error:pe}=await db.from('permissions').select('can_view,can_create,can_edit').eq('role_id',user.role_id).eq('module','reports').maybeSingle()
      if(pe)return err(res,500,'Cannot check feature permissions')
      canView=!!perms?.can_view;canEdit=!!(perms?.can_create||perms?.can_edit)
    }
