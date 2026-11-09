@@ -53,9 +53,12 @@ export default function CostingSheet({onClose}){
   function start(type){setCurrent(null);setDoc(blank(type));setViewingVersion(null);setHistory([]);setHistoryOpen(false);setError('')}
   function changeCell(section,row,index,value){setDoc(d=>{const next=structuredClone(d);next.sections[section].rows[row].values[index]=value;return next})}
   async function save(){
+    if(busy)return
     if(viewingVersion){setError('Historical versions are read-only. Return to the latest version before editing.');return}
     if(!doc?.customer.trim()){setError('Customer is required.');return}
     if(num(doc.exchange_rate)<=0){setError('Exchange rate must be greater than zero.');return}
+    if(num(doc.quantity)<0){setError('Quantity cannot be negative.');return}
+    if(doc.sections.some(s=>s.rows.some(r=>r.values.some(v=>!Number.isFinite(Number(v)))))){setError('Enter valid numeric cost values.');return}
     setBusy(true);setError('')
     try{
       if(current){
