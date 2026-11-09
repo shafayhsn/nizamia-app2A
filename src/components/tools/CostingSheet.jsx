@@ -32,7 +32,7 @@ function totals(doc){
   const profit=cost*num(doc.profit_pct)/100
   const agency=(cost+profit)*num(doc.agency_pct)/100
   const fob=cost+profit+agency
-  return {groups,manufacturing,usd:cost,profit,agency,fob,invoice:fob*num(doc.quantity),difference:fob-num(doc.target_price),currency:doc.quote_currency||'USD'}
+  return {groups,manufacturing,usd:cost,profit,agency,fob,invoice:fob*num(doc.quantity),difference:fob-num(doc.target_price),differencePct:num(doc.target_price)>0?(fob-num(doc.target_price))/num(doc.target_price)*100:null,currency:doc.quote_currency||'USD'}
 
 }
 const inputStyle={height:32,border:'1px solid #d5dae2',borderRadius:6,padding:'4px 8px',width:'100%',boxSizing:'border-box',fontSize:12}
