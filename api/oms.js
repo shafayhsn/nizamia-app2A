@@ -48,6 +48,46 @@ export default async function handler(req,res){
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
  if(action==='session')return res.json({ok:true})
+ if(['listCostings','saveCosting','costingHistory'].includes(action)){
+   const admin=String(user.role||'').toLowerCase()==='admin'
+   let canView=admin,canEdit=admin
+   if(!admin&&user.role_id){
+     const {data:perms,error:pe}=await db.from('permissions').select('can_view,can_create,can_edit').eq('role_id',user.role_id).eq('module','features').maybeSingle()
+     if(pe)return err(res,500,'Cannot check feature permissions')
+     canView=!!perms?.can_view;canEdit=!!(perms?.can_create||perms?.can_edit)
+   }
+   if(!admin&&!user.role_id&&user.role==='merchandiser'){canView=true;canEdit=true}
+   if(!canView)return err(res,403,'Features access required')
+   if(action==='listCostings'&&req.method==='GET'){
+     const {data,error}=await db.from('costing_sheets').select('*').order('updated_at',{ascending:false}).limit(500)
+     return error?err(res,500,'Could not load costings'):res.json({costings:data||[]})
+   }
+   if(action==='costingHistory'&&req.method==='GET'){
+     const id=String(req.query.id||'')
+     if(!/^[0-9a-f-]{36}$/i.test(id))return err(res,400,'Invalid costing ID')
+     const {data,error}=await db.from('costing_sheet_versions').select('version,document,created_at').eq('costing_id',id).order('version',{ascending:false})
+     return error?err(res,500,'Could not load costing history'):res.json({history:data||[]})
+   }
+   if(!canEdit)return err(res,403,'Costing editing access required')
+   if(action==='saveCosting'&&req.method==='POST'){
+     const input=req.body||{},document=input.document
+     if(!document||typeof document!=='object'||Array.isArray(document)||JSON.stringify(document).length>120000)return err(res,400,'Invalid costing document')
+     if(!['woven','knits'].includes(document.type))return err(res,400,'Invalid costing type')
+     const customer=String(document.customer||'').trim().slice(0,240)
+     if(!customer)return err(res,400,'Customer required')
+     const buyerId=input.buyer_id||null,style=String(document.style||'').slice(0,240)
+     if(input.id){
+       const id=String(input.id)
+       if(!/^[0-9a-f-]{36}$/i.test(id)||!Number.isInteger(input.expected_version)||input.expected_version<1)return err(res,400,'Invalid costing revision')
+       const {data,error}=await db.rpc('save_costing_revision',{p_id:id,p_expected_version:input.expected_version,p_customer:customer,p_buyer_id:buyerId,p_style:style,p_document:document})
+       return error?err(res,409,'Could not save revision; reload and try again'):res.json({costing:data})
+     }
+     const {data,error}=await db.from('costing_sheets').insert({type:document.type,customer,buyer_id:buyerId,style,document}).select('*').single()
+     return error?err(res,500,'Could not create costing'):res.json({costing:data})
+   }
+   return err(res,405,'Method not allowed')
+ }
+
  if(['listProformas','saveProforma','transitionProforma','getProforma','previewProformaNumber'].includes(action)){
    const admin=String(user.role||'').toLowerCase()==='admin'
    let canView=admin,canEdit=admin
