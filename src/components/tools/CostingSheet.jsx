@@ -60,10 +60,7 @@ export default function CostingSheet({onClose}){
     try{
       if(current){
         const version=num(current.version)+1
-        const snapshot={costing_id:current.id,version:current.version,document:current.document}
-        const archived=await supabase.from('costing_sheet_versions').upsert(snapshot,{onConflict:'costing_id,version',ignoreDuplicates:true})
-        if(archived.error)throw archived.error
-        const updated=await supabase.from('costing_sheets').update({customer:doc.customer,buyer_id:doc.buyer_id,style:doc.style,document:doc,version,updated_at:new Date().toISOString()}).eq('id',current.id).eq('version',current.version).select('*').single()
+        const updated=await supabase.rpc('save_costing_revision',{p_id:current.id,p_expected_version:current.version,p_customer:doc.customer,p_buyer_id:doc.buyer_id,p_style:doc.style,p_document:doc})
         if(updated.error)throw updated.error
         setCurrent(updated.data)
         setViewingVersion(null)
