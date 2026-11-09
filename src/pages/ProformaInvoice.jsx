@@ -13,7 +13,7 @@ const day=v=>v?String(v).slice(0,10):'—'
 const today=()=>new Date().toISOString().slice(0,10)
 const field={padding:'9px 10px',border:'1px solid #d5d9e2',borderRadius:7,width:'100%',boxSizing:'border-box',fontSize:12}
 const label={fontSize:11,fontWeight:700,color:'#475569',display:'block',marginBottom:5}
-export default function ProformaInvoice({onBack}){
+export default function ProformaInvoice({onBack,initialSelection}){
  const [company,setCompany]=useState({}),[buyerAddresses,setBuyerAddresses]=useState([]),[buyers,setBuyers]=useState([]),[orders,setOrders]=useState([]),[productionBatches,setProductionBatches]=useState([]),[batchLinks,setBatchLinks]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState('')
  const [buyerId,setBuyerId]=useState(''),[selected,setSelected]=useState([]),[query,setQuery]=useState(''),[manual,setManual]=useState([]),[savedLines,setSavedLines]=useState(null)
  const [invoices,setInvoices]=useState([]),[invoice,setInvoice]=useState(null),[history,setHistory]=useState([]),[busy,setBusy]=useState(false)
@@ -50,6 +50,19 @@ export default function ProformaInvoice({onBack}){
  const totalValue=chosen.reduce((s,o)=>s+(Number(o.total_value_usd)||0),0)
  const addressFor=id=>{const a=buyerAddresses.find(x=>x.buyer_id===id&&x.is_default)||buyerAddresses.find(x=>x.buyer_id===id);return a?formatBuyerAddress(a):buyers.find(b=>b.id===id)?.address||''}
  const updateBuyer=async id=>{setBuyerId(id);setSelected([]);setManual([]);setSavedLines(null);const b=buyers.find(x=>x.id===id);setForm(f=>({...f,buyerAddress:addressFor(id),currency:b?.currency||'USD',paymentTerms:b?.payment_terms_days!=null?'Net '+b.payment_terms_days+' days':''}));if(!id)return;try{const response=await fetch('/api/oms?action=list&type=addresses&buyerId='+encodeURIComponent(id),{credentials:'same-origin'});const json=await response.json();if(!response.ok)throw Error(json.error||'Unable to load buyer address');const addresses=json.data||[];const preferred=addresses.find(a=>a.is_default)||addresses[0];if(preferred)setForm(f=>({...f,buyerAddress:formatBuyerAddress(preferred)}));else setForm(f=>({...f,buyerAddress:b?.address||''}))}catch(e){setError('Buyer address could not be loaded: '+e.message)}}
+ const [prefillApplied,setPrefillApplied]=useState(false)
+ useEffect(()=>{if(loading||prefillApplied||!initialSelection?.proformaOrderIds?.length)return;
+   setPrefillApplied(true);
+   const ids=new Set(initialSelection.proformaOrderIds);
+   const matching=orders.filter(o=>ids.has(o.id));
+   const target=buyers.find(b=>b.id===initialSelection.proformaBuyerId)||buyers.find(b=>b.name?.trim().toLowerCase()===initialSelection.proformaBuyerName?.trim().toLowerCase());
+   if(!target||matching.length!==ids.size||matching.some(o=>o.buyer_id&&o.buyer_id!==target.id)||matching.some(o=>!o.buyer_id&&o.buyer_name?.trim().toLowerCase()!==target.name?.trim().toLowerCase())){setError('Selected orders could not be loaded for one buyer. Please return to Orders and select again.');return}
+   updateBuyer(target.id);
+   setSelected(matching.map(o=>o.id));
+   setStep(1);
+   const dates=matching.map(o=>o.ship_date).filter(Boolean).sort();
+   if(dates.length)setForm(f=>({...f,shipmentDate:dates[dates.length-1].slice(0,10)}));
+ },[loading,prefillApplied,initialSelection,orders,buyers])
  const toggle=id=>{setSavedLines(null);setSelected(a=>a.includes(id)?a.filter(x=>x!==id):[...a,id])}
  const api=async(action,payload,method='POST')=>{
    const url='/api/oms?action='+encodeURIComponent(action)+(method==='GET'&&payload?.id?'&id='+encodeURIComponent(payload.id):'')
