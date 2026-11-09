@@ -23,7 +23,8 @@ const rowTotal=(row,si,type)=>{const [a,b,c]=row.values.map(num);if(si===0)retur
 const trimDefaults=['Thread','Zipper','Button','Rivet','Hangtag','Price Tag','Joker Tag','Leather Patch','Main Label','Size Label','Care Label','Barcode Sticker','Polybag','Master Polybag','Carton','Carton Sticker','Hanger','Hanger Size Tab','Silica Gel']
 const money=v=>num(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})
 const formattedNumber=v=>v===''?'':Number(v).toLocaleString('en-US',{maximumFractionDigits:5})
-const symbol={USD:'function totals(doc){
+const symbol={USD:String.fromCharCode(36),EUR:String.fromCharCode(8364),GBP:String.fromCharCode(163)}
+function totals(doc){
   const groups=doc.sections.map((s,i)=>s.rows.reduce((sum,row)=>sum+rowTotal(row,i,doc.type),0))
   const base=groups.reduce((a,b)=>a+b,0)+num(doc.shipping)+num(doc.testing)+num(doc.banking)+num(doc.str_adjustment)
   const manufacturing=base*(1+num(doc.rejection_pct)/100)
