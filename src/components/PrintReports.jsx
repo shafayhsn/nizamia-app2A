@@ -1181,9 +1181,10 @@ const REPORTS = [
   { id: 'embellishment',  label: 'Embellishment Plan',   desc: 'Artwork reference + vendor details' },
   { id: 'finishing',      label: 'Finishing Plan',       desc: 'Packing config + checklist + CBM' },
   { id: 'samples',        label: 'Sample Cards',         desc: 'A4 cut-in-half cards per sample' },
+  { id: 'proforma', label: 'Proforma Invoice / Sales Confirmation', desc: 'Create PI from selected orders (one buyer)' },
 ]
 
-export default function PrintPopup({ selectedOrders, onClose }) {
+export default function PrintPopup({ selectedOrders, onClose, onCreateProforma }) {
   const [loading, setLoading] = useState(null)
 
   const sameJob = selectedOrders.length > 1
@@ -1235,7 +1236,7 @@ export default function PrintPopup({ selectedOrders, onClose }) {
         </div>
         <div style={{ padding: '8px 0' }}>
           {REPORTS.map(r => (
-            <button key={r.id} onClick={() => handlePrint(r.id)} disabled={!!loading}
+            <button key={r.id} onClick={() => r.id === 'proforma' ? onCreateProforma?.() : handlePrint(r.id)} disabled={!!loading}
               style={{ width: '100%', display: 'flex', alignItems: 'center', padding: '10px 18px', background: 'none', border: 'none', cursor: loading ? 'not-allowed' : 'pointer', gap: 12, textAlign: 'left' }}
               onMouseEnter={e => { if (!loading) e.currentTarget.style.background = '#fafafa' }}
               onMouseLeave={e => e.currentTarget.style.background = 'none'}>
