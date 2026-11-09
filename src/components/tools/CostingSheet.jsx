@@ -45,7 +45,7 @@ html,body{margin:0;padding:0;color:#101010;font:8px Arial,Helvetica,sans-serif;-
 .cr-header{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;margin-bottom:9px}
 .cr-header b{font-size:17px}.cr-header .cr-center{text-align:center}.cr-header .cr-right{text-align:right}
 .cr-header .cr-right b{font-size:16px}.cr-header small{font-size:8px;display:block;font-weight:400}
-.cr-columns{display:grid;grid-template-columns:65% 35%;gap:12px;align-items:start}
+.cr-columns{display:grid;grid-template-columns:minmax(0,65fr) minmax(0,35fr);gap:12px;align-items:start}
 .cr-left,.cr-right{min-width:0}
 .cr-section{border:1.3px solid #111;margin:0 0 9px;break-inside:avoid}
 .cr-section-title{display:flex;justify-content:space-between;align-items:center;gap:5px;font-weight:700;font-size:9px;min-height:19px;padding:3px 5px;border-bottom:1.2px solid #111}
