@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../lib/authContext'
 
 const sections = {
   woven: [
@@ -94,6 +95,7 @@ async function costingApi(action,payload=null){
  return data
 }
 export default function CostingSheet({onClose}){
+  const {user}=useAuth()
   const [viewingVersion,setViewingVersion]=useState(null),[records,setRecords]=useState([]),[buyers,setBuyers]=useState([]),[doc,setDoc]=useState(null),[current,setCurrent]=useState(null),[history,setHistory]=useState([]),[historyOpen,setHistoryOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState('')
   const update=(key,value)=>setDoc(d=>({...d,[key]:value}))
   async function refresh(){
@@ -240,7 +242,7 @@ export default function CostingSheet({onClose}){
               ['CUSTOMER',doc.customer],['STYLE NUMBER',doc.style],['ITEM DESC',doc.description],
               ['BUYING AGENCY',doc.buying_agency],['SIZE RANGE',doc.size_range],['BASE SIZE',doc.base_size],
               ['QUOTE CURRENCY',doc.quote_currency],['FX RATE',formattedNumber(doc.rates?.[doc.quote_currency]??doc.exchange_rate)],
-              ['EST. QUANTITY',formattedNumber(doc.quantity)],['USER','—']
+              ['EST. QUANTITY',formattedNumber(doc.quantity)],['USER',user?.displayName||user?.username||'—']
             ].map(([k,v])=><tr key={k}><td>{k}</td><td>{v||'—'}</td></tr>)}</tbody></table>
             <div className="cr-summary">
               <div className="cr-summary-title">COST SUMMARY</div>
