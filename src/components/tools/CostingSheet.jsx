@@ -95,14 +95,18 @@ export default function CostingSheet({onClose}){
   const printable=()=>{
     const report=document.querySelector('.costing-report')
     if(!report)return
-    const win=window.open('','_blank')
-    if(!win){setError('Please allow pop-ups to print this costing report.');return}
+    const frame=document.createElement('iframe')
+    frame.setAttribute('title','Costing print report')
+    frame.style.cssText='position:fixed;width:0;height:0;border:0;opacity:0;pointer-events:none'
+    document.body.appendChild(frame)
     const css='@page{size:A4 portrait;margin:12mm}body{font:11px Arial,sans-serif;color:#111;margin:0}header{display:flex;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:9px}header strong{font-size:16px}.report-meta{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin:14px 0}.report-meta>div{padding:5px;border-bottom:1px solid #ddd}.report-grid{display:block}.report-summary{break-before:page}.report-summary p{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:5px 0;margin:0}section{break-inside:auto}h3{background:#eee;padding:7px;break-after:avoid}table{width:100%;border-collapse:collapse;margin:8px 0 15px}th,td{border-bottom:1px solid #ddd;padding:5px;text-align:right}th:first-child,td:first-child{text-align:left}tr{break-inside:avoid}'
-    win.document.open()
-    win.document.write('<!doctype html><html><head><title>Costing Report</title><style>'+css+'</style></head><body>'+report.innerHTML+'</body></html>')
-    win.document.close()
-    win.focus()
-    win.print()
+    const page=frame.contentDocument
+    page.open()
+    page.write('<!doctype html><html><head><title>Costing Report</title><style>'+css+'</style></head><body>'+report.innerHTML+'</body></html>')
+    page.close()
+    frame.contentWindow.focus()
+    frame.contentWindow.print()
+    frame.contentWindow.addEventListener('afterprint',()=>frame.remove(),{once:true})
   }
   return <div className="costing-root" style={{height:'100%',display:'flex',flexDirection:'column',background:'#fff',fontSize:12}}>
     <style>{`.costing-report{display:none}@media print {.costing-editor{display:none!important}.costing-report{display:block!important;position:static!important;width:100%!important;color:#111!important;font-size:10pt}.costing-report table{width:100%;border-collapse:collapse;margin:7px 0 16px}.costing-report th,.costing-report td{padding:5px;border-bottom:1px solid #ddd;text-align:right}.costing-report th:first-child,.costing-report td:first-child{text-align:left}.costing-report section{break-inside:avoid-page}.costing-report h3{background:#eef0f3;padding:7px}.costing-report .report-grid{display:block}.costing-report .report-summary{break-before:page}.costing-report section{break-inside:auto}.costing-report .report-meta{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:16px 0}.costing-report .report-meta div{border-bottom:1px solid #ddd;padding:5px}.costing-report .report-summary p{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:5px 0;margin:0}.costing-report .report-summary h3{margin-top:0}body *{visibility:hidden!important}.costing-report,.costing-report *{visibility:visible!important}.costing-report{position:absolute!important;top:0!important;left:0!important;width:100%!important;overflow:visible!important}.costing-actions,.costing-no-print{display:none!important}@page{size:A4 portrait;margin:12mm}.costing-print{height:auto!important;max-height:none!important;min-height:0!important;display:block!important}.costing-print input,.costing-print select,.costing-print textarea{color:#111!important;-webkit-text-fill-color:#111!important}.costing-root{height:auto!important;overflow:visible!important}.costing-print table{break-inside:auto}.costing-print tr{break-inside:avoid}}`}</style>
@@ -142,7 +146,7 @@ export default function CostingSheet({onClose}){
           <div style={{border:'1px solid #e5e7eb',borderRadius:8,padding:12,background:'#fff'}}>
           <strong>Cost Summary</strong><div style={{color:'#667085',margin:'5px 0 12px'}}>Costing basis: {doc.type==='knits'?'per dozen · FOB per piece':'per garment'}</div>
           {doc.sections.map((s,i)=><div key={i} style={{display:'flex',justifyContent:'space-between',padding:'5px 0'}}><span>{s.name}</span><b>{money(calculated.groups[i])}</b></div>)}
-          {[[ 'Rejection %','rejection_pct'],['Testing','testing'],['Shipping','shipping'],['Banking','banking'],['STR Adjustment','str_adjustment']].map(([label,key])=><label key={key} style={{display:'flex',alignItems:'center',gap:8,margin:'7px 0'}}><span style={{flex:1}}>{label}</span><input type="number" step="any" value={doc[key]} onChange={e=>update(key,e.target.value)} style={{...inputStyle,width:90,textAlign:'right'}}/></label>)}
+          {[['Testing','testing'],['Shipping','shipping'],['Banking','banking'],['STR Adjustment','str_adjustment'],['Rejection %','rejection_pct']].map(([label,key])=><label key={key} style={{display:'flex',alignItems:'center',gap:8,margin:'7px 0'}}><span style={{flex:1}}>{label}</span><input type="number" step="any" value={doc[key]} onChange={e=>update(key,e.target.value)} style={{...inputStyle,width:90,textAlign:'right'}}/></label>)}
           <hr/><div style={{display:'flex',justifyContent:'space-between'}}><b>Manufacturing PKR / {doc.type==='knits'?'dozen':'piece'}</b><b>{money(calculated.manufacturing)}</b></div>
           <div style={{display:'flex',justifyContent:'space-between',marginTop:8}}><span>Manufacturing {calculated.currency} / piece</span><b>{money(calculated.usd)}</b></div>
           {[[ 'Profit %','profit_pct'],['Buying Agent %','agency_pct']].map(([label,key])=><label key={key} style={{display:'flex',alignItems:'center',gap:8,margin:'7px 0'}}><span style={{flex:1}}>{label}</span><input type="number" step="any" value={doc[key]} onChange={e=>update(key,e.target.value)} style={{...inputStyle,width:90,textAlign:'right'}}/></label>)}
