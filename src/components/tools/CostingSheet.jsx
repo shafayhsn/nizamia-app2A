@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { Filter, ArrowUpDown, Layers, RotateCcw } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/authContext'
 
@@ -96,7 +97,7 @@ async function costingApi(action,payload=null){
 }
 export default function CostingSheet({onClose}){
   const {user}=useAuth()
-  const [viewingVersion,setViewingVersion]=useState(null),[records,setRecords]=useState([]),[buyers,setBuyers]=useState([]),[doc,setDoc]=useState(null),[current,setCurrent]=useState(null),[history,setHistory]=useState([]),[historyOpen,setHistoryOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState('')
+  const [viewingVersion,setViewingVersion]=useState(null),[records,setRecords]=useState([]),[buyers,setBuyers]=useState([]),[doc,setDoc]=useState(null),[current,setCurrent]=useState(null),[history,setHistory]=useState([]),[historyOpen,setHistoryOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[customerFilter,setCustomerFilter]=useState('all'),[groupBy,setGroupBy]=useState('none'),[sortBy,setSortBy]=useState('updated_desc')
   const update=(key,value)=>setDoc(d=>({...d,[key]:value}))
   async function refresh(){
     try{
@@ -108,6 +109,20 @@ export default function CostingSheet({onClose}){
   }
   useEffect(()=>{refresh()},[])
   const calculated=useMemo(()=>doc?totals(doc):null,[doc])
+  const visibleCostings=useMemo(()=>{
+    const rows=records.filter(r=>(typeFilter==='all'||r.type===typeFilter)&&(customerFilter==='all'||r.customer===customerFilter)&&[r.reference,r.customer,r.style].join(' ').toLowerCase().includes(search.trim().toLowerCase()))
+    const compareText=(a,b)=>String(a||'').localeCompare(String(b||''),undefined,{numeric:true,sensitivity:'base'})
+    rows.sort((a,b)=>sortBy==='updated_asc'?new Date(a.updated_at)-new Date(b.updated_at):sortBy==='reference_asc'?compareText(a.reference,b.reference):sortBy==='reference_desc'?compareText(b.reference,a.reference):sortBy==='customer_asc'?compareText(a.customer,b.customer):sortBy==='style_asc'?compareText(a.style,b.style):new Date(b.updated_at)-new Date(a.updated_at))
+    return rows
+  },[records,typeFilter,customerFilter,search,sortBy])
+  const groupedCostings=useMemo(()=>{
+    if(groupBy==='none')return [['',visibleCostings]]
+    const groups=new Map()
+    visibleCostings.forEach(r=>{const key=groupBy==='type'?(r.type==='woven'?'Woven':'Knits'):(r.customer||'Unspecified');if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r)})
+    return [...groups.entries()].sort((a,b)=>a[0].localeCompare(b[0]))
+  },[visibleCostings,groupBy])
+  const selectStyle={...inputStyle,width:'auto',minWidth:135,height:35,padding:'0 9px',fontSize:12,background:'#fff'}
+
   function open(record){setCurrent(record);setDoc(structuredClone(record.document));setViewingVersion(null);setHistoryOpen(false);setError('')}
   function start(type){setCurrent(null);setDoc(blank(type));setViewingVersion(null);setHistory([]);setHistoryOpen(false);setError('')}
   function changeCell(section,row,index,value){setDoc(d=>{const next=structuredClone(d);next.sections[section].rows[row].values[index]=value;return next})}
@@ -161,27 +176,40 @@ export default function CostingSheet({onClose}){
   }
   return <div className="costing-root" style={{height:'100%',display:'flex',flexDirection:'column',background:'#fff',fontSize:12}}>
     <style>{`.costing-report{display:none}@media print {.costing-editor{display:none!important}.costing-report{display:block!important;position:static!important;width:100%!important;color:#111!important;font-size:10pt}.costing-report table{width:100%;border-collapse:collapse;margin:7px 0 16px}.costing-report th,.costing-report td{padding:5px;border-bottom:1px solid #ddd;text-align:right}.costing-report th:first-child,.costing-report td:first-child{text-align:left}.costing-report section{break-inside:avoid-page}.costing-report h3{background:#eef0f3;padding:7px}.costing-report .report-grid{display:block}.costing-report .report-summary{break-before:page}.costing-report section{break-inside:auto}.costing-report .report-meta{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:16px 0}.costing-report .report-meta div{border-bottom:1px solid #ddd;padding:5px}.costing-report .report-summary p{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:5px 0;margin:0}.costing-report .report-summary h3{margin-top:0}body *{visibility:hidden!important}.costing-report,.costing-report *{visibility:visible!important}.costing-report{position:absolute!important;top:0!important;left:0!important;width:100%!important;overflow:visible!important}.costing-actions,.costing-no-print{display:none!important}@page{size:A4 portrait;margin:12mm}.costing-print{height:auto!important;max-height:none!important;min-height:0!important;display:block!important}.costing-print input,.costing-print select,.costing-print textarea{color:#111!important;-webkit-text-fill-color:#111!important}.costing-root{height:auto!important;overflow:visible!important}.costing-print table{break-inside:auto}.costing-print tr{break-inside:avoid}}`}</style>
-    <div className="costing-actions" style={{display:'flex',alignItems:'center',gap:8,padding:'12px 22px',borderBottom:'1px solid #e5e7eb',flexWrap:'wrap'}}>
+    {doc&&<div className="costing-actions" style={{display:'flex',alignItems:'center',gap:8,padding:'12px 22px',borderBottom:'1px solid #e5e7eb',flexWrap:'wrap'}}>
       <strong style={{fontSize:16,marginRight:'auto'}}>Costing Sheet {current?.reference||''}</strong>
-      {doc?<><button style={btn} onClick={()=>{setDoc(null);setCurrent(null);setViewingVersion(null)}}>All Costings</button><button style={btn} onClick={loadHistory} disabled={!current}>History</button>{viewingVersion&&<button style={btn} onClick={()=>{setDoc(structuredClone(current.document));setViewingVersion(null);setError('')}}>Return to Latest</button>}<button style={btn} onClick={printable}>Print / PDF</button><button style={{...btn,background:'#111827',color:'#fff'}} disabled={busy||!!viewingVersion} onClick={save}>{busy?'Saving…':'Save'}</button></>:<><button style={btn} onClick={()=>start('woven')}>+ Woven Costing</button><button style={btn} onClick={()=>start('knits')}>+ Knits Costing</button></>}
+      <button style={btn} onClick={()=>{setDoc(null);setCurrent(null);setViewingVersion(null)}}>All Costings</button><button style={btn} onClick={loadHistory} disabled={!current}>History</button>{viewingVersion&&<button style={btn} onClick={()=>{setDoc(structuredClone(current.document));setViewingVersion(null);setError('')}}>Return to Latest</button>}<button style={btn} onClick={printable}>Print / PDF</button><button style={{...btn,background:'#111827',color:'#fff'}} disabled={busy||!!viewingVersion} onClick={save}>{busy?'Saving…':'Save'}</button>
       <button style={btn} onClick={onClose}>Close</button>
-    </div>
+    </div>}
+
     {error&&<div role="alert" style={{color:'#b42318',background:'#fff3f2',padding:10}}>{error}</div>}
     {!doc?<div style={{flex:1,minHeight:0,overflow:'auto',background:'#fff'}}>
-      <div style={{display:'flex',alignItems:'center',gap:12,padding:'18px 28px 16px',borderBottom:'1px solid #e5e7eb',flexWrap:'wrap'}}>
-        <h1 style={{fontSize:24,fontWeight:750,margin:0,marginRight:12}}>Costing Sheet</h1>
-        {[['TOTAL COSTINGS',records.length],['WOVEN',records.filter(r=>r.type==='woven').length],['KNITS',records.filter(r=>r.type==='knits').length]].map(([label,value])=><div key={label} style={{border:'1px solid #e1e5eb',borderRadius:10,padding:'8px 14px',minWidth:120,background:'#fff'}}><div style={{fontSize:10,color:'#98a2b3',fontWeight:700,letterSpacing:'.3px'}}>{label}</div><strong style={{fontSize:19}}>{value}</strong></div>)}
+      <div style={{display:'flex',alignItems:'center',gap:12,padding:'15px 28px',borderBottom:'1px solid #e5e7eb',flexWrap:'wrap'}}>
+        <h1 style={{fontSize:21,fontWeight:750,margin:0,marginRight:4}}>Costing Sheet</h1>
+        {[['TOTAL COSTINGS',records.length],['WOVEN',records.filter(r=>r.type==='woven').length],['KNITS',records.filter(r=>r.type==='knits').length]].map(([label,value])=><div key={label} style={{border:'1px solid #e1e5eb',borderRadius:9,padding:'7px 12px',minWidth:120,background:'#fff'}}><div style={{fontSize:10,color:'#98a2b3',fontWeight:700,letterSpacing:'.3px'}}>{label}</div><strong style={{fontSize:16}}>{value}</strong></div>)}
+        <div style={{marginLeft:'auto',display:'flex',gap:9,alignItems:'center'}}>
+          <button style={{...btn,background:'#111',color:'#fff',borderColor:'#111',height:36,fontWeight:650}} onClick={()=>start('woven')}>+ Woven Costing</button>
+          <button style={{...btn,background:'#fff',color:'#111',borderColor:'#111',height:36,fontWeight:650}} onClick={()=>start('knits')}>+ Knits Costing</button>
+        </div>
       </div>
-      <div style={{padding:'12px 22px',borderBottom:'1px solid #e5e7eb',display:'flex',alignItems:'center',gap:10}}>
-        <input aria-label="Search costings" placeholder="Search customer, style or reference" style={{...inputStyle,width:320,maxWidth:'100%',height:36}} value={search} onChange={e=>setSearch(e.target.value)}/>
-        <span style={{fontSize:12,color:'#667085'}}>{records.filter(r=>[r.reference,r.customer,r.style].join(' ').toLowerCase().includes(search.toLowerCase())).length} costings</span>
+      <div style={{padding:'11px 22px',borderBottom:'1px solid #e5e7eb',display:'flex',alignItems:'center',gap:9,flexWrap:'wrap'}}>
+        <input aria-label="Search costings" placeholder="Search customer, style or reference" style={{...inputStyle,width:280,maxWidth:'100%',height:35}} value={search} onChange={e=>setSearch(e.target.value)}/>
+        <Filter size={15} color="#667085"/>
+        <select aria-label="Filter costing type" style={selectStyle} value={typeFilter} onChange={e=>setTypeFilter(e.target.value)}><option value="all">All Types</option><option value="woven">Woven</option><option value="knits">Knits</option></select>
+        <select aria-label="Filter customer" style={selectStyle} value={customerFilter} onChange={e=>setCustomerFilter(e.target.value)}><option value="all">All Customers</option>{[...new Set(records.map(r=>r.customer).filter(Boolean))].sort().map(v=><option key={v} value={v}>{v}</option>)}</select>
+        <Layers size={15} color="#667085"/>
+        <select aria-label="Group costings" style={selectStyle} value={groupBy} onChange={e=>setGroupBy(e.target.value)}><option value="none">No Grouping</option><option value="customer">Group by Customer</option><option value="type">Group by Type</option></select>
+        <ArrowUpDown size={15} color="#667085"/>
+        <select aria-label="Sort costings" style={selectStyle} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="updated_desc">Last Edited (Newest)</option><option value="updated_asc">Last Edited (Oldest)</option><option value="reference_asc">Reference (A–Z)</option><option value="reference_desc">Reference (Z–A)</option><option value="customer_asc">Customer (A–Z)</option><option value="style_asc">Style (A–Z)</option></select>
+        <button title="Reset filters and sorting" aria-label="Reset costing view" style={{...btn,padding:8,display:'flex'}} onClick={()=>{setSearch('');setTypeFilter('all');setCustomerFilter('all');setGroupBy('none');setSortBy('updated_desc')}}><RotateCcw size={15}/></button>
+        <span style={{marginLeft:'auto',fontSize:11,color:'#667085'}}>{visibleCostings.length} costings</span>
       </div>
       <div style={{padding:'0 22px 24px',overflowX:'auto'}}>
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,whiteSpace:'nowrap'}}>
-          <thead><tr style={{background:'#f8f9fb'}}>{['REFERENCE','CUSTOMER','STYLE','TYPE','VERSION','LAST EDITED'].map(x=><th key={x} style={{textAlign:'left',padding:'13px 12px',borderBottom:'1px solid #e5e7eb',fontSize:11,color:'#98a2b3',letterSpacing:'.4px'}}>{x}</th>)}</tr></thead>
-          <tbody>{records.filter(r=>[r.reference,r.customer,r.style].join(' ').toLowerCase().includes(search.toLowerCase())).map(r=><tr key={r.id} onClick={()=>open(r)} style={{cursor:'pointer',borderBottom:'1px solid #edf0f3'}} onMouseEnter={e=>e.currentTarget.style.background='#f5f9ff'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}><td style={{padding:'14px 12px',fontWeight:700}}>{r.reference}</td><td style={{padding:'14px 12px'}}>{r.customer}</td><td style={{padding:'14px 12px'}}>{r.style||'—'}</td><td style={{padding:'14px 12px',textTransform:'capitalize'}}>{r.type}</td><td style={{padding:'14px 12px'}}>V{r.version}</td><td style={{padding:'14px 12px',color:'#667085'}}>{new Date(r.updated_at).toLocaleDateString()}</td></tr>)}</tbody>
+          <thead><tr style={{background:'#f8f9fb'}}>{['REFERENCE','CUSTOMER','STYLE','TYPE','VERSION','LAST EDITED'].map(x=><th key={x} style={{textAlign:'left',padding:'12px 12px',borderBottom:'1px solid #e5e7eb',fontSize:11,color:'#98a2b3',letterSpacing:'.4px'}}>{x}</th>)}</tr></thead>
+          <tbody>{groupedCostings.map(([group,rows])=><React.Fragment key={group}>{group&&<tr style={{background:'#e6f2fb'}}><td colSpan={6} style={{padding:'9px 12px',fontWeight:750}}>{group} — {rows.length} costing{rows.length===1?'':'s'}</td></tr>}{rows.map(r=><tr key={r.id} onClick={()=>open(r)} style={{cursor:'pointer',borderBottom:'1px solid #edf0f3'}} onMouseEnter={e=>e.currentTarget.style.background='#f5f9ff'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}><td style={{padding:'13px 12px',fontWeight:700}}>{r.reference}</td><td style={{padding:'13px 12px'}}>{r.customer}</td><td style={{padding:'13px 12px'}}>{r.style||'—'}</td><td style={{padding:'13px 12px',textTransform:'capitalize'}}>{r.type}</td><td style={{padding:'13px 12px'}}>V{r.version}</td><td style={{padding:'13px 12px',color:'#667085'}}>{new Date(r.updated_at).toLocaleDateString()}</td></tr>)}</React.Fragment>)}</tbody>
         </table>
-        {!records.length&&<div style={{textAlign:'center',padding:40,color:'#98a2b3'}}>No saved costings yet. Use + Woven Costing or + Knits Costing to begin.</div>}
+        {!visibleCostings.length&&<div style={{textAlign:'center',padding:40,color:'#98a2b3'}}>{records.length?'No costings match the current filters.':'No saved costings yet. Use + Woven Costing or + Knits Costing to begin.'}</div>}
       </div>
     </div>:
     <><div className="costing-editor costing-print" style={{flex:1,overflow:'auto',padding:18}}>
