@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Filter, ArrowUpDown, Layers, RotateCcw } from 'lucide-react'
+import { RotateCcw } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/authContext'
 
@@ -97,12 +97,13 @@ async function costingApi(action,payload=null){
 }
 export default function CostingSheet({onClose}){
   const {user}=useAuth()
-  const [viewingVersion,setViewingVersion]=useState(null),[records,setRecords]=useState([]),[buyers,setBuyers]=useState([]),[doc,setDoc]=useState(null),[current,setCurrent]=useState(null),[history,setHistory]=useState([]),[historyOpen,setHistoryOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[customerFilter,setCustomerFilter]=useState('all'),[groupBy,setGroupBy]=useState('none'),[sortBy,setSortBy]=useState('updated_desc')
+  const [viewingVersion,setViewingVersion]=useState(null),[records,setRecords]=useState([]),[buyers,setBuyers]=useState([]),[doc,setDoc]=useState(null),[current,setCurrent]=useState(null),[history,setHistory]=useState([]),[historyOpen,setHistoryOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[customerFilter,setCustomerFilter]=useState('all'),[groupBy,setGroupBy]=useState('none'),[sortBy,setSortBy]=useState('updated_desc'),[selected,setSelected]=useState([]),[batches,setBatches]=useState([]),[batchFilter,setBatchFilter]=useState('all'),[batchAction,setBatchAction]=useState(''),[quotationOpen,setQuotationOpen]=useState(false)
   const update=(key,value)=>setDoc(d=>({...d,[key]:value}))
   async function refresh(){
     try{
       const [result,b]=await Promise.all([costingApi('listCostings'),supabase.from('buyers').select('id,name').order('name')])
       setRecords(result.costings||[])
+      try{const batchResult=await costingApi('listCostingBatches');setBatches(batchResult.batches||[])}catch(e){console.warn('Costing batches not yet available',e)}
       setError('')
       if(!b.error)setBuyers(b.data||[])
     }catch(e){setError(e.message||String(e))}
@@ -110,17 +111,44 @@ export default function CostingSheet({onClose}){
   useEffect(()=>{refresh()},[])
   const calculated=useMemo(()=>doc?totals(doc):null,[doc])
   const visibleCostings=useMemo(()=>{
-    const rows=records.filter(r=>(typeFilter==='all'||r.type===typeFilter)&&(customerFilter==='all'||r.customer===customerFilter)&&[r.reference,r.customer,r.style].join(' ').toLowerCase().includes(search.trim().toLowerCase()))
+    const rows=records.filter(r=>(typeFilter==='all'||r.type===typeFilter)&&(customerFilter==='all'||r.customer===customerFilter)&&(batchFilter==='all'||(batchFilter==='unbatched'?!r.batch_id:r.batch_id===batchFilter))&&[r.reference,r.customer,r.style].join(' ').toLowerCase().includes(search.trim().toLowerCase()))
     const compareText=(a,b)=>String(a||'').localeCompare(String(b||''),undefined,{numeric:true,sensitivity:'base'})
     rows.sort((a,b)=>sortBy==='updated_asc'?new Date(a.updated_at)-new Date(b.updated_at):sortBy==='reference_asc'?compareText(a.reference,b.reference):sortBy==='reference_desc'?compareText(b.reference,a.reference):sortBy==='customer_asc'?compareText(a.customer,b.customer):sortBy==='style_asc'?compareText(a.style,b.style):new Date(b.updated_at)-new Date(a.updated_at))
     return rows
-  },[records,typeFilter,customerFilter,search,sortBy])
+  },[records,typeFilter,customerFilter,batchFilter,search,sortBy])
   const groupedCostings=useMemo(()=>{
     if(groupBy==='none')return [['',visibleCostings]]
     const groups=new Map()
     visibleCostings.forEach(r=>{const key=groupBy==='type'?(r.type==='woven'?'Woven':'Knits'):(r.customer||'Unspecified');if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r)})
     return [...groups.entries()].sort((a,b)=>a[0].localeCompare(b[0]))
   },[visibleCostings,groupBy])
+  const selectedRows=records.filter(r=>selected.includes(r.id))
+  const allVisibleSelected=visibleCostings.length>0&&visibleCostings.every(r=>selected.includes(r.id))
+  function toggleSelection(ids,checked){setSelected(prev=>checked?[...new Set([...prev,...ids])]:prev.filter(id=>!ids.includes(id)))}
+  async function createBatch(){
+    const name=window.prompt('New costing batch name')
+    if(name===null||!name.trim())return
+    try{const response=await costingApi('saveCostingBatch',{name:name.trim()});setBatches(prev=>[response.batch,...prev]);setBatchAction(response.batch.id);setError('')}catch(e){setError(e.message)}
+  }
+  async function assignBatch(){
+    if(!selected.length)return
+    try{setBusy(true);await costingApi('assignCostingBatch',{ids:selected,batch_id:batchAction==='unbatched'?null:batchAction});setSelected([]);await refresh();setError('')}catch(e){setError(e.message)}finally{setBusy(false)}
+  }
+  function beginQuotation(){
+    if(!selectedRows.length)return
+    const customers=[...new Set(selectedRows.map(r=>r.customer.trim().toLowerCase()))]
+    if(customers.length!==1){setError('Select costings for one customer only to make a quotation.');return}
+    const currencies=[...new Set(selectedRows.map(r=>r.document?.quote_currency||'USD'))]
+    if(currencies.length!==1){setError('Selected costings must use the same quote currency.');return}
+    setQuotationOpen(true);setError('')
+  }
+  function printQuotation(){
+    const node=document.getElementById('costing-quotation-print')
+    if(!node)return
+    const frame=document.createElement('iframe');frame.style.cssText='position:fixed;width:1px;height:1px;left:-9999px;border:0';document.body.appendChild(frame)
+    const page=frame.contentDocument;page.open();page.write('<!doctype html><html><head><title>Customer Quotation</title><style>@page{size:A4 portrait;margin:18mm}body{font-family:Arial,sans-serif;color:#111;font-size:11px}h1{font-size:20px;margin-bottom:6px}table{width:100%;border-collapse:collapse;margin-top:25px}th,td{border:1px solid #aaa;padding:9px;text-align:left}th{background:#f0f0f0}td.num{text-align:right}p{line-height:1.6}</style></head><body>'+node.innerHTML+'</body></html>');page.close()
+    frame.contentWindow.focus();frame.contentWindow.print();frame.contentWindow.addEventListener('afterprint',()=>frame.remove(),{once:true})
+  }
   const selectStyle={...inputStyle,width:'auto',minWidth:135,height:35,padding:'0 9px',fontSize:12,background:'#fff'}
 
   function open(record){setCurrent(record);setDoc(structuredClone(record.document));setViewingVersion(null);setHistoryOpen(false);setError('')}
@@ -194,20 +222,28 @@ export default function CostingSheet({onClose}){
       </div>
       <div style={{padding:'11px 22px',borderBottom:'1px solid #e5e7eb',display:'flex',alignItems:'center',gap:9,flexWrap:'wrap'}}>
         <input aria-label="Search costings" placeholder="Search customer, style or reference" style={{...inputStyle,width:280,maxWidth:'100%',height:35}} value={search} onChange={e=>setSearch(e.target.value)}/>
-        <Filter size={15} color="#667085"/>
+
         <select aria-label="Filter costing type" style={selectStyle} value={typeFilter} onChange={e=>setTypeFilter(e.target.value)}><option value="all">All Types</option><option value="woven">Woven</option><option value="knits">Knits</option></select>
+        <select aria-label="Filter costing batch" style={selectStyle} value={batchFilter} onChange={e=>setBatchFilter(e.target.value)}><option value="all">All Batches</option><option value="unbatched">Unbatched</option>{batches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>
         <select aria-label="Filter customer" style={selectStyle} value={customerFilter} onChange={e=>setCustomerFilter(e.target.value)}><option value="all">All Customers</option>{[...new Set(records.map(r=>r.customer).filter(Boolean))].sort().map(v=><option key={v} value={v}>{v}</option>)}</select>
-        <Layers size={15} color="#667085"/>
+
         <select aria-label="Group costings" style={selectStyle} value={groupBy} onChange={e=>setGroupBy(e.target.value)}><option value="none">No Grouping</option><option value="customer">Group by Customer</option><option value="type">Group by Type</option></select>
-        <ArrowUpDown size={15} color="#667085"/>
+
         <select aria-label="Sort costings" style={selectStyle} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="updated_desc">Last Edited (Newest)</option><option value="updated_asc">Last Edited (Oldest)</option><option value="reference_asc">Reference (A–Z)</option><option value="reference_desc">Reference (Z–A)</option><option value="customer_asc">Customer (A–Z)</option><option value="style_asc">Style (A–Z)</option></select>
-        <button title="Reset filters and sorting" aria-label="Reset costing view" style={{...btn,padding:8,display:'flex'}} onClick={()=>{setSearch('');setTypeFilter('all');setCustomerFilter('all');setGroupBy('none');setSortBy('updated_desc')}}><RotateCcw size={15}/></button>
-        <span style={{marginLeft:'auto',fontSize:11,color:'#667085'}}>{visibleCostings.length} costings</span>
+        <button title="Reset filters and sorting" aria-label="Reset costing view" style={{...btn,padding:8,display:'flex'}} onClick={()=>{setSearch('');setTypeFilter('all');setCustomerFilter('all');setBatchFilter('all');setGroupBy('none');setSortBy('updated_desc')}}><RotateCcw size={15}/></button>
+        <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:7}}>
+          <button style={btn} disabled={selected.length!==1} onClick={()=>open(selectedRows[0])}>Edit</button>
+          <button style={btn} disabled={!selected.length} onClick={beginQuotation}>Make Quotation</button>
+          <button style={btn} onClick={createBatch}>+ Batch</button>
+          <select aria-label="Assign selected costings to batch" style={selectStyle} value={batchAction} onChange={e=>setBatchAction(e.target.value)}><option value="">Assign to Batch…</option><option value="unbatched">Remove from Batch</option>{batches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>
+          <button style={btn} disabled={!selected.length||!batchAction||busy} onClick={assignBatch}>Apply</button>
+          <span style={{fontSize:11,color:'#667085'}}>{selected.length} selected · {visibleCostings.length} shown</span>
+        </div>
       </div>
       <div style={{padding:'0 22px 24px',overflowX:'auto'}}>
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,whiteSpace:'nowrap'}}>
-          <thead><tr style={{background:'#f8f9fb'}}>{['REFERENCE','CUSTOMER','STYLE','TYPE','VERSION','LAST EDITED'].map(x=><th key={x} style={{textAlign:'left',padding:'12px 12px',borderBottom:'1px solid #e5e7eb',fontSize:11,color:'#98a2b3',letterSpacing:'.4px'}}>{x}</th>)}</tr></thead>
-          <tbody>{groupedCostings.map(([group,rows])=><React.Fragment key={group}>{group&&<tr style={{background:'#e6f2fb'}}><td colSpan={6} style={{padding:'9px 12px',fontWeight:750}}>{group} — {rows.length} costing{rows.length===1?'':'s'}</td></tr>}{rows.map(r=><tr key={r.id} onClick={()=>open(r)} style={{cursor:'pointer',borderBottom:'1px solid #edf0f3'}} onMouseEnter={e=>e.currentTarget.style.background='#f5f9ff'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}><td style={{padding:'13px 12px',fontWeight:700}}>{r.reference}</td><td style={{padding:'13px 12px'}}>{r.customer}</td><td style={{padding:'13px 12px'}}>{r.style||'—'}</td><td style={{padding:'13px 12px',textTransform:'capitalize'}}>{r.type}</td><td style={{padding:'13px 12px'}}>V{r.version}</td><td style={{padding:'13px 12px',color:'#667085'}}>{new Date(r.updated_at).toLocaleDateString()}</td></tr>)}</React.Fragment>)}</tbody>
+          <thead><tr style={{background:'#f8f9fb'}}><th style={{padding:'12px 8px',width:35,borderBottom:'1px solid #e5e7eb'}}><input type="checkbox" aria-label="Select all visible costings" checked={allVisibleSelected} onChange={e=>toggleSelection(visibleCostings.map(r=>r.id),e.target.checked)}/></th>{['REFERENCE','CUSTOMER','STYLE','TYPE','VERSION','LAST EDITED'].map(x=><th key={x} style={{textAlign:'left',padding:'12px 12px',borderBottom:'1px solid #e5e7eb',fontSize:11,color:'#98a2b3',letterSpacing:'.4px'}}>{x}</th>)}</tr></thead>
+          <tbody>{groupedCostings.map(([group,rows])=><React.Fragment key={group}>{group&&<tr style={{background:'#e6f2fb'}}><td colSpan={7} style={{padding:'9px 12px',fontWeight:750}}><input type="checkbox" aria-label={'Select group '+group} style={{marginRight:12}} checked={rows.every(r=>selected.includes(r.id))} onChange={e=>toggleSelection(rows.map(r=>r.id),e.target.checked)}/>{group} — {rows.length} costing{rows.length===1?'':'s'}</td></tr>}{rows.map(r=><tr key={r.id} onClick={()=>toggleSelection([r.id],!selected.includes(r.id))} style={{cursor:'pointer',borderBottom:'1px solid #edf0f3'}} onMouseEnter={e=>e.currentTarget.style.background='#f5f9ff'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}><td style={{padding:'13px 8px'}}><input type="checkbox" aria-label={'Select '+r.reference} checked={selected.includes(r.id)} onChange={e=>toggleSelection([r.id],e.target.checked)} onClick={e=>e.stopPropagation()}/></td><td style={{padding:'13px 12px',fontWeight:700}}>{r.reference}</td><td style={{padding:'13px 12px'}}>{r.customer}</td><td style={{padding:'13px 12px'}}>{r.style||'—'}</td><td style={{padding:'13px 12px',textTransform:'capitalize'}}>{r.type}</td><td style={{padding:'13px 12px'}}>V{r.version}</td><td style={{padding:'13px 12px',color:'#667085'}}>{new Date(r.updated_at).toLocaleDateString()}</td></tr>)}</React.Fragment>)}</tbody>
         </table>
         {!visibleCostings.length&&<div style={{textAlign:'center',padding:40,color:'#98a2b3'}}>{records.length?'No costings match the current filters.':'No saved costings yet. Use + Woven Costing or + Knits Costing to begin.'}</div>}
       </div>
