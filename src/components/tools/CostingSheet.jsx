@@ -48,16 +48,16 @@ html,body{margin:0;padding:0;width:197.3mm;max-width:197.3mm;color:#101010;font:
 .cr-header .cr-right b{font-size:16px}.cr-header small{font-size:8px;display:block;font-weight:400}
 .cr-columns{display:grid;grid-template-columns:minmax(0,63fr) minmax(0,37fr);gap:10px;align-items:start}
 .cr-left,.cr-right{min-width:0}
-.cr-section{border:1px solid #111;margin:0 0 11px;break-inside:avoid}
-.cr-section-title{display:flex;justify-content:space-between;align-items:center;gap:5px;font-weight:700;font-size:9px;min-height:19px;padding:3px 5px;border-bottom:1.2px solid #111}
+.cr-section{border:1px solid #111;margin:0 0 12px;break-inside:avoid}
+.cr-section-title{display:flex;justify-content:space-between;align-items:center;gap:5px;font-weight:700;font-size:9px;min-height:22px;padding:4px 5px;border-bottom:1px solid #111}
 .cr-section-title span:last-child{font-size:7px;white-space:nowrap}
 .cr-table{border-collapse:collapse;width:100%;table-layout:fixed}
 .cr-table thead{display:table-header-group}
-.cr-table th{background:#e4e5e7;text-transform:uppercase;font-size:7px;font-weight:700;border-bottom:1px solid #111;padding:3px 4px;text-align:right}
+.cr-table th{background:#e4e5e7;text-transform:uppercase;font-size:7px;font-weight:700;border-bottom:1px solid #111;padding:4px 4px;text-align:right}
 .cr-table th:first-child,.cr-table td:first-child{text-align:left}
-.cr-table td{padding:3px 4px;vertical-align:top;line-height:1.15;text-align:right;font-size:8.3px;overflow-wrap:anywhere}
+.cr-table td{padding:5px 4px;vertical-align:top;line-height:1.2;text-align:right;font-size:8.3px;overflow-wrap:anywhere}
 .cr-table tbody tr{break-inside:avoid}
-.cr-table tfoot td{font-weight:700;border-top:1px solid #111;padding:4px}
+.cr-table tfoot td{font-weight:700;border-top:1px solid #111;padding:5px 4px}
 .cr-meta{border:1.3px solid #111;border-collapse:collapse;width:100%;table-layout:fixed;margin-bottom:12px}
 .cr-meta td{border:1px solid #111;padding:6px 6px;vertical-align:middle;font-size:8px;overflow-wrap:anywhere}
 .cr-meta td:first-child{width:37%;font-weight:700;text-transform:uppercase;font-size:7.3px}
@@ -69,9 +69,9 @@ html,body{margin:0;padding:0;width:197.3mm;max-width:197.3mm;color:#101010;font:
 .cr-summary th:nth-child(2),.cr-summary th:nth-child(3),.cr-summary td:nth-child(2),.cr-summary td:nth-child(3){text-align:right}
 .cr-summary .cr-rule td{border-top:1px solid #111;font-weight:700}
 .cr-summary .cr-highlight td{border-top:1px solid #111;font-weight:700}
-.cr-comparison{width:100%;border-collapse:collapse;table-layout:fixed}
-.cr-comparison th,.cr-comparison td{border:1px solid #111;text-align:center;padding:5px 2px;font-size:8px}
-.cr-comparison th{background:#e4e5e7;font-weight:700}
+.cr-summary .cr-comparison{width:100%;border-collapse:collapse;table-layout:fixed;border-top:1px solid #111}
+.cr-summary .cr-comparison th,.cr-summary .cr-comparison td{border:0;border-right:1px solid #111;text-align:center;padding:5px 2px;font-size:8px}.cr-summary .cr-comparison th:last-child,.cr-summary .cr-comparison td:last-child{border-right:0}.cr-summary .cr-comparison th{border-bottom:1px solid #111}.cr-summary .cr-comparison tbody td{text-align:center}
+.cr-summary .cr-comparison th{background:#e4e5e7;font-weight:700}
 .cr-difference{border-top:1px solid #111;display:flex;justify-content:space-between;gap:5px;padding:6px 5px;font-weight:700}
 .cr-history{border:1.3px solid #111;min-height:125px;break-inside:avoid}
 .cr-history-title{border-bottom:1px solid #111;font-size:9px;font-weight:700;padding:5px}
@@ -250,7 +250,7 @@ export default function CostingSheet({onClose}){
               <table><thead><tr><th style={{width:'55%'}}>CATEGORY</th><th>COST PKR</th><th>COST %</th></tr></thead>
                 <tbody>
                   {doc.sections.map((s,i)=><tr key={i}><td>{['FABRIC','CUT TO PACK + O.H','WASHING','TRIMS & ACCESSORIES','EMBELLISHMENT'][i]||s.name.toUpperCase()}</td><td>{money(calculated.groups[i])}</td><td>{calculated.manufacturing?((calculated.groups[i]/calculated.manufacturing)*100).toFixed(2)+'%':'—'}</td></tr>)}
-                  {[['TESTING CHARGES',doc.testing],['SHIPPING CHARGES',doc.shipping],['BANKING CHARGES',doc.banking],['STR REDUCTION',doc.str_adjustment]].map(([k,v])=><tr key={k}><td>{k}</td><td>{money(v)}</td><td></td></tr>)}
+                  {[['TESTING CHARGES',doc.testing],['SHIPPING CHARGES',doc.shipping],['BANKING CHARGES',doc.banking],['STR REDUCTION',doc.str_adjustment]].map(([k,v])=><tr key={k}><td>{k}</td><td>{money(v)}</td><td>{calculated.manufacturing?((num(v)/calculated.manufacturing)*100).toFixed(2)+'%':'—'}</td></tr>)}
                   <tr className="cr-rule"><td>REJECTION MARGIN</td><td></td><td>{money(doc.rejection_pct)}%</td></tr>
                   <tr className="cr-highlight"><td>MANUFACTURING COST</td><td>{money(calculated.manufacturing)}</td><td></td></tr>
                   <tr><td>IN {doc.quote_currency}</td><td>{symbol[doc.quote_currency]}{money(calculated.usd)}</td><td></td></tr>
