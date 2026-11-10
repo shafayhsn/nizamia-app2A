@@ -88,6 +88,11 @@ export const BACKUP_TABLES = [
   'shipping_booking_shipments',
   'feature_certificates',
   'feature_assets',
+
+  // Costing & Quotation (CP-7); batches before sheets, sheets before versions
+  'costing_batches',
+  'costing_sheets',
+  'costing_sheet_versions',
 ]
 
 const ZERO_UUID = '00000000-0000-0000-0000-000000000000'
@@ -98,7 +103,7 @@ const BATCH_SIZE = 500
  */
 const PAGE_SIZE = 500
 export const BACKUP_STORAGE_BUCKETS = ['company-assets']
-const PROTECTED_BACKUP_TABLES = new Set(['buyer_addresses','buyer_contacts','parcel_invoice_snapshots','testing_orders','testing_requirements'])
+const PROTECTED_BACKUP_TABLES = new Set(['buyer_addresses','buyer_contacts','parcel_invoice_snapshots','testing_orders','testing_requirements','costing_batches','costing_sheets','costing_sheet_versions'])
 
 /** Fail closed: a missing or inaccessible table must never be recorded as empty. */
 async function fetchTable(tableName) {
