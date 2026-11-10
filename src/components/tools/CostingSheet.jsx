@@ -41,8 +41,8 @@ function totals(doc){
 const reportPrintCss = `
 @page{size:A4 portrait;margin:12mm}
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;color:#101010;font:9px Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.costing-report{display:block!important;width:100%;max-width:100%;color:#111;padding:5mm 4mm;overflow:visible}
+html,body{margin:0;padding:0;width:186mm;min-width:186mm;color:#101010;font:9px Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.costing-report{display:block!important;width:186mm;max-width:186mm;color:#111;padding:0;overflow:visible}
 .cr-header{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;margin-bottom:14px;padding-bottom:7px;border-bottom:1px solid #111}
 .cr-header b{font-size:17px}.cr-header .cr-center{text-align:center}.cr-header .cr-right{text-align:right}
 .cr-header .cr-right b{font-size:16px}.cr-header small{font-size:8px;display:block;font-weight:400}
@@ -146,7 +146,7 @@ export default function CostingSheet({onClose}){
     if(!report)return
     const frame=document.createElement('iframe')
     frame.setAttribute('title','Costing print report')
-    frame.style.cssText='position:fixed;width:0;height:0;border:0;opacity:0;pointer-events:none'
+    frame.style.cssText='position:absolute;left:-10000px;top:0;width:794px;height:1123px;border:0;pointer-events:none'
     document.body.appendChild(frame)
     const css=reportPrintCss
     await new Promise(resolve=>setTimeout(resolve,50))
@@ -154,6 +154,7 @@ export default function CostingSheet({onClose}){
     page.open()
     page.write('<!doctype html><html><head><title>Costing Report</title><style>'+css+'</style></head><body>'+report.innerHTML+'</body></html>')
     page.close()
+    await new Promise(resolve=>setTimeout(resolve,150))
     frame.contentWindow.focus()
     frame.contentWindow.print()
     frame.contentWindow.addEventListener('afterprint',()=>frame.remove(),{once:true})
