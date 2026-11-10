@@ -130,9 +130,9 @@ export default function CostingSheet({onClose}){
     if(name===null||!name.trim())return
     try{const response=await costingApi('saveCostingBatch',{name:name.trim()});setBatches(prev=>[response.batch,...prev]);setBatchAction(response.batch.id);setError('')}catch(e){setError(e.message)}
   }
-  async function assignBatch(){
+  async function assignBatch(nextBatchId){
     if(!selected.length)return
-    try{setBusy(true);await costingApi('assignCostingBatch',{ids:selected,batch_id:batchAction==='unbatched'?null:batchAction});setSelected([]);await refresh();setError('')}catch(e){setError(e.message)}finally{setBusy(false)}
+    try{setBusy(true);await costingApi('assignCostingBatch',{ids:selected,batch_id:nextBatchId==='unbatched'?null:nextBatchId});setSelected([]);await refresh();setError('')}catch(e){setError(e.message)}finally{setBusy(false)}
   }
   function beginQuotation(){
     if(!selectedRows.length)return
@@ -149,7 +149,7 @@ export default function CostingSheet({onClose}){
     const page=frame.contentDocument;page.open();page.write('<!doctype html><html><head><title>Customer Quotation</title><style>@page{size:A4 portrait;margin:18mm}body{font-family:Arial,sans-serif;color:#111;font-size:11px}h1{font-size:20px;margin-bottom:6px}table{width:100%;border-collapse:collapse;margin-top:25px}th,td{border:1px solid #aaa;padding:9px;text-align:left}th{background:#f0f0f0}td.num{text-align:right}p{line-height:1.6}</style></head><body>'+node.innerHTML+'</body></html>');page.close()
     frame.contentWindow.focus();frame.contentWindow.print();frame.contentWindow.addEventListener('afterprint',()=>frame.remove(),{once:true})
   }
-  const selectStyle={...inputStyle,width:'auto',minWidth:135,height:35,padding:'0 9px',fontSize:12,background:'#fff'}
+  const selectStyle={...inputStyle,width:'auto',minWidth:108,maxWidth:155,height:35,padding:'0 6px',fontSize:12,background:'#fff',flexShrink:1}
 
   function open(record){setCurrent(record);setDoc(structuredClone(record.document));setViewingVersion(null);setHistoryOpen(false);setError('')}
   function start(type){setCurrent(null);setDoc(blank(type));setViewingVersion(null);setHistory([]);setHistoryOpen(false);setError('')}
@@ -233,10 +233,11 @@ export default function CostingSheet({onClose}){
         <div style={{marginLeft:'auto',display:'flex',gap:9,alignItems:'center'}}>
           <button style={{...btn,background:'#111',color:'#fff',borderColor:'#111',height:36,fontWeight:650}} onClick={()=>start('woven')}>+ Woven Costing</button>
           <button style={{...btn,background:'#fff',color:'#111',borderColor:'#111',height:36,fontWeight:650}} onClick={()=>start('knits')}>+ Knits Costing</button>
+          <button style={{...btn,background:'#fff',color:'#111',borderColor:'#111',height:36,fontWeight:650}} disabled={!selected.length} onClick={beginQuotation}>Make Quotation</button>
         </div>
       </div>
-      <div style={{padding:'11px 22px',borderBottom:'1px solid #e5e7eb',display:'flex',alignItems:'center',gap:9,flexWrap:'wrap'}}>
-        <input aria-label="Search costings" placeholder="Search customer, style or reference" style={{...inputStyle,width:280,maxWidth:'100%',height:35}} value={search} onChange={e=>setSearch(e.target.value)}/>
+      <div style={{padding:'11px 22px',borderBottom:'1px solid #e5e7eb',display:'flex',alignItems:'center',gap:7,flexWrap:'nowrap',overflowX:'auto'}}>
+        <input aria-label="Search costings" placeholder="Search customer, style or reference" style={{...inputStyle,width:190,minWidth:145,flex:'0 1 190px',height:35}} value={search} onChange={e=>setSearch(e.target.value)}/>
 
         <select aria-label="Filter costing type" style={selectStyle} value={typeFilter} onChange={e=>setTypeFilter(e.target.value)}><option value="all">All Types</option><option value="woven">Woven</option><option value="knits">Knits</option></select>
         <select aria-label="Filter costing batch" style={selectStyle} value={batchFilter} onChange={e=>setBatchFilter(e.target.value)}><option value="all">All Batches</option><option value="unbatched">Unbatched</option>{batches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>
@@ -246,13 +247,10 @@ export default function CostingSheet({onClose}){
 
         <select aria-label="Sort costings" style={selectStyle} value={sortBy} onChange={e=>setSortBy(e.target.value)}><option value="updated_desc">Last Edited (Newest)</option><option value="updated_asc">Last Edited (Oldest)</option><option value="reference_asc">Reference (A–Z)</option><option value="reference_desc">Reference (Z–A)</option><option value="customer_asc">Customer (A–Z)</option><option value="style_asc">Style (A–Z)</option></select>
         <button title="Reset filters and sorting" aria-label="Reset costing view" style={{...btn,padding:8,display:'flex'}} onClick={()=>{setSearch('');setTypeFilter('all');setCustomerFilter('all');setBatchFilter('all');setGroupBy('none');setSortBy('updated_desc')}}><RotateCcw size={15}/></button>
-        <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:7}}>
+        <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
           <button style={btn} disabled={selected.length!==1} onClick={()=>open(selectedRows[0])}>Edit</button>
-          <button style={btn} disabled={!selected.length} onClick={beginQuotation}>Make Quotation</button>
           <button style={btn} onClick={createBatch}>+ Batch</button>
-          <select aria-label="Assign selected costings to batch" style={selectStyle} value={batchAction} onChange={e=>setBatchAction(e.target.value)}><option value="">Assign to Batch…</option><option value="unbatched">Remove from Batch</option>{batches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>
-          <button style={btn} disabled={!selected.length||!batchAction||busy} onClick={assignBatch}>Apply</button>
-          <span style={{fontSize:11,color:'#667085'}}>{selected.length} selected · {visibleCostings.length} shown</span>
+          <select aria-label="Edit batch for selected costings" title="Select a batch to immediately update the selected costings" style={{...selectStyle,maxWidth:125}} value="" disabled={!selected.length||busy} onChange={e=>{if(e.target.value)assignBatch(e.target.value)}}><option value="">Edit Batch…</option><option value="unbatched">Remove from Batch</option>{batches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select>
         </div>
       </div>
       <div style={{padding:'0 22px 24px',overflowX:'auto'}}>
