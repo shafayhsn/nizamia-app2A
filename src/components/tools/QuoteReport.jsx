@@ -35,7 +35,7 @@ export default function QuoteReport({rows,batches,totals,onClose}){
   const ws=XLSX.utils.aoa_to_sheet(aoa);ws['!cols']=[{wch:8},{wch:22},{wch:20},{wch:38},{wch:14},{wch:14},{wch:16},{wch:18}]
   const head=aoa.findIndex(r=>r[0]==='REF#')
   for(let i=head+1;i<head+1+items.length;i++){for(let j of [4,5,6,7]){const cell=ws[XLSX.utils.encode_cell({r:i,c:j})];if(cell&&cell.t==='n')cell.z=j===4?'#,##0':'#,##0.00'}}
-  XLSX.writeFile(XLSX.utils.book_append_sheet(XLSX.utils.book_new(),ws,'Quotation')||(()=>{const w=XLSX.utils.book_new();XLSX.utils.book_append_sheet(w,ws,'Quotation');return w})(),(quoteNo||'Quotation')+'.xlsx')
+  const workbook=XLSX.utils.book_new();XLSX.utils.book_append_sheet(workbook,ws,'Quotation');XLSX.writeFile(workbook,(quoteNo||'Quotation')+'.xlsx')
  }
  function print(){window.print()}
  if(!valid)return <div style={{padding:30}}><h2>Quotation requires one batch, one customer and one quote currency</h2><p>Select costings assigned to the same batch and customer, all using the same currency.</p><button style={btn} onClick={onClose}>Back</button></div>
