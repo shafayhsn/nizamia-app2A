@@ -48,7 +48,7 @@ export default async function handler(req,res){
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
  if(action==='session')return res.json({ok:true})
- if(['listCostings','saveCosting','costingHistory'].includes(action)){
+ if(['listCostings','saveCosting','costingHistory','listCostingBatches','saveCostingBatch','assignCostingBatch'].includes(action)){
    const admin=String(user.role||'').toLowerCase()==='admin'
    let canView=admin,canEdit=admin
    if(!admin&&user.role_id){
@@ -67,6 +67,26 @@ export default async function handler(req,res){
      if(!/^[0-9a-f-]{36}$/i.test(id))return err(res,400,'Invalid costing ID')
      const {data,error}=await db.from('costing_sheet_versions').select('version,document,created_at').eq('costing_id',id).order('version',{ascending:false})
      return error?err(res,500,'Could not load costing history'):res.json({history:data||[]})
+   }
+   if(action==='listCostingBatches'&&req.method==='GET'){
+     const {data,error}=await db.from('costing_batches').select('id,name,created_at').order('created_at',{ascending:false})
+     return error?err(res,500,'Could not load costing batches'):res.json({batches:data||[]})
+   }
+   if(action==='saveCostingBatch'&&req.method==='POST'){
+     if(!canEdit)return err(res,403,'Costing editing access required')
+     const name=String(req.body?.name||'').trim().slice(0,120)
+     if(!name)return err(res,400,'Batch name is required')
+     const {data,error}=await db.from('costing_batches').insert({name}).select('id,name,created_at').single()
+     return error?err(res,400,'Could not create batch (name may already exist)'):res.json({batch:data})
+   }
+   if(action==='assignCostingBatch'&&req.method==='POST'){
+     if(!canEdit)return err(res,403,'Costing editing access required')
+     const ids=req.body?.ids,batchId=req.body?.batch_id||null
+     if(!Array.isArray(ids)||!ids.length||ids.length>500||ids.some(id=>typeof id!=='string'||!/^[0-9a-f-]{36}$/i.test(id)))return err(res,400,'Invalid costing selection')
+     if(batchId&&(!/^[0-9a-f-]{36}$/i.test(batchId)))return err(res,400,'Invalid batch')
+     if(batchId){const {data,error}=await db.from('costing_batches').select('id').eq('id',batchId).maybeSingle();if(error||!data)return err(res,400,'Batch not found')}
+     const {data,error}=await db.from('costing_sheets').update({batch_id:batchId}).in('id',ids).select('id')
+     return error?err(res,500,'Could not assign costing batch'):data.length!==ids.length?err(res,409,'Some costings could not be updated'):res.json({updated:data.length})
    }
    if(!canEdit)return err(res,403,'Costing editing access required')
    if(action==='saveCosting'&&req.method==='POST'){
