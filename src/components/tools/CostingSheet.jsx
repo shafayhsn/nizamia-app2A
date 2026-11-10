@@ -210,6 +210,21 @@ export default function CostingSheet({onClose}){
       <button style={btn} onClick={onClose}>Close</button>
     </div>}
 
+    {quotationOpen&&<div role="dialog" aria-modal="true" aria-label="Customer quotation" style={{position:'fixed',inset:0,zIndex:10000,background:'rgba(15,23,42,.5)',display:'flex',justifyContent:'center',alignItems:'center',padding:24}}>
+      <div style={{background:'#fff',borderRadius:12,width:'min(850px,96vw)',maxHeight:'90vh',overflow:'auto',padding:26,boxShadow:'0 20px 80px #0003'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><strong style={{fontSize:18}}>Customer Quotation Preview</strong><div style={{display:'flex',gap:8}}><button style={btn} onClick={()=>setQuotationOpen(false)}>Close</button><button style={{...btn,background:'#111',color:'#fff'}} onClick={printQuotation}>Print / PDF</button></div></div>
+        <div id="costing-quotation-print">
+          <h1 style={{margin:'0 0 5px'}}>Nizamia Apparels</h1><h2 style={{margin:'0 0 18px',fontSize:16}}>Quotation</h2>
+          <p><strong>Customer:</strong> {selectedRows[0]?.customer}<br/><strong>Date:</strong> {new Date().toLocaleDateString('en-GB')}<br/><strong>Currency:</strong> {selectedRows[0]?.document?.quote_currency||'USD'}</p>
+          <table style={{width:'100%',borderCollapse:'collapse',marginTop:18}}>
+            <thead><tr>{['Style / Reference','Description','Quantity','Unit Price','Total'].map(x=><th key={x} style={{border:'1px solid #bbb',padding:9,textAlign:'left',background:'#eee'}}>{x}</th>)}</tr></thead>
+            <tbody>{selectedRows.map(r=>{const d=r.document||{},t=totals(d),qty=num(d.quantity),sym=symbol[d.quote_currency]||'';return <tr key={r.id}><td style={{border:'1px solid #bbb',padding:9}}>{r.style||r.reference}</td><td style={{border:'1px solid #bbb',padding:9}}>{d.description||d.item_description||'—'}</td><td style={{border:'1px solid #bbb',padding:9,textAlign:'right'}}>{qty.toLocaleString('en-US')}</td><td style={{border:'1px solid #bbb',padding:9,textAlign:'right'}}>{sym}{money(t.fob)}</td><td style={{border:'1px solid #bbb',padding:9,textAlign:'right'}}>{sym}{money(t.fob*qty)}</td></tr>})}</tbody>
+            <tfoot><tr><td colSpan={4} style={{border:'1px solid #bbb',padding:9,fontWeight:700}}>Total Quotation Value</td><td style={{border:'1px solid #bbb',padding:9,textAlign:'right',fontWeight:700}}>{symbol[selectedRows[0]?.document?.quote_currency]||''}{money(selectedRows.reduce((sum,r)=>sum+totals(r.document).fob*num(r.document.quantity),0))}</td></tr></tfoot>
+          </table>
+          <p style={{marginTop:22}}>Prices are subject to final confirmation. Please contact us to confirm quantities, delivery schedule and terms.</p>
+        </div>
+      </div>
+    </div>}
     {error&&<div role="alert" style={{color:'#b42318',background:'#fff3f2',padding:10}}>{error}</div>}
     {!doc?<div style={{flex:1,minHeight:0,overflow:'auto',background:'#fff'}}>
       <div style={{display:'flex',alignItems:'center',gap:12,padding:'15px 28px',borderBottom:'1px solid #e5e7eb',flexWrap:'wrap'}}>
