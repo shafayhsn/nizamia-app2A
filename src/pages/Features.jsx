@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Calculator, Truck, Layers, Activity, Tag, Box, Scale, Palette, BookImage, BookOpen, ShieldCheck, X, Construction } from 'lucide-react'
 import { ThreadCalc, CBMCalc, GSMFinder, PantoneConverter } from '../components/tools/ToolsTray'
 import FeatureResource from '../components/tools/FeatureResource'
@@ -9,7 +10,6 @@ import FabricConstructionFinder from '../components/tools/FabricConstructionFind
 import ShadeFinder from '../components/tools/ShadeFinder'
 import CatalogueMaker from '../components/tools/CatalogueMaker'
 import SewingThreadSmart from '../components/tools/SewingThreadSmart'
-import CostingSheet from '../components/tools/CostingSheet'
 
 const FEATURES = [
   {id:'costing',label:'Costing Sheet',icon:Calculator,color:'#16a34a',ready:true},
@@ -26,6 +26,7 @@ const COMPONENTS={thread:SewingThreadTool,cbm:CBMCalc,gsm:FabricConstructionFind
 function SewingThreadTool(){const [mode,setMode]=useState('smart');useEffect(()=>{const h=e=>setMode(e.detail);window.addEventListener('nizamia:thread-mode',h);return()=>window.removeEventListener('nizamia:thread-mode',h)},[]);return <div style={{height:'100%',display:'flex',flexDirection:'column',minHeight:0}}><div style={{flex:1,minHeight:0,overflowY:mode==='manual'?'auto':'hidden'}}>{mode==='manual'?<ThreadCalc/>:<SewingThreadSmart/>}</div></div>}
 const card={border:'1px solid #e1e5eb',borderRadius:12,background:'#fff',boxShadow:'0 1px 3px #1018280b'}
 export default function Features(){
+  const navigate=useNavigate()
   const [active,setActive]=useState(null)
   const feature=FEATURES.find(x=>x.id===active)
   const Tool=COMPONENTS[active]
@@ -34,7 +35,7 @@ export default function Features(){
     <div style={{marginBottom:16,flexShrink:0}}><h1 style={{fontSize:24,fontWeight:750,margin:0,color:'#1a1a2e'}}>Features</h1></div>
     <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:10,flexShrink:0,color:'#667085',fontSize:13,fontWeight:750,letterSpacing:'.35px'}}><Calculator size={17}/> PRODUCTION UTILITIES</div>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:12,marginBottom:18,flexShrink:0}}>
-      {FEATURES.map(f=><button key={f.id} onClick={()=>setActive(f.id)} style={{...card,cursor:'pointer',minHeight:96,padding:'10px 10px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:7,fontFamily:'inherit',position:'relative'}} title={f.ready?'Open '+f.label:f.label+' · Not configured yet'}>
+      {FEATURES.map(f=><button key={f.id} onClick={()=>f.id==='costing'?navigate('/features/costing'):setActive(f.id)} style={{...card,cursor:'pointer',minHeight:96,padding:'10px 10px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:7,fontFamily:'inherit',position:'relative'}} title={f.ready?'Open '+f.label:f.label+' · Not configured yet'}>
         <span style={{width:35,height:35,borderRadius:'50%',display:'grid',placeItems:'center',background:f.color+'12',color:f.color}}><f.icon size={19} strokeWidth={1.9}/></span>
         <span style={{fontSize:13,fontWeight:650,color:'#344054',textAlign:'center'}}>{f.label}</span>
         {!f.ready&&<span style={{position:'absolute',right:9,top:9,fontSize:9,color:'#98a2b3'}}>Coming soon</span>}
@@ -44,7 +45,6 @@ export default function Features(){
       <FeatureResource />
       <FeatureResource certificates />
     </div>
-    {active==='costing'&&<div role="dialog" aria-modal="true" aria-label="Costing Sheet" style={{position:'fixed',inset:12,zIndex:1200,background:'#fff',boxShadow:'0 12px 60px #0004',borderRadius:12,overflow:'hidden'}}><CostingSheet onClose={()=>setActive(null)}/></div>}
     {active==='catalogue'&&<CatalogueMaker onClose={()=>setActive(null)}/>}
     {active==='dispatch'&&<CreateParcelFeature onClose={()=>setActive(null)}/>}
     {feature&&active!=='dispatch'&&active!=='catalogue'&&active!=='costing'&&<div role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setActive(null)}} style={{position:'fixed',inset:0,zIndex:1100,background:'rgba(15,23,42,.52)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
