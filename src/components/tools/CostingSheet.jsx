@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../lib/authContext'
 
 const sections = {
   woven: [
@@ -37,6 +38,46 @@ function totals(doc){
   return {groups,manufacturing,usd:cost,profit,agency,fob,invoice:fob*num(doc.quantity),difference:fob-num(doc.target_price),differencePct:num(doc.target_price)>0?(fob-num(doc.target_price))/num(doc.target_price)*100:null,currency:doc.quote_currency||'USD'}
 
 }
+const reportPrintCss = `
+@page{size:A4 portrait;margin:19.05mm 6.35mm}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;width:197.3mm;max-width:197.3mm;color:#101010;font:9px Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.costing-report{display:block!important;width:197.3mm;max-width:197.3mm;color:#111;padding:0;overflow:visible}
+.cr-header{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;margin-bottom:14px;padding-bottom:7px;border-bottom:1px solid #111}
+.cr-header b{font-size:17px}.cr-header .cr-center{text-align:center}.cr-header .cr-right{text-align:right}
+.cr-header .cr-right b{font-size:16px}.cr-header small{font-size:8px;display:block;font-weight:400}
+.cr-columns{display:grid;grid-template-columns:minmax(0,63fr) minmax(0,37fr);gap:10px;align-items:start}
+.cr-left,.cr-right{min-width:0}
+.cr-section{border:1px solid #111;margin:0 0 12px;break-inside:avoid}
+.cr-section-title{display:flex;justify-content:space-between;align-items:center;gap:5px;font-weight:700;font-size:9px;min-height:22px;padding:4px 5px;border-bottom:1px solid #111}
+.cr-section-title span:last-child{font-size:7px;white-space:nowrap}
+.cr-table{border-collapse:collapse;width:100%;table-layout:fixed}
+.cr-table thead{display:table-header-group}
+.cr-table th{background:#e4e5e7;text-transform:uppercase;font-size:7px;font-weight:700;border-bottom:1px solid #111;padding:4px 4px;text-align:right}
+.cr-table th:first-child,.cr-table td:first-child{text-align:left}
+.cr-table td{padding:5px 4px;vertical-align:top;line-height:1.2;text-align:right;font-size:8.3px;overflow-wrap:anywhere}
+.cr-table tbody tr{break-inside:avoid}
+.cr-table tfoot td{font-weight:700;border-top:1px solid #111;padding:5px 4px}
+.cr-meta{border:1.3px solid #111;border-collapse:collapse;width:100%;table-layout:fixed;margin-bottom:12px}
+.cr-meta td{border:1px solid #111;padding:6px 6px;vertical-align:middle;font-size:8px;overflow-wrap:anywhere}
+.cr-meta td:first-child{width:37%;font-weight:700;text-transform:uppercase;font-size:7.3px}
+.cr-summary{border:1.3px solid #111;margin-bottom:12px;break-inside:avoid}
+.cr-summary-title{text-align:center;font-size:10px;font-weight:700;padding:5px;border-bottom:1px solid #111}
+.cr-summary table{width:100%;border-collapse:collapse;table-layout:fixed}
+.cr-summary th{background:#e4e5e7;font-size:7px;text-align:left;padding:4px;border-bottom:1px solid #111}
+.cr-summary td{font-size:8.3px;padding:4px 4px;vertical-align:top;overflow-wrap:anywhere}
+.cr-summary th:nth-child(2),.cr-summary th:nth-child(3),.cr-summary td:nth-child(2),.cr-summary td:nth-child(3){text-align:right}
+.cr-summary .cr-rule td{border-top:1px solid #111;font-weight:700}
+.cr-summary .cr-highlight td{border-top:1px solid #111;font-weight:700}
+.cr-summary .cr-comparison{width:100%;border-collapse:collapse;table-layout:fixed;border-top:1px solid #111}
+.cr-summary .cr-comparison th,.cr-summary .cr-comparison td{border:0;border-right:1px solid #111;text-align:center;padding:5px 2px;font-size:8px}.cr-summary .cr-comparison th:last-child,.cr-summary .cr-comparison td:last-child{border-right:0}.cr-summary .cr-comparison th{border-bottom:1px solid #111}.cr-summary .cr-comparison tbody td{text-align:center}
+.cr-summary .cr-comparison th{background:#e4e5e7;font-weight:700}
+.cr-difference{border-top:1px solid #111;display:flex;justify-content:space-between;gap:5px;padding:6px 5px;font-weight:700}
+.cr-history{border:1.3px solid #111;min-height:125px;break-inside:avoid}
+.cr-history-title{border-bottom:1px solid #111;font-size:9px;font-weight:700;padding:5px}
+.cr-history-entry{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:4px 6px;font-size:7.5px}
+@media screen{.costing-report{background:white}}
+`;
 const inputStyle={height:32,border:'1px solid #d5dae2',borderRadius:6,padding:'4px 8px',width:'100%',boxSizing:'border-box',fontSize:12}
 const btn={padding:'8px 12px',border:'1px solid #d5dae2',borderRadius:7,background:'#fff',cursor:'pointer',fontSize:12}
 function FormattedInput({value,onChange,prefix='',style,decimals=5,ariaLabel}){
@@ -54,6 +95,7 @@ async function costingApi(action,payload=null){
  return data
 }
 export default function CostingSheet({onClose}){
+  const {user}=useAuth()
   const [viewingVersion,setViewingVersion]=useState(null),[records,setRecords]=useState([]),[buyers,setBuyers]=useState([]),[doc,setDoc]=useState(null),[current,setCurrent]=useState(null),[history,setHistory]=useState([]),[historyOpen,setHistoryOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState('')
   const update=(key,value)=>setDoc(d=>({...d,[key]:value}))
   async function refresh(){
@@ -98,18 +140,21 @@ export default function CostingSheet({onClose}){
       setHistoryOpen(true)
     }catch(e){setError(e.message||String(e))}
   }
-  const printable=()=>{
+  const printable=async()=>{
+    if(current){try{const response=await fetch('/api/oms?action=costingHistory&id='+encodeURIComponent(current.id),{credentials:'same-origin'});if(response.ok){const data=await response.json();setHistory(data.history||[])}}catch(e){console.warn('Costing history unavailable for print',e)}}
     const report=document.querySelector('.costing-report')
     if(!report)return
     const frame=document.createElement('iframe')
     frame.setAttribute('title','Costing print report')
-    frame.style.cssText='position:fixed;width:0;height:0;border:0;opacity:0;pointer-events:none'
+    frame.style.cssText='position:absolute;left:-10000px;top:0;width:746px;height:1123px;border:0;pointer-events:none'
     document.body.appendChild(frame)
-    const css='@page{size:A4 portrait;margin:12mm}body{font:11px Arial,sans-serif;color:#111;margin:0}header{display:flex;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:9px}header strong{font-size:16px}.report-meta{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin:14px 0}.report-meta>div{padding:5px;border-bottom:1px solid #ddd}.report-grid{display:block}.report-summary{break-before:page}.report-summary p{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:5px 0;margin:0}section{break-inside:auto}h3{background:#eee;padding:7px;break-after:avoid}table{width:100%;border-collapse:collapse;margin:8px 0 15px}th,td{border-bottom:1px solid #ddd;padding:5px;text-align:right}th:first-child,td:first-child{text-align:left}tr{break-inside:avoid}'
+    const css=reportPrintCss
+    await new Promise(resolve=>setTimeout(resolve,50))
     const page=frame.contentDocument
     page.open()
     page.write('<!doctype html><html><head><title>Costing Report</title><style>'+css+'</style></head><body>'+report.innerHTML+'</body></html>')
     page.close()
+    await new Promise(resolve=>setTimeout(resolve,150))
     frame.contentWindow.focus()
     frame.contentWindow.print()
     frame.contentWindow.addEventListener('afterprint',()=>frame.remove(),{once:true})
@@ -166,10 +211,64 @@ export default function CostingSheet({onClose}){
       </div>
       </div>
       <div className="costing-report">
-        <header style={{display:'flex',justifyContent:'space-between',borderBottom:'2px solid #222',paddingBottom:8}}><strong style={{fontSize:17}}>NIZAMIA APPARELS · COSTING REPORT</strong><span>{current?.reference||'UNSAVED'} · {doc.type.toUpperCase()} · V{viewingVersion||current?.version||1}</span></header>
-        <div className="report-meta">{[['Customer',doc.customer],['Style / Reference',doc.style],['Target Price',symbol[doc.quote_currency]+money(doc.target_price)],['Size Range',doc.size_range],['Currency',doc.quote_currency],['Buying Agency',doc.buying_agency],['Description',doc.description],['Estimated Qty',formattedNumber(doc.quantity)],['Base Size',doc.base_size],['PKR / '+doc.quote_currency,money(doc.rates?.[doc.quote_currency]??doc.exchange_rate)]].map(([label,value])=><div key={label}><small style={{color:'#555'}}>{label}</small><div style={{fontWeight:600}}>{value||'—'}</div></div>)}</div>
-        <div className="report-grid"><div>{doc.sections.map((s,si)=><section key={si}><h3>{si+1}. {s.name} <span style={{float:'right'}}>PKR {money(calculated.groups[si])}</span></h3><table><thead><tr><th>Item</th>{sections[doc.type][si][2].filter(h=>h!=='Total (PKR)').map(h=><th key={h}>{h}</th>)}<th>Total (PKR)</th></tr></thead><tbody>{s.rows.map((row,ri)=><tr key={ri}><td>{row.label}</td>{sections[doc.type][si][2].filter(h=>h!=='Total (PKR)').map((h,vi)=><td key={vi}>{formattedNumber(row.values[vi])}</td>)}<td>{money(rowTotal(row,si,doc.type))}</td></tr>)}</tbody></table></section>)}</div>
-        <div className="report-summary"><h3>Cost Summary</h3>{doc.sections.map((s,i)=><p key={i}><span>{s.name}</span><b>{money(calculated.groups[i])}</b></p>)}{[['Testing',doc.testing],['Shipping',doc.shipping],['Banking',doc.banking],['STR Adjustment',doc.str_adjustment],['Rejection %',doc.rejection_pct],['Manufacturing PKR',calculated.manufacturing],['Cost '+doc.quote_currency+' / piece',calculated.usd],['Profit %',doc.profit_pct],['Buying Agent %',doc.agency_pct],['Profit '+doc.quote_currency,calculated.profit],['Agency '+doc.quote_currency,calculated.agency],['FOB '+doc.quote_currency+' / piece',calculated.fob],['Buyer Target',doc.target_price],['Difference',calculated.difference],['Difference %',calculated.differencePct]].map(([label,value])=><p key={label}><span>{label}</span><b>{value===null?'—':money(value)}</b></p>)}<p><span>Notes</span><span>{doc.notes}</span></p></div></div>
+        <div className="cr-header">
+          <b>Nizamia Apparels</b>
+          <b className="cr-center">Costing Sheet</b>
+          <div className="cr-right"><b>{current?.reference||'UNSAVED'} - V{viewingVersion||current?.version||1}</b><small>Printed on: {new Date().toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})}</small></div>
+        </div>
+        <div className="cr-columns">
+          <div className="cr-left">{doc.sections.map((s,si)=>{
+            const titles=['FABRIC COST CALCULATION','CM - CUT & MAKING COST','WASHING & DYEING','TRIMS & ACCESSORIES','EMBELLISHMENT - PRINTING & EMBROIDERY']
+            const heads=si===0?['FABRIC DETAIL','CONSUMP.','COST','PRICE']:si===1?['FABRIC DETAIL','RATE/PC','EXTRA %','TOTAL']:si===2?['WASHING DETAILS','RATE/PC','TOTAL']:si===3?['FABRIC DETAIL','PER PC','PRICE','EXTRA %','TOTAL']:['DECORATION DETAIL','RATE/PC','TOTAL']
+            const rowValues=(row)=>{
+              const v=row.values||[]
+              if(si===0)return [formattedNumber(v[0]),formattedNumber(v[1]),money(rowTotal(row,si,doc.type))]
+              if(si===1)return [formattedNumber(v[0]),formattedNumber(v[1]),money(rowTotal(row,si,doc.type))]
+              if(si===2)return [formattedNumber(v[0]),money(rowTotal(row,si,doc.type))]
+              if(si===3)return [formattedNumber(v[0]),formattedNumber(v[1]),formattedNumber(v[2]),money(rowTotal(row,si,doc.type))]
+              return [formattedNumber(v[0]),money(rowTotal(row,si,doc.type))]
+            }
+            const totalLabels=['TOTAL FABRIC PRICE','TOTAL CM + OVERHEAD PRICE','TOTAL WASHING PRICE','TOTAL TRIMS PRICE','TOTAL EMBELLISHMENT PRICE']
+            return <section className="cr-section" key={si}>
+              <div className="cr-section-title"><span>{si+1}- {titles[si]||s.name.toUpperCase()}</span><span>Rs. {money(calculated.groups[si])} | {symbol[doc.quote_currency]||'$'}{money(calculated.groups[si]/(num(doc.rates?.[doc.quote_currency])||num(doc.exchange_rate)||1))}</span></div>
+              <table className="cr-table"><colgroup><col style={{width:si===3?'43%':'57%'}}/>{heads.slice(1).map((_,i)=><col key={i} style={{width:(si===3?57:43)/(heads.length-1)+'%'}}/>)}</colgroup>
+                <thead><tr>{heads.map(h=><th key={h}>{h}</th>)}</tr></thead>
+                <tbody>{s.rows.map((row,ri)=><tr key={ri}><td>{row.label}</td>{rowValues(row).map((v,i)=><td key={i}>{v}</td>)}</tr>)}</tbody>
+                <tfoot><tr><td>{totalLabels[si]||'TOTAL'}</td><td colSpan={heads.length-1}>{money(calculated.groups[si])}</td></tr></tfoot>
+              </table>
+            </section>
+          })}</div>
+          <div className="cr-right">
+            <table className="cr-meta"><tbody>{[
+              ['CUSTOMER',doc.customer],['STYLE NUMBER',doc.style],['ITEM DESC',doc.description],
+              ['BUYING AGENCY',doc.buying_agency],['SIZE RANGE',doc.size_range],['BASE SIZE',doc.base_size],
+              ['QUOTE CURRENCY',doc.quote_currency],['FX RATE',formattedNumber(doc.rates?.[doc.quote_currency]??doc.exchange_rate)],
+              ['EST. QUANTITY',formattedNumber(doc.quantity)],['USER',user?.displayName||user?.username||'—']
+            ].map(([k,v])=><tr key={k}><td>{k}</td><td>{v||'—'}</td></tr>)}</tbody></table>
+            <div className="cr-summary">
+              <div className="cr-summary-title">COST SUMMARY</div>
+              <table><thead><tr><th style={{width:'55%'}}>CATEGORY</th><th>COST PKR</th><th>COST %</th></tr></thead>
+                <tbody>
+                  {doc.sections.map((s,i)=><tr key={i}><td>{['FABRIC','CUT TO PACK + O.H','WASHING','TRIMS & ACCESSORIES','EMBELLISHMENT'][i]||s.name.toUpperCase()}</td><td>{money(calculated.groups[i])}</td><td>{calculated.manufacturing?((calculated.groups[i]/calculated.manufacturing)*100).toFixed(2)+'%':'—'}</td></tr>)}
+                  {[['TESTING CHARGES',doc.testing],['SHIPPING CHARGES',doc.shipping],['BANKING CHARGES',doc.banking],['STR REDUCTION',doc.str_adjustment]].map(([k,v])=><tr key={k}><td>{k}</td><td>{money(v)}</td><td>{calculated.manufacturing?((num(v)/calculated.manufacturing)*100).toFixed(2)+'%':'—'}</td></tr>)}
+                  <tr className="cr-rule"><td>REJECTION MARGIN</td><td></td><td>{money(doc.rejection_pct)}%</td></tr>
+                  <tr className="cr-highlight"><td>MANUFACTURING COST</td><td>{money(calculated.manufacturing)}</td><td></td></tr>
+                  <tr><td>IN {doc.quote_currency}</td><td>{symbol[doc.quote_currency]}{money(calculated.usd)}</td><td></td></tr>
+                  <tr className="cr-rule"><td>NIZAMIA'S PROFIT</td><td>{symbol[doc.quote_currency]}{money(calculated.profit)}</td><td>{money(doc.profit_pct)}%</td></tr>
+                  <tr><td>AGENCY %</td><td>{symbol[doc.quote_currency]}{money(calculated.agency)}</td><td>{money(doc.agency_pct)}%</td></tr>
+                </tbody>
+              </table>
+              <table className="cr-comparison"><thead><tr><th>FTY COST</th><th>TARGET</th><th>FOB - KHI</th></tr></thead>
+                <tbody><tr><td>Rs. {money(calculated.manufacturing)}<div>{symbol[doc.quote_currency]}{money(calculated.usd)}</div></td><td>{symbol[doc.quote_currency]}{money(doc.target_price)}</td><td>{symbol[doc.quote_currency]}{money(calculated.fob)}</td></tr></tbody>
+              </table>
+              <div className="cr-difference"><span>DIFFERENCE</span><span>{calculated.difference>0?'+':''}{symbol[doc.quote_currency]}{money(calculated.difference)} | Rs. {money(calculated.difference*(num(doc.rates?.[doc.quote_currency])||num(doc.exchange_rate)||1))} | {calculated.differencePct===null?'—':(calculated.differencePct>0?'+':'')+calculated.differencePct.toFixed(2)+'%'}</span></div>
+            </div>
+            <div className="cr-history"><div className="cr-history-title">VERSION HISTORY</div>
+              {history.map(h=><div className="cr-history-entry" key={h.version}><span>V{h.version}</span><span>{new Date(h.created_at).toLocaleString('en-GB')}</span></div>)}
+              {current&&<div className="cr-history-entry"><span>V{current.version} (Current)</span><span>{new Date(current.updated_at).toLocaleString('en-GB')}</span></div>}
+            </div>
+          </div>
+        </div>
       </div>
       {historyOpen&&<div className="costing-no-print" style={{position:'fixed',inset:0,background:'#0006',display:'grid',placeItems:'center',zIndex:1200}}><div style={{background:'#fff',borderRadius:10,padding:20,width:430,maxHeight:'80vh',overflow:'auto'}}><div style={{display:'flex',justifyContent:'space-between'}}><strong>Edit History</strong><button style={btn} onClick={()=>setHistoryOpen(false)}>Close</button></div>{history.map(h=><div key={h.version} style={{padding:10,borderBottom:'1px solid #eee',display:'flex',justifyContent:'space-between'}}><span>V{h.version} · {new Date(h.created_at).toLocaleString()}</span><button style={btn} onClick={()=>{setDoc(structuredClone(h.document));setViewingVersion(h.version);setHistoryOpen(false);setError('Viewing a read-only historical snapshot. Use Return to Latest to edit.')}}>View</button></div>)}<div style={{padding:10}}>Current: V{current?.version}</div></div></div>}
     </>}
