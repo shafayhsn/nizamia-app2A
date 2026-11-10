@@ -21,6 +21,23 @@ const sections = {
   ]
 }
 const blank=(type)=>({type,customer:'',buyer_id:null,style:'',description:'',buying_agency:'',size_range:'',base_size:'',target_price:'',quote_currency:'USD',rates:{USD:280,EUR:310,GBP:360},quantity:'',exchange_rate:280,profit_pct:10,agency_pct:'',rejection_pct:3,shipping:'',testing:'',banking:'',str_adjustment:'',notes:'',sections:sections[type].map(([name,items])=>({name,rows:items.map(label=>({label,values:['','','','']}))}))})
+// Preview-only examples: generated in browser memory; never inserted into Supabase.
+const DEMO_BATCH_ID='demo-preview-batch'
+const DEMO_COSTINGS=[
+  ['CW-0001','Sample Buyer A','DNM-101','woven','Men’s straight denim jeans',1200,4.50],
+  ['CW-0002','Sample Buyer A','DNM-102','woven','Women’s wide-leg denim',850,5.20],
+  ['CW-0003','Sample Buyer A','DNM-103','woven','Kids denim shorts',2000,3.15],
+  ['CK-0001','Sample Buyer A','KNT-201','knits','Cotton jersey T-shirt',3000,2.10],
+  ['CK-0002','Sample Buyer A','KNT-202','knits','Fleece sweatshirt',1500,4.90]
+].map(([reference,customer,style,type,description,quantity,target_price],i)=>{
+ const document=blank(type)
+ Object.assign(document,{customer,style,description,quantity,target_price,buying_agency:'Demo Agency',size_range:type==='woven'?'28–36':'S–XXL',base_size:type==='woven'?'32':'M'})
+ document.sections[0].rows[0].values=[type==='woven'?1.4:2.2,type==='woven'?640:420,'','']
+ document.sections[1].rows[0].values=[type==='woven'?25:90,0,'','']
+ document.sections[2].rows[0].values=[type==='woven'?80:120,0,'','']
+ document.sections[3].rows[0].values=[1,85,0,'']
+ return {id:'00000000-0000-4000-8000-'+String(i+1).padStart(12,'0'),reference,customer,style,type,version:1,batch_id:DEMO_BATCH_ID,updated_at:new Date(Date.UTC(2026,10,10-i)).toISOString(),document,__demo:true}
+})
 const num=v=>Number(v)||0
 const rowTotal=(row,si,type)=>{const [a,b,c]=row.values.map(num);if(si===0)return a*b;if(si===1||si===2||si===4)return a*(1+b/100);return a*b*(1+c/100)}
 const trimDefaults=['Thread','Zipper','Button','Rivet','Hangtag','Price Tag','Joker Tag','Leather Patch','Main Label','Size Label','Care Label','Barcode Sticker','Polybag','Master Polybag','Carton','Carton Sticker','Hanger','Hanger Size Tab','Silica Gel']
@@ -103,8 +120,8 @@ export default function CostingSheet({onClose}){
   async function refresh(){
     try{
       const [result,b]=await Promise.all([costingApi('listCostings'),supabase.from('buyers').select('id,name').order('name')])
-      setRecords(result.costings||[])
-      try{const batchResult=await costingApi('listCostingBatches');setBatches(batchResult.batches||[])}catch(e){console.warn('Costing batches not yet available',e)}
+      setRecords([...(result.costings||[]),...DEMO_COSTINGS])
+      try{const batchResult=await costingApi('listCostingBatches');setBatches([...(batchResult.batches||[]),{id:DEMO_BATCH_ID,name:'DEMO — Sample Costings (Testing Only)'}])}catch(e){console.warn('Costing batches not yet available',e)}
       setError('')
       if(!b.error)setBuyers(b.data||[])
     }catch(e){setError(e.message||String(e))}
@@ -133,6 +150,7 @@ export default function CostingSheet({onClose}){
   }
   async function assignBatch(nextBatchId){
     if(!selected.length)return
+    if(selected.some(id=>DEMO_COSTINGS.some(r=>r.id===id))){setError('Demo records are read-only and cannot be assigned to a database batch.');return}
     try{setBusy(true);await costingApi('assignCostingBatch',{ids:selected,batch_id:nextBatchId==='unbatched'?null:nextBatchId});setSelected([]);await refresh();setError('')}catch(e){setError(e.message)}finally{setBusy(false)}
   }
   function beginQuotation(){
@@ -163,6 +181,7 @@ export default function CostingSheet({onClose}){
   function trimMode(mode){setDoc(d=>{const n=structuredClone(d);const i=3;n.sections[i].rows=(mode==='all'?['All Trims']:mode==='standard'?trimDefaults:['Custom Trim']).map(label=>({label,values:['','','','']}));return n})}
   async function save(){
     if(busy)return
+    if(current?.__demo){setError('This is a testing-only dummy costing. It cannot be saved to the database.');return}
     if(viewingVersion){setError('Historical versions are read-only. Return to the latest version before editing.');return}
     if(!doc?.customer.trim()){setError('Customer is required.');return}
     if(num(doc.rates?.[doc.quote_currency]??doc.exchange_rate)<=0){setError('Exchange rate must be greater than zero.');return}
