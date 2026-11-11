@@ -224,11 +224,27 @@ export default function Reports() {
         const bomRows=[]
         let bomOffset=0
         while(bomOffset<30000){
-          const {data,error:be}=await supabase.from('bom_items').select('id,order_id,name,specification,category,sort_order,base_qty,final_qty,created_at').eq('category','Fabric').range(bomOffset,bomOffset+749)
+          const {data,error:be}=await supabase.from('bom_items').select('id,order_id,library_item_id,name,specification,category,sort_order,base_qty,final_qty,created_at').eq('category','Fabric').range(bomOffset,bomOffset+749)
           if(be)throw be
           bomRows.push(...(data||[]))
           if(!data||data.length<750)break
           bomOffset+=750
+        }
+        const fabricLibraryIds=[...new Set(bomRows.map(b=>b.library_item_id).filter(Boolean))]
+        const fabricLibrary=new Map()
+        for(let i=0;i<fabricLibraryIds.length;i+=400){
+          const {data,error:le}=await supabase.from('library_items').select('id,name,colour,composition,weight,width_inches').in('id',fabricLibraryIds.slice(i,i+400))
+          if(le)throw le
+          for(const item of data||[])fabricLibrary.set(item.id,item)
+        }
+        const formatShellFabric=b=>{
+          if(!b)return ''
+          const lib=fabricLibrary.get(b.library_item_id)
+          const name=b.name||lib?.name||''
+          const colour=b.specification||lib?.colour||''
+          const identity=[name,colour].filter(Boolean).join('-')
+          const details=[lib?.composition,lib?.weight,lib?.width_inches!=null?String(lib.width_inches)+'"':null].filter(Boolean).join(', ')
+          return [identity,details].filter(Boolean).join(' - ')
         }
         const shellFabric=new Map()
         const consumption=b=>Number(b.base_qty)||Number(b.final_qty)||0
@@ -248,7 +264,7 @@ export default function Reports() {
         const shipped=new Map(),queues=new Map()
         ;(shipResult.data||[]).forEach(l=>shipped.set(l.order_id,(shipped.get(l.order_id)||0)+(Number(l.shipped_qty)||0)))
         ;(queueResult.data||[]).forEach(q=>queues.set(q.order_id,(queues.get(q.order_id)||0)+1))
-        finalRows=finalRows.map(r=>({...r,shell_fabric:[shellFabric.get(r.id)?.name,shellFabric.get(r.id)?.specification].filter(Boolean).join(' — '),shipped_qty:shipped.get(r.id)||0,balance_qty:Math.max(0,(Number(r.total_qty)||0)-(shipped.get(r.id)||0)),queue_count:queues.get(r.id)||0}))
+        finalRows=finalRows.map(r=>({...r,shell_fabric:formatShellFabric(shellFabric.get(r.id)),shipped_qty:shipped.get(r.id)||0,balance_qty:Math.max(0,(Number(r.total_qty)||0)-(shipped.get(r.id)||0)),queue_count:queues.get(r.id)||0}))
       }
       const keys=active.table==='production_daily_entries'?active.fields:isActiveOrders(active)?ACTIVE_COLUMNS.map(([,k])=>k):active.phase4?PHASE4_VIEWS[active.kind].map(([,k])=>k):active.business?VIEWS[active.kind].map(([,k])=>k):active.operations?[...new Set([...OP_VIEWS[active.kind].map(([,k])=>k).filter(k=>finalRows.some(r=>r[k]!==undefined)||['Job #','Buyer','Style #','Customer PO #'].includes(k)),...finalRows.flatMap(row=>Object.keys(row)).filter(k=>!['id','order_id','created_at','updated_at'].includes(k))])]:[...new Set(finalRows.flatMap(row=>Object.keys(row)))];
       const ordered=(active.business||active.operations||active.phase4) ? keys : active.fields ? [...active.fields.filter(f=>keys.includes(f)),...keys.filter(f=>!active.fields.includes(f))] : keys
