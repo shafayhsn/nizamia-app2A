@@ -176,6 +176,9 @@ export default function Reports() {
   const [dateTo,setDateTo] = useState('')
   const [dateField,setDateField] = useState('')
   const [printOrientation,setPrintOrientation] = useState('landscape')
+  const [activeGroupBy,setActiveGroupBy] = useState('style')
+  const [activeSortBy,setActiveSortBy] = useState('style')
+  const [activeSortDir,setActiveSortDir] = useState('asc')
   const [truncated,setTruncated] = useState(false)
   const [printedBy,setPrintedBy] = useState('User not available')
   useEffect(()=>{supabase.auth.getUser().then(({data})=>{const u=data?.user;setPrintedBy(u?.user_metadata?.full_name||u?.user_metadata?.name||u?.email||'User not available')}).catch(()=>{})},[])
@@ -312,7 +315,7 @@ export default function Reports() {
   const displayColumns=columns.filter(k=>selectedColumns.includes(k))
   // Collapse order-level rows only when neither Store nor PO # is visible.
   // Filters run before consolidation, so selected batches and dates remain accurate.
-  const consolidatedActive=isActiveOrders(active)&&!selectedColumns.includes('store_name')&&!selectedColumns.includes('po_number')
+  const consolidatedActive=isActiveOrders(active)&&!selectedColumns.includes('store_name')&&!selectedColumns.includes('po_number')&&!['store','ship'].includes(activeGroupBy)
   const displayRows=useMemo(()=>{
     if(!consolidatedActive)return visible
     const groups=new Map()
@@ -333,6 +336,24 @@ export default function Reports() {
       return {...first,id:'summary-'+first.id,style_image_base64:activeImage(pictures),style_image_url:activeImage(pictures),factory_ref:refs.join(', '),shell_fabric:fabrics.join(' / '),status:statuses.length===1?statuses[0]:'Mixed',job_number:distinct('job_number').join(', '),po_number:'',store_name:'',total_qty:sum('total_qty'),shipped_qty:sum('shipped_qty'),balance_qty:sum('balance_qty'),total_value_usd:sum('total_value_usd'),queue_count:sum('queue_count'),ship_date:dates.length>1?dates[0]+' to '+dates[dates.length-1]:(dates[0]||''),__order_count:items.length}
     })
   },[visible,consolidatedActive])
+  const sortValue=(r,k)=>k==='style'?r.style_number:k==='factory'?r.factory_ref:k==='ship'?r.ship_date:k==='fabric'?r.shell_fabric:k==='store'?r.store_name:k==='qty'?r.total_qty:r.total_value_usd
+  const compareReport=(a,b,k)=>{
+    const x=sortValue(a,k),y=sortValue(b,k)
+    if(['qty','value'].includes(k))return (Number(x)||0)-(Number(y)||0)
+    return String(x||'').localeCompare(String(y||''),undefined,{numeric:true,sensitivity:'base'})
+  }
+  const sortedRows=useMemo(()=>isActiveOrders(active)?[...displayRows].sort((a,b)=>(activeSortDir==='desc'?-1:1)*compareReport(a,b,activeSortBy)||compareReport(a,b,'style')):displayRows,[displayRows,active,activeSortBy,activeSortDir])
+  const reportGroups=useMemo(()=>{
+    if(!isActiveOrders(active))return []
+    if(activeGroupBy==='none')return [['',sortedRows]]
+    const groupKey=r=>activeGroupBy==='style'?r.style_number:activeGroupBy==='fabric'?r.shell_fabric:activeGroupBy==='ship'?r.ship_date:r.store_name
+    const groups=new Map()
+    for(const row of sortedRows){const key=String(groupKey(row)||'Unspecified');if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row)}
+    const keys=[...groups.keys()].sort((a,b)=>activeGroupBy==='ship'?a.localeCompare(b):a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}))
+    if(activeSortDir==='desc'&&activeSortBy===activeGroupBy)keys.reverse()
+    return keys.map(key=>[key,groups.get(key)])
+  },[sortedRows,active,activeGroupBy,activeSortDir,activeSortBy])
+  const groupLabel=key=>activeGroupBy==='style'?'Style '+key:activeGroupBy==='fabric'?'Fabric: '+key:activeGroupBy==='ship'?'Ship Date: '+reportDate(key):'Store: '+key
   const changeColumn=(key,checked)=>{
     const next=checked?columns.filter(k=>selectedColumns.includes(k)||k===key):selectedColumns.filter(k=>k!==key)
     if(!next.length)return
@@ -344,12 +365,12 @@ export default function Reports() {
   const filename=()=>`${safe(active?.title)}${dateFrom?`_From-${dateFrom}`:''}${dateTo?`_To-${dateTo}`:''}_${stamp()}`
   const totals=useMemo(()=>totalInfo(displayRows,displayColumns),[displayRows,selectedColumns,columns])
   const groupedTotals=useMemo(()=>totals.map(t=>({key:t.key,value:t.values.reduce((a,b)=>a+b,0)})),[totals])
-  const widthFor=k=>columnWidth(displayRows,k,label(k))
+  const widthFor=k=>columnWidth(sortedRows,k,label(k))
   const excel=()=>{
     if(!active||loading||truncated)return
     const wb=XLSX.utils.book_new()
     const headers=displayColumns.map(label)
-    const data=[headers,...displayRows.map(r=>displayColumns.map(k=>isActiveOrders(active)?(k==='picture'?'':k==='job_status'?`${r.job_number||''} / ${r.status||''}`:k==='style_desc'?`${r.style_number||''} / ${r.description||''}`:k==='qty_ship_balance'?`${r.total_qty||0} / ${r.shipped_qty||0} / ${r.balance_qty||0}`:reportValue(k,r[k])):r[k]==null?'':typeof r[k]==='object'?JSON.stringify(r[k]):reportValue(k,r[k])))]
+    const data=[headers,...sortedRows.map(r=>displayColumns.map(k=>isActiveOrders(active)?(k==='picture'?'':k==='job_status'?`${r.job_number||''} / ${r.status||''}`:k==='style_desc'?`${r.style_number||''} / ${r.description||''}`:k==='qty_ship_balance'?`${r.total_qty||0} / ${r.shipped_qty||0} / ${r.balance_qty||0}`:reportValue(k,r[k])):r[k]==null?'':typeof r[k]==='object'?JSON.stringify(r[k]):reportValue(k,r[k])))]
     if(groupedTotals.length)data.push(displayColumns.map((k,i)=>groupedTotals.some(t=>t.key===k)?groupedTotals.find(t=>t.key===k).value:i===0?'TOTAL':''))
     const ws=XLSX.utils.aoa_to_sheet(data)
     ws['!cols']=displayColumns.map(k=>({wch:widthFor(k)}))
@@ -367,7 +388,7 @@ export default function Reports() {
     // Conservative row limits prevent the previous browser footer/header collision.
     const perPage=isActiveOrders(active)?(printOrientation==='landscape'?16:26):(printOrientation==='landscape'?19:32)
     const pages=[]
-    for(let i=0;i<displayRows.length;i+=perPage)pages.push(displayRows.slice(i,i+perPage))
+    for(let i=0;i<sortedRows.length;i+=perPage)pages.push(sortedRows.slice(i,i+perPage))
     if(!pages.length)pages.push([])
     const totalRow=isActiveOrders(active)?`<tr class="total"><td colspan="${displayColumns.length}">GRAND TOTAL · Orders: ${formatNumber(displayRows.reduce((n,r)=>n+(r.__order_count||1),0))} · Qty: ${formatNumber(displayRows.reduce((n,r)=>n+(Number(r.total_qty)||0),0))} · Shipped: ${formatNumber(displayRows.reduce((n,r)=>n+(Number(r.shipped_qty)||0),0))} · Balance: ${formatNumber(displayRows.reduce((n,r)=>n+(Number(r.balance_qty)||0),0))} · Value: ${formatUSD(displayRows.reduce((n,r)=>n+(Number(r.total_value_usd)||0),0))}</td></tr>`:groupedTotals.length?`<tr class="total">${displayColumns.map((k,i)=>`<td>${groupedTotals.some(t=>t.key===k)?escapeHTML(formatNumber(groupedTotals.find(t=>t.key===k).value)):i===0?'TOTAL':''}</td>`).join('')}</tr>`:''
     // Keep the totals on a dedicated final page if the last page is full.
@@ -375,7 +396,7 @@ export default function Reports() {
     const filterText=[isActiveOrders(active)&&buyerFilter!=='All'?`Buyer: ${buyerFilter}`:'',isActiveOrders(active)&&styleFilter!=='All'?`Style: ${styleFilter}`:'',isActiveOrders(active)&&selectedBatches.length?`Batches: ${selectedBatches.map(id=>id==='__unbatched__'?'Unbatched':batchOptions.find(b=>b.id===id)?.name||id).join(', ')}`:'',statusFilter!=='All'?`Status: ${statusFilter}`:'',groupFilter!=='All'?`Group: ${groupFilter}`:'',dateFrom?`From: ${reportDate(dateFrom)}`:'',dateTo?`To: ${reportDate(dateTo)}`:''].filter(Boolean).join(' · ')
     // Height-budget pagination, not row counts. Keep each style group together
     // wherever it fits; split only a style larger than one physical page.
-    const printPages=isActiveOrders(active)?(()=>{
+    const printPages=isActiveOrders(active)&&activeGroupBy!=='none'?(()=>{
       const availableMm=printOrientation==='landscape'?169:251
       const groupHeaderMm=9
       const rowMm=7
@@ -385,7 +406,7 @@ export default function Reports() {
       const chunks=[]
       let chunk=[],used=0
       const flush=()=>{if(chunk.length){chunks.push(chunk);chunk=[];used=0}}
-      activeGroups(displayRows).forEach(([style,items])=>{
+      reportGroups.forEach(([style,items])=>{
         const whole=groupMm(items)
         if(whole<=availableMm){
           if(used+whole>availableMm)flush()
@@ -415,6 +436,7 @@ export default function Reports() {
     // Merge consecutive identical picture/buyer cells only within a printed
     // style group and page. Never merge unrelated styles or across page breaks.
     const activePageRows=page=>{
+      if(activeGroupBy==='none')return page.map(r=>'<tr>'+displayColumns.map(k=>'<td>'+activeCellHTML(k,r)+'</td>').join('')+'</tr>').join('')
       const output=[]
       // The image represents the style, not an individual order. Orders can
       // carry different image URLs (or no URL) for the same style.
@@ -426,7 +448,7 @@ export default function Reports() {
         let segmentEnd=segmentStart+1
         while(segmentEnd<page.length && page[segmentEnd].row)segmentEnd++
         const segment=page.slice(segmentStart+1,segmentEnd)
-        output.push(`<tr class="group-heading"><td colspan="${displayColumns.length}">Style ${escapeHTML(heading.group)}${heading.continued?' (continued)':''} — ${heading.items.reduce((n,r)=>n+(r.__order_count||1),0)} orders · Qty: ${formatNumber(heading.items.reduce((n,r)=>n+(Number(r.total_qty)||0),0))} · Value: ${formatUSD(heading.items.reduce((n,r)=>n+(Number(r.total_value_usd)||0),0))}</td></tr>`)
+        output.push(`<tr class="group-heading"><td colspan="${displayColumns.length}">${escapeHTML(groupLabel(heading.group))}${heading.continued?' (continued)':''} — ${heading.items.reduce((n,r)=>n+(r.__order_count||1),0)} orders · Qty: ${formatNumber(heading.items.reduce((n,r)=>n+(Number(r.total_qty)||0),0))} · Value: ${formatUSD(heading.items.reduce((n,r)=>n+(Number(r.total_value_usd)||0),0))}</td></tr>`)
         const representative=segment.find(e=>activeImage(e.row))?.row
         segment.forEach((entry,i)=>{
           let tds=''
@@ -494,10 +516,10 @@ export default function Reports() {
         <select aria-label="Report page orientation" value={printOrientation} onChange={e=>setPrintOrientation(e.target.value)} style={{...btn,minWidth:135}}>
           <option value="portrait">A4 Portrait</option><option value="landscape">A4 Landscape</option>
         </select></label><button style={btn} disabled={loading||!!error||truncated} onClick={print}><Printer size={14}/> Print / PDF</button></div></div>
-      <div style={{display:'flex',gap:9,flexWrap:'wrap',marginBottom:14,alignItems:'center'}}>{isActiveOrders(active)&&<><select value={buyerFilter} onChange={e=>setBuyerFilter(e.target.value)} style={btn}><option value="All">All buyers</option>{buyerOptions.map(v=><option key={v}>{v}</option>)}</select><select value={styleFilter} onChange={e=>setStyleFilter(e.target.value)} style={btn}><option value="All">All styles</option>{styleOptions.map(v=><option key={v}>{v}</option>)}</select><details style={{position:'relative'}}><summary style={{...btn,display:'flex',alignItems:'center',cursor:'pointer',listStyle:'none'}}>{selectedBatches.length?`${selectedBatches.length} Batches`:'All Batches'} ▾</summary><div style={{position:'absolute',top:'100%',left:0,zIndex:100,width:230,maxHeight:280,overflowY:'auto',background:'#fff',border:'1px solid #d1d5db',borderRadius:8,padding:10,boxShadow:'0 8px 22px #0002'}}><button type="button" style={btn} onClick={()=>setSelectedBatches([])}>All Batches</button>{[...batchOptions,{id:'__unbatched__',name:'Unbatched'}].map(b=><label key={b.id} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 3px',fontSize:12}}><input type="checkbox" checked={selectedBatches.includes(b.id)} onChange={e=>setSelectedBatches(v=>e.target.checked?[...v,b.id]:v.filter(id=>id!==b.id))}/>{b.name}</label>)}</div></details></>}{active.business&&<select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={btn}><option value="All">All statuses</option>{statusOptions.map(v=><option key={v}>{v}</option>)}</select>}{active.groupBy&&<select value={groupFilter} onChange={e=>setGroupFilter(e.target.value)} style={btn}><option>All</option>{groupOptions.map(v=><option key={v}>{v}</option>)}</select>}<input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Filter any field..." style={{...btn,minWidth:210,fontWeight:400}}/><select value={dateField} onChange={e=>setDateField(e.target.value)} style={btn}><option value="">No date filter</option>{dateFields.map(k=><option key={k}>{label(k)}</option>)}</select>{dateField&&<><input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} style={btn}/><input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} style={btn}/></>}</div>
+      <div style={{display:'flex',gap:9,flexWrap:'wrap',marginBottom:14,alignItems:'center'}}>{isActiveOrders(active)&&<><label style={{display:'flex',alignItems:'center',gap:5,fontSize:12}}>Group By <select aria-label="Group By" value={activeGroupBy} onChange={e=>setActiveGroupBy(e.target.value)} style={btn}>{[['style','Style #'],['fabric','Fabric'],['ship','Ship Date'],['store','Store'],['none','No Group']].map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label><label style={{display:'flex',alignItems:'center',gap:5,fontSize:12}}>Sort By <select aria-label="Sort By" value={activeSortBy} onChange={e=>setActiveSortBy(e.target.value)} style={btn}>{[['style','Style #'],['factory','Factory Ref #'],['ship','Ship Date'],['fabric','Fabric'],['store','Store'],['qty','Quantity'],['value','Order Value']].map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label><button type="button" title={activeSortDir==='asc'?'Ascending':'Descending'} aria-label="Toggle sort direction" onClick={()=>setActiveSortDir(d=>d==='asc'?'desc':'asc')} style={btn}>{activeSortDir==='asc'?'↑ Asc':'↓ Desc'}</button></>}{isActiveOrders(active)&&<><select value={buyerFilter} onChange={e=>setBuyerFilter(e.target.value)} style={btn}><option value="All">All buyers</option>{buyerOptions.map(v=><option key={v}>{v}</option>)}</select><select value={styleFilter} onChange={e=>setStyleFilter(e.target.value)} style={btn}><option value="All">All styles</option>{styleOptions.map(v=><option key={v}>{v}</option>)}</select><details style={{position:'relative'}}><summary style={{...btn,display:'flex',alignItems:'center',cursor:'pointer',listStyle:'none'}}>{selectedBatches.length?`${selectedBatches.length} Batches`:'All Batches'} ▾</summary><div style={{position:'absolute',top:'100%',left:0,zIndex:100,width:230,maxHeight:280,overflowY:'auto',background:'#fff',border:'1px solid #d1d5db',borderRadius:8,padding:10,boxShadow:'0 8px 22px #0002'}}><button type="button" style={btn} onClick={()=>setSelectedBatches([])}>All Batches</button>{[...batchOptions,{id:'__unbatched__',name:'Unbatched'}].map(b=><label key={b.id} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 3px',fontSize:12}}><input type="checkbox" checked={selectedBatches.includes(b.id)} onChange={e=>setSelectedBatches(v=>e.target.checked?[...v,b.id]:v.filter(id=>id!==b.id))}/>{b.name}</label>)}</div></details></>}{active.business&&<select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={btn}><option value="All">All statuses</option>{statusOptions.map(v=><option key={v}>{v}</option>)}</select>}{active.groupBy&&<select value={groupFilter} onChange={e=>setGroupFilter(e.target.value)} style={btn}><option>All</option>{groupOptions.map(v=><option key={v}>{v}</option>)}</select>}<input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Filter any field..." style={{...btn,minWidth:210,fontWeight:400}}/><select value={dateField} onChange={e=>setDateField(e.target.value)} style={btn}><option value="">No date filter</option>{dateFields.map(k=><option key={k}>{label(k)}</option>)}</select>{dateField&&<><input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} style={btn}/><input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} style={btn}/></>}</div>
       {error&&<div style={{color:'#b91c1c',background:'#fef2f2',padding:12,borderRadius:8,marginBottom:12}}>Could not load report: {error}</div>}
       {truncated&&<div style={{color:'#92400e',background:'#fffbeb',padding:12,borderRadius:8,marginBottom:12}}>This report exceeds the 30,000-record preview limit. Export is disabled to prevent incomplete files.</div>}
-      {loading?<div style={{padding:30,color:'#6b7280'}}>Loading live records…</div>:!error?<div style={{overflow:'auto',maxHeight:'calc(100vh - 320px)',border:'1px solid #e5e7eb',borderRadius:8}}><table style={{borderCollapse:'collapse',width:'100%',fontSize:11,whiteSpace:'nowrap'}}><thead><tr>{displayColumns.map(k=><th key={k} style={{position:'sticky',top:0,background:'#f2f4f8',padding:'9px 10px',textAlign:'left',borderBottom:'1px solid #d1d5db'}}>{label(k)}</th>)}</tr></thead><tbody>{isActiveOrders(active)?activeGroups(displayRows.slice(0,500)).flatMap(([style,items])=>[<tr key={`group-${style}`} style={{background:'#f2f4f7',fontWeight:800}}><td colSpan={displayColumns.length} style={{padding:'9px 10px',borderTop:'2px solid #374151',borderBottom:'1px solid #374151'}}>Style {style} — {items.reduce((n,r)=>n+(r.__order_count||1),0)} orders · Qty: {formatNumber(items.reduce((n,r)=>n+(Number(r.total_qty)||0),0))} · Value: ${formatNumber(items.reduce((n,r)=>n+(Number(r.total_value_usd)||0),0))}</td></tr>,...items.map(r=><tr key={r.id}>{displayColumns.map(k=><td key={k} style={{padding:'7px 10px',borderBottom:'1px solid #d1d5db',verticalAlign:'middle',whiteSpace:k==='approvals'?'pre-line':undefined}}>{k==='picture'?(activeImage(r)?<img src={activeImage(r)} alt="Style" style={{width:38,height:44,objectFit:'contain'}}/>:''):k==='job_status'?<><strong>{r.job_number}</strong><div>{r.status}</div></>:k==='style_desc'?<><strong>{r.style_number}</strong><div>{r.description}</div></>:k==='qty_ship_balance'?<><strong>{formatNumber(Number(r.total_qty)||0)}</strong><div>Ship {formatNumber(Number(r.shipped_qty)||0)} · Bal {formatNumber(Number(r.balance_qty)||0)}</div></>:cell(reportValue(k,r[k]))}</td>)}</tr>)]):displayRows.slice(0,500).map((r,i)=><tr key={r.id||i}>{displayColumns.map(k=><td key={k} title={cell(reportValue(k,r[k]))} style={{padding:'7px 10px',borderBottom:'1px solid #eef0f3',maxWidth:260,overflow:'hidden',textOverflow:'ellipsis'}}>{cell(reportValue(k,r[k]))}</td>)}</tr>)}</tbody></table>{displayRows.length>500&&<div style={{padding:12,fontSize:12,color:'#6b7280'}}>Showing first 500 matching records on screen. Exports include all {displayRows.length.toLocaleString()} matching records.</div>}{groupedTotals.length>0&&<div style={{display:'flex',gap:16,flexWrap:'wrap',padding:'10px 12px',background:'#eef2f7',fontSize:12,fontWeight:700}}>{groupedTotals.map(t=><span key={t.key}>{label(t.key)}: {formatNumber(t.value)}</span>)}</div>}{!displayRows.length&&<div style={{padding:22,fontSize:12,color:'#6b7280'}}>No records match the selected filters.</div>}</div>:null}
+      {loading?<div style={{padding:30,color:'#6b7280'}}>Loading live records…</div>:!error?<div style={{overflow:'auto',maxHeight:'calc(100vh - 320px)',border:'1px solid #e5e7eb',borderRadius:8}}><table style={{borderCollapse:'collapse',width:'100%',fontSize:11,whiteSpace:'nowrap'}}><thead><tr>{displayColumns.map(k=><th key={k} style={{position:'sticky',top:0,background:'#f2f4f8',padding:'9px 10px',textAlign:'left',borderBottom:'1px solid #d1d5db'}}>{label(k)}</th>)}</tr></thead><tbody>{isActiveOrders(active)?reportGroups.flatMap(([style,items])=>[<tr key={`group-${style}`} style={{background:'#f2f4f7',fontWeight:800}}><td colSpan={displayColumns.length} style={{padding:'9px 10px',borderTop:'2px solid #374151',borderBottom:'1px solid #374151'}}>{groupLabel(style)} — {items.reduce((n,r)=>n+(r.__order_count||1),0)} orders · Qty: {formatNumber(items.reduce((n,r)=>n+(Number(r.total_qty)||0),0))} · Value: ${formatNumber(items.reduce((n,r)=>n+(Number(r.total_value_usd)||0),0))}</td></tr>,...items.map(r=><tr key={r.id}>{displayColumns.map(k=><td key={k} style={{padding:'7px 10px',borderBottom:'1px solid #d1d5db',verticalAlign:'middle',whiteSpace:k==='approvals'?'pre-line':undefined}}>{k==='picture'?(activeImage(r)?<img src={activeImage(r)} alt="Style" style={{width:38,height:44,objectFit:'contain'}}/>:''):k==='job_status'?<><strong>{r.job_number}</strong><div>{r.status}</div></>:k==='style_desc'?<><strong>{r.style_number}</strong><div>{r.description}</div></>:k==='qty_ship_balance'?<><strong>{formatNumber(Number(r.total_qty)||0)}</strong><div>Ship {formatNumber(Number(r.shipped_qty)||0)} · Bal {formatNumber(Number(r.balance_qty)||0)}</div></>:cell(reportValue(k,r[k]))}</td>)}</tr>)]):displayRows.slice(0,500).map((r,i)=><tr key={r.id||i}>{displayColumns.map(k=><td key={k} title={cell(reportValue(k,r[k]))} style={{padding:'7px 10px',borderBottom:'1px solid #eef0f3',maxWidth:260,overflow:'hidden',textOverflow:'ellipsis'}}>{cell(reportValue(k,r[k]))}</td>)}</tr>)}</tbody></table>{displayRows.length>500&&<div style={{padding:12,fontSize:12,color:'#6b7280'}}>Showing first 500 matching records on screen. Exports include all {displayRows.length.toLocaleString()} matching records.</div>}{groupedTotals.length>0&&<div style={{display:'flex',gap:16,flexWrap:'wrap',padding:'10px 12px',background:'#eef2f7',fontSize:12,fontWeight:700}}>{groupedTotals.map(t=><span key={t.key}>{label(t.key)}: {formatNumber(t.value)}</span>)}</div>}{!displayRows.length&&<div style={{padding:22,fontSize:12,color:'#6b7280'}}>No records match the selected filters.</div>}</div>:null}
     </div>}
   </div>
 }
