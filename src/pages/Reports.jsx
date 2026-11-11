@@ -481,9 +481,21 @@ export default function Reports() {
       }
       return output.join('')
     }
+    // Print-only proportional widths: headings wrap, while actual cell content drives allocation.
+    const printColumnWidths=(()=>{
+      const presets={picture:7,style_desc:printOrientation==='portrait'?16:18,job_status:12,buyer_name:12,store_name:12,po_number:11,factory_ref:9,shell_fabric:printOrientation==='portrait'?20:22,approvals:printOrientation==='portrait'?23:25,qty_ship_balance:14,total_value_usd:11,ship_date:10,qs_number:8}
+      const weights=displayColumns.map(k=>{
+        const values=sortedRows.slice(0,80).map(r=>String(k==='style_desc'?r.style_number||'':k==='qty_ship_balance'?formatNumber(r.total_qty||0):k==='approvals'?String(r.approvals||'').split('\\n')[0]:reportValue(k,r[k])||''))
+        const max=Math.max(0,...values.map(v=>v.length))
+        const base=presets[k]||11
+        return k==='ship_date'?9:k==='factory_ref'?Math.max(7,Math.min(10,max+3)):k==='picture'?7:k==='qty_ship_balance'?13:Math.max(base,Math.min(base+5,max/3+5))
+      })
+      const total=weights.reduce((a,b)=>a+b,0)||1
+      return weights.map(w=>(100*w/total).toFixed(3)+'%')
+    })()
     const pageHTML=printPages.map((page,index)=>`<section class="report-page">
       <header><strong>NIZAMIA APPARELS</strong><div>${escapeHTML(active.title)}</div><small>${displayRows.length} records · ${escapeHTML(active.category)}${filterText?' · '+escapeHTML(filterText):''}</small></header>
-      <main><table><colgroup>${displayColumns.map(k=>`<col style="width:${widthFor(k)}ch">`).join('')}</colgroup><thead><tr>${displayColumns.map(k=>`<th>${escapeHTML(label(k))}</th>`).join('')}</tr></thead><tbody>${isActiveOrders(active)?activePageRows(page):page.map(r=>`<tr>${displayColumns.map(k=>`<td>${escapeHTML(reportValue(k,r[k]))}</td>`).join('')}</tr>`).join('')}${index===printPages.length-1?totalRow:''}</tbody></table></main>
+      <main><table><colgroup>${displayColumns.map((k,i)=>`<col style="width:${printColumnWidths[i]}">`).join('')}</colgroup><thead><tr>${displayColumns.map(k=>`<th>${escapeHTML(label(k))}</th>`).join('')}</tr></thead><tbody>${isActiveOrders(active)?activePageRows(page):page.map(r=>`<tr>${displayColumns.map(k=>`<td>${escapeHTML(reportValue(k,r[k]))}</td>`).join('')}</tr>`).join('')}${index===printPages.length-1?totalRow:''}</tbody></table></main>
       <footer><span>Printed by: ${escapeHTML(printedBy)}</span><span>Printed on: ${escapeHTML(when)}</span><span>Page ${index+1} of ${printPages.length}</span></footer>
     </section>`).join('')
     const html=`<html><head><title>${escapeHTML(filename())}</title><style>
@@ -497,7 +509,7 @@ export default function Reports() {
       main{flex:1;min-height:0;overflow:hidden}
       table{border-collapse:collapse;width:100%;table-layout:fixed}
       th,td{border:1px solid #777;padding:3px 4px;text-align:left;overflow-wrap:anywhere;vertical-align:top;line-height:1.2}
-      th{background:#fff;color:#000;font-size:9px;font-weight:800;text-transform:uppercase;border-bottom:2px solid #000}tr{break-inside:avoid;page-break-inside:avoid}
+      th{background:#fff;color:#000;font-size:9px;font-weight:800;text-transform:uppercase;border-bottom:2px solid #000;white-space:normal;overflow-wrap:normal;word-break:normal;hyphens:none;line-height:1.25}tr{break-inside:avoid;page-break-inside:avoid}
       .total td{background:#f0f1f3;color:#000;font-weight:800;border-top:2px solid #000;padding:7px 5px;line-height:1.5}.group-heading td{background:#fff;color:#000;font-size:10px;font-weight:800;border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 4px}.picture-cell{width:86px;text-align:center;vertical-align:middle;padding:4px}.style-picture{display:block;width:100%;max-width:78px;height:auto;max-height:92px;object-fit:contain;margin:auto;filter:grayscale(1) contrast(1.2)}
       .merged-cell{vertical-align:middle;font-weight:700}
       footer{flex-shrink:0;margin-top:8px;border-top:1px solid #aaa;display:flex;justify-content:space-between;gap:12px;font-size:9px;color:#000;font-weight:600;padding-top:5px}
