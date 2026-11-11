@@ -369,22 +369,24 @@ export default function Reports() {
     const pages=[]
     for(let i=0;i<displayRows.length;i+=perPage)pages.push(displayRows.slice(i,i+perPage))
     if(!pages.length)pages.push([])
-    const totalRow=groupedTotals.length?`<tr class="total">${displayColumns.map((k,i)=>`<td>${groupedTotals.some(t=>t.key===k)?escapeHTML(formatNumber(groupedTotals.find(t=>t.key===k).value)):i===0?'TOTAL':''}</td>`).join('')}</tr>`:''
+    const totalRow=isActiveOrders(active)?`<tr class="total"><td colspan="${displayColumns.length}">GRAND TOTAL · Orders: ${formatNumber(displayRows.reduce((n,r)=>n+(r.__order_count||1),0))} · Qty: ${formatNumber(displayRows.reduce((n,r)=>n+(Number(r.total_qty)||0),0))} · Shipped: ${formatNumber(displayRows.reduce((n,r)=>n+(Number(r.shipped_qty)||0),0))} · Balance: ${formatNumber(displayRows.reduce((n,r)=>n+(Number(r.balance_qty)||0),0))} · Value: ${formatUSD(displayRows.reduce((n,r)=>n+(Number(r.total_value_usd)||0),0))}</td></tr>`:groupedTotals.length?`<tr class="total">${displayColumns.map((k,i)=>`<td>${groupedTotals.some(t=>t.key===k)?escapeHTML(formatNumber(groupedTotals.find(t=>t.key===k).value)):i===0?'TOTAL':''}</td>`).join('')}</tr>`:''
     // Keep the totals on a dedicated final page if the last page is full.
     if(totalRow && pages[pages.length-1].length>=perPage)pages.push([])
     const filterText=[isActiveOrders(active)&&buyerFilter!=='All'?`Buyer: ${buyerFilter}`:'',isActiveOrders(active)&&styleFilter!=='All'?`Style: ${styleFilter}`:'',isActiveOrders(active)&&selectedBatches.length?`Batches: ${selectedBatches.map(id=>id==='__unbatched__'?'Unbatched':batchOptions.find(b=>b.id===id)?.name||id).join(', ')}`:'',statusFilter!=='All'?`Status: ${statusFilter}`:'',groupFilter!=='All'?`Group: ${groupFilter}`:'',dateFrom?`From: ${reportDate(dateFrom)}`:'',dateTo?`To: ${reportDate(dateTo)}`:''].filter(Boolean).join(' · ')
     // Height-budget pagination, not row counts. Keep each style group together
     // wherever it fits; split only a style larger than one physical page.
     const printPages=isActiveOrders(active)?(()=>{
-      const availableMm=printOrientation==='landscape'?137:215
+      const availableMm=printOrientation==='landscape'?169:251
       const groupHeaderMm=9
-      const rowMm=8
-      const pictureMm=25
+      const rowMm=7
+      const pictureMm=20
+      const estimateRowMm=r=>Math.max(rowMm,Math.min(32,5+Math.ceil(String(r.approvals||'').split('\\n').length*(displayColumns.includes('approvals')?3.6:0))+Math.ceil(String(r.shell_fabric||'').length*(displayColumns.includes('shell_fabric')?0.11:0))))
+      const groupMm=items=>groupHeaderMm+Math.max(items.reduce((n,r)=>n+estimateRowMm(r),0),pictureMm)
       const chunks=[]
       let chunk=[],used=0
       const flush=()=>{if(chunk.length){chunks.push(chunk);chunk=[];used=0}}
       activeGroups(displayRows).forEach(([style,items])=>{
-        const whole=groupHeaderMm+Math.max(items.length*rowMm,pictureMm)
+        const whole=groupMm(items)
         if(whole<=availableMm){
           if(used+whole>availableMm)flush()
           chunk.push({group:style,items,continued:false})
@@ -396,17 +398,18 @@ export default function Reports() {
         let pos=0
         while(pos<items.length){
           const space=availableMm-used
-          const maxRows=Math.floor((space-groupHeaderMm)/rowMm)
-          if(maxRows<3){flush();continue}
-          const take=Math.min(items.length-pos,maxRows)
+          let take=0,estimated=groupHeaderMm
+          while(pos+take<items.length && estimated+estimateRowMm(items[pos+take])<=space){estimated+=estimateRowMm(items[pos+take]);take++}
+          if(take<1){if(used>0){flush();continue}take=1}
           chunk.push({group:style,items,continued:pos>0})
           items.slice(pos,pos+take).forEach(row=>chunk.push({row}))
-          used+=groupHeaderMm+Math.max(take*rowMm,pictureMm)
+          used+=groupMm(items.slice(pos-take,pos))
           pos+=take
           if(pos<items.length)flush()
         }
       })
       flush()
+      if(totalRow && chunks.length){const last=chunks[chunks.length-1];const lastUsed=last.reduce((n,e)=>n+(e.group?groupHeaderMm:e.row?estimateRowMm(e.row):0),0);if(lastUsed+12>availableMm)chunks.push([])}
       return chunks.length?chunks:[[]]
     })():pages
     // Merge consecutive identical picture/buyer cells only within a printed
@@ -461,7 +464,7 @@ export default function Reports() {
       table{border-collapse:collapse;width:100%;table-layout:fixed}
       th,td{border:1px solid #777;padding:3px 4px;text-align:left;overflow-wrap:anywhere;vertical-align:top;line-height:1.2}
       th{background:#fff;color:#000;font-size:9px;font-weight:800;text-transform:uppercase;border-bottom:2px solid #000}tr{break-inside:avoid;page-break-inside:avoid}
-      .total td{background:#fff;color:#000;font-weight:800;border-top:2px solid #000}.group-heading td{background:#fff;color:#000;font-size:10px;font-weight:800;border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 4px}.picture-cell{width:86px;text-align:center;vertical-align:middle;padding:4px}.style-picture{display:block;width:100%;max-width:78px;height:auto;max-height:92px;object-fit:contain;margin:auto;filter:grayscale(1) contrast(1.2)}
+      .total td{background:#f0f1f3;color:#000;font-weight:800;border-top:2px solid #000;padding:7px 5px;line-height:1.5}.group-heading td{background:#fff;color:#000;font-size:10px;font-weight:800;border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 4px}.picture-cell{width:86px;text-align:center;vertical-align:middle;padding:4px}.style-picture{display:block;width:100%;max-width:78px;height:auto;max-height:92px;object-fit:contain;margin:auto;filter:grayscale(1) contrast(1.2)}
       .merged-cell{vertical-align:middle;font-weight:700}
       footer{flex-shrink:0;margin-top:8px;border-top:1px solid #aaa;display:flex;justify-content:space-between;gap:12px;font-size:9px;color:#000;font-weight:600;padding-top:5px}
       @media screen{body{background:#eee}.report-page{background:white;margin:8px auto;box-shadow:0 1px 6px #aaa}}
