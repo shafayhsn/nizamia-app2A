@@ -224,27 +224,16 @@ export default function Reports() {
         const bomRows=[]
         let bomOffset=0
         while(bomOffset<30000){
-          const {data,error:be}=await supabase.from('bom_items').select('id,order_id,library_item_id,name,specification,category,sort_order,base_qty,final_qty,created_at').eq('category','Fabric').range(bomOffset,bomOffset+749)
+          const {data,error:be}=await supabase.from('bom_items').select('id,order_id,name,specification,detail,category,sort_order,base_qty,final_qty,created_at').eq('category','Fabric').range(bomOffset,bomOffset+749)
           if(be)throw be
           bomRows.push(...(data||[]))
           if(!data||data.length<750)break
           bomOffset+=750
         }
-        const fabricLibraryIds=[...new Set(bomRows.map(b=>b.library_item_id).filter(Boolean))]
-        const fabricLibrary=new Map()
-        for(let i=0;i<fabricLibraryIds.length;i+=400){
-          const {data,error:le}=await supabase.from('library_items').select('id,name,colour,composition,weight,width_inches').in('id',fabricLibraryIds.slice(i,i+400))
-          if(le)throw le
-          for(const item of data||[])fabricLibrary.set(item.id,item)
-        }
         const formatShellFabric=b=>{
           if(!b)return ''
-          const lib=fabricLibrary.get(b.library_item_id)
-          const name=b.name||lib?.name||''
-          const colour=b.specification||lib?.colour||''
-          const identity=[name,colour].filter(Boolean).join('-')
-          const details=[lib?.composition,lib?.weight,lib?.width_inches!=null?String(lib.width_inches)+'"':null].filter(Boolean).join(', ')
-          return [identity,details].filter(Boolean).join(' - ')
+          const item=[b.name,b.specification].filter(Boolean).join(' - ')
+          return [item,b.detail].filter(Boolean).join(' — ')
         }
         const shellFabric=new Map()
         const consumption=b=>Number(b.base_qty)||Number(b.final_qty)||0
