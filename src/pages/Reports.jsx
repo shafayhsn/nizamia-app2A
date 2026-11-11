@@ -109,7 +109,7 @@ const TOTAL_KEYS = /^(total_qty|req_pcs|qty|quantity|required_qty|ordered_qty|re
 const numericValue = v => v !== null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null
 const totalInfo = (rows,cols) => cols.filter(k=>TOTAL_KEYS.test(k)).map(k=>({key:k,values:rows.map(r=>numericValue(r[k])).filter(v=>v!==null)})).filter(x=>x.values.length)
 const formatNumber = n => new Intl.NumberFormat('en-US',{maximumFractionDigits:2}).format(n)
-const formatUSD = n => '
+const formatUSD = n => String.fromCharCode(36)+new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n)||0)
 const columnWidth = (rows,key,label) => {
  const samples=rows.slice(0,1000).map(r=>cell(r[key]).length)
  return Math.min(45,Math.max(6,Math.min(32,Math.max(label.length,...samples,0)+2)))
