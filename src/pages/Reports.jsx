@@ -403,7 +403,7 @@ export default function Reports() {
           if(take<1){if(used>0){flush();continue}take=1}
           chunk.push({group:style,items,continued:pos>0})
           items.slice(pos,pos+take).forEach(row=>chunk.push({row}))
-          used+=groupMm(items.slice(pos-take,pos))
+          used+=groupMm(items.slice(pos,pos+take))
           pos+=take
           if(pos<items.length)flush()
         }
