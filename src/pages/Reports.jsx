@@ -247,6 +247,12 @@ export default function Reports() {
           const oldPosition=old?.sort_order==null?Number.MAX_SAFE_INTEGER:Number(old.sort_order)
           if(!old||position<oldPosition||(position===oldPosition&&consumption(b)>consumption(old)))shellFabric.set(b.order_id,b)
         }
+        const lookupWizard=async(table,fields)=>{const result=[];for(let offset=0;offset<30000;offset+=750){const {data,error}=await supabase.from(table).select(fields).range(offset,offset+749);if(error)throw error;result.push(...(data||[]));if(!data||data.length<750)break}return result}
+        const [washRows,sizeRows]=await Promise.all([lookupWizard('washing','order_id,color_name,wash_ref,wash_type'),lookupWizard('size_groups','order_id,group_name')])
+        const styleCounts=new Map(),orderLookup=new Map(all.map(o=>[o.id,o]))
+        const countFor=o=>{const key=keyFor(o);if(!styleCounts.has(key))styleCounts.set(key,{washes:new Set(),sizes:new Set()});return styleCounts.get(key)}
+        for(const item of washRows){const o=orderLookup.get(item.order_id);if(!o)continue;const name=String(item.wash_ref||item.color_name||item.wash_type||'').trim().toLowerCase();if(name)countFor(o).washes.add(name)}
+        for(const item of sizeRows){const o=orderLookup.get(item.order_id);if(!o)continue;const name=String(item.group_name||'').trim().toLowerCase();if(name)countFor(o).sizes.add(name)}
         const sampleRows=[]
         for(let offset=0;offset<30000;offset+=750){
           const {data,error:se}=await supabase.from('samples').select('id,order_id,sample_number,root_sample_id,parent_sample_id,version_no,sample_type,size_group_name,color,colours,status,approval_status,stage,created_at').range(offset,offset+749)
@@ -283,7 +289,7 @@ export default function Reports() {
         const shipped=new Map(),queues=new Map()
         ;(shipResult.data||[]).forEach(l=>shipped.set(l.order_id,(shipped.get(l.order_id)||0)+(Number(l.shipped_qty)||0)))
         ;(queueResult.data||[]).forEach(q=>queues.set(q.order_id,(queues.get(q.order_id)||0)+1))
-        finalRows=finalRows.map(r=>({...r,shell_fabric:formatShellFabric(shellFabric.get(r.id)),approvals:approvalsByStyle.get(keyFor(r))||'',shipped_qty:shipped.get(r.id)||0,balance_qty:Math.max(0,(Number(r.total_qty)||0)-(shipped.get(r.id)||0)),queue_count:queues.get(r.id)||0}))
+        finalRows=finalRows.map(r=>({...r,shell_fabric:formatShellFabric(shellFabric.get(r.id)),approvals:approvalsByStyle.get(keyFor(r))||'',wash_count:styleCounts.get(keyFor(r))?.washes.size||0,size_group_count:styleCounts.get(keyFor(r))?.sizes.size||0,shipped_qty:shipped.get(r.id)||0,balance_qty:Math.max(0,(Number(r.total_qty)||0)-(shipped.get(r.id)||0)),queue_count:queues.get(r.id)||0}))
       }
       const keys=active.table==='production_daily_entries'?active.fields:isActiveOrders(active)?ACTIVE_COLUMNS.map(([,k])=>k):active.phase4?PHASE4_VIEWS[active.kind].map(([,k])=>k):active.business?VIEWS[active.kind].map(([,k])=>k):active.operations?[...new Set([...OP_VIEWS[active.kind].map(([,k])=>k).filter(k=>finalRows.some(r=>r[k]!==undefined)||['Job #','Buyer','Style #','Customer PO #'].includes(k)),...finalRows.flatMap(row=>Object.keys(row)).filter(k=>!['id','order_id','created_at','updated_at'].includes(k))])]:[...new Set(finalRows.flatMap(row=>Object.keys(row)))];
       const ordered=(active.business||active.operations||active.phase4) ? keys : active.fields ? [...active.fields.filter(f=>keys.includes(f)),...keys.filter(f=>!active.fields.includes(f))] : keys
@@ -402,7 +408,7 @@ export default function Reports() {
     const pages=[]
     for(let i=0;i<sortedRows.length;i+=perPage)pages.push(sortedRows.slice(i,i+perPage))
     if(!pages.length)pages.push([])
-    const totalRow=isActiveOrders(active)?`<tr class="total"><td colspan="${displayColumns.length}">GRAND TOTAL · Orders: ${formatNumber(displayRows.reduce((n,r)=>n+(r.__order_count||1),0))} · Qty: ${formatNumber(displayRows.reduce((n,r)=>n+(Number(r.total_qty)||0),0))} · Shipped: ${formatNumber(displayRows.reduce((n,r)=>n+(Number(r.shipped_qty)||0),0))} · Balance: ${formatNumber(displayRows.reduce((n,r)=>n+(Number(r.balance_qty)||0),0))}${showOrderValue?` · Value: ${formatUSD(displayRows.reduce((n,r)=>n+(Number(r.total_value_usd)||0),0))}`:''}</td></tr>`:groupedTotals.length?`<tr class="total">${displayColumns.map((k,i)=>`<td>${groupedTotals.some(t=>t.key===k)?escapeHTML(formatNumber(groupedTotals.find(t=>t.key===k).value)):i===0?'TOTAL':''}</td>`).join('')}</tr>`:''
+    const totalRow=isActiveOrders(active)?`<tr class="total">${displayColumns.map((k,i)=>k==='qty_ship_balance'?'<td class="total-number">'+formatNumber(displayRows.reduce((n,r)=>n+(Number(r.total_qty)||0),0))+'</td>':k==='total_value_usd'&&showOrderValue?'<td class="total-number">'+formatUSD(displayRows.reduce((n,r)=>n+(Number(r.total_value_usd)||0),0))+'</td>':i===0?'<td>GRAND TOTAL | ORDERS: '+String(displayRows.reduce((n,r)=>n+(r.__order_count||1),0)).padStart(2,'0')+'</td>':'<td></td>').join('')}</tr>`:groupedTotals.length?`<tr class="total">${displayColumns.map((k,i)=>`<td>${groupedTotals.some(t=>t.key===k)?escapeHTML(formatNumber(groupedTotals.find(t=>t.key===k).value)):i===0?'TOTAL':''}</td>`).join('')}</tr>`:''
     // Keep the totals on a dedicated final page if the last page is full.
     if(totalRow && pages[pages.length-1].length>=perPage)pages.push([])
     const filterText=[isActiveOrders(active)&&buyerFilter!=='All'?`Buyer: ${buyerFilter}`:'',isActiveOrders(active)&&styleFilter!=='All'?`Style: ${styleFilter}`:'',isActiveOrders(active)&&selectedBatches.length?`Batches: ${selectedBatches.map(id=>id==='__unbatched__'?'Unbatched':batchOptions.find(b=>b.id===id)?.name||id).join(', ')}`:'',statusFilter!=='All'?`Status: ${statusFilter}`:'',groupFilter!=='All'?`Group: ${groupFilter}`:'',dateFrom?`From: ${reportDate(dateFrom)}`:'',dateTo?`To: ${reportDate(dateTo)}`:''].filter(Boolean).join(' · ')
@@ -460,7 +466,8 @@ export default function Reports() {
         let segmentEnd=segmentStart+1
         while(segmentEnd<page.length && page[segmentEnd].row)segmentEnd++
         const segment=page.slice(segmentStart+1,segmentEnd)
-        output.push(`<tr class="group-heading"><td colspan="${displayColumns.length}">${escapeHTML(groupLabel(heading.group))}${heading.continued?' (continued)':''} — ${heading.items.reduce((n,r)=>n+(r.__order_count||1),0)} orders · Qty: ${formatNumber(heading.items.reduce((n,r)=>n+(Number(r.total_qty)||0),0))}${showOrderValue?` · Value: ${formatUSD(heading.items.reduce((n,r)=>n+(Number(r.total_value_usd)||0),0))}`:''}</td></tr>`)
+        const groupRows=heading.items;const first=groupRows[0]||{};const styleGroup=activeGroupBy==='style';const meta=styleGroup?'[ '+escapeHTML(first.factory_ref||'—')+' ]　[ '+escapeHTML(groupLabel(heading.group))+' ]　[ '+groupRows.reduce((n,r)=>n+(r.__order_count||1),0)+' POs ]　[ Washes: '+String(first.wash_count||0).padStart(2,'0')+' ]　[ Size Groups: '+String(first.size_group_count||0).padStart(2,'0')+' ]　[ Qty: '+formatNumber(groupRows.reduce((n,r)=>n+(Number(r.total_qty)||0),0))+' ]':escapeHTML(groupLabel(heading.group))+' — '+groupRows.reduce((n,r)=>n+(r.__order_count||1),0)+' orders · Qty: '+formatNumber(groupRows.reduce((n,r)=>n+(Number(r.total_qty)||0),0));
+        output.push(`<tr class="group-heading"><td colspan="${displayColumns.length}">${meta}${heading.continued?' (continued)':''}${showOrderValue?'　[ Value: '+formatUSD(groupRows.reduce((n,r)=>n+(Number(r.total_value_usd)||0),0))+' ]':''}</td></tr>`)
         const representative=segment.find(e=>activeImage(e.row))?.row
         segment.forEach((entry,i)=>{
           let tds=''
@@ -473,7 +480,7 @@ export default function Reports() {
               let span=1
               while(i+span<segment.length && (segment[i+span].row.buyer_name||'')===buyer)span++
               tds+=`<td rowspan="${span}" class="merged-cell">${escapeHTML(buyer)}</td>`
-            }else tds+=`<td>${activeCellHTML(k,entry.row)}</td>`
+            }else if(k==='approvals'){const entries=String(entry.row.approvals||'').split('\n').filter(Boolean).map(line=>{const cut=line.lastIndexOf(': ');return cut<0?'<div class="approval-line">'+escapeHTML(line)+'</div>':'<div class="approval-line"><span>'+escapeHTML(line.slice(0,cut))+'</span><b>[ '+escapeHTML(line.slice(cut+2))+' ]</b></div>'}).join('');tds+=`<td class="approvals-cell">${entries}</td>`}else if(k==='shell_fabric'){const fabric=String(entry.row.shell_fabric||'');const split=fabric.indexOf(' — ');tds+=`<td>${split>=0?'<b>'+escapeHTML(fabric.slice(0,split))+'</b><div>'+escapeHTML(fabric.slice(split+3))+'</div>':escapeHTML(fabric)}</td>`}else tds+=`<td>${activeCellHTML(k,entry.row)}</td>`
           }
           output.push(`<tr>${tds}</tr>`)
         })
@@ -494,8 +501,8 @@ export default function Reports() {
       return weights.map(w=>(100*w/total).toFixed(3)+'%')
     })()
     const pageHTML=printPages.map((page,index)=>`<section class="report-page">
-      <header><strong>NIZAMIA APPARELS</strong><div>${escapeHTML(active.title)}</div><small>${displayRows.length} records · ${escapeHTML(active.category)}${filterText?' · '+escapeHTML(filterText):''}</small></header>
-      <main><table><colgroup>${displayColumns.map((k,i)=>`<col style="width:${printColumnWidths[i]}">`).join('')}</colgroup><thead><tr>${displayColumns.map(k=>`<th>${escapeHTML(label(k))}</th>`).join('')}</tr></thead><tbody>${isActiveOrders(active)?activePageRows(page):page.map(r=>`<tr>${displayColumns.map(k=>`<td>${escapeHTML(reportValue(k,r[k]))}</td>`).join('')}</tr>`).join('')}${index===printPages.length-1?totalRow:''}</tbody></table></main>
+      <header><strong>NIZAMIA APPARELS</strong><div class="report-batch">${escapeHTML(selectedBatches.length?selectedBatches.map(id=>batchOptions.find(b=>b.id===id)?.name||'Unbatched').join(', '):active.title)} | ${escapeHTML(active.title)}</div></header>
+      <main><table><colgroup>${displayColumns.map((k,i)=>`<col style="width:${printColumnWidths[i]}">`).join('')}</colgroup><thead><tr>${displayColumns.map(k=>`<th>${escapeHTML(isActiveOrders(active)?({picture:'IMAGE',style_desc:'STYLE NUMBER',factory_ref:'FTY REF',shell_fabric:'FABRIC DESC',qty_ship_balance:'ORDER QUANTITY',ship_date:'SHIP DATE',total_value_usd:'VALUE (USD)'}[k]||label(k)):label(k))}</th>`).join('')}</tr></thead><tbody>${isActiveOrders(active)?activePageRows(page):page.map(r=>`<tr>${displayColumns.map(k=>`<td>${escapeHTML(reportValue(k,r[k]))}</td>`).join('')}</tr>`).join('')}${index===printPages.length-1?totalRow:''}</tbody></table></main>
       <footer><span>Printed by: ${escapeHTML(printedBy)}</span><span>Printed on: ${escapeHTML(when)}</span><span>Page ${index+1} of ${printPages.length}</span></footer>
     </section>`).join('')
     const html=`<html><head><title>${escapeHTML(filename())}</title><style>
@@ -504,13 +511,13 @@ export default function Reports() {
       html,body{margin:0;padding:0;color:#000;font:10px Arial,sans-serif}
       .report-page{width:${printOrientation==='landscape'?'297mm':'210mm'};height:${printOrientation==='landscape'?'210mm':'297mm'};padding:6mm 7mm;display:flex;flex-direction:column;break-after:page;page-break-after:always;overflow:hidden}
       .report-page:last-child{break-after:auto;page-break-after:auto}
-      header{flex-shrink:0;border-bottom:2px solid #000;padding-bottom:7px;margin-bottom:9px}
+      header{flex-shrink:0;border-bottom:2px solid #000;padding-bottom:5px;margin-bottom:9px;display:flex;align-items:end;justify-content:space-between;gap:8px}.report-batch{font-size:10px;font-weight:700;text-align:right}
       header strong{font-size:14px}header div{font-size:13px;font-weight:bold;margin:4px 0}header small{color:#000;font-weight:600}
       main{flex:1;min-height:0;overflow:hidden}
       table{border-collapse:collapse;width:100%;table-layout:fixed}
       th,td{border:1px solid #777;padding:3px 4px;text-align:left;overflow-wrap:anywhere;vertical-align:top;line-height:1.2}
       th{background:#fff;color:#000;font-size:9px;font-weight:800;text-transform:uppercase;border-bottom:2px solid #000;white-space:normal;overflow-wrap:normal;word-break:normal;hyphens:none;line-height:1.25}tr{break-inside:avoid;page-break-inside:avoid}
-      .total td{background:#f0f1f3;color:#000;font-weight:800;border-top:2px solid #000;padding:7px 5px;line-height:1.5}.group-heading td{background:#fff;color:#000;font-size:10px;font-weight:800;border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 4px}.picture-cell{width:86px;text-align:center;vertical-align:middle;padding:4px}.style-picture{display:block;width:100%;max-width:78px;height:auto;max-height:92px;object-fit:contain;margin:auto;filter:grayscale(1) contrast(1.2)}
+      .approval-line{display:flex;justify-content:space-between;gap:5px;align-items:baseline;margin-bottom:2px}.approval-line span{min-width:0}.approval-line b{white-space:nowrap;font-weight:600}.approvals-cell{font-size:9px}.total-number{text-align:right;font-weight:800}.total td{background:#e8e8e8;color:#000;font-weight:800;border-top:2px solid #000;padding:7px 5px;line-height:1.5}.group-heading td{background:#e2f2fa;color:#000;font-size:10px;font-weight:800;border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 4px}.picture-cell{width:86px;text-align:center;vertical-align:middle;padding:4px}.style-picture{display:block;width:100%;max-width:78px;height:auto;max-height:92px;object-fit:contain;margin:auto;filter:grayscale(1) contrast(1.2)}
       .merged-cell{vertical-align:middle;font-weight:700}
       footer{flex-shrink:0;margin-top:8px;border-top:1px solid #aaa;display:flex;justify-content:space-between;gap:12px;font-size:9px;color:#000;font-weight:600;padding-top:5px}
       @media screen{body{background:#eee}.report-page{background:white;margin:8px auto;box-shadow:0 1px 6px #aaa}}
