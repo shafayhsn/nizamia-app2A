@@ -87,7 +87,7 @@ const VIEWS = {
   work:[['Work Order #','wo_number'],['Vendor','Supplier'],['Job #','Job #'],['Buyer','Buyer'],['Style #','Style #'],['Customer PO #','Customer PO #'],['Status','status'],['Qty','qty'],['Issue Date','issue_date'],['Complete By','complete_by'],['Vendor Type','vendor_type']],
   workItems:[['Work Order #','Work Order #'],['Process','process_name'],['Department','dept_info'],['Qty','qty'],['Unit','unit'],['Rate','rate'],['Amount','amount']],
 }
-const ACTIVE_COLUMNS = [['Picture','picture'],['Job / Status','job_status'],['Buyer','buyer_name'],['Store','store_name'],['Style / Description','style_desc'],['PO #','po_number'],['Factory Ref','factory_ref'],['Fabric','shell_fabric'],['Qty / Ship / Balance','qty_ship_balance'],['Value (USD)','total_value_usd'],['Ship Date','ship_date'],['#QS','queue_count']]
+const ACTIVE_COLUMNS = [['Picture','picture'],['Job / Status','job_status'],['Buyer','buyer_name'],['Store','store_name'],['Style / Description','style_desc'],['PO #','po_number'],['Factory Ref','factory_ref'],['Fabric','shell_fabric'],['Approvals','approvals'],['Qty / Ship / Balance','qty_ship_balance'],['Value (USD)','total_value_usd'],['Ship Date','ship_date'],['#QS','queue_count']]
 const isActiveOrders = r => r?.title === 'Active Orders'
 const activeImage = r => r.style_image_base64 || r.style_image_url || ''
 const activeImageHTML = r => {const src=activeImage(r);return src && /^(data:image\/|https?:\/\/)/i.test(src)?`<img class="style-picture" src="${escapeHTML(src)}" alt="Style picture"/>`:''}
@@ -243,6 +243,32 @@ export default function Reports() {
           const oldPosition=old?.sort_order==null?Number.MAX_SAFE_INTEGER:Number(old.sort_order)
           if(!old||position<oldPosition||(position===oldPosition&&consumption(b)>consumption(old)))shellFabric.set(b.order_id,b)
         }
+        const sampleRows=[]
+        for(let offset=0;offset<30000;offset+=750){
+          const {data,error:se}=await supabase.from('samples').select('id,order_id,sample_number,root_sample_id,parent_sample_id,version_no,sample_type,size_group_name,color,colours,status,approval_status,stage,created_at').range(offset,offset+749)
+          if(se)throw se
+          sampleRows.push(...(data||[]))
+          if(!data||data.length<750)break
+        }
+        const orderById=new Map(all.map(o=>[o.id,o]))
+        const keyFor=o=>JSON.stringify([String(o?.buyer_name||'').trim().toLowerCase(),String(o?.style_number||'').trim().toLowerCase()])
+        const sampleGroups=new Map()
+        for(const sample of sampleRows){
+          const order=orderById.get(sample.order_id)
+          if(!order)continue
+          const key=keyFor(order)
+          if(!sampleGroups.has(key))sampleGroups.set(key,new Map())
+          const versions=sampleGroups.get(key)
+          const identity=sample.root_sample_id||sample.parent_sample_id||sample.sample_number||sample.id
+          const old=versions.get(identity)
+          if(!old||(Number(sample.version_no)||1)>(Number(old.version_no)||1)||((Number(sample.version_no)||1)===(Number(old.version_no)||1)&&String(sample.created_at||'')>String(old.created_at||'')))versions.set(identity,sample)
+        }
+        const approvalText=sample=>{
+          const colour=sample.color||((Array.isArray(sample.colours)?sample.colours:[]).map(c=>typeof c==='string'?c:c?.name||c?.color||'').filter(Boolean).join(', '))
+          const label=[sample.sample_type,sample.size_group_name].filter(Boolean).join(' ')+(colour?' / '+colour:'')
+          return label+': '+(sample.approval_status||sample.status||sample.stage||'Pending')
+        }
+        const approvalsByStyle=new Map([...sampleGroups].map(([key,versions])=>[key,[...versions.values()].sort((a,b)=>String(a.sample_type||'').localeCompare(String(b.sample_type||''))||String(a.size_group_name||'').localeCompare(String(b.size_group_name||''))).map(approvalText).join('\\n')]))
         const [shipResult,queueResult,batchesResult,membersResult]=await Promise.all([supabase.from('shipment_lines').select('order_id,shipped_qty'),supabase.from('order_queues').select('id,order_id'),supabase.from('production_batches').select('id,name').order('name'),supabase.from('production_batch_orders').select('order_id,batch_id')])
         if(batchesResult.error)throw batchesResult.error
         if(membersResult.error)throw membersResult.error
@@ -253,7 +279,7 @@ export default function Reports() {
         const shipped=new Map(),queues=new Map()
         ;(shipResult.data||[]).forEach(l=>shipped.set(l.order_id,(shipped.get(l.order_id)||0)+(Number(l.shipped_qty)||0)))
         ;(queueResult.data||[]).forEach(q=>queues.set(q.order_id,(queues.get(q.order_id)||0)+1))
-        finalRows=finalRows.map(r=>({...r,shell_fabric:formatShellFabric(shellFabric.get(r.id)),shipped_qty:shipped.get(r.id)||0,balance_qty:Math.max(0,(Number(r.total_qty)||0)-(shipped.get(r.id)||0)),queue_count:queues.get(r.id)||0}))
+        finalRows=finalRows.map(r=>({...r,shell_fabric:formatShellFabric(shellFabric.get(r.id)),approvals:approvalsByStyle.get(keyFor(r))||'',shipped_qty:shipped.get(r.id)||0,balance_qty:Math.max(0,(Number(r.total_qty)||0)-(shipped.get(r.id)||0)),queue_count:queues.get(r.id)||0}))
       }
       const keys=active.table==='production_daily_entries'?active.fields:isActiveOrders(active)?ACTIVE_COLUMNS.map(([,k])=>k):active.phase4?PHASE4_VIEWS[active.kind].map(([,k])=>k):active.business?VIEWS[active.kind].map(([,k])=>k):active.operations?[...new Set([...OP_VIEWS[active.kind].map(([,k])=>k).filter(k=>finalRows.some(r=>r[k]!==undefined)||['Job #','Buyer','Style #','Customer PO #'].includes(k)),...finalRows.flatMap(row=>Object.keys(row)).filter(k=>!['id','order_id','created_at','updated_at'].includes(k))])]:[...new Set(finalRows.flatMap(row=>Object.keys(row)))];
       const ordered=(active.business||active.operations||active.phase4) ? keys : active.fields ? [...active.fields.filter(f=>keys.includes(f)),...keys.filter(f=>!active.fields.includes(f))] : keys
