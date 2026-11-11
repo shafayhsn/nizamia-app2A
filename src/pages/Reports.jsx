@@ -91,7 +91,7 @@ const ACTIVE_COLUMNS = [['Picture','picture'],['Job / Status','job_status'],['Bu
 const isActiveOrders = r => r?.title === 'Active Orders'
 const activeImage = r => r.style_image_base64 || r.style_image_url || ''
 const activeImageHTML = r => {const src=activeImage(r);return src && /^(data:image\/|https?:\/\/)/i.test(src)?`<img class="style-picture" src="${escapeHTML(src)}" alt="Style picture"/>`:''}
-const activeCellHTML=(k,r)=>k==='picture'?activeImageHTML(r):k==='job_status'?`<b>${escapeHTML(r.job_number)}</b><div>${escapeHTML(r.status)}</div>`:k==='style_desc'?`<b>${escapeHTML(r.style_number)}</b><div>${escapeHTML(r.description)}</div>`:k==='qty_ship_balance'?`<b>${formatNumber(Number(r.total_qty)||0)}</b><div>Ship ${formatNumber(Number(r.shipped_qty)||0)} · Bal ${formatNumber(Number(r.balance_qty)||0)}</div>`:escapeHTML(reportValue(k,r[k]))
+const activeCellHTML=(k,r)=>k==='picture'?activeImageHTML(r):k==='job_status'?`<b>${escapeHTML(r.job_number)}</b><div>${escapeHTML(r.status)}</div>`:k==='style_desc'?`<b>${escapeHTML(r.style_number)}</b><div>${escapeHTML(r.description)}</div>`:k==='approvals'?escapeHTML(r.approvals||'').replace(/\\n/g,'<br/>'):k==='qty_ship_balance'?`<b>${formatNumber(Number(r.total_qty)||0)}</b><div>Ship ${formatNumber(Number(r.shipped_qty)||0)} · Bal ${formatNumber(Number(r.balance_qty)||0)}</div>`:escapeHTML(reportValue(k,r[k]))
 const activeGroups = rows => {const groups=new Map();rows.forEach(r=>{const key=r.style_number||'Unspecified style';if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r)});return [...groups]}
 const OP_VIEWS = {
  bom:[['Job #','Job #'],['Buyer','Buyer'],['Style #','Style #'],['Customer PO #','Customer PO #'],['Material','material_name'],['Category','category'],['Description','description'],['Qty','qty'],['Unit','unit'],['Rate','unit_rate'],['Amount','amount']],
@@ -268,7 +268,7 @@ export default function Reports() {
           const label=[sample.sample_type,sample.size_group_name].filter(Boolean).join(' ')+(colour?' / '+colour:'')
           return label+': '+(sample.approval_status||sample.status||sample.stage||'Pending')
         }
-        const approvalsByStyle=new Map([...sampleGroups].map(([key,versions])=>[key,[...versions.values()].sort((a,b)=>String(a.sample_type||'').localeCompare(String(b.sample_type||''))||String(a.size_group_name||'').localeCompare(String(b.size_group_name||''))).map(approvalText).join('\\n')]))
+        const approvalsByStyle=new Map([...sampleGroups].map(([key,versions])=>[key,[...versions.values()].sort((a,b)=>String(a.sample_type||'').localeCompare(String(b.sample_type||''))||String(a.size_group_name||'').localeCompare(String(b.size_group_name||''))).map(approvalText).join('\n')]))
         const [shipResult,queueResult,batchesResult,membersResult]=await Promise.all([supabase.from('shipment_lines').select('order_id,shipped_qty'),supabase.from('order_queues').select('id,order_id'),supabase.from('production_batches').select('id,name').order('name'),supabase.from('production_batch_orders').select('order_id,batch_id')])
         if(batchesResult.error)throw batchesResult.error
         if(membersResult.error)throw membersResult.error
