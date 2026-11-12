@@ -6,6 +6,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { Search, FileSpreadsheet, Printer, RefreshCw, ArrowLeft, FileText, Columns3, RotateCcw, Star } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/authContext'
 import { printHTML } from '../components/PrintReports'
 
 // Read-only views of persisted application records. No recalculation of production requirements.
@@ -180,8 +181,8 @@ export default function Reports() {
   const [activeSortBy,setActiveSortBy] = useState('style')
   const [activeSortDir,setActiveSortDir] = useState('asc')
   const [truncated,setTruncated] = useState(false)
-  const [printedBy,setPrintedBy] = useState('User not available')
-  useEffect(()=>{supabase.auth.getUser().then(({data})=>{const u=data?.user;setPrintedBy(u?.user_metadata?.full_name||u?.user_metadata?.name||u?.email||'User not available')}).catch(()=>{})},[])
+  const {user:appUser}=useAuth()
+  const printedBy=appUser?.displayName||appUser?.username||appUser?.email||'Unknown user'
   const [statusFilter,setStatusFilter] = useState([])
   const [groupFilter,setGroupFilter] = useState([])
   const [buyerFilter,setBuyerFilter] = useState([])
@@ -563,7 +564,7 @@ export default function Reports() {
       if(!popup){window.alert('Please allow pop-ups to download the PDF.');return}
       // Render each prepared A4 section to exactly one PDF page. This avoids
       // html2pdf's automatic overflow pagination and trailing blank pages.
-      const script='<script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js"><'+'/script><script>window.addEventListener("load",async()=>{try{if(!window.html2canvas||!window.jspdf)throw Error("PDF generator unavailable");await Promise.all([...document.images].map(i=>i.complete?Promise.resolve():new Promise(r=>{i.onload=r;i.onerror=r})));const pdf=new window.jspdf.jsPDF({unit:"mm",format:"a4",orientation:'+JSON.stringify(printOrientation)+'});const pages=[...document.querySelectorAll(".report-page")];for(let i=0;i<pages.length;i++){const canvas=await window.html2canvas(pages[i],{scale:2,useCORS:true,backgroundColor:"#ffffff"});if(i)pdf.addPage();pdf.addImage(canvas.toDataURL("image/jpeg",0.98),"JPEG",0,0,pdf.internal.pageSize.getWidth(),pdf.internal.pageSize.getHeight())}pdf.save('+JSON.stringify(filename()+'.pdf')+');window.close()}catch(e){document.body.insertAdjacentHTML("afterbegin","<p style=color:red>PDF download failed. Please use Print.</p>")}});<'+'/script>'
+      const script='<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"><'+ '/script><script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"><'+'/script><script>window.addEventListener("load",async()=>{try{if(!window.html2canvas||!window.jspdf)throw Error("PDF generator unavailable");await Promise.all([...document.images].map(i=>i.complete?Promise.resolve():new Promise(r=>{i.onload=r;i.onerror=r})));const pdf=new window.jspdf.jsPDF({unit:"mm",format:"a4",orientation:'+JSON.stringify(printOrientation)+'});const pages=[...document.querySelectorAll(".report-page")];for(let i=0;i<pages.length;i++){const canvas=await window.html2canvas(pages[i],{scale:2,useCORS:true,backgroundColor:"#ffffff"});if(i)pdf.addPage();pdf.addImage(canvas.toDataURL("image/jpeg",0.98),"JPEG",0,0,pdf.internal.pageSize.getWidth(),pdf.internal.pageSize.getHeight())}pdf.save('+JSON.stringify(filename()+'.pdf')+');window.close()}catch(e){document.body.insertAdjacentHTML("afterbegin","<p style=color:red>PDF download failed. Please use Print.</p>")}});<'+'/script>'
 
       popup.document.open();popup.document.write(html.replace('</body>',script+'</body>'));popup.document.close()
     }else printHTML(html)
