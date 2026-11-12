@@ -198,6 +198,7 @@ export default function Topbar({onOpenDeadlines}) {
     return()=>{active=false;clearInterval(timer)}
   },[])
   const [syncOpen,setSyncOpen]=useState(false)
+  const [syncDetailsOpen,setSyncDetailsOpen]=useState(false)
   const [syncNow,setSyncNow]=useState(Date.now())
   useEffect(()=>{const id=setInterval(()=>setSyncNow(Date.now()),15000);return()=>clearInterval(id)},[])
 
@@ -279,7 +280,24 @@ export default function Topbar({onOpenDeadlines}) {
               <div style={{fontSize:15,fontWeight:750}}>{globalSaveError?'Unavailable':globalSave?(()=>{const secs=Math.max(0,Math.floor((syncNow-new Date(globalSave).getTime())/1000));return secs<60?'Just now':secs<3600?`${Math.floor(secs/60)} min ago`:`${Math.floor(secs/3600)} hr ago`})():'No save recorded yet'}</div>
               {globalSave&&!globalSaveError&&<div style={{fontSize:10,color:'#64748b',marginTop:4}}>{new Date(globalSave).toLocaleTimeString()}</div>}
             </div>
-            {syncStatus==='error'&&<button onClick={()=>{resetSyncError();setSyncOpen(false)}} style={{marginTop:10,border:'1px solid #e5e7eb',borderRadius:6,padding:7,background:'#fff',cursor:'pointer'}}>Dismiss warning</button>}
+            {syncStatus==='error'&&<div style={{marginTop:10}}>
+              <div style={{fontSize:11,color:'#475569',lineHeight:1.5,marginBottom:8}}>
+                A save request couldn't be confirmed. This does <strong>not necessarily mean data was lost</strong>. Check the affected item before trying again.
+              </div>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <button onClick={()=>{resetSyncError();setSyncOpen(false)}} style={{border:'1px solid #e5e7eb',borderRadius:6,padding:7,background:'#fff',cursor:'pointer',fontSize:11}}>Dismiss warning</button>
+                <button onClick={()=>setSyncDetailsOpen(v=>!v)} aria-expanded={syncDetailsOpen} style={{border:'1px solid #e5e7eb',borderRadius:6,padding:7,background:'#f8fafc',cursor:'pointer',fontSize:11}}>{syncDetailsOpen?'Hide details ▲':'View error details ▼'}</button>
+              </div>
+              {syncDetailsOpen&&<div style={{marginTop:9,padding:9,border:'1px solid #e5e7eb',background:'#f8fafc',borderRadius:7,fontSize:11,lineHeight:1.5,overflowWrap:'anywhere'}}>
+                {syncInfo.lastFailure?<div>
+                  <div><strong>Data area:</strong> {syncInfo.lastFailure.area}</div>
+                  <div><strong>Action:</strong> {syncInfo.lastFailure.action}</div>
+                  <div><strong>Time:</strong> {new Date(syncInfo.lastFailure.time).toLocaleString()}</div>
+                  <div><strong>Response:</strong> {syncInfo.lastFailure.status?`HTTP ${syncInfo.lastFailure.status} · `:''}{syncInfo.lastFailure.message}</div>
+                </div>:<div>Details for the earlier request weren't captured.</div>}
+                <div style={{color:'#64748b',marginTop:5}}>Dismiss clears the alert, but does not retry or verify the save.</div>
+              </div>}
+            </div>}
             <div style={{color:'#94a3b8',fontSize:10,marginTop:10}}>Browser time shows local confirmed writes. Database time shows the latest tracked write from any user; refreshed every 30 seconds.</div>
           </div>
         </>}
