@@ -252,7 +252,7 @@ export default function Reports() {
         const [washRows,sizeRows]=await Promise.all([lookupWizard('washing','order_id,color_name,wash_ref,wash_type'),lookupWizard('size_groups','order_id,group_name')])
         const styleCounts=new Map(),orderLookup=new Map(all.map(o=>[o.id,o]))
         const countFor=o=>{const key=keyFor(o);if(!styleCounts.has(key))styleCounts.set(key,{washes:new Set(),sizes:new Set()});return styleCounts.get(key)}
-        for(const item of washRows){const o=orderLookup.get(item.order_id);if(!o)continue;const name=String(item.wash_ref||item.color_name||item.wash_type||'').trim().toLowerCase();if(name)countFor(o).washes.add(name)}
+        for(const item of washRows){const o=orderLookup.get(item.order_id);if(!o)continue;const colour=String(item.color_name||'').trim().toLowerCase(),wash=String(item.wash_ref||'').trim().toLowerCase();const name=[colour,wash].filter(Boolean).join(' | ');if(name)countFor(o).washes.add(name)}
         for(const item of sizeRows){const o=orderLookup.get(item.order_id);if(!o)continue;const name=String(item.group_name||'').trim().toLowerCase();if(name)countFor(o).sizes.add(name)}
         const [commentResult,parcelResult]=await Promise.all([supabase.from('sample_comments').select('sample_id,comment_type,comment_date').order('comment_date'),supabase.from('parcels').select('id,items,status,dispatch_date,dispatched_at,delivered_at,updated_at,created_at')])
         if(commentResult.error)throw commentResult.error
@@ -286,16 +286,15 @@ export default function Reports() {
           const key=keyFor(order)
           if(!sampleGroups.has(key))sampleGroups.set(key,new Map())
           const versions=sampleGroups.get(key)
-          const identity=sample.root_sample_id||sample.parent_sample_id||sample.sample_number||sample.id
-          const old=versions.get(identity)
-          if(!old||(Number(sample.version_no)||1)>(Number(old.version_no)||1)||((Number(sample.version_no)||1)===(Number(old.version_no)||1)&&String(sample.created_at||'')>String(old.created_at||'')))versions.set(identity,sample)
+          // Retain every version; never replace historical approvals with the latest version.
+          versions.set(sample.id,sample)
         }
         const approvalText=sample=>{
           const colour=sample.color||((Array.isArray(sample.colours)?sample.colours:[]).map(c=>typeof c==='string'?c:c?.name||c?.color||'').filter(Boolean).join(', '))
-          const label=[sample.sample_type,sample.size_group_name].filter(Boolean).join(' ')+(colour?' / '+colour:'')
+          const label='V'+(Number(sample.version_no)||1)+' '+[sample.sample_type,sample.size_group_name].filter(Boolean).join(' ')+(colour?' / '+colour:'')
           const current=unifiedSampleStatus(sample);return label+': '+current
         }
-        const approvalsByStyle=new Map([...sampleGroups].map(([key,versions])=>[key,[...versions.values()].sort((a,b)=>String(a.sample_type||'').localeCompare(String(b.sample_type||''))||String(a.size_group_name||'').localeCompare(String(b.size_group_name||''))).map(approvalText).join('\n')]))
+        const approvalsByStyle=new Map([...sampleGroups].map(([key,versions])=>[key,[...versions.values()].sort((a,b)=>String(a.sample_type||'').localeCompare(String(b.sample_type||''))||String(a.size_group_name||'').localeCompare(String(b.size_group_name||'') )||String(a.color||'').localeCompare(String(b.color||''))||(Number(a.version_no)||1)-(Number(b.version_no)||1)).map(approvalText).join('\n')]))
         const [shipResult,queueResult,batchesResult,membersResult]=await Promise.all([supabase.from('shipment_lines').select('order_id,shipped_qty'),supabase.from('order_queues').select('id,order_id'),supabase.from('production_batches').select('id,name').order('name'),supabase.from('production_batch_orders').select('order_id,batch_id')])
         if(batchesResult.error)throw batchesResult.error
         if(membersResult.error)throw membersResult.error
@@ -386,7 +385,13 @@ export default function Reports() {
   }
   const resetColumns=()=>{setSelectedColumns(columns);try{window.localStorage.removeItem(`app2a-report-columns:${active.category}:${active.title}`)}catch(_){}}
   const label=k=>isActiveOrders(active)?(ACTIVE_COLUMNS.find(([,key])=>key===k)?.[0]||k):active?.phase4?(PHASE4_VIEWS[active.kind].find(([,key])=>key===k)?.[0]||k.replaceAll('_',' ')):active?.business?(VIEWS[active.kind].find(([,key])=>key===k)?.[0]||k):active?.operations?(OP_VIEWS[active.kind].find(([,key])=>key===k)?.[0]||k.replaceAll('_',' ')):k.replaceAll('_',' ')
-  const filename=()=>`${safe(active?.title)}${dateFrom?`_From-${dateFrom}`:''}${dateTo?`_To-${dateTo}`:''}_${stamp()}`
+  const filename=()=>{
+    if(!isActiveOrders(active))return `${safe(active?.title)}${dateFrom?`_From-${dateFrom}`:''}${dateTo?`_To-${dateTo}`:''}_${stamp()}`
+    const batches=selectedBatches.map(id=>id==='__unbatched__'?'Unbatched':batchOptions.find(b=>b.id===id)?.name||id)
+    const suffix=batches.length===1?batches[0]:batches.length>1?`${batches.length} Batches`:buyerFilter.length===1?buyerFilter[0]:buyerFilter.length>1?`${buyerFilter.length} Buyers`:new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}).replace(/ /g,'-')
+    const clean=v=>String(v||'').replace(/[\\/:*?"<>|]/g,'').trim()
+    return clean(`${active.title} - ${suffix}`)
+  }
   const totals=useMemo(()=>totalInfo(displayRows,displayColumns),[displayRows,selectedColumns,columns])
   const groupedTotals=useMemo(()=>totals.map(t=>({key:t.key,value:t.values.reduce((a,b)=>a+b,0)})),[totals])
   const widthFor=k=>columnWidth(sortedRows,k,label(k))
@@ -425,7 +430,20 @@ export default function Reports() {
     const pages=[]
     for(let i=0;i<sortedRows.length;i+=perPage)pages.push(sortedRows.slice(i,i+perPage))
     if(!pages.length)pages.push([])
-    const totalRow=isActiveOrders(active)?`<tr class="total">${displayColumns.map((k,i)=>k==='qty_ship_balance'?'<td class="total-number">'+formatNumber(displayRows.reduce((n,r)=>n+(Number(r.total_qty)||0),0))+'</td>':k==='total_value_usd'&&showOrderValue?'<td class="total-number">'+formatUSD(displayRows.reduce((n,r)=>n+(Number(r.total_value_usd)||0),0))+'</td>':i===0?'<td>GRAND TOTAL | ORDERS: '+String(displayRows.reduce((n,r)=>n+(r.__order_count||1),0)).padStart(2,'0')+'</td>':'<td></td>').join('')}</tr>`:groupedTotals.length?`<tr class="total">${displayColumns.map((k,i)=>`<td>${groupedTotals.some(t=>t.key===k)?escapeHTML(formatNumber(groupedTotals.find(t=>t.key===k).value)):i===0?'TOTAL':''}</td>`).join('')}</tr>`:''
+    const totalRow=isActiveOrders(active)?(()=>{
+      const qty=displayRows.reduce((n,r)=>n+(Number(r.total_qty)||0),0)
+      const value=displayRows.reduce((n,r)=>n+(Number(r.total_value_usd)||0),0)
+      const count=displayRows.reduce((n,r)=>n+(r.__order_count||1),0)
+      const qtyIndex=displayColumns.indexOf('qty_ship_balance')
+      const valueIndex=showOrderValue?displayColumns.indexOf('total_value_usd'):-1
+      const firstTotal=[qtyIndex,valueIndex].filter(i=>i>=0).sort((a,b)=>a-b)[0]??displayColumns.length
+      let cells=firstTotal>0?`<td colspan="${firstTotal}" class="total-label">GRAND TOTAL — ORDERS: ${String(count).padStart(2,'0')}</td>`:''
+      for(let i=firstTotal;i<displayColumns.length;i++){
+        const k=displayColumns[i]
+        cells+=k==='qty_ship_balance'?'<td class="total-number">'+formatNumber(qty)+'</td>':k==='total_value_usd'&&showOrderValue?'<td class="total-number">'+formatUSD(value)+'</td>':'<td></td>'
+      }
+      return '<tr class="total">'+cells+'</tr>'
+    })():groupedTotals.length?`<tr class="total">${displayColumns.map((k,i)=>`<td>${groupedTotals.some(t=>t.key===k)?escapeHTML(formatNumber(groupedTotals.find(t=>t.key===k).value)):i===0?'TOTAL':''}</td>`).join('')}</tr>`:''
     // Keep the totals on a dedicated final page if the last page is full.
     if(totalRow && pages[pages.length-1].length>=perPage)pages.push([])
     const filterText=[isActiveOrders(active)&&buyerFilter.length?`Buyers: ${buyerFilter.join(', ')}`:'',isActiveOrders(active)&&styleFilter.length?`Styles: ${styleFilter.join(', ')}`:'',isActiveOrders(active)&&selectedBatches.length?`Batches: ${selectedBatches.map(id=>id==='__unbatched__'?'Unbatched':batchOptions.find(b=>b.id===id)?.name||id).join(', ')}`:'',statusFilter.length?`Statuses: ${statusFilter.join(', ')}`:'',groupFilter.length?`Groups: ${groupFilter.join(', ')}`:'',dateFrom?`From: ${reportDate(dateFrom)}`:'',dateTo?`To: ${reportDate(dateTo)}`:''].filter(Boolean).join(' · ')
@@ -535,7 +553,7 @@ export default function Reports() {
       table{border-collapse:collapse;width:100%;table-layout:fixed}
       th,td{border:1px solid #777;padding:3px 4px;text-align:left;overflow-wrap:anywhere;vertical-align:top;line-height:1.2}
       th{background:#fff;color:#000;font-size:9px;font-weight:800;text-transform:uppercase;border-bottom:2px solid #000;white-space:normal;overflow-wrap:normal;word-break:normal;hyphens:none;line-height:1.25}tr{break-inside:avoid;page-break-inside:avoid}
-      .approval-line{display:flex;justify-content:space-between;gap:5px;align-items:baseline;margin-bottom:2px}.approval-line span{min-width:0}.approval-line b{white-space:nowrap;font-weight:600}.approvals-cell{font-size:9px}.total-number{text-align:right;font-weight:800}.total td{background:${pdfColour?'#e8e8e8':'#f0f0f0'};color:#000;font-weight:800;border-top:2px solid #000;padding:7px 5px;line-height:1.5}.group-heading td{background:${pdfColour?'#dff1fa':'#f0f0f0'};color:#000;font-size:10px;font-weight:800;border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 4px}.picture-cell{width:86px;text-align:center;vertical-align:middle;padding:4px}.style-picture{display:block;width:100%;max-width:78px;height:auto;max-height:92px;object-fit:contain;margin:auto;filter:${pdfColour?'none':'grayscale(1) contrast(1.2)'}}
+      .approval-line{display:flex;justify-content:space-between;gap:5px;align-items:baseline;margin-bottom:2px}.approval-line span{min-width:0}.approval-line b{white-space:nowrap;font-weight:600}.approvals-cell{font-size:9px}.total-number{text-align:right;font-weight:800}.total-label{white-space:nowrap;overflow-wrap:normal;text-align:left}.total td{background:${pdfColour?'#e8e8e8':'#f0f0f0'};color:#000;font-weight:800;border-top:2px solid #000;padding:7px 5px;line-height:1.5}.group-heading td{background:${pdfColour?'#dff1fa':'#f0f0f0'};color:#000;font-size:10px;font-weight:800;border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 4px}.picture-cell{width:86px;text-align:center;vertical-align:middle;padding:4px}.style-picture{display:block;width:100%;max-width:78px;height:auto;max-height:92px;object-fit:contain;margin:auto;filter:${pdfColour?'none':'grayscale(1) contrast(1.2)'}}
       .merged-cell{vertical-align:middle;font-weight:700}
       footer{flex-shrink:0;margin-top:8px;border-top:1px solid #aaa;display:flex;justify-content:space-between;gap:12px;font-size:9px;color:#000;font-weight:600;padding-top:5px}
       @media screen{body{background:#eee}.report-page{background:white;margin:8px auto;box-shadow:0 1px 6px #aaa}}
@@ -543,7 +561,10 @@ export default function Reports() {
     if(outputMode==='pdf'){
       const popup=window.open('','_blank')
       if(!popup){window.alert('Please allow pop-ups to download the PDF.');return}
-      const script='<script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js"><'+'/script><script>window.addEventListener("load",async()=>{try{if(!window.html2pdf)throw Error("PDF generator unavailable");await Promise.all([...document.images].map(i=>i.complete?Promise.resolve():new Promise(r=>{i.onload=r;i.onerror=r})));await window.html2pdf().set({margin:0,filename:'+JSON.stringify(filename()+'.pdf')+',image:{type:"jpeg",quality:0.98},html2canvas:{scale:2,useCORS:true,backgroundColor:"#ffffff"},jsPDF:{unit:"mm",format:"a4",orientation:'+JSON.stringify(printOrientation)+'},pagebreak:{mode:["css","legacy"]}}).from(document.body).save();window.close()}catch(e){document.body.insertAdjacentHTML("afterbegin","<p style=color:red>PDF download failed. Please use Print.</p>")}});<'+'/script>'
+      // Render each prepared A4 section to exactly one PDF page. This avoids
+      // html2pdf's automatic overflow pagination and trailing blank pages.
+      const script='<script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js"><'+'/script><script>window.addEventListener("load",async()=>{try{if(!window.html2canvas||!window.jspdf)throw Error("PDF generator unavailable");await Promise.all([...document.images].map(i=>i.complete?Promise.resolve():new Promise(r=>{i.onload=r;i.onerror=r})));const pdf=new window.jspdf.jsPDF({unit:"mm",format:"a4",orientation:'+JSON.stringify(printOrientation)+'});const pages=[...document.querySelectorAll(".report-page")];for(let i=0;i<pages.length;i++){const canvas=await window.html2canvas(pages[i],{scale:2,useCORS:true,backgroundColor:"#ffffff"});if(i)pdf.addPage();pdf.addImage(canvas.toDataURL("image/jpeg",0.98),"JPEG",0,0,pdf.internal.pageSize.getWidth(),pdf.internal.pageSize.getHeight())}pdf.save('+JSON.stringify(filename()+'.pdf')+');window.close()}catch(e){document.body.insertAdjacentHTML("afterbegin","<p style=color:red>PDF download failed. Please use Print.</p>")}});<'+'/script>'
+
       popup.document.open();popup.document.write(html.replace('</body>',script+'</body>'));popup.document.close()
     }else printHTML(html)
   }
