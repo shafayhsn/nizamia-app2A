@@ -433,15 +433,15 @@ export default function Reports() {
     if(!active||loading||truncated)return
     const wb=XLSX.utils.book_new()
     const headers=displayColumns.map(label)
-    const data=[headers,...sortedRows.map(r=>displayColumns.map(k=>isActiveOrders(active)?(k==='picture'?'':k==='job_status'?`${r.job_number||''} / ${r.status||''}`:k==='style_desc'?`${r.style_number||''} / ${r.description||''}`:k==='qty_ship_balance'?`${r.total_qty||0} / ${r.shipped_qty||0} / ${r.balance_qty||0}`:reportValue(k,r[k])):r[k]==null?'':typeof r[k]==='object'?JSON.stringify(r[k]):reportValue(k,r[k])))]
-    if(isActiveOrders(active)&&activeGroupBy!=='none'){
+    const data=[headers,...sortedRows.map(r=>displayColumns.map(k=>isDataEntry(active)?(k.endsWith('_count')?(r[k]||'–'):reportValue(k,r[k])):isActiveOrders(active)?(k==='picture'?'':k==='job_status'?`${r.job_number||''} / ${r.status||''}`:k==='style_desc'?`${r.style_number||''} / ${r.description||''}`:k==='qty_ship_balance'?`${r.total_qty||0} / ${r.shipped_qty||0} / ${r.balance_qty||0}`:reportValue(k,r[k])):r[k]==null?'':typeof r[k]==='object'?JSON.stringify(r[k]):reportValue(k,r[k])))]
+    if(isOrderReport(active)&&activeGroupBy!=='none'){
       const groupedData=[headers]
       for(const [key,items] of reportGroups){
         const count=items.reduce((n,r)=>n+(r.__order_count||1),0)
         const qty=items.reduce((n,r)=>n+(Number(r.total_qty)||0),0)
         const value=items.reduce((n,r)=>n+(Number(r.total_value_usd)||0),0)
         groupedData.push([groupLabel(key)+' — '+count+' orders · Qty: '+formatNumber(qty)+(showOrderValue?' · Value: '+formatUSD(value):'')])
-        for(const row of items)groupedData.push(displayColumns.map(k=>k==='picture'?'':k==='job_status'?(row.job_number||'')+' / '+(row.status||''):k==='style_desc'?(row.style_number||'')+' / '+(row.description||''):k==='qty_ship_balance'?[row.total_qty||0,row.shipped_qty||0,row.balance_qty||0].join(' / '):reportValue(k,row[k])))
+        for(const row of items)groupedData.push(displayColumns.map(k=>isDataEntry(active)?(k.endsWith('_count')?(row[k]||'–'):reportValue(k,row[k])):k==='picture'?'':k==='job_status'?(row.job_number||'')+' / '+(row.status||''):k==='style_desc'?(row.style_number||'')+' / '+(row.description||''):k==='qty_ship_balance'?[row.total_qty||0,row.shipped_qty||0,row.balance_qty||0].join(' / '):reportValue(k,row[k])))
       }
       data.splice(0,data.length,...groupedData)
     }
@@ -460,7 +460,7 @@ export default function Reports() {
     const when=reportTimestamp()
     // Explicit A4 page sections: each page owns its header, table heading, and footer.
     // Conservative row limits prevent the previous browser footer/header collision.
-    const perPage=isOrderReport(active)?(printOrientation==='landscape'?16:26):(printOrientation==='landscape'?19:32)
+    const perPage=isDataEntry(active)?(printOrientation==='landscape'?18:30):isOrderReport(active)?(printOrientation==='landscape'?16:26):(printOrientation==='landscape'?19:32)
     const pages=[]
     for(let i=0;i<sortedRows.length;i+=perPage)pages.push(sortedRows.slice(i,i+perPage))
     if(!pages.length)pages.push([])
@@ -519,6 +519,21 @@ export default function Reports() {
       flush()
       if(totalRow && chunks.length){const last=chunks[chunks.length-1];const lastUsed=last.reduce((n,e)=>n+(e.group?groupHeaderMm:e.row?estimateRowMm(e.row):0),0);if(lastUsed+12>availableMm)chunks.push([])}
       return chunks.length?chunks:[[]]
+    })():isDataEntry(active)&&activeGroupBy!=='none'?(()=>{
+      const chunks=[],limit=perPage-2;let page=[],used=0
+      for(const [key,items] of reportGroups){
+        let pos=0
+        while(pos<items.length){
+          if(used>=limit){chunks.push(page);page=[];used=0}
+          const take=Math.min(items.length-pos,limit-used)
+          page.push({heading:key,continued:pos>0})
+          page.push(...items.slice(pos,pos+take).map(row=>({row})))
+          used+=take+1;pos+=take
+          if(used>=limit){chunks.push(page);page=[];used=0}
+        }
+      }
+      if(page.length)chunks.push(page)
+      return chunks.length?chunks:[[]]
     })():pages
     // Merge consecutive identical picture/buyer cells only within a printed
     // style group and page. Never merge unrelated styles or across page breaks.
@@ -561,6 +576,7 @@ export default function Reports() {
     const printColumnWidths=(()=>{
       const presets={picture:7,style_desc:printOrientation==='portrait'?16:18,job_status:12,buyer_name:12,store_name:12,po_number:11,factory_ref:9,shell_fabric:printOrientation==='portrait'?20:22,approvals:printOrientation==='portrait'?23:25,qty_ship_balance:14,total_value_usd:11,ship_date:10,qs_number:8}
       const weights=displayColumns.map(k=>{
+        if(isDataEntry(active))return k.endsWith('_count')?7:k==='style_number'?12:k==='buyer_name'||k==='store_name'?11:9
         const values=sortedRows.slice(0,80).map(r=>String(k==='style_desc'?r.style_number||'':k==='qty_ship_balance'?formatNumber(r.total_qty||0):k==='approvals'?String(r.approvals||'').split('\\n')[0]:reportValue(k,r[k])||''))
         const max=Math.max(0,...values.map(v=>v.length))
         const base=presets[k]||11
@@ -569,9 +585,11 @@ export default function Reports() {
       const total=weights.reduce((a,b)=>a+b,0)||1
       return weights.map(w=>(100*w/total).toFixed(3)+'%')
     })()
+    const entryCell=(key,row)=>key.endsWith('_count')?(Number(row[key])?String(row[key]):'–'):reportValue(key,row[key])
+    const entryPageRows=page=>page.map(item=>item.heading!==undefined?`<tr class="group-heading"><td colspan="${displayColumns.length}">${escapeHTML(groupLabel(item.heading))}${item.continued?' (continued)':''}</td></tr>`:`<tr>${displayColumns.map(k=>`<td>${escapeHTML(entryCell(k,item.row||item))}</td>`).join('')}</tr>`).join('')
     const pageHTML=printPages.map((page,index)=>`<section class="report-page">
       <header><strong>NIZAMIA APPARELS</strong><div class="report-batch">${escapeHTML(selectedBatches.length?selectedBatches.map(id=>batchOptions.find(b=>b.id===id)?.name||'Unbatched').join(', '):active.title)} | ${escapeHTML(active.title)}</div></header>
-      <main><table><colgroup>${displayColumns.map((k,i)=>`<col style="width:${printColumnWidths[i]}">`).join('')}</colgroup><thead><tr>${displayColumns.map(k=>`<th>${escapeHTML(isActiveOrders(active)?({picture:'IMAGE',style_desc:'STYLE NUMBER',factory_ref:'FTY REF',shell_fabric:'FABRIC DESC',qty_ship_balance:'ORDER QUANTITY',ship_date:'SHIP DATE',total_value_usd:'VALUE (USD)'}[k]||label(k)):label(k))}</th>`).join('')}</tr></thead><tbody>${isActiveOrders(active)?activePageRows(page):page.map(r=>`<tr>${displayColumns.map(k=>`<td>${escapeHTML(reportValue(k,r[k]))}</td>`).join('')}</tr>`).join('')}${index===printPages.length-1?totalRow:''}</tbody></table></main>
+      <main><table><colgroup>${displayColumns.map((k,i)=>`<col style="width:${printColumnWidths[i]}">`).join('')}</colgroup><thead><tr>${displayColumns.map(k=>`<th>${escapeHTML(isActiveOrders(active)?({picture:'IMAGE',style_desc:'STYLE NUMBER',factory_ref:'FTY REF',shell_fabric:'FABRIC DESC',qty_ship_balance:'ORDER QUANTITY',ship_date:'SHIP DATE',total_value_usd:'VALUE (USD)'}[k]||label(k)):label(k))}</th>`).join('')}</tr></thead><tbody>${isActiveOrders(active)?activePageRows(page):isDataEntry(active)?entryPageRows(page):page.map(r=>`<tr>${displayColumns.map(k=>`<td>${escapeHTML(reportValue(k,r[k]))}</td>`).join('')}</tr>`).join('')}${index===printPages.length-1?totalRow:''}</tbody></table></main>
       <footer><span>Printed by: ${escapeHTML(printedBy)}</span><span>Printed on: ${escapeHTML(when)}</span><span>Page ${index+1} of ${printPages.length}</span></footer>
     </section>`).join('')
     const pdfColour=outputMode==='pdf'
