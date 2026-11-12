@@ -250,10 +250,10 @@ export default function Reports() {
         }
         const keyFor=o=>JSON.stringify([String(o?.buyer_name||'').trim().toLowerCase(),String(o?.style_number||'').trim().toLowerCase()])
         const lookupWizard=async(table,fields)=>{const result=[];for(let offset=0;offset<30000;offset+=750){const {data,error}=await supabase.from(table).select(fields).range(offset,offset+749);if(error)throw error;result.push(...(data||[]));if(!data||data.length<750)break}return result}
-        const [washRows,sizeRows]=await Promise.all([lookupWizard('washing','order_id,color_name,wash_ref,wash_type'),lookupWizard('size_groups','order_id,group_name')])
+        const [sizeRows,colourRows]=await Promise.all([lookupWizard('size_groups','id,order_id,group_name'),lookupWizard('size_group_colors','size_group_id,color_name')])
         const styleCounts=new Map(),orderLookup=new Map(all.map(o=>[o.id,o]))
         const countFor=o=>{const key=keyFor(o);if(!styleCounts.has(key))styleCounts.set(key,{washes:new Set(),sizes:new Set()});return styleCounts.get(key)}
-        for(const item of washRows){const o=orderLookup.get(item.order_id);if(!o)continue;const colour=String(item.color_name||'').trim().toLowerCase(),wash=String(item.wash_ref||'').trim().toLowerCase();const name=[colour,wash].filter(Boolean).join(' | ');if(name)countFor(o).washes.add(name)}
+        const sizeToOrder=new Map(sizeRows.map(g=>[g.id,g.order_id]));for(const item of colourRows){const o=orderLookup.get(sizeToOrder.get(item.size_group_id));if(!o)continue;const colour=String(item.color_name||'').trim().toLowerCase();if(colour)countFor(o).washes.add(colour)}
         for(const item of sizeRows){const o=orderLookup.get(item.order_id);if(!o)continue;const name=String(item.group_name||'').trim().toLowerCase();if(name)countFor(o).sizes.add(name)}
         const [commentResult,parcelResult]=await Promise.all([supabase.from('sample_comments').select('sample_id,comment_type,comment_date').order('comment_date'),supabase.from('parcels').select('id,items,status,dispatch_date,dispatched_at,delivered_at,updated_at,created_at')])
         if(commentResult.error)throw commentResult.error
@@ -516,7 +516,7 @@ export default function Reports() {
               let span=1
               while(i+span<segment.length && (segment[i+span].row.buyer_name||'')===buyer)span++
               tds+=`<td rowspan="${span}" class="merged-cell">${escapeHTML(buyer)}</td>`
-            }else if(k==='approvals'){const entries=String(entry.row.approvals||'').split('\n').filter(Boolean).map(line=>{const cut=line.lastIndexOf(': ');return cut<0?'<div class="approval-line">'+escapeHTML(line)+'</div>':'<div class="approval-line"><span>'+escapeHTML(line.slice(0,cut))+'</span><b>[ '+escapeHTML(line.slice(cut+2))+' ]</b></div>'}).join('');tds+=`<td class="approvals-cell">${entries}</td>`}else if(k==='shell_fabric'){const fabric=String(entry.row.shell_fabric||'');const split=fabric.indexOf(' — ');tds+=`<td>${split>=0?'<b>'+escapeHTML(fabric.slice(0,split))+'</b><div>'+escapeHTML(fabric.slice(split+3))+'</div>':escapeHTML(fabric)}</td>`}else tds+=`<td>${activeCellHTML(k,entry.row)}</td>`
+            }else if(k==='approvals'){if(i>0)continue;const entries=String(entry.row.approvals||'').split('\n').filter(Boolean).map(line=>{const cut=line.lastIndexOf(': ');return cut<0?'<div class="approval-line">'+escapeHTML(line)+'</div>':'<div class="approval-line"><span>'+escapeHTML(line.slice(0,cut))+'</span><b>[ '+escapeHTML(line.slice(cut+2))+' ]</b></div>'}).join('');tds+=`<td rowspan="${segment.length}" class="approvals-cell">${entries}</td>`}else if(k==='shell_fabric'){const fabric=String(entry.row.shell_fabric||'');const split=fabric.indexOf(' — ');tds+=`<td>${split>=0?'<b>'+escapeHTML(fabric.slice(0,split))+'</b><div>'+escapeHTML(fabric.slice(split+3))+'</div>':escapeHTML(fabric)}</td>`}else tds+=`<td>${activeCellHTML(k,entry.row)}</td>`
           }
           output.push(`<tr>${tds}</tr>`)
         })
