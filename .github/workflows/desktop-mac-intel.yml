@@ -80,6 +80,9 @@ jobs:
       - name: Test OS-encrypted credential store foundation
         working-directory: desktop
         run: node offlineCredentialStore.test.cjs
+      - name: Test integrated offline authentication coordinator
+        working-directory: desktop
+        run: node offlineAuthService.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
