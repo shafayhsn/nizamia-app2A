@@ -211,8 +211,17 @@ export default function Reports() {
       if(cancelled)return
       let finalRows=all
       if(active.business || active.operations || active.phase4){
+        // Related records are only used to label the report. Fetch the small
+        // set of fields needed for joins, not entire orders or document snapshots.
+        const lookupFields={
+          orders:'id,job_number,buyer_name,style_number,po_number',
+          suppliers:'id,name',
+          purchase_orders:'id,order_id,supplier_id,po_number',
+          work_orders:'id,order_id,vendor_id,wo_number',
+          shipments:'id,shipment_no'
+        }
         const lookup=async(table)=>{
-          const result=[];let offset=0;while(offset<30000){const {data,error}=await supabase.from(table).select('*').range(offset,offset+749);if(error)throw error;result.push(...(data||[]));if(!data||data.length<750)break;offset+=750}return result
+          const result=[];let offset=0;while(offset<30000){const {data,error}=await supabase.from(table).select(lookupFields[table]||'*').range(offset,offset+749);if(error)throw error;result.push(...(data||[]));if(!data||data.length<750)break;offset+=750}return result
         }
         const [orders,suppliers,purchase,work]=await Promise.all([
           active.table==='orders'?Promise.resolve(all):lookup('orders'),lookup('suppliers'),
