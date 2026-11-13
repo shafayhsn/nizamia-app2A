@@ -19,6 +19,7 @@ export const BACKUP_TABLES = [
   'orders',
   'order_queues',
   'order_processes',
+  'pp_meetings',
   'testing_orders',
   'testing_requirements',
 
@@ -74,6 +75,7 @@ export const BACKUP_TABLES = [
   'packing_snapshots',
   'parcels',
   'parcel_invoice_snapshots',
+  'parcel_status_history',
   'sample_number_migration_20261016',
   'production_batches',
   'production_batch_orders',
@@ -93,6 +95,8 @@ export const BACKUP_TABLES = [
   'costing_batches',
   'costing_sheets',
   'costing_sheet_versions',
+  'proforma_invoices',
+  'proforma_invoice_revisions',
 ]
 
 const ZERO_UUID = '00000000-0000-0000-0000-000000000000'
@@ -103,7 +107,7 @@ const BATCH_SIZE = 500
  */
 const PAGE_SIZE = 500
 export const BACKUP_STORAGE_BUCKETS = ['company-assets']
-const PROTECTED_BACKUP_TABLES = new Set(['buyer_addresses','buyer_contacts','parcel_invoice_snapshots','testing_orders','testing_requirements','costing_batches','costing_sheets','costing_sheet_versions'])
+const PROTECTED_BACKUP_TABLES = new Set(['buyer_addresses','buyer_contacts','parcel_invoice_snapshots','testing_orders','testing_requirements','costing_batches','costing_sheets','costing_sheet_versions','parcel_status_history','pp_meetings','proforma_invoices','proforma_invoice_revisions'])
 
 /** Fail closed: a missing or inaccessible table must never be recorded as empty. */
 async function fetchTable(tableName) {
