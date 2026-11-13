@@ -27,6 +27,11 @@ const MODULES = [
   { key: 'all', label: 'All tables', match: () => true }
 ]
 function App() {
+  const [reportDefinitions,setReportDefinitions]=useState([])
+  const [reportKey,setReportKey]=useState('')
+  const [systemReport,setSystemReport]=useState(null)
+  const [reportBusy,setReportBusy]=useState(false)
+  const [reportError,setReportError]=useState('')
   const [summary, setSummary] = useState(null)
   const [workspace, setWorkspace] = useState(null)
   const [passphrase, setPassphrase] = useState('')
@@ -70,6 +75,7 @@ function App() {
   useEffect(() => {
     const api = window.localSnapshot
     if (!api) { setError('Local SQLite bridge is unavailable. Open this screen from the desktop Database menu.'); return }
+    api.systemReportDefinitions?.().then(setReportDefinitions).catch(e=>setReportError(e.message))
     api.workspaceStatus?.().then(setWorkspace).catch(e => setWorkspaceError(e.message))
     Promise.all([api.summary(), api.tables()]).then(([s, t]) => {
       setSummary(s); setTables(t)
@@ -246,6 +252,14 @@ function App() {
     catch (e) { setGlobalError(e.message) }
     finally { setGlobalBusy(false) }
   }
+  async function runSystemReport(event) {
+    event.preventDefault()
+    if (!reportKey) return
+    setReportBusy(true);setReportError('');setSystemReport(null)
+    try {setSystemReport(await window.localSnapshot.systemReport(reportKey))}
+    catch(e) {setReportError(e.message)}
+    finally {setReportBusy(false)}
+  }
   async function exportSelectedExcel() {
     if (!selected || exporting) return
     setExporting(true);setError('');setExportMessage('')
@@ -297,6 +311,16 @@ function App() {
         </div>)}</div>
       </div>}
     </section>
+    {module === 'reports' && <section className="notice" aria-label="Operational reports">
+      <h2>System reports · From saved OMS data</h2>
+      <p>Reports calculate directly from the imported Orders, Production, Purchasing and Tasks records. No manually entered report figures. The report reflects the last imported snapshot, not live cloud data.</p>
+      <form onSubmit={runSystemReport}><select aria-label="Operational report" value={reportKey} onChange={e=>{setReportKey(e.target.value);setSystemReport(null)}}><option value="">Choose system report</option>{reportDefinitions.map(d=><option key={d.key} value={d.key}>{d.title}</option>)}</select><button disabled={!reportKey||reportBusy}>{reportBusy?'Calculating…':'Generate report'}</button></form>
+      {reportError && <p role="alert">{reportError}</p>}
+      {systemReport && <div><h3>{systemReport.title}</h3>{!systemReport.available ? <p role="status">Unavailable: {systemReport.reason}. No figures have been estimated.</p> : <>
+        <p>{systemReport.totalRecords.toLocaleString()} source records · Grouped by {systemReport.groupField.replaceAll('_',' ')}</p>
+        <div className="tablewrap"><table><thead><tr><th>Group</th><th>Records</th>{systemReport.quantityAvailable&&<th>Quantity (available records only)</th>}</tr></thead><tbody>{systemReport.rows.map(r=><tr key={r.group}><td>{r.group}</td><td>{r.records.toLocaleString()}</td>{systemReport.quantityAvailable&&<td>{r.quantityRecords?r.quantity.toLocaleString()+' ('+r.quantityRecords+' records)':'Not recorded'}</td>}</tr>)}</tbody></table></div>
+      </>}</div>}
+    </section>}
     <div className="modules" role="tablist" aria-label="Offline business modules">{MODULES.map(m => <button key={m.key} role="tab" aria-selected={module === m.key} className={module === m.key ? 'active' : ''} onClick={() => { setModule(m.key); setSelected(null); setRows([]); setOffset(0); setSearch(''); setDetail(null); setRecordQuery(''); setDepartment('') }}>{m.label}</button>)}</div>
     <div className="layout">
       <aside><input aria-label="Search tables" placeholder="Search tables…" value={search} onChange={e => setSearch(e.target.value)}/><nav>{tables.filter(t => MODULES.find(m => m.key === module).match(t.name) && t.name.toLowerCase().includes(search.toLowerCase())).map(t => <button key={t.name} className={selected?.name === t.name ? 'active' : ''} onClick={() => {setSelected(t);setPresetMessage('');setOffset(0);setRows([]);setDetail(null);setRecordQuery('');setDepartment('');setDepartments([]);setVisibleColumns(null);setSortBy('');setDescending(false);setColumnEditor(false)}}><span>{t.name.replaceAll('_',' ')}</span><span>{t.count}</span></button>)}</nav></aside>
