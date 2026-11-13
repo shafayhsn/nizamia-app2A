@@ -30,6 +30,7 @@
       "offlineWorkspace.cjs",
       "offlineDraftPreview.cjs",
       "offlineDraftRecovery.cjs",
+      "offlineReportLayout.cjs",
       "snapshotStartup.cjs",
       "offlineCsvExport.cjs",
       "offlineDraft.cjs",
