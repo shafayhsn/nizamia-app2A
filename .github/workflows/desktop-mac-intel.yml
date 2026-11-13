@@ -68,6 +68,9 @@ jobs:
       - name: Validate offline draft safety and conflicts
         working-directory: desktop
         run: node offlineDraft.test.cjs
+      - name: Test expiring offline authentication verifier
+        working-directory: desktop
+        run: node offlineAuthVerifier.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
