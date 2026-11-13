@@ -2,12 +2,14 @@
 // Main-process authentication bridge. Only a verified offline credential enrolled
 // through the trusted server flow can create a session. No renderer permissions.
 const path = require('node:path')
-const { safeStorage, app } = require('electron')
+const fs = require('node:fs')
+const { safeStorage, app, dialog, BrowserWindow } = require('electron')
 const { createCredentialStore } = require('./offlineCredentialStore.cjs')
 const { createOfflineAuthService } = require('./offlineAuthService.cjs')
 const { createOfflineSessionManager } = require('./offlineSessionManager.cjs')
 const { listDrafts, cancelDraft } = require('./offlineDraftJournal.cjs')
 const { previewLocalDrafts } = require('./offlineDraftPreview.cjs')
+const { buildDraftRecovery } = require('./offlineDraftRecovery.cjs')
 function createOfflineWorkspace(getDirectory) {
   const store = createCredentialStore({
     safeStorage,
@@ -45,6 +47,29 @@ function createOfflineWorkspace(getDirectory) {
       return sessions.login(args.passphrase)
     }
     if (name === 'logout') { sessions.logout(); return { authenticated: false } }
+    if (name === 'exportRecovery') {
+      const session = authenticated()
+      const directory = getDirectory()
+      if (!directory) throw new Error('Local database not configured')
+      const recovery = await buildDraftRecovery({ directory, session,
+        authenticateSession: async () => sessions.status().identity === session.identity })
+      if (!sessions.status().authenticated || sessions.status().identity !== session.identity)
+        throw new Error('Offline session expired during export')
+      const choice = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow() || undefined, {
+        title: 'Export private offline draft recovery copy',
+        defaultPath: 'nizamia-offline-drafts-' + new Date().toISOString().slice(0,10) + '.json',
+        filters: [{ name: 'JSON recovery copy', extensions: ['json'] }]
+      })
+      if (choice.canceled || !choice.filePath) return { cancelled: true }
+      if (path.extname(choice.filePath).toLowerCase() !== '.json') throw new Error('JSON recovery destination required')
+      if (!sessions.status().authenticated || sessions.status().identity !== session.identity)
+        throw new Error('Offline session expired during export')
+      const destination = choice.filePath
+      if (fs.existsSync(destination) && (!fs.lstatSync(destination).isFile() || fs.lstatSync(destination).isSymbolicLink()))
+        throw new Error('Unsafe recovery destination')
+      fs.writeFileSync(destination, JSON.stringify(recovery, null, 2), { mode: 0o600, flag: 'w' })
+      return { exported: recovery.drafts.length, file: path.basename(destination) }
+    }
     if (name === 'previewDrafts') {
       const session = authenticated()
       const directory = getDirectory()
