@@ -7,7 +7,8 @@ const DRAFT_AUD = 'nizamia-app2a-offline-draft-v1'
 const PERMISSIONS = new Set(['offline:draft:orders','offline:draft:production_daily_entries'])
 function createOfflineGrantIssuer({ privateKey, authorize, now = () => Date.now() }) {
   if (typeof authorize !== 'function' || typeof now !== 'function') throw new Error('Trusted authorization callback required')
-  const key = crypto.createPrivateKey(privateKey)
+  const key = privateKey instanceof crypto.KeyObject && privateKey.type === 'private'
+    ? privateKey : crypto.createPrivateKey(privateKey)
   if (key.asymmetricKeyType !== 'ed25519') throw new Error('Ed25519 signing key required')
   function clock() {
     const t = now()
