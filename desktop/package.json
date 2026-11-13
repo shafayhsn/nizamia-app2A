@@ -39,6 +39,7 @@
       "offlineGlobalSearch.cjs",
       "offlinePageCoverage.cjs",
       "offlineSystemReports.cjs",
+      "offlineCrossModuleReports.cjs",
       "snapshotStartup.cjs",
       "offlineCsvExport.cjs",
       "offlineDraft.cjs",
