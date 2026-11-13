@@ -61,7 +61,8 @@ async function querySnapshot(directory, action, args) {
       if (typeof department !== 'string' || department.length > 80) throw new Error('Invalid department')
       if (!db.exec('SELECT 1 FROM snapshot_manifest WHERE table_name = ?', [name]).length) throw new Error('Unknown table')
       // Only snapshot JSON is searched; never executes user-supplied SQL.
-      const matches = []
+      const page = []
+      let total = 0
       const departmentsSeen = new Set()
       const statement = db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index')
       try {
@@ -74,11 +75,12 @@ async function querySnapshot(directory, action, args) {
             if (label) departmentsSeen.add(String(label))
           }
           if (department && String(record.department || record.dept || record.department_name || '').toLowerCase() !== department.toLowerCase()) continue
-          matches.push(record)
+          if (total >= offset && page.length < 25) page.push(record)
+          total++
         }
       } finally { statement.free() }
       const departments = [...departmentsSeen].sort()
-      return { total: matches.length, departments, rows: matches.slice(offset, offset + 25) }
+      return { total, departments, rows: page }
     }
     if (action === 'relatedRows') {
       const orderId = args?.orderId
