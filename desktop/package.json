@@ -38,6 +38,7 @@
       "offlineAuthorizationClient.cjs",
       "offlineGlobalSearch.cjs",
       "offlinePageCoverage.cjs",
+      "offlineSystemReports.cjs",
       "snapshotStartup.cjs",
       "offlineCsvExport.cjs",
       "offlineDraft.cjs",
