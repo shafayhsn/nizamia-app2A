@@ -1,6 +1,11 @@
 'use strict'
 const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('localSnapshot', Object.freeze({
+  workspaceStatus: () => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:status', {}),
+  workspaceLogin: passphrase => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:login', { passphrase }),
+  workspaceLogout: () => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:logout', {}),
+  workspaceDrafts: () => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:drafts', {}),
+  workspaceCancelDraft: draftId => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:cancelDraft', { draftId }),
   exportCsv: (table, query, department) => ipcRenderer.invoke('nizamia-local-snapshot', 'exportCsv', { table, query, department }),
   filteredRows: (table, offset, query, department) => ipcRenderer.invoke('nizamia-local-snapshot', 'filteredRows', { table, offset, query, department }),
   relatedRows: orderId => ipcRenderer.invoke('nizamia-local-snapshot', 'relatedRows', { orderId }),
