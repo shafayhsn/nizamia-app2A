@@ -30,6 +30,15 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Validate production web application build
         run: npm run build
+      - name: Build packaged React assets with relative URLs
+        env:
+          APP2A_DESKTOP_BUILD: '1'
+        run: npm run build
+      - name: Verify desktop React bundle
+        run: |
+          test -s dist/index.html
+          test -d dist/assets
+          grep -q 'assets/' dist/index.html
       - name: Install desktop dependencies
         working-directory: desktop
         run: npm install --no-audit --no-fund
