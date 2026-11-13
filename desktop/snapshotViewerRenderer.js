@@ -33,8 +33,15 @@ async function selectTable(item) {
 }
 $('prev').addEventListener('click', () => { if (selected && offset >= 25) { offset -= 25; loadPage() } })
 $('next').addEventListener('click', () => { if (selected && offset+25 < selected.count) { offset += 25; loadPage() } })
+$('filter').addEventListener('input', () => {
+  const q = $('filter').value.trim().toLowerCase()
+  for (const el of document.querySelectorAll('.item')) el.hidden = !el.dataset.table.includes(q)
+})
 async function start() {
   try {
+    const summary = await window.localSnapshot.summary()
+    $('total').textContent = summary.tables.toLocaleString() + ' tables · ' + summary.records.toLocaleString() + ' records'
+    $('freshness').textContent = summary.importedAt ? 'Snapshot imported: ' + new Date(summary.importedAt).toLocaleString() : 'Snapshot date unknown'
     tables = await window.localSnapshot.tables()
     for (const item of tables) {
       const btn = document.createElement('button')
