@@ -2,9 +2,10 @@
 // Read-only local snapshot viewer. Never exposes SQLite to the remote App-2A site.
 const fs = require('node:fs')
 const path = require('node:path')
-const { BrowserWindow, ipcMain, dialog } = require('electron')
+const { BrowserWindow, ipcMain, dialog, app } = require('electron')
 const { csvFromRows, selectSnapshotRows } = require('./offlineCsvExport.cjs')
 const { layoutRows, validateLayout } = require('./offlineReportLayout.cjs')
+const { createReportPresets } = require('./offlineReportPresets.cjs')
 const { createOfflineWorkspace } = require('./offlineWorkspace.cjs')
 const initSqlJs = require('sql.js')
 const channel = 'nizamia-local-snapshot'
@@ -203,6 +204,14 @@ function showLocalSnapshot(parent, getDirectory) {
       const senderURL = new URL(event.sender.getURL())
       if (senderURL.protocol !== 'file:' || decodeURIComponent(senderURL.pathname) !== activeViewerFile)
         throw new Error('Unexpected viewer origin')
+      if (typeof action === 'string' && action.startsWith('preset:')) {
+        const presets = createReportPresets(app.getPath('userData'))
+        const command = action.slice('preset:'.length)
+        if (command === 'get') return presets.get(args?.table)
+        if (command === 'save') return presets.save(args?.table, args?.layout)
+        if (command === 'remove') return presets.remove(args?.table)
+        throw new Error('Unsupported report preset action')
+      }
       if (typeof action === 'string' && action.startsWith('workspace:'))
         return workspace.action(action.slice('workspace:'.length), args)
       return querySnapshot(selectedDirectory, action, args)
