@@ -90,6 +90,7 @@ async function querySnapshot(directory, action, args) {
       const names = ['size_groups', 'size_group_colors', 'size_group_breakdown', 'bom_items', 'purchase_orders', 'order_queues', 'washing', 'finishing', 'finishing_packs', 'production_daily_entries', 'production_batch_orders', 'production_entries', 'order_items']
       const available = new Set((db.exec('SELECT table_name FROM snapshot_manifest')[0]?.values || []).map(v => v[0]))
       const sizeGroupIds = new Set()
+      const colorIds = new Set()
       for (const name of names) {
         if (!available.has(name)) continue
         const found = []
@@ -100,8 +101,10 @@ async function querySnapshot(directory, action, args) {
             const record = JSON.parse(statement.get()[0])
             const direct = String(record.order_id ?? '') === String(orderId)
             const viaGroup = (name === 'size_group_colors' || name === 'size_group_breakdown') && sizeGroupIds.has(String(record.size_group_id ?? ''))
-            if (direct || viaGroup) {
+            const viaColor = name === 'size_group_breakdown' && colorIds.has(String(record.color_id ?? ''))
+            if (direct || viaGroup || viaColor) {
               if (name === 'size_groups' && record.id != null) sizeGroupIds.add(String(record.id))
+              if (name === 'size_group_colors' && record.id != null) colorIds.add(String(record.id))
               found.push(record)
               if (found.length >= 100) break
             }
