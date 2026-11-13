@@ -22,9 +22,36 @@ function createWindow() {
     }
   })
 
+  // Reports generate PDF/print content using window.open('', '_blank') and
+  // document.write(). Permit ONLY this blank child window; block all other
+  // popup creation. Child windows inherit the sandboxed renderer security.
   win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url === 'about:blank' || url === '') {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 1050, height: 800,
+          title: 'Nizamia Report',
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+            webSecurity: true,
+            devTools: !app.isPackaged
+          }
+        }
+      }
+    }
     if (allowedNavigation(url)) shell.openExternal(url)
+    else if (/^https:\/\//i.test(url)) shell.openExternal(url)
     return { action: 'deny' }
+  })
+  win.webContents.on('did-create-window', child => {
+    child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    child.webContents.on('will-navigate', (event, url) => {
+      if (url !== 'about:blank') event.preventDefault()
+    })
+    child.webContents.on('will-attach-webview', event => event.preventDefault())
   })
   win.webContents.on('will-navigate', (event, url) => {
     if (!allowedNavigation(url)) {
