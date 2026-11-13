@@ -1,16 +1,29 @@
 'use strict'
 const assert = require('node:assert/strict')
+const crypto = require('node:crypto')
+const { AUDIENCE } = require('./offlineEnrollmentProof.cjs')
+const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519')
+function sign(identity, nonce, issuedAt, expiresAt) {
+  const claims = { audience: AUDIENCE, identity, nonce, issuedAt, expiresAt }
+  const data = JSON.stringify([claims.audience, claims.identity, claims.nonce, claims.issuedAt, claims.expiresAt])
+  return { claims, signature: crypto.sign(null, Buffer.from(data), privateKey).toString('base64url') }
+}
 const { createOfflineAuthService } = require('./offlineAuthService.cjs')
 const now = 1800000000000
 let saved = null
 let saves = 0
 const store = { load: () => saved, save: entry => { saved = structuredClone(entry); saves++ } }
-const denied = createOfflineAuthService({ store, authorizeEnrollment: async () => false })
+const denied = createOfflineAuthService({ store, authorizeEnrollment: async () => false, enrollmentPublicKey: publicKey })
 async function run() {
-  await assert.rejects(denied.enroll({ identity: 'worker_1', passphrase: 'a sufficiently long passphrase', onlineProof: 'fake' }, now), /denied/)
+  const rejectedNonce = denied.beginEnrollment(now).nonce
+  await assert.rejects(denied.enroll({ identity: 'worker_1', passphrase: 'a sufficiently long passphrase', onlineProof: sign('worker_1', rejectedNonce, now, now + 60000) }, now), /denied/)
   assert.equal(saved, null)
-  const service = createOfflineAuthService({ store, authorizeEnrollment: async ({ identity, onlineProof }) => identity === 'worker_1' && onlineProof === 'trusted-test-fixture' })
-  await service.enroll({ identity: 'worker_1', passphrase: 'a sufficiently long passphrase', onlineProof: 'trusted-test-fixture' }, now)
+  const service = createOfflineAuthService({ store, enrollmentPublicKey: publicKey, authorizeEnrollment: async ({ identity }) => identity === 'worker_1' })
+  const nonce = service.beginEnrollment(now).nonce
+  await assert.rejects(service.enroll({ identity: 'worker_1', passphrase: 'a sufficiently long passphrase', onlineProof: sign('worker_1', 'f'.repeat(64), now, now + 60000) }, now), /signed enrollment/)
+  await assert.rejects(service.enroll({ identity: 'worker_1', passphrase: 'a sufficiently long passphrase', onlineProof: sign('worker_1', nonce, now, now + 60000) }, now), /signed enrollment/, 'Consumed challenge cannot be reused')
+  const freshNonce = service.beginEnrollment(now).nonce
+  await service.enroll({ identity: 'worker_1', passphrase: 'a sufficiently long passphrase', onlineProof: sign('worker_1', freshNonce, now, now + 60000) }, now)
   assert.equal(saved.verifier.identity, 'worker_1')
   assert.equal(JSON.stringify(saved).includes('a sufficiently long passphrase'), false)
   for (let i = 0; i < 5; i++) assert.equal(service.authenticate('incorrect passphrase', now + i + 1).authenticated, false)
