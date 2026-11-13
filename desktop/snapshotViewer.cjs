@@ -4,6 +4,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { BrowserWindow, ipcMain, dialog } = require('electron')
 const { csvFromRows, selectSnapshotRows } = require('./offlineCsvExport.cjs')
+const { layoutRows, validateLayout } = require('./offlineReportLayout.cjs')
 const { createOfflineWorkspace } = require('./offlineWorkspace.cjs')
 const initSqlJs = require('sql.js')
 const channel = 'nizamia-local-snapshot'
@@ -32,7 +33,8 @@ async function querySnapshot(directory, action, args) {
     if (ok[0]?.values[0]?.[0] !== 'ok') throw new Error('SQLite integrity check failed')
     if (action === 'exportCsv') {
       const rows = selectSnapshotRows(db, args || {})
-      const csv = csvFromRows(rows)
+      const formatted = layoutRows(rows, args?.layout || {})
+      const csv = csvFromRows(formatted)
       const proposed = args.table + '-offline-' + new Date().toISOString().slice(0, 10) + '.csv'
       const choice = await dialog.showSaveDialog(viewer, {
         title: 'Export local snapshot as CSV (read only)',
@@ -88,13 +90,14 @@ async function querySnapshot(directory, action, args) {
       const offset = args?.offset
       const query = args?.query
       const department = args?.department
+      const layout = validateLayout(args?.layout || {})
       if (typeof name !== 'string' || !/^[a-z][a-z0-9_]*$/.test(name)) throw new Error('Invalid table')
       if (!Number.isInteger(offset) || offset < 0 || offset > 10000000) throw new Error('Invalid offset')
       if (typeof query !== 'string' || query.length > 120) throw new Error('Invalid search')
       if (typeof department !== 'string' || department.length > 80) throw new Error('Invalid department')
       if (!db.exec('SELECT 1 FROM snapshot_manifest WHERE table_name = ?', [name]).length) throw new Error('Unknown table')
       // Only snapshot JSON is searched; never executes user-supplied SQL.
-      const page = []
+      const matches = []
       let total = 0
       const departmentsSeen = new Set()
       const statement = db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index')
@@ -108,11 +111,14 @@ async function querySnapshot(directory, action, args) {
             if (label) departmentsSeen.add(String(label))
           }
           if (department && String(record.department || record.dept || record.department_name || '').toLowerCase() !== department.toLowerCase()) continue
-          if (total >= offset && page.length < 25) page.push(record)
+          matches.push(record)
           total++
         }
       } finally { statement.free() }
       const departments = [...departmentsSeen].sort()
+      if (matches.length > 20000 && layout.sortBy) throw new Error('Sorting more than 20,000 records requires narrower filters')
+      const sorted = layout.sortBy ? layoutRows(matches, { sortBy: layout.sortBy, descending: layout.descending }) : matches
+      const page = sorted.slice(offset, offset + 25)
       return { total, departments, rows: page }
     }
     if (action === 'relatedRows') {
