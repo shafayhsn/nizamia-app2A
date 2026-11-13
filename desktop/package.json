@@ -23,7 +23,8 @@
       "main.cjs",
       "package.json",
       "localDatabase.cjs",
-      "snapshotImport.cjs"
+      "snapshotImport.cjs",
+      "snapshotInspect.cjs"
     ],
     "mac": {
       "category": "public.app-category.business",
