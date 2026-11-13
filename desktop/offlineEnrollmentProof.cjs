@@ -20,7 +20,8 @@ function verifyEnrollmentProof({ proof, identity, nonce, publicKey, now = Date.n
       claims.expiresAt - claims.issuedAt > MAX_LIFETIME_MS ||
       typeof signature !== 'string' || !/^[A-Za-z0-9_-]{86}$/.test(signature)) return false
   try {
-    const key = crypto.createPublicKey(publicKey)
+    const key = publicKey instanceof crypto.KeyObject && publicKey.type === 'public'
+      ? publicKey : crypto.createPublicKey(publicKey)
     if (key.asymmetricKeyType !== 'ed25519') return false
     const canonical = JSON.stringify([claims.audience, claims.identity, claims.nonce, claims.issuedAt, claims.expiresAt])
     return crypto.verify(null, Buffer.from(canonical), key, Buffer.from(signature, 'base64url'))
