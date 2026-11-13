@@ -22,6 +22,11 @@ const MODULES = [
 ]
 function App() {
   const [summary, setSummary] = useState(null)
+  const [workspace, setWorkspace] = useState(null)
+  const [passphrase, setPassphrase] = useState('')
+  const [drafts, setDrafts] = useState([])
+  const [authBusy, setAuthBusy] = useState(false)
+  const [workspaceError, setWorkspaceError] = useState('')
   const [tables, setTables] = useState([])
   const [search, setSearch] = useState('')
   const [module, setModule] = useState('dashboard')
@@ -43,6 +48,7 @@ function App() {
   useEffect(() => {
     const api = window.localSnapshot
     if (!api) { setError('Local SQLite bridge is unavailable. Open this screen from the desktop Database menu.'); return }
+    api.workspaceStatus?.().then(setWorkspace).catch(e => setWorkspaceError(e.message))
     Promise.all([api.summary(), api.tables()]).then(([s, t]) => {
       setSummary(s); setTables(t)
     }).catch(e => setError(e.message))
@@ -75,6 +81,35 @@ function App() {
     window.localSnapshot.relatedRows(detail.id).then(data => { if (!cancelled) setRelated(data) }).catch(e => { if (!cancelled) setError(e.message) })
     return () => { cancelled = true }
   }, [detail, selected])
+  async function loginOffline(event) {
+    event.preventDefault()
+    setAuthBusy(true); setWorkspaceError('')
+    try {
+      const result = await window.localSnapshot.workspaceLogin(passphrase)
+      setPassphrase('')
+      if (!result.authenticated) {
+        setWorkspaceError('Offline sign-in denied: ' + (result.reason || 'invalid credentials'))
+      }
+      const status = await window.localSnapshot.workspaceStatus()
+      setWorkspace(status)
+      if (status.authenticated) setDrafts(await window.localSnapshot.workspaceDrafts())
+    } catch (e) { setWorkspaceError(e.message); setPassphrase('') }
+    finally { setAuthBusy(false) }
+  }
+  async function logoutOffline() {
+    try {
+      await window.localSnapshot.workspaceLogout()
+      setWorkspace(await window.localSnapshot.workspaceStatus())
+      setDrafts([])
+    } catch (e) { setWorkspaceError(e.message) }
+  }
+  async function cancelOfflineDraft(draftId) {
+    if (!window.confirm('Discard this unsynchronized local draft? This cannot be undone.')) return
+    try {
+      await window.localSnapshot.workspaceCancelDraft(draftId)
+      setDrafts(await window.localSnapshot.workspaceDrafts())
+    } catch (e) { setWorkspaceError(e.message) }
+  }
   async function exportSelected() {
     if (!selected || !window.localSnapshot?.exportCsv || exporting) return
     setExporting(true); setError(''); setExportMessage('')
@@ -89,7 +124,21 @@ function App() {
   const fmt = v => v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)
   return <div className="app">
     <header><div><h1>Nizamia App-2A</h1><p>Local records · Offline · Read only</p></div><div className="totals">{summary ? <><strong>{summary.tables} tables</strong><strong>{summary.records.toLocaleString()} records</strong></> : 'Opening SQLite…'}</div></header>
-    <div className="notice" role="status">These sections mirror the web app navigation but only browse tables present in the imported snapshot. They do not provide the live page forms or workflows. CSV export is available for saved records. Editing, offline sign-in, and automatic synchronization are not enabled. Access to this local copy must be protected by your Mac account.{snapshotAgeDays !== null && <strong> Snapshot imported {snapshotAgeDays === 0 ? 'today' : `${snapshotAgeDays} day${snapshotAgeDays === 1 ? '' : 's'} ago`}.{snapshotAgeDays >= 7 ? ' The saved data may be significantly outdated.' : ''}</strong>}{snapshotAgeDays === null && summary && <strong> Snapshot import date unavailable; freshness cannot be verified.</strong>}</div>
+    <div className="notice" role="status">These sections mirror the web app navigation but only browse tables present in the imported snapshot. They do not provide the live page forms or workflows. CSV export is available for saved records. Offline sign-in and draft queue are available only for previously verified enrollments. New enrollment, editing and cloud synchronization are not enabled. Access to this local copy must be protected by your Mac account.{snapshotAgeDays !== null && <strong> Snapshot imported {snapshotAgeDays === 0 ? 'today' : `${snapshotAgeDays} day${snapshotAgeDays === 1 ? '' : 's'} ago`}.{snapshotAgeDays >= 7 ? ' The saved data may be significantly outdated.' : ''}</strong>}{snapshotAgeDays === null && summary && <strong> Snapshot import date unavailable; freshness cannot be verified.</strong>}</div>
+    <section className="notice" aria-label="Offline workspace">
+      <strong>Offline workspace</strong>{workspace?.authenticated ? <>
+        <span> Signed in locally as {workspace.identity}. Pending drafts: {drafts.length}. Cloud sync is not enabled.</span>
+        <button onClick={logoutOffline}>Sign out</button>
+        {drafts.map(d => <div key={d.draftId}><span>{d.table} · {d.recordId} · {d.state} · {d.createdAt}</span> <button onClick={() => cancelOfflineDraft(d.draftId)} disabled={d.state !== 'pending'}>Discard draft</button></div>)}
+      </> : <span> {workspace?.unavailable ? 'Secure storage unavailable: ' + workspace.unavailable :
+        workspace?.enrolled ? 'Existing offline enrollment detected. Sign in to view your draft queue.' :
+        'Offline editing requires a verified enrollment from the server. Enrollment is not yet available in this build.'}</span>}
+      {!workspace?.authenticated && workspace?.enrolled && <form onSubmit={loginOffline}>
+        <input type="password" autoComplete="off" aria-label="Offline passphrase" placeholder="Offline passphrase" value={passphrase} onChange={e => setPassphrase(e.target.value)} required />
+        <button disabled={authBusy}>{authBusy ? 'Signing in…' : 'Sign in'}</button>
+      </form>}
+      {workspaceError && <p role="alert">{workspaceError}</p>}
+    </section>
     <div className="modules" role="tablist" aria-label="Offline business modules">{MODULES.map(m => <button key={m.key} role="tab" aria-selected={module === m.key} className={module === m.key ? 'active' : ''} onClick={() => { setModule(m.key); setSelected(null); setRows([]); setOffset(0); setSearch(''); setDetail(null); setRecordQuery(''); setDepartment('') }}>{m.label}</button>)}</div>
     <div className="layout">
       <aside><input aria-label="Search tables" placeholder="Search tables…" value={search} onChange={e => setSearch(e.target.value)}/><nav>{tables.filter(t => MODULES.find(m => m.key === module).match(t.name) && t.name.toLowerCase().includes(search.toLowerCase())).map(t => <button key={t.name} className={selected?.name === t.name ? 'active' : ''} onClick={() => {setSelected(t);setOffset(0);setRows([]);setDetail(null);setRecordQuery('');setDepartment('');setDepartments([])}}><span>{t.name.replaceAll('_',' ')}</span><span>{t.count}</span></button>)}</nav></aside>
