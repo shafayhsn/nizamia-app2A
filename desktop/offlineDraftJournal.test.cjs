@@ -60,6 +60,19 @@ async function main() {
       session, authenticateSession: async () => true }), { cancelled: false })
     const replacement = await stageDraft({ ...args, changes: { notes: 'after cancellation' }, authenticateEvidence: async () => true })
     assert.equal(replacement.state, 'pending')
+    // Simultaneous edits to distinct fields must both persist, not overwrite.
+    await cancelDraft({ directory: dir, draftId: second.draftId, session, authenticateSession: async () => true })
+    await cancelDraft({ directory: dir, draftId: replacement.draftId, session, authenticateSession: async () => true })
+    const concurrent = await Promise.all([
+      stageDraft({ ...args, changes: { notes: 'concurrent note' }, authenticateEvidence: async () => true }),
+      stageDraft({ ...args, changes: { remarks: 'concurrent remark' }, authenticateEvidence: async () => true })
+    ])
+    assert.equal(concurrent.length, 2)
+    assert.equal((await listDrafts({ directory: dir, session, authenticateSession: async () => true })).length, 2)
+    await assert.rejects(Promise.all([
+      stageDraft({ ...args, changes: { notes: 'racing A' }, authenticateEvidence: async () => true }),
+      stageDraft({ ...args, changes: { notes: 'racing B' }, authenticateEvidence: async () => true })
+    ]), /Pending draft already changes this field/)
     const later = new SQL.Database(fs.readFileSync(file))
     assert.equal(snapshotFingerprint(later), hash)
     assert.equal(later.exec('PRAGMA integrity_check')[0].values[0][0], 'ok')
