@@ -62,6 +62,7 @@ jobs:
           node --check offlineDraftPreview.cjs
           node --check offlineDraftRecovery.cjs
           node --check offlineReportLayout.cjs
+          node --check offlineReportPresets.cjs
           node --check snapshotStartup.cjs
           node --check offlineCsvExport.cjs
           node --check offlineDraftJournal.cjs
@@ -90,6 +91,9 @@ jobs:
       - name: Test offline report sorting and column selection
         working-directory: desktop
         run: node offlineReportLayout.test.cjs
+      - name: Test persistent offline report presets
+        working-directory: desktop
+        run: node offlineReportPresets.test.cjs
       - name: Run desktop security and release guardrails
         working-directory: desktop
         run: node release-guardrails.test.cjs
