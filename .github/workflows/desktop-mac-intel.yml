@@ -65,6 +65,9 @@ jobs:
       - name: Run desktop security and release guardrails
         working-directory: desktop
         run: node release-guardrails.test.cjs
+      - name: Validate offline draft safety and conflicts
+        working-directory: desktop
+        run: node offlineDraft.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
