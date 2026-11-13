@@ -25,6 +25,23 @@ function fingerprint(file) {
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_BYTES) throw new Error('Unsafe snapshot database')
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
 }
+// Stable across journal writes; changes only when the imported snapshot changes.
+function snapshotFingerprint(db) {
+  const hash = crypto.createHash('sha256')
+  for (const table of ['snapshot_manifest', 'snapshot_rows']) {
+    const present = db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", [table])
+    if (!present.length) throw new Error('Missing snapshot table')
+    const query = table === 'snapshot_rows'
+      ? 'SELECT table_name, row_index, row_json FROM snapshot_rows ORDER BY table_name, row_index'
+      : 'SELECT table_name, row_count FROM snapshot_manifest ORDER BY table_name'
+    const stmt = db.prepare(query)
+    try {
+      hash.update(table + '\\n')
+      while (stmt.step()) hash.update(JSON.stringify(stmt.get()) + '\\n')
+    } finally { stmt.free() }
+  }
+  return hash.digest('hex')
+}
 function findRecord(db, table, recordId) {
   const stmt = db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index')
   try {
@@ -63,9 +80,10 @@ async function stageDraft({ directory, table, recordId, changes, grant, session,
   if (!Number.isSafeInteger(now) || now <= 0) throw new Error('Invalid clock')
   assertDirectory(directory)
   const file = path.join(directory, DB_NAME)
-  const snapshotHash = fingerprint(file)
+  const fileHash = fingerprint(file)
   const SQL = await sqlEngine()
   const db = new SQL.Database(fs.readFileSync(file))
+  const snapshotHash = snapshotFingerprint(db)
   try {
     if (db.exec('PRAGMA integrity_check')[0]?.values[0]?.[0] !== 'ok') throw new Error('Database integrity failure')
     const record = findRecord(db, table, recordId)
@@ -80,7 +98,7 @@ async function stageDraft({ directory, table, recordId, changes, grant, session,
       JSON.stringify(draft), 'pending', draft.createdAt
     ])
     // Reject concurrent snapshot replacement before atomic journal persistence.
-    if (fingerprint(file) !== snapshotHash) throw new Error('Snapshot changed during staging')
+    if (fingerprint(file) !== fileHash) throw new Error('Database changed during staging')
     persist(file, db)
     return { draftId: draft.draftId, state: 'pending', table, recordId: draft.recordId }
   } finally { db.close() }
@@ -100,4 +118,4 @@ async function listDrafts({ directory, session, authenticateSession }) {
     return (rows[0]?.values || []).map(([draftId, table, recordId, state, createdAt]) => ({ draftId, table, recordId, state, createdAt }))
   } finally { db.close() }
 }
-module.exports = { stageDraft, listDrafts }
+module.exports = { stageDraft, listDrafts, snapshotFingerprint }
