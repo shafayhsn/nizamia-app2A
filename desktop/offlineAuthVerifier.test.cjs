@@ -1,0 +1,15 @@
+'use strict'
+const assert = require('node:assert/strict')
+const { createVerifier, verifyPassphrase, MAX_AGE_MS } = require('./offlineAuthVerifier.cjs')
+const now = 1800000000000
+const entry = createVerifier('a sufficiently long offline passphrase', 'operator_1', now)
+assert.equal(verifyPassphrase('a sufficiently long offline passphrase', entry, now + 1000), true)
+assert.equal(verifyPassphrase('incorrect passphrase', entry, now + 1000), false)
+assert.equal(verifyPassphrase('a sufficiently long offline passphrase', entry, now + MAX_AGE_MS), false)
+assert.equal(verifyPassphrase('a sufficiently long offline passphrase', { ...entry, expiresAt: entry.expiresAt + 1000 }, now + 1000), false)
+assert.equal(verifyPassphrase('a sufficiently long offline passphrase', { ...entry, verifier: '0'.repeat(64) }, now + 1000), false)
+assert.equal(verifyPassphrase('a sufficiently long offline passphrase', entry, now - 1), false)
+assert.throws(() => createVerifier('short', 'operator_1', now))
+assert.throws(() => createVerifier('a sufficiently long offline passphrase', '../admin', now))
+assert.equal(Object.hasOwn(entry, 'passphrase'), false)
+process.stdout.write('CP-18 expiring offline verifier tests passed.\n')
