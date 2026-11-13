@@ -28,6 +28,7 @@ function App() {
   const [draftPreview, setDraftPreview] = useState(null)
   const [authBusy, setAuthBusy] = useState(false)
   const [workspaceError, setWorkspaceError] = useState('')
+  const [recoveryMessage, setRecoveryMessage] = useState('')
   const [tables, setTables] = useState([])
   const [search, setSearch] = useState('')
   const [module, setModule] = useState('dashboard')
@@ -104,6 +105,13 @@ function App() {
       setDrafts([]); setDraftPreview(null)
     } catch (e) { setWorkspaceError(e.message) }
   }
+  async function exportDraftRecovery() {
+    setWorkspaceError(''); setRecoveryMessage('')
+    try {
+      const result = await window.localSnapshot.workspaceExportRecovery()
+      if (!result.cancelled) setRecoveryMessage('Saved ' + result.exported + ' draft(s) to ' + result.file + '. Keep this private JSON file secure.')
+    } catch (e) { setWorkspaceError(e.message) }
+  }
   async function showDraftPreview(table, recordId) {
     setWorkspaceError('')
     try { setDraftPreview(await window.localSnapshot.workspacePreviewDrafts(table, recordId)) }
@@ -134,7 +142,7 @@ function App() {
     <section className="notice" aria-label="Offline workspace">
       <strong>Offline workspace</strong>{workspace?.authenticated ? <>
         <span> Signed in locally as {workspace.identity}. Pending drafts: {drafts.length}. Cloud sync is not enabled.</span>
-        <button onClick={logoutOffline}>Sign out</button>
+        <button onClick={logoutOffline}>Sign out</button> <button onClick={exportDraftRecovery}>Export draft recovery JSON</button>
         {drafts.map(d => <div key={d.draftId}><span>{d.table} · {d.recordId} · {d.state} · {d.createdAt}</span> <button onClick={() => showDraftPreview(d.table, d.recordId)}>Compare local changes</button> <button onClick={() => cancelOfflineDraft(d.draftId)} disabled={d.state !== 'pending'}>Discard draft</button></div>)}
         {draftPreview && <div className="recorddetail"><button onClick={() => setDraftPreview(null)}>Close comparison</button><h3>Local changes — not synchronized</h3><dl>{Object.keys(draftPreview.preview).filter(key => draftPreview.original[key] !== draftPreview.preview[key]).map(key => <React.Fragment key={key}><dt>{key}</dt><dd>Saved: {String(draftPreview.original[key] ?? '')}</dd><dt>Pending</dt><dd>{String(draftPreview.preview[key] ?? '')}</dd></React.Fragment>)}</dl><p>{draftPreview.pending.length} draft(s) associated with this record. Original snapshot data is unchanged.</p></div>}
       </> : <span> {workspace?.unavailable ? 'Secure storage unavailable: ' + workspace.unavailable :
@@ -144,7 +152,7 @@ function App() {
         <input type="password" autoComplete="off" aria-label="Offline passphrase" placeholder="Offline passphrase" value={passphrase} onChange={e => setPassphrase(e.target.value)} required />
         <button disabled={authBusy}>{authBusy ? 'Signing in…' : 'Sign in'}</button>
       </form>}
-      {workspaceError && <p role="alert">{workspaceError}</p>}
+      {workspaceError && <p role="alert">{workspaceError}</p>}{recoveryMessage && <p role="status">{recoveryMessage}</p>}
     </section>
     <div className="modules" role="tablist" aria-label="Offline business modules">{MODULES.map(m => <button key={m.key} role="tab" aria-selected={module === m.key} className={module === m.key ? 'active' : ''} onClick={() => { setModule(m.key); setSelected(null); setRows([]); setOffset(0); setSearch(''); setDetail(null); setRecordQuery(''); setDepartment('') }}>{m.label}</button>)}</div>
     <div className="layout">
