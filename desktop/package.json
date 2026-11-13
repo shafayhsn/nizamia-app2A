@@ -1,0 +1,48 @@
+{
+  "name": "nizamia-app2a-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nizamia App-2A macOS desktop prototype (online-only)",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac dmg --x64",
+    "dist:win": "electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "com.nizamia.app2a.desktop",
+    "productName": "Nizamia App-2A",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.business",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
+  }
+}
