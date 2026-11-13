@@ -79,7 +79,7 @@ async function loadTemplate(form){
  const data=xChild(sheet.documentElement,'sheetData')
  const header=xChildren(data,'row').find(r=>r.getAttribute('r')==='9')
  if(!header)throw Error('Missing table header in '+form.filename)
- const columns=rowCells(header).filter(c=>cellText(c).trim()).map(c=>({index:colNumber(c.getAttribute('r').replace(/\\d/g,'')),label:cellText(c)}))
+ const columns=rowCells(header).filter(c=>cellText(c).trim()).map(c=>({index:colNumber(c.getAttribute('r').replace(/\d/g,'')),label:cellText(c)}))
  return {book,sheet,data,columns,path}
 }
 function customizeSheet(t,date,visible,rows){
@@ -94,14 +94,14 @@ function customizeSheet(t,date,visible,rows){
  for(const row of footer){
   const newRow=+row.getAttribute('r')+delta
   row.setAttribute('r',String(newRow))
-  for(const cell of rowCells(row))cell.setAttribute('r',cell.getAttribute('r').replace(/\\d+$/,String(newRow)))
+  for(const cell of rowCells(row))cell.setAttribute('r',cell.getAttribute('r').replace(/\d+$/,String(newRow)))
  }
  const before=footer[0]
  for(let i=0;i<count;i++){
   const row=template.cloneNode(true)
   row.setAttribute('r',String(10+i))
   for(const cell of rowCells(row)){
-   cell.setAttribute('r',cell.getAttribute('r').replace(/\\d+$/,String(10+i)))
+   cell.setAttribute('r',cell.getAttribute('r').replace(/\d+$/,String(10+i)))
    for(const child of [...cell.children])if(['v','f','is'].includes(child.localName))child.remove()
    cell.removeAttribute('t')
   }
@@ -115,15 +115,15 @@ function customizeSheet(t,date,visible,rows){
  const merges=xChild(sheet.documentElement,'mergeCells')
  for(const merge of xChildren(merges,'mergeCell')){
   const ref=merge.getAttribute('ref')
-  merge.setAttribute('ref',ref.replace(/(\\d+)/g,n=>+n>=30?String(+n+delta):n))
+  merge.setAttribute('ref',ref.replace(/(\d+)/g,n=>+n>=30?String(+n+delta):n))
  }
  for(const row of xChildren(data,'row')){
   if(+row.getAttribute('r')!==7||!date)continue
   const cell=rowCells(row)[0],v=xChild(cell,'v')
-  if(v)v.textContent=v.textContent.replace(/DATE:\\s*_{3,}/i,'DATE: '+date)
+  if(v)v.textContent=v.textContent.replace(/DATE:\s*_{3,}/i,'DATE: '+date)
  }
  const dimension=xChild(sheet.documentElement,'dimension')
- if(dimension)dimension.setAttribute('ref',dimension.getAttribute('ref').replace(/\\d+$/,String(32+delta)))
+ if(dimension)dimension.setAttribute('ref',dimension.getAttribute('ref').replace(/\d+$/,String(32+delta)))
  return t
 }
 async function buildCustomized(form,date,visible,rows){
@@ -136,7 +136,7 @@ async function downloadCustomized(form,date,visible,rows){
  const t=await buildCustomized(form,date,visible,rows)
  const blob=await t.book.generateAsync({type:'blob',compression:'DEFLATE'})
  const url=URL.createObjectURL(blob),a=document.createElement('a')
- a.href=url;a.download=form.filename.replace(/\\.xlsx$/i,' - Custom.xlsx');document.body.appendChild(a);a.click();a.remove()
+ a.href=url;a.download=form.filename.replace(/\.xlsx$/i,' - Custom.xlsx');document.body.appendChild(a);a.click();a.remove()
  setTimeout(()=>URL.revokeObjectURL(url),15000)
 }
 async function printCustomized(form,date,visible,rows){
@@ -144,7 +144,7 @@ async function printCustomized(form,date,visible,rows){
  const data=xChild(t.sheet.documentElement,'sheetData')
  const entries=xChildren(data,'row')
  const headers=entries.find(r=>+r.getAttribute('r')===9)
- const cellAt=(row,n)=>rowCells(row).find(c=>colNumber(c.getAttribute('r').replace(/\\d/g,''))===n)
+ const cellAt=(row,n)=>rowCells(row).find(c=>colNumber(c.getAttribute('r').replace(/\d/g,''))===n)
  const shown=t.columns.filter(c=>visible.includes(c.index))
  const title=entries.find(r=>+r.getAttribute('r')===3)
  const meta=entries.find(r=>+r.getAttribute('r')===4)
