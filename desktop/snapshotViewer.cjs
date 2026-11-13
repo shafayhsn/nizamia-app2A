@@ -212,6 +212,20 @@ function showLocalSnapshot(parent, getDirectory) {
         const command = action.slice('note:'.length)
         if (command === 'get') return notes.get(args?.table, args?.recordId)
         if (command === 'save') return notes.save(args?.table, args?.recordId, args?.body)
+        if (command === 'import') {
+          const choice = await dialog.showOpenDialog(viewer, {
+            title:'Restore personal offline notes backup',
+            properties:['openFile'],
+            filters:[{name:'JSON notes backup',extensions:['json']}]
+          })
+          if (choice.canceled || choice.filePaths?.length !== 1) return {cancelled:true}
+          const file = choice.filePaths[0]
+          const stat = fs.lstatSync(file)
+          if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 50 * 1024 * 1024)
+            throw new Error('Unsafe notes backup')
+          const backup = JSON.parse(fs.readFileSync(file,'utf8'))
+          return notes.importNotes(backup,'merge')
+        }
         if (command === 'export') {
           const backup = await notes.exportNotes()
           const choice = await dialog.showSaveDialog(viewer, {
