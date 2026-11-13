@@ -5,6 +5,7 @@ const { chooseDatabaseFolder, showDatabaseLocation, getDatabaseDirectory } = req
 const { importBackup } = require('./snapshotImport.cjs')
 const { inspectSnapshot } = require('./snapshotInspect.cjs')
 const { showLocalSnapshot } = require('./snapshotViewer.cjs')
+const fs = require('node:fs')
 
 const APP_URL = 'https://app.nizamia.com'
 const ALLOWED_ORIGIN = new URL(APP_URL).origin
@@ -14,6 +15,14 @@ function allowedNavigation(url) {
   catch { return false }
 }
 
+function openLocalData() {
+  try {
+    const directory = getDatabaseDirectory()
+    if (!directory || !fs.existsSync(path.join(directory, 'nizamia-app2a.sqlite')))
+      throw new Error('Choose a database folder and import a snapshot first.')
+    showLocalSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null, getDatabaseDirectory)
+  } catch (error) { dialog.showErrorBox('Local SQLite viewer', error.message) }
+}
 function createWindow() {
   const win = new BrowserWindow({
     width: 1360, height: 900, minWidth: 960, minHeight: 650,
@@ -97,13 +106,15 @@ app.whenReady().then(() => {
       { label: 'Show Database Location', click: () => showDatabaseLocation(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]) },
       { label: 'Import Read-Only Snapshot…', click: () => importBackup(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },
       { label: 'Verify Local Snapshot…', click: () => inspectSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },
-      { label: 'Browse Local Data (Read Only)…', click: () => { try { showLocalSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory) } catch (error) { dialog.showErrorBox('Local SQLite viewer', error.message) } } }
+      { label: 'Browse Local Data (Read Only)…', click: openLocalData }
     ] },
     { label: 'View', submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }] },
     { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'close' }] }
   ])
   Menu.setApplicationMenu(menu)
   createWindow()
+  // Local records remain accessible without waiting for a cloud timeout.
+  // Opening the viewer never grants editing or cloud synchronization rights.
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
