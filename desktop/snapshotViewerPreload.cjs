@@ -1,6 +1,8 @@
 'use strict'
 const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('localSnapshot', Object.freeze({
+  systemReportDefinitions: () => ipcRenderer.invoke('nizamia-local-snapshot', 'systemReportDefinitions', {}),
+  systemReport: key => ipcRenderer.invoke('nizamia-local-snapshot', 'systemReport', {key}),
   orderDossier: orderId => ipcRenderer.invoke('nizamia-local-snapshot', 'orderDossier', {orderId}),
   globalSearch: query => ipcRenderer.invoke('nizamia-local-snapshot', 'globalSearch', {query}),
   personalNotesImport: () => ipcRenderer.invoke('nizamia-local-snapshot', 'note:import', {}),
