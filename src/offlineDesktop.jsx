@@ -18,6 +18,12 @@ const MODULES = [
   { key: 'buyers', label: 'Buyers', match: n => /buyer|customer/i.test(n) },
   { key: 'suppliers', label: 'Suppliers', match: n => /supplier|vendor/i.test(n) },
   { key: 'library', label: 'Library', match: n => /library|document|attachment|file|media/i.test(n) },
+  { key: 'costing', label: 'Costing', match: n => /cost|quotation|price|margin|consumption/i.test(n) },
+  { key: 'ppmeeting', label: 'PP Meeting', match: n => /pp_meeting|pre_production|meeting|action_point/i.test(n) },
+  { key: 'customreports', label: 'Custom Report Builder', match: n => /report|format|template|quality|qms/i.test(n) },
+  { key: 'users', label: 'Users & Rights', match: () => false },
+  { key: 'settings', label: 'Settings', match: () => false },
+  { key: 'features', label: 'Features', match: () => false },
   { key: 'all', label: 'All tables', match: () => true }
 ]
 function App() {
