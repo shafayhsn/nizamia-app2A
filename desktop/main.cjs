@@ -1,4 +1,5 @@
 'use strict'
+const path = require('node:path')
 const { app, BrowserWindow, shell, dialog, Menu } = require('electron')
 const { chooseDatabaseFolder, showDatabaseLocation, getDatabaseDirectory } = require('./localDatabase.cjs')
 const { importBackup } = require('./snapshotImport.cjs')
@@ -58,6 +59,7 @@ function createWindow() {
     child.webContents.on('will-attach-webview', event => event.preventDefault())
   })
   win.webContents.on('will-navigate', (event, url) => {
+    if (url === 'file://' + path.join(__dirname, 'offline.html')) return
     if (!allowedNavigation(url)) {
       event.preventDefault()
       if (/^https:\/\//i.test(url)) shell.openExternal(url)
@@ -65,7 +67,8 @@ function createWindow() {
   })
   win.webContents.on('will-attach-webview', event => event.preventDefault())
   win.webContents.on('did-fail-load', (_event, code, description, validatedURL, isMainFrame) => {
-    if (isMainFrame && code !== -3) {
+    if (isMainFrame && code !== -3 && validatedURL !== 'file://' + path.join(__dirname, 'offline.html')) {
+      win.loadFile(path.join(__dirname, 'offline.html')).catch(() => {})
       dialog.showMessageBox(win, {
         type: 'warning', title: 'Cloud connection unavailable',
         message: 'App-2A cannot reach the cloud application.',
