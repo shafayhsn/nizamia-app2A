@@ -29,6 +29,20 @@ async function querySnapshot(directory, action, args) {
       const counts = db.exec('SELECT COUNT(*), COALESCE(SUM(row_count), 0) FROM snapshot_manifest')
       return { importedAt: result[0]?.values[0]?.[0] || null, tables: counts[0]?.values[0]?.[0] || 0, records: counts[0]?.values[0]?.[1] || 0 }
     }
+    if (action === 'moduleOverview') {
+      const requested = args?.module
+      if (requested !== 'orders' && requested !== 'production') throw new Error('Unsupported module')
+      const available = new Set((db.exec('SELECT table_name FROM snapshot_manifest')[0]?.values || []).map(row => row[0]))
+      const names = requested === 'orders' ? ['orders'] : ['production_entries', 'production_batch_orders', 'production_batches']
+      const result = {}
+      for (const name of names) {
+        if (!available.has(name)) continue
+        const count = db.exec('SELECT row_count FROM snapshot_manifest WHERE table_name = ?', [name])[0]?.values[0]?.[0] || 0
+        const records = (db.exec('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index LIMIT 100', [name])[0]?.values || []).map(([json]) => JSON.parse(json))
+        result[name] = { count, records }
+      }
+      return result
+    }
     if (action === 'rows') {
       const name = args?.table
       const offset = args?.offset
