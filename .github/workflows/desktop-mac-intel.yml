@@ -60,6 +60,7 @@ jobs:
           node --check snapshotViewer.cjs
           node --check offlineWorkspace.cjs
           node --check offlineDraftPreview.cjs
+          node --check offlineDraftRecovery.cjs
           node --check snapshotStartup.cjs
           node --check offlineCsvExport.cjs
           node --check offlineDraftJournal.cjs
@@ -82,6 +83,9 @@ jobs:
       - name: Test authenticated local draft previews
         working-directory: desktop
         run: node offlineDraftPreview.test.cjs
+      - name: Test offline draft recovery exports
+        working-directory: desktop
+        run: node offlineDraftRecovery.test.cjs
       - name: Run desktop security and release guardrails
         working-directory: desktop
         run: node release-guardrails.test.cjs
