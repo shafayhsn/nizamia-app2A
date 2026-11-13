@@ -20,6 +20,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [overview, setOverview] = useState(null)
   const [recordQuery, setRecordQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [department, setDepartment] = useState('')
   const [departments, setDepartments] = useState([])
   const [filteredTotal, setFilteredTotal] = useState(null)
@@ -33,16 +34,20 @@ function App() {
     }).catch(e => setError(e.message))
   }, [])
   useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(recordQuery), 250)
+    return () => clearTimeout(timer)
+  }, [recordQuery])
+  useEffect(() => {
     if (!selected) return
     let cancelled = false
     setLoading(true); setError('')
-    window.localSnapshot.filteredRows(selected.name, offset, recordQuery, department).then(data => {
+    window.localSnapshot.filteredRows(selected.name, offset, debouncedQuery, department).then(data => {
       if (!cancelled) { setRows(data.rows); setFilteredTotal(data.total); setDepartments(data.departments) }
     }).catch(e => { if (!cancelled) setError(e.message) }).finally(() => {
       if (!cancelled) setLoading(false)
     })
     return () => { cancelled = true }
-  }, [selected, offset, recordQuery, department])
+  }, [selected, offset, debouncedQuery, department])
   useEffect(() => {
     if (module === 'all' || !window.localSnapshot?.moduleOverview) { setOverview(null); return }
     let cancelled = false
