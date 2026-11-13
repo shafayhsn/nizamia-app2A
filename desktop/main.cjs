@@ -23,6 +23,14 @@ function openLocalData() {
     showLocalSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null, getDatabaseDirectory)
   } catch (error) { dialog.showErrorBox('Local SQLite viewer', error.message) }
 }
+function startDesktop() {
+  const directory = getDatabaseDirectory()
+  if (directory && fs.existsSync(path.join(directory, 'nizamia-app2a.sqlite'))) {
+    try { showLocalSnapshot(null, getDatabaseDirectory); return }
+    catch (error) { dialog.showErrorBox('Local startup failed', error.message) }
+  }
+  createWindow()
+}
 function createWindow() {
   const win = new BrowserWindow({
     width: 1360, height: 900, minWidth: 960, minHeight: 650,
@@ -108,13 +116,17 @@ app.whenReady().then(() => {
       { label: 'Verify Local Snapshot…', click: () => inspectSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },
       { label: 'Browse Local Data (Read Only)…', click: openLocalData }
     ] },
+    { label: 'App', submenu: [
+      { label: 'Open Offline Desktop', click: openLocalData },
+      { label: 'Open Cloud App', click: createWindow }
+    ] },
     { label: 'View', submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }] },
     { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'close' }] }
   ])
   Menu.setApplicationMenu(menu)
-  createWindow()
+  startDesktop()
   // Local records remain accessible without waiting for a cloud timeout.
   // Opening the viewer never grants editing or cloud synchronization rights.
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) startDesktop() })
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
