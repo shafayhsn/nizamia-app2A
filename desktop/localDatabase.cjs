@@ -128,4 +128,6 @@ async function showDatabaseLocation(parent) {
   })
 }
 
-module.exports = { chooseDatabaseFolder, showDatabaseLocation }
+function getDatabaseDirectory() { return readSettings().databaseDirectory || null }
+
+module.exports = { chooseDatabaseFolder, showDatabaseLocation, getDatabaseDirectory }
