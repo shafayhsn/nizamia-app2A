@@ -21,7 +21,7 @@ const session=async req=>{
  return data
 }
 const err=(res,code,message)=>res.status(code).json({error:message})
-const tables={addresses:'buyer_addresses',contacts:'buyer_contacts',snapshots:'parcel_invoice_snapshots',testing_orders:'testing_orders',testing_requirements:'testing_requirements',costing_batches:'costing_batches',costing_sheets:'costing_sheets',costing_sheet_versions:'costing_sheet_versions'}
+const tables={addresses:'buyer_addresses',contacts:'buyer_contacts',snapshots:'parcel_invoice_snapshots',testing_orders:'testing_orders',testing_requirements:'testing_requirements',costing_batches:'costing_batches',costing_sheets:'costing_sheets',costing_sheet_versions:'costing_sheet_versions',parcel_status_history:'parcel_status_history',pp_meetings:'pp_meetings',proforma_invoices:'proforma_invoices',proforma_invoice_revisions:'proforma_invoice_revisions'}
 export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store')
  if(!db)return err(res,503,'Backend Supabase configuration missing')
