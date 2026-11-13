@@ -1,0 +1,45 @@
+name: Intel Mac desktop prototype
+
+on:
+  push:
+    branches:
+      - standalone/desktop-foundation-cp15
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop-mac-intel.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos-intel:
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    steps:
+      - name: Checkout desktop branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+      - name: Check desktop entry syntax
+        working-directory: desktop
+        run: node --check main.cjs
+      - name: Build Intel macOS DMG
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist:mac
+      - name: Upload unsigned Intel Mac DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: app2a-mac-intel-unsigned
+          path: desktop/release/*.dmg
+          if-no-files-found: error
+          retention-days: 14
