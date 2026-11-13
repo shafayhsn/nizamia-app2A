@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const initSqlJs = require('sql.js')
-const { stageDraft, listDrafts, previewSync, snapshotFingerprint } = require('./offlineDraftJournal.cjs')
+const { stageDraft, listDrafts, previewSync, cancelDraft, snapshotFingerprint } = require('./offlineDraftJournal.cjs')
 async function main() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'app2a-journal-'))
   try {
@@ -51,6 +51,15 @@ async function main() {
     const conflicting = await previewSync({ ...syncArgs, cloudRecords: new Map([['orders:o1', { id: 'o1', notes: 'changed online', remarks: '' }]]) })
     assert.equal(conflicting[0].reason, 'cloud-field-changed')
     assert.equal(conflicting[1].decision, 'ready')
+    await assert.rejects(cancelDraft({ directory: dir, draftId: result.draftId, session }), /Authenticated session/)
+    assert.deepEqual(await cancelDraft({ directory: dir, draftId: result.draftId,
+      session: { ...session, identity: 'another-user' }, authenticateSession: async () => true }), { cancelled: false })
+    assert.deepEqual(await cancelDraft({ directory: dir, draftId: result.draftId,
+      session, authenticateSession: async () => true }), { cancelled: true })
+    assert.deepEqual(await cancelDraft({ directory: dir, draftId: result.draftId,
+      session, authenticateSession: async () => true }), { cancelled: false })
+    const replacement = await stageDraft({ ...args, changes: { notes: 'after cancellation' }, authenticateEvidence: async () => true })
+    assert.equal(replacement.state, 'pending')
     const later = new SQL.Database(fs.readFileSync(file))
     assert.equal(snapshotFingerprint(later), hash)
     assert.equal(later.exec('PRAGMA integrity_check')[0].values[0][0], 'ok')
