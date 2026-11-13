@@ -55,6 +55,7 @@ jobs:
           node --check main.cjs
           node --check localDatabase.cjs
           node --check snapshotImport.cjs
+          node --check snapshotReplaceGuard.cjs
           node --check snapshotInspect.cjs
           node --check snapshotViewer.cjs
           node --check offlineDraftJournal.cjs
@@ -65,6 +66,9 @@ jobs:
       - name: Run offline SQLite smoke tests
         working-directory: desktop
         run: node offline-smoke.test.cjs
+      - name: Test protection against overwriting pending offline drafts
+        working-directory: desktop
+        run: node snapshotReplaceGuard.test.cjs
       - name: Run desktop security and release guardrails
         working-directory: desktop
         run: node release-guardrails.test.cjs
