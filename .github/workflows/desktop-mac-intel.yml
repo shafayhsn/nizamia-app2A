@@ -65,6 +65,7 @@ jobs:
           node --check offlineReportPresets.cjs
           node --check offlinePersonalNotes.cjs
           node --check offlineEditCoordinator.cjs
+          node --check offlineSignedDraftGrant.cjs
           node --check snapshotStartup.cjs
           node --check offlineCsvExport.cjs
           node --check offlineDraftJournal.cjs
@@ -102,6 +103,9 @@ jobs:
       - name: Test trusted offline edit staging integration
         working-directory: desktop
         run: node offlineEditCoordinator.test.cjs
+      - name: Test cryptographic offline edit grants
+        working-directory: desktop
+        run: node offlineSignedDraftGrant.test.cjs
       - name: Run desktop security and release guardrails
         working-directory: desktop
         run: node release-guardrails.test.cjs
