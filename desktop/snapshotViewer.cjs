@@ -125,6 +125,59 @@ async function querySnapshot(directory, action, args) {
       const page = sorted.slice(offset, offset + 25)
       return { total, departments, rows: page }
     }
+    if (action === 'orderDossier') {
+      const orderId = args?.orderId
+      if (!['string','number'].includes(typeof orderId) || !String(orderId).trim() ||
+          String(orderId).length > 120) throw new Error('Invalid order reference')
+      const orderRows = db.exec('SELECT row_json FROM snapshot_rows WHERE table_name = ?', ['orders'])
+      const order = (orderRows[0]?.values || []).map(([json]) => JSON.parse(json))
+        .find(row => String(row.id) === String(orderId))
+      if (!order) throw new Error('Order not found in snapshot')
+      const relatedTables = ['size_groups','size_group_colors','size_group_breakdown','bom_items',
+        'purchase_orders','order_queues','washing','finishing','finishing_packs',
+        'production_daily_entries','production_batch_orders','production_entries','order_items']
+      const available = new Set((db.exec('SELECT table_name FROM snapshot_manifest')[0]?.values || []).map(r => r[0]))
+      const groups = new Set(), colors = new Set(), related = {}
+      let total = 0
+      for (const table of relatedTables) {
+        if (!available.has(table)) continue
+        const stmt = db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index')
+        const found = []
+        try {
+          stmt.bind([table])
+          while (stmt.step()) {
+            const row = JSON.parse(stmt.get()[0])
+            const direct = String(row.order_id ?? '') === String(orderId)
+            const viaGroup = ['size_group_colors','size_group_breakdown'].includes(table) && groups.has(String(row.size_group_id ?? ''))
+            const viaColor = table === 'size_group_breakdown' && colors.has(String(row.color_id ?? ''))
+            if (!(direct || viaGroup || viaColor)) continue
+            if (table === 'size_groups' && row.id != null) groups.add(String(row.id))
+            if (table === 'size_group_colors' && row.id != null) colors.add(String(row.id))
+            if (found.length >= 1000 || ++total > 5000) throw new Error('Order dossier exceeds safe export limit')
+            found.push(row)
+          }
+        } finally { stmt.free() }
+        if (found.length) related[table] = found
+      }
+      const clean = value => Object.fromEntries(Object.entries(value).filter(([key]) =>
+        !/(password|secret|credential|token|hash|salt|private_key)/i.test(key)))
+      const dossier = { format:'nizamia-offline-order-dossier-v1', exportedAt:new Date().toISOString(),
+        snapshotImportedAt:db.exec("SELECT value FROM app_metadata WHERE key='snapshot_imported_at'")[0]?.values?.[0]?.[0] || null,
+        order:clean(order), related:Object.fromEntries(Object.entries(related).map(([key,rows]) => [key,rows.map(clean)])) }
+      const choice = await dialog.showSaveDialog(viewer, {
+        title:'Export complete offline order dossier',
+        defaultPath:'nizamia-order-' + String(orderId).replace(/[^a-zA-Z0-9_-]/g,'_') + '.json',
+        filters:[{name:'Order dossier JSON',extensions:['json']}]
+      })
+      if (choice.canceled || !choice.filePath) return {cancelled:true}
+      if (path.extname(choice.filePath).toLowerCase() !== '.json') throw new Error('JSON export required')
+      if (fs.existsSync(choice.filePath)) {
+        const stat=fs.lstatSync(choice.filePath)
+        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Unsafe export destination')
+      }
+      fs.writeFileSync(choice.filePath,JSON.stringify(dossier,null,2),{encoding:'utf8',mode:0o600,flag:'w'})
+      return {exported:total + 1, tables:Object.keys(related).length + 1, file:path.basename(choice.filePath)}
+    }
     if (action === 'relatedRows') {
       const orderId = args?.orderId
       if (typeof orderId !== 'string' && typeof orderId !== 'number') throw new Error('Invalid order identifier')
