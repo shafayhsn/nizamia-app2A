@@ -32,7 +32,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "icon": "assets/Nizamia-App-2A.icns"
     },
     "win": {
       "target": [
@@ -42,7 +43,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "icon": "assets/Nizamia-App-2A.ico"
     }
   }
 }
