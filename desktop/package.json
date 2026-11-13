@@ -34,6 +34,7 @@
       "offlineReportPresets.cjs",
       "offlinePersonalNotes.cjs",
       "offlineEditCoordinator.cjs",
+      "offlineSignedDraftGrant.cjs",
       "snapshotStartup.cjs",
       "offlineCsvExport.cjs",
       "offlineDraft.cjs",
