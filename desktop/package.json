@@ -22,7 +22,8 @@
     "files": [
       "main.cjs",
       "package.json",
-      "localDatabase.cjs"
+      "localDatabase.cjs",
+      "snapshotImport.cjs"
     ],
     "mac": {
       "category": "public.app-category.business",
