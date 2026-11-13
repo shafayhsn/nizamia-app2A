@@ -68,6 +68,16 @@ function createLocalAnnotations(directory) {
       } finally { db.close() }
     })
   }
-  return { get, save }
+  async function exportNotes() {
+    return serialize(async () => {
+      const db = await open()
+      try {
+        const result = db.exec('SELECT table_name,record_id,body,updated_at FROM personal_notes ORDER BY table_name,record_id')
+        const notes = (result[0]?.values || []).map(([table,recordId,body,updatedAt]) => ({table,recordId,body,updatedAt}))
+        return {format:'nizamia-personal-notes-v1', exportedAt:new Date().toISOString(), notes}
+      } finally { db.close() }
+    })
+  }
+  return { get, save, exportNotes }
 }
 module.exports = { createLocalAnnotations }
