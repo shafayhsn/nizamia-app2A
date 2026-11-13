@@ -3563,7 +3563,7 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
       safeQuery(supabase.from('order_queues').select('*').eq('order_id',order.id)),
       safeQuery(supabase.from('work_orders').select('*').eq('order_id',order.id)),
       // Parcels are matched by sample IDs in items; the metadata panel only shows identifiers and status.
-      safeQuery(supabase.from('parcels').select('id,items,parcel_number,reference,status')),
+      safeQuery(supabase.from('parcels').select('id,items,status,tracking_no')),
     ])
 
     const [sizeGroups, bom, samples, fits, embs, pos, processes, finishing, finishingPacks, queues, workOrders, allParcels] = mainResults.map(r=>r.rows)
