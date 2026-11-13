@@ -1,0 +1,18 @@
+'use strict'
+const assert = require('node:assert/strict')
+const { makeDraft, checkDraftConflict } = require('./offlineDraft.cjs')
+const hash = 'a'.repeat(64)
+const source = { id: 'order-1', notes: 'Original', remarks: null }
+const draft = makeDraft({ table: 'orders', record: source, changes: { notes: 'Reviewed offline' }, snapshotHash: hash })
+assert.equal(draft.status, 'uncommitted')
+assert.equal(draft.before.notes, 'Original')
+assert.deepEqual(checkDraftConflict(draft, source, hash), { safe: true })
+assert.deepEqual(checkDraftConflict(draft, source, 'b'.repeat(64)), { safe: false, reason: 'snapshot-changed' })
+assert.deepEqual(checkDraftConflict(draft, { ...source, notes: 'Changed online' }, hash), { safe: false, reason: 'field-changed', field: 'notes' })
+assert.deepEqual(checkDraftConflict(draft, null, hash), { safe: false, reason: 'record-missing' })
+assert.throws(() => makeDraft({ table: 'users', record: source, changes: { notes: 'x' }, snapshotHash: hash }))
+assert.throws(() => makeDraft({ table: 'orders', record: source, changes: { password_hash: 'x' }, snapshotHash: hash }))
+assert.throws(() => makeDraft({ table: 'orders', record: source, changes: { quantity: '100' }, snapshotHash: hash }))
+assert.throws(() => makeDraft({ table: 'orders', record: source, changes: { notes: 'x'.repeat(2001) }, snapshotHash: hash }))
+assert.throws(() => makeDraft({ table: 'orders', record: source, changes: { notes: 'x' }, snapshotHash: 'invalid' }))
+process.stdout.write('CP-18 offline draft validation and conflict tests passed.\n')
