@@ -43,6 +43,9 @@ jobs:
           node --check snapshotViewer.cjs
           node --check snapshotViewerPreload.cjs
           node --check snapshotViewerRenderer.js
+      - name: Run offline SQLite smoke tests
+        working-directory: desktop
+        run: node offline-smoke.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
