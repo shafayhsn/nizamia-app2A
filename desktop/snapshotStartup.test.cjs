@@ -1,0 +1,30 @@
+'use strict'
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
+const initSqlJs = require('sql.js')
+const { snapshotReady } = require('./snapshotStartup.cjs')
+async function main() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'app2a-startup-'))
+  try {
+    assert.equal(await snapshotReady(dir), false)
+    const SQL = await initSqlJs({ locateFile: () => require.resolve('sql.js/dist/sql-wasm.wasm') })
+    const db = new SQL.Database()
+    const file = path.join(dir, 'nizamia-app2a.sqlite')
+    fs.writeFileSync(file, Buffer.from(db.export()))
+    assert.equal(await snapshotReady(dir), false, 'empty SQLite is not a snapshot')
+    db.run('CREATE TABLE snapshot_rows (table_name TEXT, row_index INTEGER, row_json TEXT)')
+    db.run('CREATE TABLE snapshot_manifest (table_name TEXT, row_count INTEGER)')
+    db.run('CREATE TABLE app_metadata (key TEXT, value TEXT)')
+    db.run("INSERT INTO snapshot_manifest VALUES ('orders', 0)")
+    db.run("INSERT INTO app_metadata VALUES ('snapshot_imported_at', '2026-11-13T00:00:00Z')")
+    fs.writeFileSync(file, Buffer.from(db.export()))
+    assert.equal(await snapshotReady(dir), true, 'valid imported snapshot launches offline')
+    fs.writeFileSync(file, Buffer.from('not sqlite'))
+    assert.equal(await snapshotReady(dir), false, 'corrupt database must not launch viewer')
+    db.close()
+    process.stdout.write('Offline startup tests passed: missing, empty, valid and damaged databases.\n')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+}
+main().catch(e => { console.error(e); process.exitCode = 1 })
