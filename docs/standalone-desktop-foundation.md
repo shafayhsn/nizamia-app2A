@@ -28,3 +28,8 @@ Baseline: checkpoint/CP-15-complete-backup-fix (production). CP-16 remains separ
 
 ## Current status
 Architecture plan only. No installer, SQLite integration or offline synchronization implemented yet.
+
+## Mac test hardware
+- Initial tester reports Intel Mac, architecture x86_64 (to confirm via About This Mac).
+- First macOS build target: darwin x64 / Intel .dmg; retain future arm64 support.
+- Verify minimum supported macOS version and Electron compatibility before packaging.
