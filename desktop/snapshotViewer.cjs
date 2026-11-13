@@ -2,7 +2,8 @@
 // Read-only local snapshot viewer. Never exposes SQLite to the remote App-2A site.
 const fs = require('node:fs')
 const path = require('node:path')
-const { BrowserWindow, ipcMain } = require('electron')
+const { BrowserWindow, ipcMain, dialog } = require('electron')
+const { csvFromRows, selectSnapshotRows } = require('./offlineCsvExport.cjs')
 const initSqlJs = require('sql.js')
 const channel = 'nizamia-local-snapshot'
 let viewer = null
@@ -27,6 +28,21 @@ async function querySnapshot(directory, action, args) {
   try {
     const ok = db.exec('PRAGMA integrity_check')
     if (ok[0]?.values[0]?.[0] !== 'ok') throw new Error('SQLite integrity check failed')
+    if (action === 'exportCsv') {
+      const rows = selectSnapshotRows(db, args || {})
+      const csv = csvFromRows(rows)
+      const proposed = args.table + '-offline-' + new Date().toISOString().slice(0, 10) + '.csv'
+      const choice = await dialog.showSaveDialog(viewer, {
+        title: 'Export local snapshot as CSV (read only)',
+        defaultPath: proposed,
+        filters: [{ name: 'CSV spreadsheet', extensions: ['csv'] }]
+      })
+      if (choice.canceled || !choice.filePath) return { cancelled: true }
+      if (path.extname(choice.filePath).toLowerCase() !== '.csv') throw new Error('CSV destination required')
+      // The OS dialog selects the destination. No network or cloud writes occur.
+      fs.writeFileSync(choice.filePath, csv, { encoding: 'utf8', flag: 'w', mode: 0o600 })
+      return { exported: rows.length, file: path.basename(choice.filePath) }
+    }
     if (action === 'tables') {
       const result = db.exec('SELECT table_name, row_count FROM snapshot_manifest ORDER BY table_name')
       return (result[0]?.values || []).map(([name, count]) => ({ name, count }))
