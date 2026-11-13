@@ -1,4 +1,5 @@
 import React,{useState} from 'react'
+import * as XLSX from 'xlsx'
 import {ArrowLeft,Download,Printer,Search,SlidersHorizontal} from 'lucide-react'
 
 const FORMATS=[
@@ -34,6 +35,27 @@ function printForm(form,date,columns,rows){
  doc.open();doc.write(html);doc.close()
  setTimeout(doPrint,1000)
 }
+function downloadExcel(form,date,columns,rows){
+ const meta=[
+  ['NIZAMIA APPARELS'],[form.name.toUpperCase()],
+  [form.department+' | '+form.code+' | REV 00'],
+  [],['JOB# / PO','','CUSTOMER','','DESIGN / STYLE',''],
+  ['DEPARTMENT / LINE','','DATE',date||'','LOT / BATCH',''],
+  [],columns,
+  ...Array.from({length:rows},()=>columns.map(() => '')),
+  [],...form.signatures.map(label=>[label,'____________________']),
+  ...(form.notice?[[],[form.notice]]:[])
+ ]
+ const ws=XLSX.utils.aoa_to_sheet(meta)
+ const n=Math.max(1,columns.length)
+ ws['!cols']=Array.from({length:n},(_,i)=>({wch:Math.min(34,Math.max(16,(columns[i]||'').length+4))}))
+ ws['!rows']=[{hpt:26},{hpt:24},{hpt:20}]
+ ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:n-1}},{s:{r:1,c:0},e:{r:1,c:n-1}},{s:{r:2,c:0},e:{r:2,c:n-1}}]
+ ws['!pageSetup']={orientation:'landscape',paperSize:9,fitToWidth:1}
+ const wb=XLSX.utils.book_new()
+ XLSX.utils.book_append_sheet(wb,ws,'Production Format')
+ XLSX.writeFile(wb,form.code+'_'+(date||'blank')+'.xlsx')
+}
 export default function ProductionFormats({onBack}){
  const [query,setQuery]=useState(''),[dept,setDept]=useState('All'),[selected,setSelected]=useState(null),[date,setDate]=useState(''),[hidden,setHidden]=useState([]),[rows,setRows]=useState(8)
  const available=FORMATS.filter(f=>(dept==='All'||f.department===dept)&&[f.name,f.code,f.department].join(' ').toLowerCase().includes(query.toLowerCase()))
@@ -57,8 +79,8 @@ export default function ProductionFormats({onBack}){
      <label style={{display:'block',fontSize:12,fontWeight:650,marginBottom:7}}>Blank rows</label><input type="number" min="1" max="30" value={rows} onChange={e=>setRows(Math.min(30,Math.max(1,Number(e.target.value)||1)))} style={{...input,width:80,marginBottom:16}}/>
      <div style={{display:'flex',alignItems:'center',gap:7,fontSize:12,fontWeight:650,marginBottom:9}}><SlidersHorizontal size={14}/> Visible columns</div>
      <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8,marginBottom:18}}>{selected.columns.map(c=><label key={c} style={{fontSize:11,display:'flex',alignItems:'start',gap:6}}><input type="checkbox" checked={!hidden.includes(c)} onChange={e=>setHidden(h=>e.target.checked?h.filter(x=>x!==c):[...h,c])}/>{c}</label>)}</div>
-     <button style={{...button,background:'#17233c',color:'#fff',borderColor:'#17233c'}} disabled={hidden.length===selected.columns.length} onClick={()=>printForm(selected,date,selected.columns.filter(c=>!hidden.includes(c)),rows)}><Printer size={15}/> Print / Save as PDF</button>
-     <div style={{fontSize:11,color:'#64748b',marginTop:12}}>Use your browser's print dialog and choose “Save as PDF”. Settings apply only to this download.</div>
+     <div style={{display:'flex',gap:9,flexWrap:'wrap'}}><button style={{...button,background:'#17233c',color:'#fff',borderColor:'#17233c'}} disabled={hidden.length===selected.columns.length} onClick={()=>printForm(selected,date,selected.columns.filter(c=>!hidden.includes(c)),rows)}><Printer size={15}/> Print / Save as PDF</button><button style={button} disabled={hidden.length===selected.columns.length} onClick={()=>downloadExcel(selected,date,selected.columns.filter(c=>!hidden.includes(c)),rows)}><Download size={15}/> Download Excel</button></div>
+     <div style={{fontSize:11,color:'#64748b',marginTop:12}}>Print via your browser or download an editable Excel workbook. Settings apply only to this download.</div>
     </>}
    </div>
   </div>
