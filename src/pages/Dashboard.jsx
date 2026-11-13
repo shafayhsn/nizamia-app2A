@@ -54,7 +54,8 @@ export default function Dashboard() {
   async function loadData() {
     setLoading(true)
     const [orderResult, sampleResult, shipmentResult, lineResult] = await Promise.all([
-      supabase.from('orders').select('*').order('created_at', {ascending:false}).range(0, 9999),
+      // Only fetch fields used by dashboard KPIs and charts; avoid transferring full order documents.
+      supabase.from('orders').select('id,status,ship_date,planned_date,po_date,total_qty,total_value_usd,buyer_name').order('created_at', {ascending:false}).range(0, 9999),
       supabase.from('samples').select('id,order_id,due_date,status,approval_status').range(0,9999),
       supabase.from('shipments').select('id,shipment_date,etd,notes').range(0,9999),
       supabase.from('shipment_lines').select('shipment_id,order_id,shipped_qty').range(0,9999)
