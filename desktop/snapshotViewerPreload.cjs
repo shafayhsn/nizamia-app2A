@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('localSnapshot', Object.freeze({
   workspaceLogout: () => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:logout', {}),
   workspacePreviewDrafts: (table, recordId) => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:previewDrafts', { table, recordId }),
   workspaceExportRecovery: () => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:exportRecovery', {}),
+  workspaceStageDraft: (table, recordId, changes) => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:stageDraft', { table, recordId, changes }),
   workspaceDrafts: () => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:drafts', {}),
   workspaceCancelDraft: draftId => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:cancelDraft', { draftId }),
   exportCsv: (table, query, department, layout) => ipcRenderer.invoke('nizamia-local-snapshot', 'exportCsv', { table, query, department, layout }),
