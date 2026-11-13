@@ -27,6 +27,7 @@
       "snapshotReplaceGuard.cjs",
       "snapshotInspect.cjs",
       "snapshotViewer.cjs",
+      "snapshotStartup.cjs",
       "offlineCsvExport.cjs",
       "offlineDraft.cjs",
       "offlineDraftJournal.cjs",
