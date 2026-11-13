@@ -59,6 +59,7 @@ jobs:
           node --check snapshotInspect.cjs
           node --check snapshotViewer.cjs
           node --check offlineWorkspace.cjs
+          node --check offlineDraftPreview.cjs
           node --check snapshotStartup.cjs
           node --check offlineCsvExport.cjs
           node --check offlineDraftJournal.cjs
@@ -78,6 +79,9 @@ jobs:
       - name: Test offline-first SQLite startup validation
         working-directory: desktop
         run: node snapshotStartup.test.cjs
+      - name: Test authenticated local draft previews
+        working-directory: desktop
+        run: node offlineDraftPreview.test.cjs
       - name: Run desktop security and release guardrails
         working-directory: desktop
         run: node release-guardrails.test.cjs
