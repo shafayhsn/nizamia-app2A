@@ -74,7 +74,13 @@ async function querySnapshot(directory, action, args) {
         production: ['production_daily_entries', 'production_entries', 'production_batch_orders', 'production_batches'],
         buyers: ['buyers'],
         suppliers: ['suppliers'],
-        library: ['library', 'documents', 'attachments']
+        library: ['library', 'documents', 'attachments'],
+        costing: ['costing', 'cost_sheets', 'costing_sheets', 'quotations', 'fabric_consumption'],
+        ppmeeting: ['pp_meetings', 'pre_production_meetings', 'meeting_action_items'],
+        customreports: ['custom_reports', 'report_templates', 'report_formats', 'quality_reports'],
+        users: [],
+        settings: [],
+        features: []
       }
       if (typeof requested !== 'string' || !Object.hasOwn(modules, requested))
         throw new Error('Unsupported module')
