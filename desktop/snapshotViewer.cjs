@@ -43,6 +43,56 @@ async function querySnapshot(directory, action, args) {
       }
       return result
     }
+    if (action === 'filteredRows') {
+      const name = args?.table
+      const offset = args?.offset
+      const query = args?.query
+      const department = args?.department
+      if (typeof name !== 'string' || !/^[a-z][a-z0-9_]*$/.test(name)) throw new Error('Invalid table')
+      if (!Number.isInteger(offset) || offset < 0 || offset > 10000000) throw new Error('Invalid offset')
+      if (typeof query !== 'string' || query.length > 120) throw new Error('Invalid search')
+      if (typeof department !== 'string' || department.length > 80) throw new Error('Invalid department')
+      if (!db.exec('SELECT 1 FROM snapshot_manifest WHERE table_name = ?', [name]).length) throw new Error('Unknown table')
+      // Only snapshot JSON is searched; never executes user-supplied SQL.
+      const matches = []
+      const statement = db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index')
+      try {
+        statement.bind([name])
+        while (statement.step()) {
+          const record = JSON.parse(statement.get()[0])
+          if (query && !Object.values(record).some(value => String(value ?? '').toLowerCase().includes(query.toLowerCase()))) continue
+          if (department && String(record.department || record.dept || record.department_name || '').toLowerCase() !== department.toLowerCase()) continue
+          matches.push(record)
+        }
+      } finally { statement.free() }
+      const departments = name.includes('production') ? [...new Set(matches.map(record => record.department || record.dept || record.department_name).filter(Boolean).map(String))].sort() : []
+      return { total: matches.length, departments, rows: matches.slice(offset, offset + 25) }
+    }
+    if (action === 'relatedRows') {
+      const orderId = args?.orderId
+      if (typeof orderId !== 'string' && typeof orderId !== 'number') throw new Error('Invalid order identifier')
+      if (String(orderId).length > 120) throw new Error('Invalid identifier length')
+      const related = {}
+      const names = ['size_groups', 'production_batch_orders', 'production_entries', 'order_items']
+      const available = new Set((db.exec('SELECT table_name FROM snapshot_manifest')[0]?.values || []).map(v => v[0]))
+      for (const name of names) {
+        if (!available.has(name)) continue
+        const found = []
+        const statement = db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index')
+        try {
+          statement.bind([name])
+          while (statement.step()) {
+            const record = JSON.parse(statement.get()[0])
+            if (String(record.order_id ?? '') === String(orderId)) {
+              found.push(record)
+              if (found.length >= 100) break
+            }
+          }
+        } finally { statement.free() }
+        related[name] = found
+      }
+      return related
+    }
     if (action === 'rows') {
       const name = args?.table
       const offset = args?.offset
