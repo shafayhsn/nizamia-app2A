@@ -61,11 +61,12 @@ function App() {
     window.localSnapshot.relatedRows(detail.id).then(data => { if (!cancelled) setRelated(data) }).catch(e => { if (!cancelled) setError(e.message) })
     return () => { cancelled = true }
   }, [detail, selected])
+  const snapshotAgeDays = summary?.importedAt && Number.isFinite(Date.parse(summary.importedAt)) ? Math.max(0, Math.floor((Date.now() - Date.parse(summary.importedAt)) / 86400000)) : null
   const columns = [...new Set(rows.flatMap(row => Object.keys(row || {})))]
   const fmt = v => v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)
   return <div className="app">
     <header><div><h1>Nizamia App-2A</h1><p>Local records · Offline · Read only</p></div><div className="totals">{summary ? <><strong>{summary.tables} tables</strong><strong>{summary.records.toLocaleString()} records</strong></> : 'Opening SQLite…'}</div></header>
-    <div className="notice">This is a saved snapshot, not the live cloud database. Editing, offline sign-in, and automatic synchronization are not enabled. Access to this local copy must be protected by your Mac account.</div>
+    <div className="notice" role="status">This is a saved snapshot, not the live cloud database. Editing, offline sign-in, and automatic synchronization are not enabled. Access to this local copy must be protected by your Mac account.{snapshotAgeDays !== null && <strong> Snapshot imported {snapshotAgeDays === 0 ? 'today' : `${snapshotAgeDays} day${snapshotAgeDays === 1 ? '' : 's'} ago`}.{snapshotAgeDays >= 7 ? ' The saved data may be significantly outdated.' : ''}</strong>}{snapshotAgeDays === null && summary && <strong> Snapshot import date unavailable; freshness cannot be verified.</strong>}</div>
     <div className="modules" role="tablist" aria-label="Offline business modules">{MODULES.map(m => <button key={m.key} role="tab" aria-selected={module === m.key} className={module === m.key ? 'active' : ''} onClick={() => { setModule(m.key); setSelected(null); setRows([]); setOffset(0); setSearch(''); setDetail(null); setRecordQuery(''); setDepartment('') }}>{m.label}</button>)}</div>
     <div className="layout">
       <aside><input aria-label="Search tables" placeholder="Search tables…" value={search} onChange={e => setSearch(e.target.value)}/><nav>{tables.filter(t => MODULES.find(m => m.key === module).match(t.name) && t.name.toLowerCase().includes(search.toLowerCase())).map(t => <button key={t.name} className={selected?.name === t.name ? 'active' : ''} onClick={() => {setSelected(t);setOffset(0);setRows([]);setDetail(null);setRecordQuery('');setDepartment('');setDepartments([])}}><span>{t.name.replaceAll('_',' ')}</span><span>{t.count}</span></button>)}</nav></aside>
