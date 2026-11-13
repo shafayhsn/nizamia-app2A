@@ -71,6 +71,9 @@ jobs:
       - name: Test expiring offline authentication verifier
         working-directory: desktop
         run: node offlineAuthVerifier.test.cjs
+      - name: Test offline login lockout policy
+        working-directory: desktop
+        run: node offlineLoginPolicy.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
