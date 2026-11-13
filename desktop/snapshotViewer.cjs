@@ -4,6 +4,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { BrowserWindow, ipcMain, dialog } = require('electron')
 const { csvFromRows, selectSnapshotRows } = require('./offlineCsvExport.cjs')
+const { createOfflineWorkspace } = require('./offlineWorkspace.cjs')
 const initSqlJs = require('sql.js')
 const channel = 'nizamia-local-snapshot'
 let viewer = null
@@ -13,6 +14,7 @@ const bundledReact = path.join(process.resourcesPath, 'web', 'offline-desktop.ht
 const legacyViewer = path.join(__dirname, 'snapshotViewer.html')
 let activeViewerFile = legacyViewer
 let sqlEnginePromise = null
+let workspace = null
 function getSqlEngine() {
   if (!sqlEnginePromise) {
     const wasm = require.resolve('sql.js/dist/sql-wasm.wasm').replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep)
@@ -179,13 +181,14 @@ function showLocalSnapshot(parent, getDirectory) {
     if (!navigation.isMainFrame) event.preventDefault()
   })
   viewer.webContents.on('will-attach-webview', event => event.preventDefault())
-  viewer.on('closed', () => { viewer = null; selectedDirectory = null })
+  viewer.on('closed', () => { workspace?.logout(); viewer = null; selectedDirectory = null })
   activeViewerFile = fs.existsSync(bundledReact) ? bundledReact : legacyViewer
   viewer.loadFile(activeViewerFile).catch(error => {
     if (viewer && !viewer.isDestroyed()) viewer.webContents.loadFile(legacyViewer).catch(() => {})
     activeViewerFile = legacyViewer
     console.error('Packaged offline interface failed to load:', error)
   })
+  if (!workspace) workspace = createOfflineWorkspace(() => selectedDirectory)
   if (!bound) {
     bound = true
     ipcMain.handle(channel, async (event, action, args) => {
@@ -194,6 +197,8 @@ function showLocalSnapshot(parent, getDirectory) {
       const senderURL = new URL(event.sender.getURL())
       if (senderURL.protocol !== 'file:' || decodeURIComponent(senderURL.pathname) !== activeViewerFile)
         throw new Error('Unexpected viewer origin')
+      if (typeof action === 'string' && action.startsWith('workspace:'))
+        return workspace.action(action.slice('workspace:'.length), args)
       return querySnapshot(selectedDirectory, action, args)
     })
   }
