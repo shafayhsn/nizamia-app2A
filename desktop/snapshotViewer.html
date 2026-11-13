@@ -5,7 +5,7 @@
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#20212a;background:#f6f7fa}
 body{margin:0}header{padding:20px 24px;background:#fff;border-bottom:1px solid #ddd}h1{font-size:21px;margin:0 0 6px}small{color:#697081}
-main{display:grid;grid-template-columns:270px minmax(0,1fr);height:calc(100vh - 90px)}
+ .summary{display:flex;gap:20px;padding:12px 24px;background:#eef0f5;border-bottom:1px solid #d8dce4;font-size:13px;align-items:center;flex-wrap:wrap}.summary strong{font-size:15px}.search{width:calc(100% - 20px);box-sizing:border-box;margin:8px 10px 12px;padding:10px;border:1px solid #d5d7de;border-radius:8px;font:inherit}main{display:grid;grid-template-columns:270px minmax(0,1fr);height:calc(100vh - 140px)}
 aside{background:#fff;overflow:auto;border-right:1px solid #ddd;padding:10px}
 button{font:inherit;cursor:pointer;border:1px solid #d5d7de;border-radius:7px;background:white;padding:8px 12px}
 button:disabled{opacity:.4;cursor:default}.item{display:flex;width:100%;justify-content:space-between;border:0;text-align:left;gap:10px;margin:2px 0}
@@ -16,5 +16,6 @@ th{position:sticky;top:0;background:#e9ebf0}#status{margin:12px 0;color:#586174}
 .toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px}.toolbar strong{flex:1}
 </style></head><body>
 <header><h1>Local SQLite Snapshot</h1><small>Read-only • Stored on this Mac • No Supabase requests • 25 records per page</small></header>
-<main><aside id="tables"></aside><section><div class="toolbar"><strong id="heading">Select a table</strong><button id="prev" disabled>Previous</button><button id="next" disabled>Next</button></div><div id="status"></div><div style="overflow:auto"><table><thead id="columns"></thead><tbody id="rows"></tbody></table></div></section></main>
+<div class="summary"><strong id="total">Loading local snapshot…</strong><span id="freshness"></span><span>Offline snapshot · read only · no cloud requests</span></div>
+<main><aside><input class="search" id="filter" placeholder="Find a table…" aria-label="Find a table"><div id="tables"></div></aside><section><div class="toolbar"><strong id="heading">Select a table</strong><button id="prev" disabled>Previous</button><button id="next" disabled>Next</button></div><div id="status"></div><div style="overflow:auto"><table><thead id="columns"></thead><tbody id="rows"></tbody></table></div></section></main>
 <script src="./snapshotViewerRenderer.js"></script></body></html>
