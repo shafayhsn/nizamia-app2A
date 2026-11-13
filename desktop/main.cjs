@@ -3,6 +3,7 @@ const { app, BrowserWindow, shell, dialog, Menu } = require('electron')
 const { chooseDatabaseFolder, showDatabaseLocation, getDatabaseDirectory } = require('./localDatabase.cjs')
 const { importBackup } = require('./snapshotImport.cjs')
 const { inspectSnapshot } = require('./snapshotInspect.cjs')
+const { showLocalSnapshot } = require('./snapshotViewer.cjs')
 
 const APP_URL = 'https://app.nizamia.com'
 const ALLOWED_ORIGIN = new URL(APP_URL).origin
@@ -83,7 +84,8 @@ app.whenReady().then(() => {
       { label: 'Choose Database Folder…', click: () => chooseDatabaseFolder(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]) },
       { label: 'Show Database Location', click: () => showDatabaseLocation(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]) },
       { label: 'Import Read-Only Snapshot…', click: () => importBackup(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },
-      { label: 'Verify Local Snapshot…', click: () => inspectSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) }
+      { label: 'Verify Local Snapshot…', click: () => inspectSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },
+      { label: 'Browse Local Data (Read Only)…', click: () => { try { showLocalSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory) } catch (error) { dialog.showErrorBox('Local SQLite viewer', error.message) } } }
     ] },
     { label: 'View', submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }] },
     { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'close' }] }
