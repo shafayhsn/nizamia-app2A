@@ -27,6 +27,7 @@
       "snapshotInspect.cjs",
       "snapshotViewer.cjs",
       "offlineDraft.cjs",
+      "offlineDraftJournal.cjs",
       "offlineDraftAuthorization.cjs",
       "offlineLoginPolicy.cjs",
       "offlineAuthVerifier.cjs",
