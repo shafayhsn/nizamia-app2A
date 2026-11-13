@@ -78,6 +78,40 @@ function createLocalAnnotations(directory) {
       } finally { db.close() }
     })
   }
-  return { get, save, exportNotes }
+  async function importNotes(backup, mode = 'merge') {
+    if (!backup || typeof backup !== 'object' || Array.isArray(backup) ||
+        backup.format !== 'nizamia-personal-notes-v1' || !Array.isArray(backup.notes) ||
+        backup.notes.length > MAX_NOTES || !['merge','replace'].includes(mode))
+      throw new Error('Invalid personal notes backup')
+    const seen = new Set()
+    const rows = backup.notes.map(note => {
+      if (!note || typeof note !== 'object' || Array.isArray(note)) throw new Error('Invalid backup note')
+      validate(note.table, note.recordId)
+      if (typeof note.recordId !== 'string' || typeof note.body !== 'string' ||
+          !note.body.trim() || note.body.length > 4000 ||
+          typeof note.updatedAt !== 'string' || !Number.isFinite(Date.parse(note.updatedAt)))
+        throw new Error('Invalid backup note')
+      const key = JSON.stringify([note.table,note.recordId])
+      if (seen.has(key)) throw new Error('Duplicate backup note')
+      seen.add(key)
+      return [note.table,note.recordId,note.body,note.updatedAt]
+    })
+    return serialize(async () => {
+      const db = await open()
+      try {
+        db.run('BEGIN TRANSACTION')
+        try {
+          if (mode === 'replace') db.run('DELETE FROM personal_notes')
+          for (const row of rows) db.run('INSERT OR REPLACE INTO personal_notes VALUES (?,?,?,?)',row)
+          const count = db.exec('SELECT COUNT(*) FROM personal_notes')[0]?.values[0][0] || 0
+          if (count > MAX_NOTES) throw new Error('Local notes limit reached')
+          db.run('COMMIT')
+        } catch(e) { db.run('ROLLBACK'); throw e }
+        persist(db)
+        return {imported:rows.length,mode}
+      } finally { db.close() }
+    })
+  }
+  return { get, save, exportNotes, importNotes }
 }
 module.exports = { createLocalAnnotations }
