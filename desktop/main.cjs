@@ -67,11 +67,18 @@ function createWindow() {
   win.webContents.on('did-fail-load', (_event, code, description, validatedURL, isMainFrame) => {
     if (isMainFrame && code !== -3) {
       dialog.showMessageBox(win, {
-        type: 'warning', title: 'Connection required',
-        message: 'This first desktop prototype requires an internet connection.',
-        detail: 'App-2A could not load. Please reconnect and use View → Reload.\n\n' + description,
-        buttons: ['OK']
-      })
+        type: 'warning', title: 'Cloud connection unavailable',
+        message: 'App-2A cannot reach the cloud application.',
+        detail: 'Your previously imported SQLite snapshot can still be viewed locally. It is read-only and may be out of date.\\n\\n' + description,
+        buttons: ['Open Local Data', 'Retry Connection', 'Cancel'],
+        defaultId: 0, cancelId: 2
+      }).then(({ response }) => {
+        if (win.isDestroyed()) return
+        if (response === 0) {
+          try { showLocalSnapshot(win, getDatabaseDirectory) }
+          catch (error) { dialog.showErrorBox('Local data unavailable', error.message) }
+        } else if (response === 1) win.loadURL(APP_URL)
+      }).catch(error => dialog.showErrorBox('Connection dialog error', error.message))
     }
   })
   win.loadURL(APP_URL)
