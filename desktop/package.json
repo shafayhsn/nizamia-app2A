@@ -26,6 +26,7 @@
       "snapshotImport.cjs",
       "snapshotInspect.cjs",
       "snapshotViewer.cjs",
+      "offlineDraft.cjs",
       "snapshotViewerPreload.cjs",
       "snapshotViewer.html",
       "snapshotViewerRenderer.js",
