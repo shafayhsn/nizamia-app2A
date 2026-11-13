@@ -1,0 +1,26 @@
+'use strict'
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
+const { createReportPresets } = require('./offlineReportPresets.cjs')
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'app2a-presets-'))
+try {
+  const presets = createReportPresets(dir)
+  assert.equal(presets.get('orders'), null)
+  const layout = { columns: ['id', 'notes'], sortBy: 'id', descending: true }
+  assert.deepEqual(presets.save('orders', layout), layout)
+  assert.deepEqual(createReportPresets(dir).get('orders'), layout)
+  presets.save('production_daily_entries', { sortBy: 'department', descending: false })
+  assert.equal(presets.get('production_daily_entries').sortBy, 'department')
+  assert.throws(() => presets.save('orders', { columns: ['id', 'id'] }), /columns/)
+  assert.throws(() => presets.get('../secrets'), /table/)
+  assert.deepEqual(presets.remove('orders'), { removed: true })
+  assert.equal(presets.get('orders'), null)
+  assert.equal(presets.get('production_daily_entries').sortBy, 'department')
+  const file = path.join(dir, 'offline-report-presets.json')
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600)
+  fs.writeFileSync(file, '{broken')
+  assert.throws(() => presets.get('orders'), /JSON/)
+  process.stdout.write('Offline report preset persistence tests passed.\n')
+} finally { fs.rmSync(dir, { recursive: true, force: true }) }
