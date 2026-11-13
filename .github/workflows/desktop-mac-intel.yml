@@ -58,6 +58,7 @@ jobs:
           node --check snapshotReplaceGuard.cjs
           node --check snapshotInspect.cjs
           node --check snapshotViewer.cjs
+          node --check offlineWorkspace.cjs
           node --check snapshotStartup.cjs
           node --check offlineCsvExport.cjs
           node --check offlineDraftJournal.cjs
