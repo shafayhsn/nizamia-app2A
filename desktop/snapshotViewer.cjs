@@ -38,14 +38,29 @@ async function querySnapshot(directory, action, args) {
     }
     if (action === 'moduleOverview') {
       const requested = args?.module
-      if (requested !== 'orders' && requested !== 'production') throw new Error('Unsupported module')
+      const modules = {
+        dashboard: ['orders', 'production_daily_entries', 'tasks', 'purchase_orders'],
+        orders: ['orders', 'size_groups', 'size_group_colors', 'size_group_breakdown', 'bom_items'],
+        purchasing: ['purchase_orders', 'suppliers', 'bom_items'],
+        sampling: ['samples', 'fitting_blocks', 'embellishments'],
+        parcels: ['parcels', 'parcel_items'],
+        shipping: ['shipments', 'bookings', 'shipping', 'containers'],
+        reports: ['production_daily_entries', 'orders', 'quality_reports'],
+        tasks: ['tasks', 'task_comments'],
+        production: ['production_daily_entries', 'production_entries', 'production_batch_orders', 'production_batches'],
+        buyers: ['buyers'],
+        suppliers: ['suppliers'],
+        library: ['library', 'documents', 'attachments']
+      }
+      if (typeof requested !== 'string' || !Object.hasOwn(modules, requested))
+        throw new Error('Unsupported module')
       const available = new Set((db.exec('SELECT table_name FROM snapshot_manifest')[0]?.values || []).map(row => row[0]))
-      const names = requested === 'orders' ? ['orders'] : ['production_daily_entries', 'production_entries', 'production_batch_orders', 'production_batches']
       const result = {}
-      for (const name of names) {
+      for (const name of modules[requested]) {
         if (!available.has(name)) continue
         const count = db.exec('SELECT row_count FROM snapshot_manifest WHERE table_name = ?', [name])[0]?.values[0]?.[0] || 0
-        const records = (db.exec('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index LIMIT 100', [name])[0]?.values || []).map(([json]) => JSON.parse(json))
+        // Keep previews bounded and never include credential or permission tables.
+        const records = (db.exec('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index LIMIT 10', [name])[0]?.values || []).map(([json]) => JSON.parse(json))
         result[name] = { count, records }
       }
       return result
