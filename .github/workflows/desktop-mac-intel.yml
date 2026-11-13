@@ -64,6 +64,7 @@ jobs:
           node --check offlineReportLayout.cjs
           node --check offlineReportPresets.cjs
           node --check offlinePersonalNotes.cjs
+          node --check offlineEditCoordinator.cjs
           node --check snapshotStartup.cjs
           node --check offlineCsvExport.cjs
           node --check offlineDraftJournal.cjs
@@ -98,6 +99,9 @@ jobs:
       - name: Test persistent Mac-local personal notes
         working-directory: desktop
         run: node offlinePersonalNotes.test.cjs
+      - name: Test trusted offline edit staging integration
+        working-directory: desktop
+        run: node offlineEditCoordinator.test.cjs
       - name: Run desktop security and release guardrails
         working-directory: desktop
         run: node release-guardrails.test.cjs
