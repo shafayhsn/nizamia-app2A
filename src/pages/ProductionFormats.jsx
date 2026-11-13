@@ -12,7 +12,27 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 function printForm(form,date,columns,rows){
  const header=['JOB# / PO','CUSTOMER','DESIGN / STYLE','DEPARTMENT / LINE','DATE','LOT / BATCH']
  const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(form.name)}</title><style>@page{size:A4 landscape;margin:13mm}body{font-family:Arial,sans-serif;color:#111;font-size:10px}.head{display:flex;justify-content:space-between;border-bottom:2px solid #333;padding-bottom:12px;margin-bottom:16px}h1{font-size:18px;margin:4px 0}.meta{font-size:10px;text-align:right}.fields{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:14px 0 18px}.field{border-bottom:1px solid #999;padding:5px 0}table{border-collapse:collapse;width:100%;table-layout:fixed}th,td{border:1px solid #666;padding:7px 4px;text-align:left;overflow-wrap:anywhere}th{background:#eee;font-size:9px}td{height:20px}.sign{display:flex;justify-content:space-around;margin-top:35px}.sign span{border-top:1px solid #555;min-width:140px;text-align:center;padding-top:7px}.foot{font-size:9px;color:#555;margin-top:18px}button{display:none}@media screen{body{max-width:1100px;margin:25px auto}}</style></head><body><div class="head"><div><b>NIZAMIA APPARELS</b><h1>${esc(form.name.toUpperCase())}</h1><div>${esc(form.department)} · ${esc(form.code)}</div></div><div class="meta">PAGE 01 OF 01 | REV: 00<br>Document Nr: ${esc(form.code)}<br>Dated: ${esc(date||'____________')}</div></div><div class="fields">${header.map(h=>`<div class="field"><b>${h}:</b> ${h==='DATE'?esc(date||'____________'):'____________________'}</div>`).join('')}</div><table><thead><tr>${columns.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${Array.from({length:rows},()=>`<tr>${columns.map(()=>'<td>&nbsp;</td>').join('')}</tr>`).join('')}</tbody></table>${form.notice?`<p><b>${esc(form.notice)}</b></p>`:''}<div class="sign">${form.signatures.map(s=>`<span>${esc(s)}</span>`).join('')}</div><div class="foot">Controlled QMS form | Record actual observations; mark N/A where applicable. Reference approved specifications and relevant NCR/CAPA when needed.</div></body></html>`
- const w=window.open('','_blank');if(!w){window.alert('Allow pop-ups to print or save the form as PDF.');return}w.document.open();w.document.write(html);w.document.close();w.focus();setTimeout(()=>w.print(),350)
+ const frame=document.createElement('iframe')
+ frame.setAttribute('title','Print production format')
+ frame.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden'
+ document.body.appendChild(frame)
+ const doc=frame.contentDocument
+ if(!doc){frame.remove();window.alert('Unable to prepare the print view. Please try again.');return}
+ let started=false
+ const doPrint=()=>{
+   if(started)return
+   started=true
+   try{
+     frame.contentWindow.focus()
+     frame.contentWindow.print()
+   }catch(error){
+     window.alert('The browser could not open the print dialog. Please try again.')
+   }
+   setTimeout(()=>frame.remove(),60000)
+ }
+ frame.onload=()=>setTimeout(doPrint,150)
+ doc.open();doc.write(html);doc.close()
+ setTimeout(doPrint,1000)
 }
 export default function ProductionFormats({onBack}){
  const [query,setQuery]=useState(''),[dept,setDept]=useState('All'),[selected,setSelected]=useState(null),[date,setDate]=useState(''),[hidden,setHidden]=useState([]),[rows,setRows]=useState(8)
