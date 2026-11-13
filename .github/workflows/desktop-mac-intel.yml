@@ -59,6 +59,7 @@ jobs:
           node --check snapshotViewer.cjs
           node --check offlineDraftJournal.cjs
           node --check offlineSyncPlanner.cjs
+          node --check offlineSessionManager.cjs
           node --check snapshotViewerPreload.cjs
           node --check snapshotViewerRenderer.js
       - name: Run offline SQLite smoke tests
@@ -91,6 +92,9 @@ jobs:
       - name: Test integrated offline authentication coordinator
         working-directory: desktop
         run: node offlineAuthService.test.cjs
+      - name: Test main-process offline session lifecycle
+        working-directory: desktop
+        run: node offlineSessionManager.test.cjs
       - name: Test signed offline enrollment proof verification
         working-directory: desktop
         run: node offlineEnrollmentProof.test.cjs
