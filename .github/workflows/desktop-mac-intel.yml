@@ -35,6 +35,7 @@ jobs:
           node --check main.cjs
           node --check localDatabase.cjs
           node --check snapshotImport.cjs
+          node --check snapshotInspect.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
