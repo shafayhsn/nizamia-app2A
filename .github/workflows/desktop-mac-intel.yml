@@ -116,6 +116,9 @@ jobs:
       - name: Test desktop-to-server signed authorization transport
         working-directory: desktop
         run: node offlineAuthorizationClient.test.cjs
+      - name: Test cross-module offline search
+        working-directory: desktop
+        run: node offlineGlobalSearch.test.cjs
       - name: Run desktop security and release guardrails
         working-directory: desktop
         run: node release-guardrails.test.cjs
