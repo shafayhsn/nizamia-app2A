@@ -7,6 +7,7 @@ const { createCredentialStore } = require('./offlineCredentialStore.cjs')
 const { createOfflineAuthService } = require('./offlineAuthService.cjs')
 const { createOfflineSessionManager } = require('./offlineSessionManager.cjs')
 const { listDrafts, cancelDraft } = require('./offlineDraftJournal.cjs')
+const { previewLocalDrafts } = require('./offlineDraftPreview.cjs')
 function createOfflineWorkspace(getDirectory) {
   const store = createCredentialStore({
     safeStorage,
@@ -44,6 +45,13 @@ function createOfflineWorkspace(getDirectory) {
       return sessions.login(args.passphrase)
     }
     if (name === 'logout') { sessions.logout(); return { authenticated: false } }
+    if (name === 'previewDrafts') {
+      const session = authenticated()
+      const directory = getDirectory()
+      if (!directory) throw new Error('Local database not configured')
+      return previewLocalDrafts({ directory, table: args.table, recordId: args.recordId, session,
+        authenticateSession: async () => sessions.status().identity === session.identity })
+    }
     if (name === 'drafts') {
       const session = authenticated()
       const directory = getDirectory()
