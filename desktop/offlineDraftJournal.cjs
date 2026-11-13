@@ -11,6 +11,17 @@ const DB_NAME = 'nizamia-app2a.sqlite'
 const MAX_BYTES = 50 * 1024 * 1024
 const APPROVED = new Set(['orders', 'production_daily_entries'])
 let sqlPromise
+// Serialize journal mutations in this Electron main process to avoid lost updates.
+const mutationQueues = new Map()
+function serializedMutation(directory, work) {
+  const key = path.resolve(directory)
+  const prior = mutationQueues.get(key) || Promise.resolve()
+  const next = prior.catch(() => {}).then(work)
+  const settled = next.catch(() => {})
+  mutationQueues.set(key, settled)
+  settled.finally(() => { if (mutationQueues.get(key) === settled) mutationQueues.delete(key) })
+  return next
+}
 function sqlEngine() {
   if (!sqlPromise) sqlPromise = initSqlJs({ locateFile: () => require.resolve('sql.js/dist/sql-wasm.wasm').replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep) })
   return sqlPromise
@@ -73,7 +84,10 @@ function ensureSchema(db) {
     created_at TEXT NOT NULL
   )`)
 }
-async function stageDraft({ directory, table, recordId, changes, grant, session, authenticateEvidence, now = Date.now() }) {
+async function stageDraft(args) {
+  return serializedMutation(args.directory, () => stageDraftInternal(args))
+}
+async function stageDraftInternal({ directory, table, recordId, changes, grant, session, authenticateEvidence, now = Date.now() }) {
   if (!APPROVED.has(table)) throw new Error('Offline edits are not enabled for this table')
   if (typeof authenticateEvidence !== 'function' || await authenticateEvidence({ grant, session }) !== true)
     throw new Error('Trusted authorization evidence required')
@@ -162,7 +176,10 @@ async function previewSync({ directory, session, authenticateSession, cloudRecor
 }
 // Explicit user cancellation. Does not touch snapshot records or cloud data.
 // Authentication is performed by a trusted main-process callback, never by IPC claims.
-async function cancelDraft({ directory, draftId, session, authenticateSession }) {
+async function cancelDraft(args) {
+  return serializedMutation(args.directory, () => cancelDraftInternal(args))
+}
+async function cancelDraftInternal({ directory, draftId, session, authenticateSession }) {
   if (typeof authenticateSession !== 'function' || await authenticateSession(session) !== true ||
       !session || typeof session.identity !== 'string' || !session.identity)
     throw new Error('Authenticated session required')
