@@ -36,6 +36,7 @@
       "offlineEditCoordinator.cjs",
       "offlineSignedDraftGrant.cjs",
       "offlineAuthorizationClient.cjs",
+      "offlineGlobalSearch.cjs",
       "snapshotStartup.cjs",
       "offlineCsvExport.cjs",
       "offlineDraft.cjs",
