@@ -131,7 +131,11 @@ function showLocalSnapshot(parent, getDirectory) {
   viewer.webContents.on('will-attach-webview', event => event.preventDefault())
   viewer.on('closed', () => { viewer = null; selectedDirectory = null })
   activeViewerFile = fs.existsSync(bundledReact) ? bundledReact : legacyViewer
-  viewer.loadFile(activeViewerFile)
+  viewer.loadFile(activeViewerFile).catch(error => {
+    if (viewer && !viewer.isDestroyed()) viewer.webContents.loadFile(legacyViewer).catch(() => {})
+    activeViewerFile = legacyViewer
+    console.error('Packaged offline interface failed to load:', error)
+  })
   if (!bound) {
     bound = true
     ipcMain.handle(channel, async (event, action, args) => {
