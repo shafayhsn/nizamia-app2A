@@ -2,7 +2,7 @@
   "name": "nizamia-app2a-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Nizamia App-2A macOS desktop prototype (online-only)",
+  "description": "Nizamia App-2A desktop CP-18 SQLite foundation (online app with local metadata database)",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
@@ -21,7 +21,8 @@
     },
     "files": [
       "main.cjs",
-      "package.json"
+      "package.json",
+      "localDatabase.cjs"
     ],
     "mac": {
       "category": "public.app-category.business",
@@ -45,6 +46,12 @@
         }
       ],
       "icon": "assets/Nizamia-App-2A.ico"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/sql.js/dist/sql-wasm.wasm"
+    ]
+  },
+  "dependencies": {
+    "sql.js": "1.13.0"
   }
 }
