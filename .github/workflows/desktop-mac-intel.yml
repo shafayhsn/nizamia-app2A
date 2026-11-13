@@ -36,6 +36,9 @@ jobs:
           node --check localDatabase.cjs
           node --check snapshotImport.cjs
           node --check snapshotInspect.cjs
+          node --check snapshotViewer.cjs
+          node --check snapshotViewerPreload.cjs
+          node --check snapshotViewerRenderer.js
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
