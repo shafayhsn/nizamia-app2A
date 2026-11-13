@@ -37,6 +37,7 @@
       "offlineSignedDraftGrant.cjs",
       "offlineAuthorizationClient.cjs",
       "offlineGlobalSearch.cjs",
+      "offlinePageCoverage.cjs",
       "snapshotStartup.cjs",
       "offlineCsvExport.cjs",
       "offlineDraft.cjs",
