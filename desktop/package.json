@@ -24,7 +24,11 @@
       "package.json",
       "localDatabase.cjs",
       "snapshotImport.cjs",
-      "snapshotInspect.cjs"
+      "snapshotInspect.cjs",
+      "snapshotViewer.cjs",
+      "snapshotViewerPreload.cjs",
+      "snapshotViewer.html",
+      "snapshotViewerRenderer.js"
     ],
     "mac": {
       "category": "public.app-category.business",
