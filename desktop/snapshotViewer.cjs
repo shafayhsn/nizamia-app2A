@@ -210,6 +210,22 @@ function showLocalSnapshot(parent, getDirectory) {
         const command = action.slice('note:'.length)
         if (command === 'get') return notes.get(args?.table, args?.recordId)
         if (command === 'save') return notes.save(args?.table, args?.recordId, args?.body)
+        if (command === 'export') {
+          const backup = await notes.exportNotes()
+          const choice = await dialog.showSaveDialog(viewer, {
+            title: 'Back up personal offline notes (unencrypted JSON)',
+            defaultPath: 'nizamia-personal-notes-' + new Date().toISOString().slice(0,10) + '.json',
+            filters: [{ name:'JSON notes backup', extensions:['json'] }]
+          })
+          if (choice.canceled || !choice.filePath) return {cancelled:true}
+          if (path.extname(choice.filePath).toLowerCase() !== '.json') throw new Error('JSON destination required')
+          if (fs.existsSync(choice.filePath)) {
+            const stat = fs.lstatSync(choice.filePath)
+            if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Unsafe backup destination')
+          }
+          fs.writeFileSync(choice.filePath, JSON.stringify(backup,null,2), {encoding:'utf8',mode:0o600,flag:'w'})
+          return {exported:backup.notes.length,file:path.basename(choice.filePath)}
+        }
         throw new Error('Unsupported local note action')
       }
       if (typeof action === 'string' && action.startsWith('preset:')) {
