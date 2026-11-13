@@ -33,6 +33,7 @@
       "offlineReportLayout.cjs",
       "offlineReportPresets.cjs",
       "offlinePersonalNotes.cjs",
+      "offlineEditCoordinator.cjs",
       "snapshotStartup.cjs",
       "offlineCsvExport.cjs",
       "offlineDraft.cjs",
