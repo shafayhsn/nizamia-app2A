@@ -160,4 +160,29 @@ async function previewSync({ directory, session, authenticateSession, cloudRecor
     return planBatch(items, cloudRecords, { identity: session.identity, authorizedTables })
   } finally { db.close() }
 }
-module.exports = { stageDraft, listDrafts, previewSync, snapshotFingerprint }
+// Explicit user cancellation. Does not touch snapshot records or cloud data.
+// Authentication is performed by a trusted main-process callback, never by IPC claims.
+async function cancelDraft({ directory, draftId, session, authenticateSession }) {
+  if (typeof authenticateSession !== 'function' || await authenticateSession(session) !== true ||
+      !session || typeof session.identity !== 'string' || !session.identity)
+    throw new Error('Authenticated session required')
+  if (typeof draftId !== 'string' || !/^[a-f0-9-]{36}$/i.test(draftId))
+    throw new Error('Invalid draft identifier')
+  assertDirectory(directory)
+  const file = path.join(directory, DB_NAME)
+  const fileHash = fingerprint(file)
+  const SQL = await sqlEngine()
+  const db = new SQL.Database(fs.readFileSync(file))
+  try {
+    if (db.exec('PRAGMA integrity_check')[0]?.values[0]?.[0] !== 'ok') throw new Error('Database integrity failure')
+    const exists = db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_draft_journal'")
+    if (!exists.length) return { cancelled: false }
+    db.run("DELETE FROM offline_draft_journal WHERE draft_id = ? AND identity = ? AND state = 'pending'", [draftId, session.identity])
+    const changed = db.getRowsModified()
+    if (!changed) return { cancelled: false }
+    if (fingerprint(file) !== fileHash) throw new Error('Database changed during cancellation')
+    persist(file, db)
+    return { cancelled: true }
+  } finally { db.close() }
+}
+module.exports = { stageDraft, listDrafts, previewSync, cancelDraft, snapshotFingerprint }
