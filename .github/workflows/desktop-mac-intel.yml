@@ -106,6 +106,9 @@ jobs:
       - name: Test cryptographic offline edit grants
         working-directory: desktop
         run: node offlineSignedDraftGrant.test.cjs
+      - name: Verify server-issued offline grants against desktop verifiers
+        working-directory: desktop
+        run: node ../server/offlineGrantIssuer.test.cjs
       - name: Run desktop security and release guardrails
         working-directory: desktop
         run: node release-guardrails.test.cjs
