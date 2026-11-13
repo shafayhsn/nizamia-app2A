@@ -11,11 +11,18 @@ let selectedDirectory = null
 const bundledReact = path.join(process.resourcesPath, 'web', 'offline-desktop.html')
 const legacyViewer = path.join(__dirname, 'snapshotViewer.html')
 let activeViewerFile = legacyViewer
+let sqlEnginePromise = null
+function getSqlEngine() {
+  if (!sqlEnginePromise) {
+    const wasm = require.resolve('sql.js/dist/sql-wasm.wasm').replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep)
+    sqlEnginePromise = initSqlJs({ locateFile: () => wasm }).catch(error => { sqlEnginePromise = null; throw error })
+  }
+  return sqlEnginePromise
+}
 
 async function querySnapshot(directory, action, args) {
   const filename = path.join(directory, 'nizamia-app2a.sqlite')
-  const wasm = require.resolve('sql.js/dist/sql-wasm.wasm').replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep)
-  const SQL = await initSqlJs({ locateFile: () => wasm })
+  const SQL = await getSqlEngine()
   const db = new SQL.Database(fs.readFileSync(filename))
   try {
     const ok = db.exec('PRAGMA integrity_check')
@@ -128,6 +135,9 @@ function showLocalSnapshot(parent, getDirectory) {
   })
   viewer.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   viewer.webContents.on('will-navigate', event => event.preventDefault())
+  viewer.webContents.on('will-frame-navigate', (event, navigation) => {
+    if (!navigation.isMainFrame) event.preventDefault()
+  })
   viewer.webContents.on('will-attach-webview', event => event.preventDefault())
   viewer.on('closed', () => { viewer = null; selectedDirectory = null })
   activeViewerFile = fs.existsSync(bundledReact) ? bundledReact : legacyViewer
