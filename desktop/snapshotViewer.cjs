@@ -55,17 +55,22 @@ async function querySnapshot(directory, action, args) {
       if (!db.exec('SELECT 1 FROM snapshot_manifest WHERE table_name = ?', [name]).length) throw new Error('Unknown table')
       // Only snapshot JSON is searched; never executes user-supplied SQL.
       const matches = []
+      const departmentsSeen = new Set()
       const statement = db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index')
       try {
         statement.bind([name])
         while (statement.step()) {
           const record = JSON.parse(statement.get()[0])
           if (query && !Object.values(record).some(value => String(value ?? '').toLowerCase().includes(query.toLowerCase()))) continue
+          if (name.includes('production')) {
+            const label = record.department || record.dept || record.department_name
+            if (label) departmentsSeen.add(String(label))
+          }
           if (department && String(record.department || record.dept || record.department_name || '').toLowerCase() !== department.toLowerCase()) continue
           matches.push(record)
         }
       } finally { statement.free() }
-      const departments = name.includes('production') ? [...new Set(matches.map(record => record.department || record.dept || record.department_name).filter(Boolean).map(String))].sort() : []
+      const departments = [...departmentsSeen].sort()
       return { total: matches.length, departments, rows: matches.slice(offset, offset + 25) }
     }
     if (action === 'relatedRows') {
