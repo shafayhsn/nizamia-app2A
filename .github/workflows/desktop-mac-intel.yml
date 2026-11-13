@@ -58,6 +58,7 @@ jobs:
           node --check snapshotReplaceGuard.cjs
           node --check snapshotInspect.cjs
           node --check snapshotViewer.cjs
+          node --check snapshotStartup.cjs
           node --check offlineCsvExport.cjs
           node --check offlineDraftJournal.cjs
           node --check offlineSyncPlanner.cjs
@@ -73,6 +74,9 @@ jobs:
       - name: Test offline CSV export and spreadsheet injection safeguards
         working-directory: desktop
         run: node offlineCsvExport.test.cjs
+      - name: Test offline-first SQLite startup validation
+        working-directory: desktop
+        run: node snapshotStartup.test.cjs
       - name: Run desktop security and release guardrails
         working-directory: desktop
         run: node release-guardrails.test.cjs
