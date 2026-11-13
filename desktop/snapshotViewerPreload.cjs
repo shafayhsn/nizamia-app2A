@@ -1,6 +1,8 @@
 'use strict'
 const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('localSnapshot', Object.freeze({
+  filteredRows: (table, offset, query, department) => ipcRenderer.invoke('nizamia-local-snapshot', 'filteredRows', { table, offset, query, department }),
+  relatedRows: orderId => ipcRenderer.invoke('nizamia-local-snapshot', 'relatedRows', { orderId }),
   moduleOverview: module => ipcRenderer.invoke('nizamia-local-snapshot', 'moduleOverview', { module }),
   summary: () => ipcRenderer.invoke('nizamia-local-snapshot', 'summary', {}),
   tables: () => ipcRenderer.invoke('nizamia-local-snapshot', 'tables', {}),
