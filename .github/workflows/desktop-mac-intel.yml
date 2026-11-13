@@ -7,6 +7,7 @@ on:
       - feature/CP-18-sqlite-foundation
     paths:
       - 'desktop/**'
+      - 'server/**'
       - 'src/offlineDesktop.jsx'
       - 'src/offlineDesktop.css'
       - 'offline-desktop.html'
