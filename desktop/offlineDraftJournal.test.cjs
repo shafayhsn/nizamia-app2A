@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const initSqlJs = require('sql.js')
-const { stageDraft, listDrafts, snapshotFingerprint } = require('./offlineDraftJournal.cjs')
+const { stageDraft, listDrafts, previewSync, snapshotFingerprint } = require('./offlineDraftJournal.cjs')
 async function main() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'app2a-journal-'))
   try {
@@ -41,6 +41,16 @@ async function main() {
     const second = await stageDraft({ ...args, changes: { remarks: 'separate field' }, authenticateEvidence: async () => true })
     assert.notEqual(second.draftId, result.draftId)
     assert.equal((await listDrafts({ directory: dir, session, authenticateSession: async () => true })).length, 2)
+    const syncArgs = { directory: dir, session, authenticateSession: async () => true,
+      authorizedTables: ['orders'], cloudRecords: new Map([['orders:o1', { id: 'o1', notes: 'before', remarks: '' }]]) }
+    await assert.rejects(previewSync({ ...syncArgs, authenticateSession: async () => false }), /Authenticated session/)
+    const preview = await previewSync(syncArgs)
+    assert.equal(preview.length, 2)
+    assert.equal(preview[0].decision, 'ready')
+    assert.equal(preview[1].decision, 'ready')
+    const conflicting = await previewSync({ ...syncArgs, cloudRecords: new Map([['orders:o1', { id: 'o1', notes: 'changed online', remarks: '' }]]) })
+    assert.equal(conflicting[0].reason, 'cloud-field-changed')
+    assert.equal(conflicting[1].decision, 'ready')
     const later = new SQL.Database(fs.readFileSync(file))
     assert.equal(snapshotFingerprint(later), hash)
     assert.equal(later.exec('PRAGMA integrity_check')[0].values[0][0], 'ok')
