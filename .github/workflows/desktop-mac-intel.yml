@@ -74,6 +74,9 @@ jobs:
       - name: Test offline login lockout policy
         working-directory: desktop
         run: node offlineLoginPolicy.test.cjs
+      - name: Test offline draft authorization policy
+        working-directory: desktop
+        run: node offlineDraftAuthorization.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
