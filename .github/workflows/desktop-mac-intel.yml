@@ -83,6 +83,9 @@ jobs:
       - name: Test integrated offline authentication coordinator
         working-directory: desktop
         run: node offlineAuthService.test.cjs
+      - name: Test signed offline enrollment proof verification
+        working-directory: desktop
+        run: node offlineEnrollmentProof.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
