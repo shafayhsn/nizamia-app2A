@@ -34,6 +34,7 @@
       "offlineAuthVerifier.cjs",
       "offlineCredentialStore.cjs",
       "offlineAuthService.cjs",
+      "offlineSessionManager.cjs",
       "offlineEnrollmentProof.cjs",
       "snapshotViewerPreload.cjs",
       "snapshotViewer.html",
