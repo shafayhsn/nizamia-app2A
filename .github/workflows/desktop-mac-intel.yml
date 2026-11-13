@@ -58,6 +58,7 @@ jobs:
           node --check snapshotInspect.cjs
           node --check snapshotViewer.cjs
           node --check offlineDraftJournal.cjs
+          node --check offlineSyncPlanner.cjs
           node --check snapshotViewerPreload.cjs
           node --check snapshotViewerRenderer.js
       - name: Run offline SQLite smoke tests
@@ -72,6 +73,9 @@ jobs:
       - name: Test isolated authenticated offline draft journal
         working-directory: desktop
         run: node offlineDraftJournal.test.cjs
+      - name: Test offline synchronization conflict planner
+        working-directory: desktop
+        run: node offlineSyncPlanner.test.cjs
       - name: Test expiring offline authentication verifier
         working-directory: desktop
         run: node offlineAuthVerifier.test.cjs
