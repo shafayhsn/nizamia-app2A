@@ -4283,7 +4283,7 @@ export default function Orders() {
     }]).select().single()
     if (error) { await alert('Duplicate failed: ' + error.message, { title:'Duplicate Failed' }); return }
     // Copy size groups (without breakdown quantities)
-    const { data: sgs } = await supabase.from('size_groups').select('*').eq('order_id', o.id).order('sort_order')
+    const { data: sgs } = await supabase.from('size_groups').select('id,group_name,unit_price,currency,sizes,base_size,sort_order').eq('order_id', o.id).order('sort_order')
     for (const sg of (sgs || [])) {
       const { data: newSg } = await supabase.from('size_groups').insert([{
         order_id: newOrder.id, group_name: sg.group_name,
