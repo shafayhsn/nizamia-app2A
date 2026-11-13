@@ -18,6 +18,7 @@ function App() {
   const [rows, setRows] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [overview, setOverview] = useState(null)
   useEffect(() => {
     const api = window.localSnapshot
     if (!api) { setError('Local SQLite bridge is unavailable. Open this screen from the desktop Database menu.'); return }
@@ -36,6 +37,13 @@ function App() {
     })
     return () => { cancelled = true }
   }, [selected, offset])
+  useEffect(() => {
+    if (module === 'all' || !window.localSnapshot?.moduleOverview) { setOverview(null); return }
+    let cancelled = false
+    setOverview(null)
+    window.localSnapshot.moduleOverview(module).then(data => { if (!cancelled) setOverview(data) }).catch(e => { if (!cancelled) setError(e.message) })
+    return () => { cancelled = true }
+  }, [module])
   const columns = [...new Set(rows.flatMap(row => Object.keys(row || {})))]
   const fmt = v => v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)
   return <div className="app">
@@ -47,7 +55,7 @@ function App() {
       <main>{error && <div className="error" role="alert">{error}</div>}
         {selected ? <><div className="toolbar"><div><h2>{selected.name.replaceAll('_',' ')}</h2><small>{selected.count.toLocaleString()} records</small></div><div className="pages"><button disabled={loading || offset === 0} onClick={() => setOffset(Math.max(0,offset-PAGE_SIZE))}>Previous</button><span>{selected.count ? offset+1 : 0}–{Math.min(offset+PAGE_SIZE,selected.count)}</span><button disabled={loading || offset+PAGE_SIZE >= selected.count} onClick={() => setOffset(offset+PAGE_SIZE)}>Next</button></div></div>
           <div className="tablewrap"><table><thead><tr>{columns.map(c => <th key={c}>{c.replaceAll('_',' ')}</th>)}</tr></thead><tbody>{rows.map((row,i) => <tr key={i}>{columns.map(c => <td key={c} title={fmt(row[c])}>{fmt(row[c])}</td>)}</tr>)}</tbody></table></div>{loading && <p>Reading local records…</p>}</> :
-          <div className="welcome"><h2>{MODULES.find(m => m.key === module).label} · Local snapshot</h2><p>Choose a related table on the left to browse records stored on this Mac. This is a read-only module view, not the cloud workflow or its editing forms.</p>{summary?.importedAt && <p>Snapshot imported: {new Date(summary.importedAt).toLocaleString()}</p>}</div>}
+          <div className="welcome"><h2>{MODULES.find(m => m.key === module).label} · Local snapshot</h2>{overview && <div className="overview">{Object.entries(overview).map(([name, data]) => <div key={name}><strong>{data.count.toLocaleString()}</strong><span>{name.replaceAll('_', ' ')}</span></div>)}{!Object.keys(overview).length && <p>No matching module tables were included in this snapshot.</p>}</div>}{overview?.orders?.records?.length > 0 && <div className="recent"><h3>Saved orders preview (first 10)</h3>{overview.orders.records.slice(0, 10).map((o,i) => <div key={o.id || i}><strong>{o.job_number || o.po_number || o.factory_ref || 'Order'}</strong><span>{o.buyer_name || o.store_name || '—'}</span><span>{Number(o.total_qty || 0).toLocaleString()} pcs</span></div>)}</div>}<p>Choose a related table on the left to browse records stored on this Mac. This is a read-only module view, not the cloud workflow or its editing forms.</p>{summary?.importedAt && <p>Snapshot imported: {new Date(summary.importedAt).toLocaleString()}</p>}</div>}
       </main>
     </div>
   </div>
