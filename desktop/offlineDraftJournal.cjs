@@ -92,6 +92,16 @@ async function stageDraft({ directory, table, recordId, changes, grant, session,
     if (!authorizedDraft(draft, grant, session, now)) throw new Error('Draft permission denied')
     if (!checkDraftConflict(draft, record, snapshotHash).safe) throw new Error('Draft conflict')
     ensureSchema(db)
+    // Prevent ambiguous edits: one pending change per field and record.
+    const pending = db.prepare("SELECT draft_json FROM offline_draft_journal WHERE table_name = ? AND record_id = ? AND state = 'pending'")
+    try {
+      pending.bind([table, draft.recordId])
+      while (pending.step()) {
+        const earlier = JSON.parse(pending.get()[0])
+        if (Object.keys(draft.changes).some(field => Object.hasOwn(earlier.changes, field)))
+          throw new Error('Pending draft already changes this field')
+      }
+    } finally { pending.free() }
     // No snapshot records are modified; only pending draft metadata is appended.
     db.run('INSERT INTO offline_draft_journal VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
       draft.draftId, session.identity, table, draft.recordId, draft.snapshotHash,
