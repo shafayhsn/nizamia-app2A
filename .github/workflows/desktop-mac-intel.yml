@@ -77,6 +77,9 @@ jobs:
       - name: Test offline draft authorization policy
         working-directory: desktop
         run: node offlineDraftAuthorization.test.cjs
+      - name: Test OS-encrypted credential store foundation
+        working-directory: desktop
+        run: node offlineCredentialStore.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
