@@ -27,6 +27,7 @@
       "snapshotInspect.cjs",
       "snapshotViewer.cjs",
       "offlineDraft.cjs",
+      "offlineAuthVerifier.cjs",
       "snapshotViewerPreload.cjs",
       "snapshotViewer.html",
       "snapshotViewerRenderer.js",
