@@ -1,6 +1,8 @@
 'use strict'
 const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('localSnapshot', Object.freeze({
+  personalNoteGet: (table, recordId) => ipcRenderer.invoke('nizamia-local-snapshot', 'note:get', { table, recordId }),
+  personalNoteSave: (table, recordId, body) => ipcRenderer.invoke('nizamia-local-snapshot', 'note:save', { table, recordId, body }),
   reportPresetGet: table => ipcRenderer.invoke('nizamia-local-snapshot', 'preset:get', { table }),
   reportPresetSave: (table, layout) => ipcRenderer.invoke('nizamia-local-snapshot', 'preset:save', { table, layout }),
   reportPresetRemove: table => ipcRenderer.invoke('nizamia-local-snapshot', 'preset:remove', { table }),
