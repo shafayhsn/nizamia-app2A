@@ -1,12 +1,35 @@
 import React,{useState} from 'react'
-import * as XLSX from 'xlsx'
+import JSZip from 'jszip'
 import {ArrowLeft,Download,Printer,Search,SlidersHorizontal} from 'lucide-react'
 
-const FORMATS=[
+const PILOT_FORMATS=[
  {name:'Fabric 4 Point Inspection',code:'QMS-MAT-001',department:'Materials',columns:['Date','Supplier','Fabric Lot','Roll No','Inspected Length (YD)','Defect Description','Defect Points','Points/100 SQ YD','Decision','Inspector'],signatures:['Prepared by','Checked by','Approved by']},
  {name:'Needle & Broken Needle Control',code:'QMS-SEW-004',department:'Stitching',columns:['Time','Operator / Machine','Type / Size Needle','Event Reason','Returned Old Needle','Recovered Fragments','Action Missing','Issued New Needle','Verified By','Remarks / Release'],signatures:['Prepared by','QC Incharge','QA Manager'],notice:'If needle breaks: stop machine, isolate affected work, recover all fragments, investigate missing pieces and authorize restart.'},
  {name:'Final AQL Inspection',code:'QMS-SHIP-001',department:'Final Inspection',columns:['Date','Buyer','PO','Style','Lot Size','Sample Size','Critical Defects','Major Defects','Minor Defects','Decision'],signatures:['Prepared by','Checked by','Approved by']}
 ]
+const FORMATS=["MEASUREMENT AUDIT","CUTTING INSPECTION","MATERIAL NONCONFORMANCE","70 PROCESS AUDIT","SUPPLIER EVALUATION","PREVENTIVE MAINTENANCE","MANAGEMENT REVIEW","INCOMING MATERIAL TESTS","FUSING PROCESS CONTROL","CALIBRATION REGISTER","PILOT RUN APPROVAL","TRIMS INSPECTION","TRAINING COMPETENCY","WASH CHEMICAL CONTROL","PACKING CARTON AUDIT","FINAL AQL INSPECTION","WASHING BATCH QUALITY","APPROVED SAMPLE SPECS","METAL DETECTION","BACK QUALITY CHECKING","NEEDLE & BROKEN NEEDLE CONTROL","CUSTOMER COMPLAINT CLAIMS","FRONT QUALITY CHECKING","SHIPMENT QUALITY RELEASE","CUTTING INLINE 70 AUDIT","FINISHING INSPECTION","BUYER REQUIREMENTS","QUALITY CONTROL PLAN","QUALITY KPI PERFORMANCE","FABRIC 4 POINT INSPECTION","DEFECT ANALYSIS DHU RFT","FABRIC SHRINKAGE SHADE","SEWING INLINE INSPECTION","NONCONFORMANCE NCR","POST WASH MEASUREMENT","INTERNAL QUALITY AUDIT","CORRECTIVE ACTION CAPA","PRE-PRODUCTION MEETING","FINAL STITCHING QUALITY CHECKING","SHADE BUNDLE TRACEABILITY"].map((name,index)=>({
+ name:name.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()),
+ filename:name+'.xlsx',code:'QMS-'+String(index+1).padStart(2,'0'),
+ department:'QMS',pilot:PILOT_FORMATS.find(p=>p.name.toUpperCase()===name)
+}))
+const ZIP_URL='https://raw.githubusercontent.com/shafayhsn/nizamia-app2A/feature/production-formats/QMS%20Excel%20formats.zip'
+let cachedZipPromise=null
+async function getZip(){
+ if(!cachedZipPromise)cachedZipPromise=fetch(ZIP_URL).then(r=>{
+  if(!r.ok)throw Error('Unable to load master Excel templates ('+r.status+').')
+  return r.arrayBuffer()
+ }).then(data=>JSZip.loadAsync(data)).catch(err=>{cachedZipPromise=null;throw err})
+ return cachedZipPromise
+}
+async function downloadOriginalExcel(form){
+ const zip=await getZip()
+ const file=Object.values(zip.files).find(f=>!f.dir&&f.name.split('/').pop()===form.filename)
+ if(!file)throw Error('Original workbook not found: '+form.filename)
+ const blob=await file.async('blob')
+ const url=URL.createObjectURL(new Blob([blob],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}))
+ const link=document.createElement('a');link.href=url;link.download=form.filename;document.body.appendChild(link);link.click();link.remove()
+ setTimeout(()=>URL.revokeObjectURL(url),10000)
+}
 const input={border:'1px solid #d8dce4',borderRadius:6,padding:'7px 9px',fontSize:12,background:'#fff'}
 const button={...input,cursor:'pointer',fontWeight:600,display:'inline-flex',alignItems:'center',gap:6}
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
@@ -35,37 +58,17 @@ function printForm(form,date,columns,rows){
  doc.open();doc.write(html);doc.close()
  setTimeout(doPrint,1000)
 }
-function downloadExcel(form,date,columns,rows){
- const meta=[
-  ['NIZAMIA APPARELS'],[form.name.toUpperCase()],
-  [form.department+' | '+form.code+' | REV 00'],
-  [],['JOB# / PO','','CUSTOMER','','DESIGN / STYLE',''],
-  ['DEPARTMENT / LINE','','DATE',date||'','LOT / BATCH',''],
-  [],columns,
-  ...Array.from({length:rows},()=>columns.map(() => '')),
-  [],...form.signatures.map(label=>[label,'____________________']),
-  ...(form.notice?[[],[form.notice]]:[])
- ]
- const ws=XLSX.utils.aoa_to_sheet(meta)
- const n=Math.max(1,columns.length)
- ws['!cols']=Array.from({length:n},(_,i)=>({wch:Math.min(34,Math.max(16,(columns[i]||'').length+4))}))
- ws['!rows']=[{hpt:26},{hpt:24},{hpt:20}]
- ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:n-1}},{s:{r:1,c:0},e:{r:1,c:n-1}},{s:{r:2,c:0},e:{r:2,c:n-1}}]
- ws['!pageSetup']={orientation:'landscape',paperSize:9,fitToWidth:1}
- const wb=XLSX.utils.book_new()
- XLSX.utils.book_append_sheet(wb,ws,'Production Format')
- XLSX.writeFile(wb,form.code+'_'+(date||'blank')+'.xlsx')
-}
 export default function ProductionFormats({onBack}){
- const [query,setQuery]=useState(''),[dept,setDept]=useState('All'),[selected,setSelected]=useState(null),[date,setDate]=useState(''),[hidden,setHidden]=useState([]),[rows,setRows]=useState(8)
+ const [query,setQuery]=useState(''),[dept,setDept]=useState('All'),[selected,setSelected]=useState(null),[date,setDate]=useState(''),[hidden,setHidden]=useState([]),[rows,setRows]=useState(8),[busy,setBusy]=useState(false),[error,setError]=useState('')
  const available=FORMATS.filter(f=>(dept==='All'||f.department===dept)&&[f.name,f.code,f.department].join(' ').toLowerCase().includes(query.toLowerCase()))
- const choose=f=>{setSelected(f);setHidden([]);setDate('');setRows(8)}
+ const choose=f=>{setSelected(f);setHidden([]);setDate('');setRows(8);setError('')}
+ const download=async()=>{setBusy(true);setError('');try{await downloadOriginalExcel(selected)}catch(e){setError(e.message||'Download failed')}finally{setBusy(false)}}
  return <div style={{fontFamily:'var(--font,Arial,sans-serif)',color:'#202633'}}>
   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,marginBottom:20}}>
    <div><h2 style={{margin:0,fontSize:20}}>Production Formats</h2><div style={{fontSize:12,color:'#64748b',marginTop:5}}>Standalone printable QMS forms · No database connection</div></div>
    <button style={button} onClick={onBack}><ArrowLeft size={14}/> All Reports</button>
   </div>
-  <div style={{padding:'11px 13px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,color:'#475569',marginBottom:18}}>Pilot: 3 reconstructed forms from your approved PDFs. The remaining 37 will be added after layout review. These are blank downloadable/printable forms, not saved records.</div>
+  <div style={{padding:'11px 13px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,color:'#475569',marginBottom:18}}>40 original Excel master templates, preserved exactly as supplied. Print / Save as PDF remains available for the 3 pilot forms only. No database connection.</div>
   <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:18}}>
    <label style={{display:'flex',alignItems:'center',gap:6}}><Search size={15}/><input style={input} placeholder="Search format..." value={query} onChange={e=>setQuery(e.target.value)}/></label>
    <select style={input} value={dept} onChange={e=>setDept(e.target.value)}>{['All',...new Set(FORMATS.map(f=>f.department))].map(x=><option key={x}>{x}</option>)}</select>
@@ -73,14 +76,19 @@ export default function ProductionFormats({onBack}){
   <div style={{display:'grid',gridTemplateColumns:'minmax(240px,1fr) minmax(300px,1.4fr)',gap:18,alignItems:'start'}}>
    <div style={{border:'1px solid #e2e8f0',borderRadius:9,overflow:'hidden'}}>{available.map(f=><button key={f.code} onClick={()=>choose(f)} style={{display:'block',width:'100%',textAlign:'left',padding:'14px 15px',border:0,borderBottom:'1px solid #e2e8f0',background:selected?.code===f.code?'#eff6ff':'#fff',cursor:'pointer'}}><div style={{fontWeight:650,fontSize:13}}>{f.name}</div><div style={{color:'#64748b',fontSize:11,marginTop:4}}>{f.department} · {f.code}</div></button>)}{!available.length&&<div style={{padding:15,fontSize:12}}>No matching formats.</div>}</div>
    <div style={{border:'1px solid #e2e8f0',borderRadius:9,padding:18}}>
-    {!selected?<div style={{color:'#64748b',fontSize:13}}>Select a format to customise its blank printable copy.</div>:<>
-     <h3 style={{fontSize:16,margin:'0 0 5px'}}>{selected.name}</h3><div style={{color:'#64748b',fontSize:11,marginBottom:18}}>{selected.code} · REV 00</div>
-     <label style={{display:'block',fontSize:12,fontWeight:650,marginBottom:7}}>Date (optional)</label><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{...input,marginBottom:16}}/>
-     <label style={{display:'block',fontSize:12,fontWeight:650,marginBottom:7}}>Blank rows</label><input type="number" min="1" max="30" value={rows} onChange={e=>setRows(Math.min(30,Math.max(1,Number(e.target.value)||1)))} style={{...input,width:80,marginBottom:16}}/>
-     <div style={{display:'flex',alignItems:'center',gap:7,fontSize:12,fontWeight:650,marginBottom:9}}><SlidersHorizontal size={14}/> Visible columns</div>
-     <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8,marginBottom:18}}>{selected.columns.map(c=><label key={c} style={{fontSize:11,display:'flex',alignItems:'start',gap:6}}><input type="checkbox" checked={!hidden.includes(c)} onChange={e=>setHidden(h=>e.target.checked?h.filter(x=>x!==c):[...h,c])}/>{c}</label>)}</div>
-     <div style={{display:'flex',gap:9,flexWrap:'wrap'}}><button style={{...button,background:'#17233c',color:'#fff',borderColor:'#17233c'}} disabled={hidden.length===selected.columns.length} onClick={()=>printForm(selected,date,selected.columns.filter(c=>!hidden.includes(c)),rows)}><Printer size={15}/> Print / Save as PDF</button><button style={button} disabled={hidden.length===selected.columns.length} onClick={()=>downloadExcel(selected,date,selected.columns.filter(c=>!hidden.includes(c)),rows)}><Download size={15}/> Download Excel</button></div>
-     <div style={{fontSize:11,color:'#64748b',marginTop:12}}>Print via your browser or download an editable Excel workbook. Settings apply only to this download.</div>
+    {!selected?<div style={{color:'#64748b',fontSize:13}}>Select a format to download its original Excel workbook.</div>:<>
+     <h3 style={{fontSize:16,margin:'0 0 5px'}}>{selected.name}</h3><div style={{color:'#64748b',fontSize:11,marginBottom:18}}>Original Excel master template</div>
+     <button style={{...button,background:'#17233c',color:'#fff',borderColor:'#17233c'}} disabled={busy} onClick={download}><Download size={15}/>{busy?' Preparing Excel...':' Download Original Excel'}</button>
+     {error&&<div role="alert" style={{fontSize:12,color:'#b91c1c',marginTop:12}}>{error}</div>}
+     <div style={{fontSize:11,color:'#64748b',marginTop:12}}>This is your original formatted .xlsx workbook, unchanged. Enter dates, add rows or hide columns in Excel after download.</div>
+     {selected.pilot&&<div style={{borderTop:'1px solid #e2e8f0',marginTop:22,paddingTop:17}}>
+      <div style={{fontWeight:650,fontSize:12,marginBottom:12}}>Pilot PDF print layout (separate from original Excel)</div>
+      <label style={{display:'block',fontSize:12,marginBottom:7}}>Date (optional)</label><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{...input,marginBottom:12}}/>
+      <label style={{display:'block',fontSize:12,marginBottom:7}}>Blank rows</label><input type="number" min="1" max="30" value={rows} onChange={e=>setRows(Math.min(30,Math.max(1,Number(e.target.value)||1)))} style={{...input,width:80,marginBottom:12}}/>
+      <div style={{display:'flex',alignItems:'center',gap:7,fontSize:12,marginBottom:9}}><SlidersHorizontal size={14}/> PDF visible columns</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8,marginBottom:15}}>{selected.pilot.columns.map(c=><label key={c} style={{fontSize:11,display:'flex',gap:6}}><input type="checkbox" checked={!hidden.includes(c)} onChange={e=>setHidden(h=>e.target.checked?h.filter(x=>x!==c):[...h,c])}/>{c}</label>)}</div>
+      <button style={button} disabled={hidden.length===selected.pilot.columns.length} onClick={()=>printForm(selected.pilot,date,selected.pilot.columns.filter(c=>!hidden.includes(c)),rows)}><Printer size={15}/> Print / Save as PDF (pilot)</button>
+     </div>}
     </>}
    </div>
   </div>
