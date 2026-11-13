@@ -1,3 +1,4 @@
+import ProductionFormats from './ProductionFormats'
 import ProformaInvoice from './ProformaInvoice'
 import { formatDate as appFormatDate } from '../lib/utils'
 import { useNavigate, useLocation } from 'react-router-dom'
@@ -163,6 +164,7 @@ export default function Reports() {
   const navigate = useNavigate()
   const location = useLocation()
   const incomingPI = location.state?.proformaOrderIds?.length ? location.state : null
+  const [productionFormatsOpen,setProductionFormatsOpen] = useState(false)
   const [active,setActive] = useState(()=>incomingPI ? {title:'Proforma Invoice',proforma:true} : null)
   const [catalogSearch,setCatalogSearch] = useState('')
   const [favorites,setFavorites] = useState(()=>{try{return JSON.parse(window.localStorage.getItem('app2a-report-favorites')||'[]')}catch{return []}})
@@ -625,11 +627,12 @@ export default function Reports() {
   const reportCatalog=[...flatten,{title:'PP Meeting',table:'pp_meetings',category:'Orders & Customers',ppm:true}]
   const categories=[...new Set(reportCatalog.map(r=>r.category))]
    const matches=reportCatalog.filter(r=>(category==='All'||(category==='Favorites'?favorites.includes(favoriteKey(r)):r.category===category))&&`${r.title} ${r.category}`.toLowerCase().includes(catalogSearch.toLowerCase())).sort((a,b)=>catalogSort==='category'?a.category.localeCompare(b.category)||a.title.localeCompare(b.title):a.title.localeCompare(b.title))
+   if(productionFormatsOpen)return <div style={{height:'100%',overflow:'auto',padding:'22px 26px',background:'#fff'}}><ProductionFormats onBack={()=>setProductionFormatsOpen(false)}/></div>
    if(active?.proforma)return <div style={{height:'100%',overflow:'auto',background:'#f8fafc'}}><ProformaInvoice initialSelection={incomingPI} onBack={()=>{setActive(null);if(incomingPI)navigate('/reports',{replace:true,state:null})}}/></div>
    return <div style={{height:'100%',overflow:'auto',padding:'22px 26px',background:'#fff',fontFamily:'var(--font,Arial,sans-serif)',color:'#202633'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,gap:12}}>
       <div><div style={{fontSize:22,fontWeight:750}}>Reports</div><div style={{fontSize:12,color:'#6b7280',marginTop:4}}>Central read-only reporting · existing Supabase records · Excel and print/PDF</div></div>
-      <div style={{display:'flex',gap:8}}>{active&&<button style={btn} onClick={()=>setActive(null)}><ArrowLeft size={15}/> All Reports</button>}<button style={{...btn,background:'#141b2e',color:'#fff',borderColor:'#141b2e'}} onClick={()=>navigate('/reports/custom')}><Plus size={15}/> Create Custom Report</button></div>
+      <div style={{display:'flex',gap:8}}>{active&&<button style={btn} onClick={()=>setActive(null)}><ArrowLeft size={15}/> All Reports</button>}<button style={btn} onClick={()=>{setActive(null);setProductionFormatsOpen(true)}}><FileText size={15}/> Production Formats</button><button style={{...btn,background:'#141b2e',color:'#fff',borderColor:'#141b2e'}} onClick={()=>navigate('/reports/custom')}><Plus size={15}/> Create Custom Report</button></div>
     </div>
     {!active ? <>
 
