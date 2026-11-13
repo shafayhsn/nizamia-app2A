@@ -128,4 +128,36 @@ async function listDrafts({ directory, session, authenticateSession }) {
     return (rows[0]?.values || []).map(([draftId, table, recordId, state, createdAt]) => ({ draftId, table, recordId, state, createdAt }))
   } finally { db.close() }
 }
-module.exports = { stageDraft, listDrafts, snapshotFingerprint }
+// Builds a bounded, read-only preview against caller-supplied cloud records.
+// Never submits a mutation; trusted server authorization and conditional writes
+// are required before any production synchronization can be enabled.
+async function previewSync({ directory, session, authenticateSession, cloudRecords, authorizedTables }) {
+  if (typeof authenticateSession !== 'function' || await authenticateSession(session) !== true ||
+      !session || typeof session.identity !== 'string' || !session.identity)
+    throw new Error('Authenticated session required')
+  if (!(cloudRecords instanceof Map) || !Array.isArray(authorizedTables))
+    throw new Error('Trusted cloud record map and permissions required')
+  assertDirectory(directory)
+  const file = path.join(directory, DB_NAME)
+  fingerprint(file)
+  const SQL = await sqlEngine()
+  const db = new SQL.Database(fs.readFileSync(file))
+  try {
+    if (db.exec('PRAGMA integrity_check')[0]?.values[0]?.[0] !== 'ok') throw new Error('Database integrity failure')
+    const exists = db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_draft_journal'")
+    if (!exists.length) return []
+    const { planBatch } = require('./offlineSyncPlanner.cjs')
+    const stmt = db.prepare("SELECT identity, draft_json FROM offline_draft_journal WHERE identity = ? AND state = 'pending' ORDER BY created_at LIMIT 101")
+    const items = []
+    try {
+      stmt.bind([session.identity])
+      while (stmt.step()) {
+        const [identity, json] = stmt.get()
+        items.push({ identity, draft: JSON.parse(json) })
+      }
+    } finally { stmt.free() }
+    if (items.length > 100) throw new Error('Sync preview batch limit exceeded')
+    return planBatch(items, cloudRecords, { identity: session.identity, authorizedTables })
+  } finally { db.close() }
+}
+module.exports = { stageDraft, listDrafts, previewSync, snapshotFingerprint }
