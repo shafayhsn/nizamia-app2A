@@ -58,9 +58,112 @@ function printForm(form,date,columns,rows){
  doc.open();doc.write(html);doc.close()
  setTimeout(doPrint,1000)
 }
+
+const XML_NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+const xChildren=(node,name)=>Array.from(node?.children||[]).filter(c=>c.localName===name)
+const xChild=(node,name)=>xChildren(node,name)[0]
+const colNumber=letters=>letters.split('').reduce((n,c)=>n*26+c.charCodeAt(0)-64,0)
+const colLetters=n=>{let s='';while(n){n--;s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26)}return s}
+const cellText=cell=>xChild(cell,'v')?.textContent||xChild(xChild(cell,'is'),'t')?.textContent||''
+const rowCells=row=>xChildren(row,'c')
+const xmlString=doc=>new XMLSerializer().serializeToString(doc)
+const xmlParse=s=>{const d=new DOMParser().parseFromString(s,'application/xml');if(d.querySelector('parsererror'))throw Error('Cannot read template XML');return d}
+async function loadTemplate(form){
+ const zip=await getZip()
+ const file=Object.values(zip.files).find(f=>!f.dir&&f.name.split('/').pop()===form.filename&&!f.name.startsWith('__MACOSX/'))
+ if(!file)throw Error('Original workbook not found: '+form.filename)
+ const original=await file.async('arraybuffer')
+ const book=await JSZip.loadAsync(original)
+ const path='xl/worksheets/sheet1.xml'
+ const sheet=xmlParse(await book.file(path).async('string'))
+ const data=xChild(sheet.documentElement,'sheetData')
+ const header=xChildren(data,'row').find(r=>r.getAttribute('r')==='9')
+ if(!header)throw Error('Missing table header in '+form.filename)
+ const columns=rowCells(header).filter(c=>cellText(c).trim()).map(c=>({index:colNumber(c.getAttribute('r').replace(/\\d/g,'')),label:cellText(c)}))
+ return {book,sheet,data,columns,path}
+}
+function customizeSheet(t,date,visible,rows){
+ const {sheet,data,columns}=t
+ const originalRows=xChildren(data,'row')
+ const entry=originalRows.filter(r=>+r.getAttribute('r')>=10&&+r.getAttribute('r')<=29)
+ const count=Math.max(1,Math.min(60,Number(rows)||20))
+ const delta=count-entry.length
+ const template=entry[0]
+ const footer=originalRows.filter(r=>+r.getAttribute('r')>=30)
+ for(const row of entry)row.remove()
+ for(const row of footer){
+  const newRow=+row.getAttribute('r')+delta
+  row.setAttribute('r',String(newRow))
+  for(const cell of rowCells(row))cell.setAttribute('r',cell.getAttribute('r').replace(/\\d+$/,String(newRow)))
+ }
+ const before=footer[0]
+ for(let i=0;i<count;i++){
+  const row=template.cloneNode(true)
+  row.setAttribute('r',String(10+i))
+  for(const cell of rowCells(row)){
+   cell.setAttribute('r',cell.getAttribute('r').replace(/\\d+$/,String(10+i)))
+   for(const child of [...cell.children])if(['v','f','is'].includes(child.localName))child.remove()
+   cell.removeAttribute('t')
+  }
+  data.insertBefore(row,before||null)
+ }
+ const cols=xChild(sheet.documentElement,'cols')
+ for(const col of xChildren(cols,'col')){
+  const n=+col.getAttribute('min')
+  col.setAttribute('hidden',visible.includes(n)?'0':'1')
+ }
+ const merges=xChild(sheet.documentElement,'mergeCells')
+ for(const merge of xChildren(merges,'mergeCell')){
+  const ref=merge.getAttribute('ref')
+  merge.setAttribute('ref',ref.replace(/(\\d+)/g,n=>+n>=30?String(+n+delta):n))
+ }
+ for(const row of xChildren(data,'row')){
+  if(+row.getAttribute('r')!==7||!date)continue
+  const cell=rowCells(row)[0],v=xChild(cell,'v')
+  if(v)v.textContent=v.textContent.replace(/DATE:\\s*_{3,}/i,'DATE: '+date)
+ }
+ const dimension=xChild(sheet.documentElement,'dimension')
+ if(dimension)dimension.setAttribute('ref',dimension.getAttribute('ref').replace(/\\d+$/,String(32+delta)))
+ return t
+}
+async function buildCustomized(form,date,visible,rows){
+ const t=await loadTemplate(form)
+ customizeSheet(t,date,visible,rows)
+ t.book.file(t.path,xmlString(t.sheet))
+ return t
+}
+async function downloadCustomized(form,date,visible,rows){
+ const t=await buildCustomized(form,date,visible,rows)
+ const blob=await t.book.generateAsync({type:'blob',compression:'DEFLATE'})
+ const url=URL.createObjectURL(blob),a=document.createElement('a')
+ a.href=url;a.download=form.filename.replace(/\\.xlsx$/i,' - Custom.xlsx');document.body.appendChild(a);a.click();a.remove()
+ setTimeout(()=>URL.revokeObjectURL(url),15000)
+}
+async function printCustomized(form,date,visible,rows){
+ const t=await buildCustomized(form,date,visible,rows)
+ const data=xChild(t.sheet.documentElement,'sheetData')
+ const entries=xChildren(data,'row')
+ const headers=entries.find(r=>+r.getAttribute('r')===9)
+ const cellAt=(row,n)=>rowCells(row).find(c=>colNumber(c.getAttribute('r').replace(/\\d/g,''))===n)
+ const shown=t.columns.filter(c=>visible.includes(c.index))
+ const title=entries.find(r=>+r.getAttribute('r')===3)
+ const meta=entries.find(r=>+r.getAttribute('r')===4)
+ const rowHtml=entries.filter(r=>+r.getAttribute('r')>=10&&+r.getAttribute('r')<10+rows).map(row=>'<tr>'+shown.map(c=>'<td>'+esc(cellText(cellAt(row,c.index)))+'</td>').join('')+'</tr>').join('')
+ const footer=entries.filter(r=>+r.getAttribute('r')>=30+rows-20).map(r=>esc(cellText(cellAt(r,1)))).filter(Boolean)
+ const html='<!doctype html><html><head><meta charset="utf-8"><title>'+esc(form.name)+'</title><style>@page{size:A4 landscape;margin:12mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}h1{font-size:19px;margin:6px 0}header{border-bottom:2px solid #1d2939;padding-bottom:12px;margin-bottom:16px}.meta{color:#475569;font-size:10px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #7b8794;padding:6px 4px;overflow-wrap:anywhere}th{background:#e9edf2;font-size:9px}td{height:21px}.footer{margin-top:22px;border-top:1px solid #cbd5e1;padding-top:9px;font-size:10px}</style></head><body><header><b>NIZAMIA APPARELS</b><h1>'+esc(cellText(cellAt(title,1))||form.name)+'</h1><div class="meta">'+esc(cellText(cellAt(meta,1)))+'</div><div class="meta">Date: '+esc(date||'____________')+'</div></header><table><thead><tr>'+shown.map(c=>'<th>'+esc(c.label)+'</th>').join('')+'</tr></thead><tbody>'+rowHtml+'</tbody></table><div class="footer">'+footer.map(x=>'<p>'+x+'</p>').join('')+'</div></body></html>'
+ const frame=document.createElement('iframe')
+ frame.style.cssText='position:fixed;width:0;height:0;border:0;visibility:hidden'
+ document.body.appendChild(frame)
+ let started=false
+ const run=()=>{if(started)return;started=true;frame.contentWindow.focus();frame.contentWindow.print();setTimeout(()=>frame.remove(),60000)}
+ frame.onload=()=>setTimeout(run,150)
+ frame.contentDocument.open();frame.contentDocument.write(html);frame.contentDocument.close()
+ setTimeout(run,1200)
+}
+
 export default function ProductionFormats(){
  const [query,setQuery]=useState(''),[department,setDepartment]=useState('All'),[sort,setSort]=useState('name'),[selected,setSelected]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('')
- const [date,setDate]=useState(''),[hidden,setHidden]=useState([]),[rows,setRows]=useState(8)
+ const [date,setDate]=useState(''),[hidden,setHidden]=useState([]),[rows,setRows]=useState(20),[templateCols,setTemplateCols]=useState([]),[loadingTemplate,setLoadingTemplate]=useState(false)
  const departmentOf=name=>{
   if(/FABRIC|MATERIAL|TRIMS|SUPPLIER|SHRINKAGE|SHADE BUNDLE|INCOMING/.test(name))return 'Materials & Fabric'
   if(/CUTTING|FUSING/.test(name))return 'Cutting'
@@ -71,8 +174,8 @@ export default function ProductionFormats(){
  }
  const departments=['All',...new Set(FORMATS.map(f=>departmentOf(f.filename.toUpperCase())))]
  const matches=FORMATS.filter(f=>(department==='All'||departmentOf(f.filename.toUpperCase())===department)&&[f.name,f.filename,departmentOf(f.filename.toUpperCase())].join(' ').toLowerCase().includes(query.toLowerCase())).sort((a,b)=>sort==='department'?departmentOf(a.filename.toUpperCase()).localeCompare(departmentOf(b.filename.toUpperCase()))||a.name.localeCompare(b.name):a.name.localeCompare(b.name))
- const choose=f=>{setSelected(f);setHidden([]);setDate('');setRows(8);setError('')}
- const download=async()=>{setBusy(true);setError('');try{await downloadOriginalExcel(selected)}catch(e){setError(e.message||'Download failed')}finally{setBusy(false)}}
+ const choose=async f=>{setSelected(f);setHidden([]);setDate('');setRows(20);setError('');setLoadingTemplate(true);try{const t=await loadTemplate(f);setTemplateCols(t.columns)}catch(e){setError(e.message)}finally{setLoadingTemplate(false)}}
+ const download=async(type)=>{setBusy(true);setError('');try{const visible=templateCols.filter(c=>!hidden.includes(c.index)).map(c=>c.index);if(!visible.length)throw Error('Select at least one column');if(type==='excel')await downloadCustomized(selected,date,visible,rows);else await printCustomized(selected,date,visible,rows)}catch(e){setError(e.message||'Download failed')}finally{setBusy(false)}}
  const cell={padding:'11px',borderTop:'1px solid #edf0f4'}
  const btn={border:'1px solid #d9dce4',borderRadius:7,padding:'7px 11px',background:'#fff',cursor:'pointer',fontSize:12,fontWeight:650}
  return !selected?<div>
@@ -93,16 +196,22 @@ export default function ProductionFormats(){
    <div><div style={{fontSize:17,fontWeight:700}}>{selected.name}</div><div style={{fontSize:12,color:'#64748b',marginTop:4}}>{departmentOf(selected.filename.toUpperCase())} · Original Excel master template</div></div>
    <button style={btn} onClick={()=>{setSelected(null);setError('')}}><ArrowLeft size={14} style={{verticalAlign:'middle',marginRight:5}}/> All Production Formats</button>
   </div>
-  <button style={{...btn,background:'#141b2e',color:'#fff',borderColor:'#141b2e'}} disabled={busy} onClick={download}><Download size={14} style={{verticalAlign:'middle',marginRight:6}}/>{busy?'Preparing Excel...':'Download Original Excel'}</button>
+  {loadingTemplate?<div style={{fontSize:12,color:'#64748b'}}>Loading original format columns...</div>:<>
+  <div style={{display:'flex',gap:16,flexWrap:'wrap',marginBottom:18}}>
+   <label style={{fontSize:12}}>Report date (optional)<div><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{...input,marginTop:7}}/></div></label>
+   <label style={{fontSize:12}}>Blank entry rows<div><input type="number" min="1" max="60" value={rows} onChange={e=>setRows(Math.max(1,Math.min(60,Number(e.target.value)||1)))} style={{...input,marginTop:7,width:90}}/></div></label>
+  </div>
+  <div style={{fontWeight:650,fontSize:12,marginBottom:9}}>Visible table columns</div>
+  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:9,marginBottom:20}}>
+   {templateCols.map(c=><label key={c.index} style={{fontSize:12,display:'flex',alignItems:'center',gap:7}}><input type="checkbox" checked={!hidden.includes(c.index)} onChange={e=>setHidden(h=>e.target.checked?h.filter(x=>x!==c.index):[...h,c.index])}/>{c.label}</label>)}
+  </div>
+  <div style={{display:'flex',gap:9,flexWrap:'wrap'}}>
+   <button style={{...btn,background:'#141b2e',color:'#fff',borderColor:'#141b2e'}} disabled={busy||!!error||!templateCols.length} onClick={()=>download('excel')}><Download size={14} style={{verticalAlign:'middle',marginRight:6}}/>{busy?'Preparing...':'Download Excel'}</button>
+   <button style={btn} disabled={busy||!!error||!templateCols.length} onClick={()=>download('pdf')}><Printer size={14} style={{verticalAlign:'middle',marginRight:6}}/>Print / Save as PDF</button>
+   <button style={btn} disabled={busy} onClick={()=>downloadOriginalExcel(selected).catch(e=>setError(e.message))}>Original Excel (unchanged)</button>
+  </div>
+  <div style={{fontSize:11,color:'#64748b',marginTop:12}}>Customised Excel retains original workbook formatting. PDF uses a print-friendly rendition of the same selected columns and rows. Original master remains unchanged.</div>
+  </>}
   {error&&<div role="alert" style={{fontSize:12,color:'#b91c1c',marginTop:12}}>{error}</div>}
-  <div style={{fontSize:12,color:'#64748b',marginTop:12}}>Downloads your original Excel workbook without altering its formatting. Edit dates, rows and columns in Excel.</div>
-  {selected.pilot&&<div style={{borderTop:'1px solid #e2e8f0',marginTop:22,paddingTop:17}}>
-   <div style={{fontWeight:650,fontSize:13,marginBottom:12}}>Optional pilot PDF print layout</div>
-   <label style={{display:'block',fontSize:12,marginBottom:7}}>Date (optional)</label><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{...input,marginBottom:12}}/>
-   <label style={{display:'block',fontSize:12,marginBottom:7}}>Blank rows</label><input type="number" min="1" max="30" value={rows} onChange={e=>setRows(Math.min(30,Math.max(1,Number(e.target.value)||1)))} style={{...input,width:80,marginBottom:12}}/>
-   <div style={{display:'flex',alignItems:'center',gap:7,fontSize:12,marginBottom:9}}><SlidersHorizontal size={14}/> PDF visible columns</div>
-   <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8,marginBottom:15}}>{selected.pilot.columns.map(c=><label key={c} style={{fontSize:11,display:'flex',gap:6}}><input type="checkbox" checked={!hidden.includes(c)} onChange={e=>setHidden(h=>e.target.checked?h.filter(x=>x!==c):[...h,c])}/>{c}</label>)}</div>
-   <button style={btn} disabled={hidden.length===selected.pilot.columns.length} onClick={()=>printForm(selected.pilot,date,selected.pilot.columns.filter(c=>!hidden.includes(c)),rows)}><Printer size={15} style={{verticalAlign:'middle',marginRight:6}}/>Print / Save as PDF</button>
-  </div>}
  </div>
 }
