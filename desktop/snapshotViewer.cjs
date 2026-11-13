@@ -21,6 +21,11 @@ async function querySnapshot(directory, action, args) {
       const result = db.exec('SELECT table_name, row_count FROM snapshot_manifest ORDER BY table_name')
       return (result[0]?.values || []).map(([name, count]) => ({ name, count }))
     }
+    if (action === 'summary') {
+      const result = db.exec("SELECT value FROM app_metadata WHERE key='snapshot_imported_at'")
+      const counts = db.exec('SELECT COUNT(*), COALESCE(SUM(row_count), 0) FROM snapshot_manifest')
+      return { importedAt: result[0]?.values[0]?.[0] || null, tables: counts[0]?.values[0]?.[0] || 0, records: counts[0]?.values[0]?.[1] || 0 }
+    }
     if (action === 'rows') {
       const name = args?.table
       const offset = args?.offset
