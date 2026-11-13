@@ -1,0 +1,41 @@
+'use strict'
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
+const crypto = require('node:crypto')
+const initSqlJs = require('sql.js')
+const { stageDraft, listDrafts } = require('./offlineDraftJournal.cjs')
+async function main() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'app2a-journal-'))
+  try {
+    const SQL = await initSqlJs({ locateFile: () => require.resolve('sql.js/dist/sql-wasm.wasm') })
+    const db = new SQL.Database()
+    db.run('CREATE TABLE snapshot_rows (table_name TEXT, row_index INTEGER, row_json TEXT)')
+    db.run('INSERT INTO snapshot_rows VALUES (?, ?, ?)', ['orders', 0, JSON.stringify({ id: 'o1', notes: 'before' })])
+    const file = path.join(dir, 'nizamia-app2a.sqlite')
+    fs.writeFileSync(file, Buffer.from(db.export()))
+    db.close()
+    const hash = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
+    const now = Date.now()
+    const session = { identity: 'worker1', verifiedIdentity: 'worker1', authenticated: true, permissions: ['offline:draft:orders'] }
+    const grant = { identity: 'worker1', issuedAt: now - 1000, expiresAt: now + 60000, permissions: ['offline:draft:orders'], snapshotHash: hash }
+    const args = { directory: dir, table: 'orders', recordId: 'o1', changes: { notes: 'after' }, grant, session, now }
+    await assert.rejects(stageDraft(args), /Trusted authorization/)
+    await assert.rejects(stageDraft({ ...args, authenticateEvidence: async () => false }), /Trusted authorization/)
+    await assert.rejects(stageDraft({ ...args, changes: { password_hash: 'bad' }, authenticateEvidence: async () => true }), /Field is not approved/)
+    await assert.rejects(stageDraft({ ...args, table: 'users', authenticateEvidence: async () => true }), /not enabled/)
+    const result = await stageDraft({ ...args, authenticateEvidence: async () => true })
+    assert.equal(result.state, 'pending')
+    assert.equal((await listDrafts({ directory: dir, session, authenticateSession: async () => true })).length, 1)
+    await assert.rejects(listDrafts({ directory: dir, session }), /Authenticated session/)
+    const reopened = new SQL.Database(fs.readFileSync(file))
+    assert.equal(reopened.exec('PRAGMA integrity_check')[0].values[0][0], 'ok')
+    assert.equal(JSON.parse(reopened.exec("SELECT row_json FROM snapshot_rows WHERE table_name='orders'")[0].values[0][0]).notes, 'before')
+    assert.equal(reopened.exec('SELECT COUNT(*) FROM offline_draft_journal')[0].values[0][0], 1)
+    reopened.close()
+    await assert.rejects(stageDraft({ ...args, authenticateEvidence: async () => true }), /Draft permission denied/)
+    process.stdout.write('Offline journal tests passed: fail-closed authorization, allowlist, staging, isolation, persistence, integrity.\n')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+}
+main().catch(e => { console.error(e); process.exitCode = 1 })
