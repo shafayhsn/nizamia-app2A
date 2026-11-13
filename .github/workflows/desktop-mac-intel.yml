@@ -37,6 +37,7 @@ jobs:
       - name: Verify desktop React bundle
         run: |
           test -s dist/index.html
+          test -s dist/offline-desktop.html
           test -d dist/assets
           grep -q 'assets/' dist/index.html
       - name: Install desktop dependencies
