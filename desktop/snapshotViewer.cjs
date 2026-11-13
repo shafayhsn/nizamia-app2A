@@ -40,7 +40,7 @@ async function querySnapshot(directory, action, args) {
       const requested = args?.module
       if (requested !== 'orders' && requested !== 'production') throw new Error('Unsupported module')
       const available = new Set((db.exec('SELECT table_name FROM snapshot_manifest')[0]?.values || []).map(row => row[0]))
-      const names = requested === 'orders' ? ['orders'] : ['production_entries', 'production_batch_orders', 'production_batches']
+      const names = requested === 'orders' ? ['orders'] : ['production_daily_entries', 'production_entries', 'production_batch_orders', 'production_batches']
       const result = {}
       for (const name of names) {
         if (!available.has(name)) continue
@@ -87,8 +87,9 @@ async function querySnapshot(directory, action, args) {
       if (typeof orderId !== 'string' && typeof orderId !== 'number') throw new Error('Invalid order identifier')
       if (String(orderId).length > 120) throw new Error('Invalid identifier length')
       const related = {}
-      const names = ['size_groups', 'production_batch_orders', 'production_entries', 'order_items']
+      const names = ['size_groups', 'size_group_colors', 'size_group_breakdown', 'bom_items', 'purchase_orders', 'order_queues', 'washing', 'finishing', 'finishing_packs', 'production_daily_entries', 'production_batch_orders', 'production_entries', 'order_items']
       const available = new Set((db.exec('SELECT table_name FROM snapshot_manifest')[0]?.values || []).map(v => v[0]))
+      const sizeGroupIds = new Set()
       for (const name of names) {
         if (!available.has(name)) continue
         const found = []
@@ -97,7 +98,10 @@ async function querySnapshot(directory, action, args) {
           statement.bind([name])
           while (statement.step()) {
             const record = JSON.parse(statement.get()[0])
-            if (String(record.order_id ?? '') === String(orderId)) {
+            const direct = String(record.order_id ?? '') === String(orderId)
+            const viaGroup = (name === 'size_group_colors' || name === 'size_group_breakdown') && sizeGroupIds.has(String(record.size_group_id ?? ''))
+            if (direct || viaGroup) {
+              if (name === 'size_groups' && record.id != null) sizeGroupIds.add(String(record.id))
               found.push(record)
               if (found.length >= 100) break
             }
