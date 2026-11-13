@@ -6,6 +6,7 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 const { app, dialog } = require('electron')
 const initSqlJs = require('sql.js')
+const { assertSnapshotReplaceSafe } = require('./snapshotReplaceGuard.cjs')
 const DB_NAME = 'nizamia-app2a.sqlite'
 const EXCLUDED_TABLES = new Set(['users', 'permissions', 'roles', 'app_database_sync_status', 'notification_reads', 'app_task_reads'])
 const SENSITIVE_FIELDS = /password|secret|token|api_key|private_key|session|credential|auth_hash/i
@@ -78,6 +79,7 @@ async function importBackup(parent, databaseDirectory) {
     const db = await sqlite(fs.readFileSync(destination))
     let tableCount = 0, rowCount = 0
     try {
+      assertSnapshotReplaceSafe(db)
       db.run('BEGIN')
       db.run('CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)')
       db.run('CREATE TABLE IF NOT EXISTS snapshot_rows (table_name TEXT NOT NULL, row_index INTEGER NOT NULL, row_json TEXT NOT NULL, PRIMARY KEY (table_name, row_index))')
@@ -109,6 +111,7 @@ async function importBackup(parent, databaseDirectory) {
       const actualRows = db.exec('SELECT COUNT(*) FROM snapshot_rows')[0].values[0][0]
       if (actualTables !== tableCount || expectedRows !== rowCount || actualRows !== rowCount)
         throw new Error('Local snapshot verification failed; original database remains unchanged.')
+      assertSnapshotReplaceSafe(db)
       atomicReplace(destination, db.export())
     } catch (error) {
       try { db.run('ROLLBACK') } catch {}
