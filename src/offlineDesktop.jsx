@@ -31,6 +31,10 @@ function App() {
   const [recoveryMessage, setRecoveryMessage] = useState('')
   const [tables, setTables] = useState([])
   const [search, setSearch] = useState('')
+  const [globalQuery, setGlobalQuery] = useState('')
+  const [globalResults, setGlobalResults] = useState(null)
+  const [globalBusy, setGlobalBusy] = useState(false)
+  const [globalError, setGlobalError] = useState('')
   const [module, setModule] = useState('dashboard')
   const [selected, setSelected] = useState(null)
   const [offset, setOffset] = useState(0)
@@ -203,6 +207,15 @@ function App() {
       setDrafts(await window.localSnapshot.workspaceDrafts())
     } catch (e) { setWorkspaceError(e.message) }
   }
+  async function runGlobalSearch(event) {
+    event.preventDefault()
+    setGlobalError(''); setGlobalResults(null)
+    if (globalQuery.trim().length < 2) { setGlobalError('Enter at least two characters.'); return }
+    setGlobalBusy(true)
+    try { setGlobalResults(await window.localSnapshot.globalSearch(globalQuery)) }
+    catch (e) { setGlobalError(e.message) }
+    finally { setGlobalBusy(false) }
+  }
   async function exportSelected() {
     if (!selected || !window.localSnapshot?.exportCsv || exporting) return
     setExporting(true); setError(''); setExportMessage('')
@@ -233,6 +246,17 @@ function App() {
         <button disabled={authBusy}>{authBusy ? 'Signing in…' : 'Sign in'}</button>
       </form>}
       {workspaceError && <p role="alert">{workspaceError}</p>}{recoveryMessage && <p role="status">{recoveryMessage}</p>}
+    </section>
+    <section className="notice" aria-label="Search all offline records">
+      <form onSubmit={runGlobalSearch}><strong>Search all offline modules</strong> <input aria-label="Search all saved records" placeholder="PO, style, buyer, task, department…" maxLength={120} value={globalQuery} onChange={e => setGlobalQuery(e.target.value)}/><button disabled={globalBusy}>{globalBusy ? 'Searching…' : 'Search all records'}</button>{globalResults && <button type="button" onClick={() => {setGlobalResults(null);setGlobalQuery('')}}>Clear results</button>}</form>
+      {globalError && <p role="alert">{globalError}</p>}
+      {globalResults && <div><p>{globalResults.total.toLocaleString()} matching records across {Object.keys(globalResults.counts).length} tables{globalResults.truncated ? ' (first 100 shown)' : ''}.</p>
+        {Object.entries(globalResults.counts).map(([table,count]) => <span key={table} style={{marginRight:12}}>{table.replaceAll('_',' ')}: {count}</span>)}
+        <div style={{maxHeight:360,overflowY:'auto'}}>{globalResults.matches.map(({table,record},i) => <div key={table+'-'+i} style={{padding:8,borderBottom:'1px solid #9994'}}>
+          <button onClick={() => {const found=tables.find(t=>t.name===table);if(found){setModule('all');setSelected(found);setOffset(0);setRecordQuery('');setDetail(record);setGlobalResults(null)}}}>{table.replaceAll('_',' ')} · {String(record.po_number || record.job_number || record.style_number || record.name || record.id || 'Record').slice(0,100)}</button>
+          <span style={{marginLeft:12}}>{Object.entries(record).slice(0,4).map(([k,v])=>k+': '+String(v??'').slice(0,65)).join(' · ')}</span>
+        </div>)}</div>
+      </div>}
     </section>
     <div className="modules" role="tablist" aria-label="Offline business modules">{MODULES.map(m => <button key={m.key} role="tab" aria-selected={module === m.key} className={module === m.key ? 'active' : ''} onClick={() => { setModule(m.key); setSelected(null); setRows([]); setOffset(0); setSearch(''); setDetail(null); setRecordQuery(''); setDepartment('') }}>{m.label}</button>)}</div>
     <div className="layout">
