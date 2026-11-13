@@ -7,6 +7,10 @@ on:
       - feature/CP-18-sqlite-foundation
     paths:
       - 'desktop/**'
+      - 'src/offlineDesktop.jsx'
+      - 'src/offlineDesktop.css'
+      - 'offline-desktop.html'
+      - 'vite.config.js'
       - '.github/workflows/desktop-mac-intel.yml'
   workflow_dispatch:
 
@@ -40,6 +44,8 @@ jobs:
           test -s dist/offline-desktop.html
           test -d dist/assets
           grep -q 'assets/' dist/index.html
+          grep -q 'assets/' dist/offline-desktop.html
+          test -n "$(find dist/assets -type f -name '*.js' -print -quit)"
       - name: Install desktop dependencies
         working-directory: desktop
         run: npm install --no-audit --no-fund
