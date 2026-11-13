@@ -66,8 +66,10 @@ function createWindow() {
     }
   })
   win.webContents.on('will-attach-webview', event => event.preventDefault())
+  let fallbackActive = false
   win.webContents.on('did-fail-load', (_event, code, description, validatedURL, isMainFrame) => {
-    if (isMainFrame && code !== -3 && validatedURL !== 'file://' + path.join(__dirname, 'offline.html')) {
+    if (isMainFrame && code !== -3 && !fallbackActive && validatedURL !== 'file://' + path.join(__dirname, 'offline.html')) {
+      fallbackActive = true
       win.loadFile(path.join(__dirname, 'offline.html')).catch(() => {})
       dialog.showMessageBox(win, {
         type: 'warning', title: 'Cloud connection unavailable',
@@ -80,7 +82,7 @@ function createWindow() {
         if (response === 0) {
           try { showLocalSnapshot(win, getDatabaseDirectory) }
           catch (error) { dialog.showErrorBox('Local data unavailable', error.message) }
-        } else if (response === 1) win.loadURL(APP_URL)
+        } else if (response === 1) { fallbackActive = false; win.loadURL(APP_URL) }
       }).catch(error => dialog.showErrorBox('Connection dialog error', error.message))
     }
   })
