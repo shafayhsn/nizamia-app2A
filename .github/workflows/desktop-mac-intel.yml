@@ -26,6 +26,10 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '22'
+      - name: Install web application dependencies
+        run: npm install --no-audit --no-fund
+      - name: Validate production web application build
+        run: npm run build
       - name: Install desktop dependencies
         working-directory: desktop
         run: npm install --no-audit --no-fund
