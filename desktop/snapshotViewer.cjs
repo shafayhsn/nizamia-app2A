@@ -165,7 +165,7 @@ function showLocalSnapshot(parent, getDirectory) {
   if (viewer && !viewer.isDestroyed()) { viewer.focus(); return }
   selectedDirectory = directory
   viewer = new BrowserWindow({
-    parent, width: 1100, height: 780, minWidth: 750, minHeight: 500,
+    ...(parent && !parent.isDestroyed() ? { parent } : {}), width: 1360, height: 900, minWidth: 960, minHeight: 650,
     title: 'Nizamia — Local SQLite Viewer',
     webPreferences: {
       preload: path.join(__dirname, 'snapshotViewerPreload.cjs'),
