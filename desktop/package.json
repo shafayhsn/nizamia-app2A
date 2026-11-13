@@ -28,7 +28,8 @@
       "snapshotViewer.cjs",
       "snapshotViewerPreload.cjs",
       "snapshotViewer.html",
-      "snapshotViewerRenderer.js"
+      "snapshotViewerRenderer.js",
+      "offline.html"
     ],
     "mac": {
       "category": "public.app-category.business",
