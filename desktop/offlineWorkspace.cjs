@@ -70,6 +70,11 @@ function createOfflineWorkspace(getDirectory) {
       fs.writeFileSync(destination, JSON.stringify(recovery, null, 2), { mode: 0o600, flag: 'w' })
       return { exported: recovery.drafts.length, file: path.basename(destination) }
     }
+    if (name === 'stageDraft') {
+      // No trusted server enrollment or signed per-user editing grants exist yet.
+      // Do not accept a renderer-provided grant or silently write a business draft.
+      throw new Error('Business draft saving is locked until verified server enrollment and edit permissions are configured')
+    }
     if (name === 'previewDrafts') {
       const session = authenticated()
       const directory = getDirectory()
