@@ -3,6 +3,7 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { BrowserWindow, ipcMain, dialog, app } = require('electron')
+const XLSX = require('xlsx')
 const { csvFromRows, selectSnapshotRows } = require('./offlineCsvExport.cjs')
 const { layoutRows, validateLayout } = require('./offlineReportLayout.cjs')
 const { createReportPresets } = require('./offlineReportPresets.cjs')
@@ -34,6 +35,30 @@ async function querySnapshot(directory, action, args) {
   try {
     const ok = db.exec('PRAGMA integrity_check')
     if (ok[0]?.values[0]?.[0] !== 'ok') throw new Error('SQLite integrity check failed')
+    if (action === 'exportXlsx') {
+      const rows = layoutRows(selectSnapshotRows(db,args || {}),args?.layout || {})
+      const safe = rows.map(row => Object.fromEntries(Object.entries(row).map(([key,value]) => {
+        const printable = value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
+        return [key, /^[\\s]*[=+@-]/.test(printable) ? "'" + printable : printable]
+      })))
+      const book = XLSX.utils.book_new()
+      const sheet = XLSX.utils.json_to_sheet(safe)
+      sheet['!cols'] = (safe.length ? Object.keys(safe[0]) : []).map(key => ({wch:Math.min(42,Math.max(14,key.length+4))}))
+      XLSX.utils.book_append_sheet(book,sheet,'Offline Records')
+      const choice = await dialog.showSaveDialog(viewer,{
+        title:'Export offline records to Excel',
+        defaultPath:args.table+'-offline-'+new Date().toISOString().slice(0,10)+'.xlsx',
+        filters:[{name:'Excel workbook',extensions:['xlsx']}]
+      })
+      if (choice.canceled || !choice.filePath) return {cancelled:true}
+      if (path.extname(choice.filePath).toLowerCase() !== '.xlsx') throw new Error('Excel destination required')
+      if (fs.existsSync(choice.filePath)) {
+        const stat=fs.lstatSync(choice.filePath)
+        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Unsafe export destination')
+      }
+      fs.writeFileSync(choice.filePath,XLSX.write(book,{type:'buffer',bookType:'xlsx'}),{mode:0o600,flag:'w'})
+      return {exported:rows.length,file:path.basename(choice.filePath)}
+    }
     if (action === 'exportCsv') {
       const rows = selectSnapshotRows(db, args || {})
       const formatted = layoutRows(rows, args?.layout || {})
