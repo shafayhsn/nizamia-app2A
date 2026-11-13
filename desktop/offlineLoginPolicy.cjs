@@ -24,7 +24,10 @@ function recordFailure(state, now = Date.now()) {
   validTime(now)
   const current = normalize(state)
   if (current.lockedUntil > now) return current
-  const failures = Math.min(MAX_FAILURES, current.failures + 1)
+  // An expired lockout begins a fresh attempt window; otherwise the first
+  // subsequent mistake would immediately lock the user out again.
+  const priorFailures = current.lockedUntil > 0 && current.lockedUntil <= now ? 0 : current.failures
+  const failures = Math.min(MAX_FAILURES, priorFailures + 1)
   return { failures, lockedUntil: failures >= MAX_FAILURES ? now + LOCK_MS : 0 }
 }
 function recordSuccess(state, now = Date.now()) {
