@@ -56,6 +56,15 @@
     },
     "asarUnpack": [
       "node_modules/sql.js/dist/sql-wasm.wasm"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist",
+        "to": "web",
+        "filter": [
+          "**/*"
+        ]
+      }
     ]
   },
   "dependencies": {
