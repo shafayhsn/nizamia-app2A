@@ -28,6 +28,7 @@
       "snapshotInspect.cjs",
       "snapshotViewer.cjs",
       "offlineWorkspace.cjs",
+      "offlineDraftPreview.cjs",
       "snapshotStartup.cjs",
       "offlineCsvExport.cjs",
       "offlineDraft.cjs",
