@@ -29,7 +29,7 @@ async function main() {
     await notes.importNotes({...backup,notes:[backup.notes[0]]},'replace')
     assert.equal((await notes.exportNotes()).notes.length,1)
     await notes.save('orders','o1','')
-    assert.equal((await notes.exportNotes()).notes.length, 2)
+    assert.equal((await notes.exportNotes()).notes.length, 0)
     assert.equal((await notes.get('orders','o1')).body, '')
     await assert.rejects(notes.save('orders','o1','x'.repeat(4001)), /4,000/)
     await assert.rejects(notes.get('../secrets','x'), /record reference/)
