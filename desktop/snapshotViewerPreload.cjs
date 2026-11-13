@@ -1,6 +1,9 @@
 'use strict'
 const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('localSnapshot', Object.freeze({
+  reportPresetGet: table => ipcRenderer.invoke('nizamia-local-snapshot', 'preset:get', { table }),
+  reportPresetSave: (table, layout) => ipcRenderer.invoke('nizamia-local-snapshot', 'preset:save', { table, layout }),
+  reportPresetRemove: table => ipcRenderer.invoke('nizamia-local-snapshot', 'preset:remove', { table }),
   workspaceStatus: () => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:status', {}),
   workspaceLogin: passphrase => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:login', { passphrase }),
   workspaceLogout: () => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:logout', {}),
