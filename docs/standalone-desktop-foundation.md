@@ -9,7 +9,7 @@ Baseline: checkpoint/CP-15-complete-backup-fix (production). CP-16 remains separ
 - Vercel /api/oms calls need explicit desktop URL configuration; relative paths do not automatically reach production APIs from a packaged app.
 
 ## Proposed architecture
-- Electron desktop shell (Windows first, macOS second), separate build target; reuse existing React UI.
+- Electron desktop shell for both macOS and Windows, separate build targets; reuse existing React UI. macOS is the FIRST hands-on testing target because the owner tests on a Mac; Windows remains a required release target.
 - SQLite lives only in the desktop main process, exposed through a minimal validated IPC interface.
 - Never ship PostgreSQL passwords, service-role keys, or unrestricted SQL execution in the renderer.
 - Keep local records and a durable outbox of pending mutations, with client-generated operation IDs for idempotency.
@@ -20,11 +20,11 @@ Baseline: checkpoint/CP-15-complete-backup-fix (production). CP-16 remains separ
 
 ## Implementation gates
 1. Inventory all direct Supabase and /api/oms usage; classify online-only versus offline-ready.
-2. Desktop shell proof of concept: login online, navigate read-only, correct API base URL, no secret keys.
+2. macOS desktop shell proof of concept first: login online, navigate read-only, correct API base URL, no secret keys; then validate the equivalent Windows build.
 3. Local SQLite schema and migrations, durable outbox and crash recovery; test without production writes.
 4. Offline-first pilot for ONE workflow (proposed: production daily entries), with idempotent synchronization and conflict tests.
 5. Test restart, disconnection, reconnection, duplicate submissions, authorization, backup and restore.
-6. Produce signed installers only after successful validation. No production merge without approval.
+6. Produce macOS .dmg (Apple signing/notarization for trusted distribution) and Windows installer after successful validation. No production merge without approval.
 
 ## Current status
 Architecture plan only. No installer, SQLite integration or offline synchronization implemented yet.
