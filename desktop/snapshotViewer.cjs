@@ -6,6 +6,7 @@ const { BrowserWindow, ipcMain, dialog, app } = require('electron')
 const { csvFromRows, selectSnapshotRows } = require('./offlineCsvExport.cjs')
 const { layoutRows, validateLayout } = require('./offlineReportLayout.cjs')
 const { createReportPresets } = require('./offlineReportPresets.cjs')
+const { createLocalAnnotations } = require('./offlinePersonalNotes.cjs')
 const { createOfflineWorkspace } = require('./offlineWorkspace.cjs')
 const initSqlJs = require('sql.js')
 const channel = 'nizamia-local-snapshot'
@@ -204,6 +205,13 @@ function showLocalSnapshot(parent, getDirectory) {
       const senderURL = new URL(event.sender.getURL())
       if (senderURL.protocol !== 'file:' || decodeURIComponent(senderURL.pathname) !== activeViewerFile)
         throw new Error('Unexpected viewer origin')
+      if (typeof action === 'string' && action.startsWith('note:')) {
+        const notes = createLocalAnnotations(app.getPath('userData'))
+        const command = action.slice('note:'.length)
+        if (command === 'get') return notes.get(args?.table, args?.recordId)
+        if (command === 'save') return notes.save(args?.table, args?.recordId, args?.body)
+        throw new Error('Unsupported local note action')
+      }
       if (typeof action === 'string' && action.startsWith('preset:')) {
         const presets = createReportPresets(app.getPath('userData'))
         const command = action.slice('preset:'.length)
