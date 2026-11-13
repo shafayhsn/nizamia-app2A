@@ -35,3 +35,5 @@ Architecture plan only. No installer, SQLite integration or offline synchronizat
 - Verify minimum supported macOS version and Electron compatibility before packaging.
 
 - Tester confirmed MacBook Pro 13-inch 2017 model A1708 (Intel x86_64). Official macOS ceiling: Ventura 13. Verify installed macOS version and Electron minimum OS before packaging.
+
+- Confirmed installed test OS: macOS Ventura 13.7.8. Desktop runtime and packaging must support macOS 13 x86_64; do not select Electron release without verifying minimum supported OS.
