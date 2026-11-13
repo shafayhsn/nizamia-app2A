@@ -8,6 +8,9 @@ const channel = 'nizamia-local-snapshot'
 let viewer = null
 let bound = false
 let selectedDirectory = null
+const bundledReact = path.join(process.resourcesPath, 'web', 'offline-desktop.html')
+const legacyViewer = path.join(__dirname, 'snapshotViewer.html')
+let activeViewerFile = legacyViewer
 
 async function querySnapshot(directory, action, args) {
   const filename = path.join(directory, 'nizamia-app2a.sqlite')
@@ -58,14 +61,15 @@ function showLocalSnapshot(parent, getDirectory) {
   viewer.webContents.on('will-navigate', event => event.preventDefault())
   viewer.webContents.on('will-attach-webview', event => event.preventDefault())
   viewer.on('closed', () => { viewer = null; selectedDirectory = null })
-  viewer.loadFile(path.join(__dirname, 'snapshotViewer.html'))
+  activeViewerFile = fs.existsSync(bundledReact) ? bundledReact : legacyViewer
+  viewer.loadFile(activeViewerFile)
   if (!bound) {
     bound = true
     ipcMain.handle(channel, async (event, action, args) => {
       if (!viewer || viewer.isDestroyed() || event.sender.id !== viewer.webContents.id)
         throw new Error('Local viewer access denied')
       const senderURL = new URL(event.sender.getURL())
-      if (senderURL.protocol !== 'file:' || decodeURIComponent(senderURL.pathname) !== path.join(__dirname, 'snapshotViewer.html'))
+      if (senderURL.protocol !== 'file:' || decodeURIComponent(senderURL.pathname) !== activeViewerFile)
         throw new Error('Unexpected viewer origin')
       return querySnapshot(selectedDirectory, action, args)
     })
