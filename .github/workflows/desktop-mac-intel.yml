@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - standalone/desktop-foundation-cp15
+      - feature/CP-18-sqlite-foundation
     paths:
       - 'desktop/**'
       - '.github/workflows/desktop-mac-intel.yml'
@@ -30,7 +31,9 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Check desktop entry syntax
         working-directory: desktop
-        run: node --check main.cjs
+        run: |
+          node --check main.cjs
+          node --check localDatabase.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
