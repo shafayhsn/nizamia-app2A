@@ -24,6 +24,7 @@
       "package.json",
       "localDatabase.cjs",
       "snapshotImport.cjs",
+      "snapshotReplaceGuard.cjs",
       "snapshotInspect.cjs",
       "snapshotViewer.cjs",
       "offlineDraft.cjs",
