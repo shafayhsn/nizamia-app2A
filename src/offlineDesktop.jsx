@@ -25,6 +25,7 @@ function App() {
   const [workspace, setWorkspace] = useState(null)
   const [passphrase, setPassphrase] = useState('')
   const [drafts, setDrafts] = useState([])
+  const [draftPreview, setDraftPreview] = useState(null)
   const [authBusy, setAuthBusy] = useState(false)
   const [workspaceError, setWorkspaceError] = useState('')
   const [tables, setTables] = useState([])
@@ -100,8 +101,13 @@ function App() {
     try {
       await window.localSnapshot.workspaceLogout()
       setWorkspace(await window.localSnapshot.workspaceStatus())
-      setDrafts([])
+      setDrafts([]); setDraftPreview(null)
     } catch (e) { setWorkspaceError(e.message) }
+  }
+  async function showDraftPreview(table, recordId) {
+    setWorkspaceError('')
+    try { setDraftPreview(await window.localSnapshot.workspacePreviewDrafts(table, recordId)) }
+    catch (e) { setWorkspaceError(e.message) }
   }
   async function cancelOfflineDraft(draftId) {
     if (!window.confirm('Discard this unsynchronized local draft? This cannot be undone.')) return
@@ -129,7 +135,8 @@ function App() {
       <strong>Offline workspace</strong>{workspace?.authenticated ? <>
         <span> Signed in locally as {workspace.identity}. Pending drafts: {drafts.length}. Cloud sync is not enabled.</span>
         <button onClick={logoutOffline}>Sign out</button>
-        {drafts.map(d => <div key={d.draftId}><span>{d.table} · {d.recordId} · {d.state} · {d.createdAt}</span> <button onClick={() => cancelOfflineDraft(d.draftId)} disabled={d.state !== 'pending'}>Discard draft</button></div>)}
+        {drafts.map(d => <div key={d.draftId}><span>{d.table} · {d.recordId} · {d.state} · {d.createdAt}</span> <button onClick={() => showDraftPreview(d.table, d.recordId)}>Compare local changes</button> <button onClick={() => cancelOfflineDraft(d.draftId)} disabled={d.state !== 'pending'}>Discard draft</button></div>)}
+        {draftPreview && <div className="recorddetail"><button onClick={() => setDraftPreview(null)}>Close comparison</button><h3>Local changes — not synchronized</h3><dl>{Object.keys(draftPreview.preview).filter(key => draftPreview.original[key] !== draftPreview.preview[key]).map(key => <React.Fragment key={key}><dt>{key}</dt><dd>Saved: {String(draftPreview.original[key] ?? '')}</dd><dt>Pending</dt><dd>{String(draftPreview.preview[key] ?? '')}</dd></React.Fragment>)}</dl><p>{draftPreview.pending.length} draft(s) associated with this record. Original snapshot data is unchanged.</p></div>}
       </> : <span> {workspace?.unavailable ? 'Secure storage unavailable: ' + workspace.unavailable :
         workspace?.enrolled ? 'Existing offline enrollment detected. Sign in to view your draft queue.' :
         'Offline editing requires a verified enrollment from the server. Enrollment is not yet available in this build.'}</span>}
