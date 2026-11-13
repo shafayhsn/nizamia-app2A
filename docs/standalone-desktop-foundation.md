@@ -33,3 +33,5 @@ Architecture plan only. No installer, SQLite integration or offline synchronizat
 - Initial tester reports Intel Mac, architecture x86_64 (to confirm via About This Mac).
 - First macOS build target: darwin x64 / Intel .dmg; retain future arm64 support.
 - Verify minimum supported macOS version and Electron compatibility before packaging.
+
+- Tester confirmed MacBook Pro 13-inch 2017 model A1708 (Intel x86_64). Official macOS ceiling: Ventura 13. Verify installed macOS version and Electron minimum OS before packaging.
