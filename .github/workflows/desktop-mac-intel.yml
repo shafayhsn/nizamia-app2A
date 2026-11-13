@@ -98,6 +98,9 @@ jobs:
       - name: Test persistent offline report presets
         working-directory: desktop
         run: node offlineReportPresets.test.cjs
+      - name: Test data-driven operational system reports
+        working-directory: desktop
+        run: node offlineSystemReports.test.cjs
       - name: Guard full OMS page coverage
         working-directory: desktop
         run: node offlinePageCoverage.test.cjs
