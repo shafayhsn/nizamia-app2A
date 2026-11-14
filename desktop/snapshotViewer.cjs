@@ -206,6 +206,7 @@ async function querySnapshot(directory, action, args) {
           matches.unshift(record);total++
         }
       }
+      if(LOCAL_TABLES.has(name))for(const record of readLocalRows(db,name)){const label=record.department||record.dept||record.department_name;if(label)departmentsSeen.add(String(label))}
       const departments = [...departmentsSeen].sort()
       if (matches.length > 20000 && layout.sortBy) throw new Error('Sorting more than 20,000 records requires narrower filters')
       const sorted = layout.sortBy ? layoutRows(matches, { sortBy: layout.sortBy, descending: layout.descending }) : matches

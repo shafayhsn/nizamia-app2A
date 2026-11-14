@@ -1,5 +1,6 @@
 'use strict'
 // Pure, bounded CSV exporter. Runs only in the trusted Electron main process.
+const {readLocalRows,TABLES:LOCAL_TABLES}=require('./standaloneRecords.cjs')
 const MAX_EXPORT_ROWS = 20000
 const MAX_EXPORT_BYTES = 20 * 1024 * 1024
 function scalar(value) {
@@ -29,20 +30,27 @@ function selectSnapshotRows(db, { table, query = '', department = '' }) {
       typeof query !== 'string' || query.length > 120 ||
       typeof department !== 'string' || department.length > 80)
     throw new Error('Invalid export filters')
-  if (!db.exec('SELECT 1 FROM snapshot_manifest WHERE table_name = ?', [table]).length)
-    throw new Error('Unknown snapshot table')
+  const manifest=db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_manifest'").length
+  const imported=manifest&&db.exec('SELECT 1 FROM snapshot_manifest WHERE table_name = ?', [table]).length
+  if (!imported&&!LOCAL_TABLES.has(table)) throw new Error('Unknown snapshot table')
   const rows = []
-  const stmt = db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index')
+  const stmt = imported?db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index'):null
   try {
-    stmt.bind([table])
-    while (stmt.step()) {
+    if(stmt)stmt.bind([table])
+    while (stmt&&stmt.step()) {
       const row = JSON.parse(stmt.get()[0])
       if (query && !Object.values(row).some(v => scalar(v).toLowerCase().includes(query.toLowerCase()))) continue
       if (department && scalar(row.department || row.dept || row.department_name).toLowerCase() !== department.toLowerCase()) continue
       if (rows.length === MAX_EXPORT_ROWS) throw new Error('Export exceeds 20,000 rows; narrow the filters')
       rows.push(row)
     }
-  } finally { stmt.free() }
+  } finally { if(stmt)stmt.free() }
+  if(LOCAL_TABLES.has(table))for(const row of readLocalRows(db,table)){
+    if(query&&!Object.values(row).some(v=>scalar(v).toLowerCase().includes(query.toLowerCase())))continue
+    if(department&&scalar(row.department||row.dept||row.department_name).toLowerCase()!==department.toLowerCase())continue
+    if(rows.length===MAX_EXPORT_ROWS)throw Error('Export exceeds 20,000 rows; narrow the filters')
+    rows.push(row)
+  }
   return rows
 }
 module.exports = { csvFromRows, selectSnapshotRows, MAX_EXPORT_ROWS }

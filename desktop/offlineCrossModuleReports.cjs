@@ -1,6 +1,7 @@
 'use strict'
 // Cross-module operational reports calculated from a single imported OMS snapshot.
 // These reports are observational, not sync instructions or write operations.
+const {readLocalRows,TABLES:LOCAL_TABLES}=require('./standaloneRecords.cjs')
 const REPORTS=Object.freeze([
  {key:'order_production_progress',title:'Order-wise production progress',source:'production_daily_entries'},
  {key:'order_purchasing_status',title:'Order-wise purchasing status',source:'purchase_orders'},
@@ -9,13 +10,16 @@ const REPORTS=Object.freeze([
 const MAX_ROWS=100000
 const ORDER_KEYS=['order_id','orderId','oms_order_id']
 function read(db,table) {
- const exists=db.exec('SELECT 1 FROM snapshot_manifest WHERE table_name = ?',[table])
- if(!exists.length)return null
- const stmt=db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index')
+ const hasManifest=db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_manifest'").length
+ const exists=hasManifest&&db.exec('SELECT 1 FROM snapshot_manifest WHERE table_name = ?',[table]).length
+ const local=LOCAL_TABLES.has(table)?readLocalRows(db,table):[]
+ if(!exists&&!local.length)return null
+ const stmt=exists?db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index'):null
  const rows=[]
- try {stmt.bind([table]);while(stmt.step()){if(rows.length>=MAX_ROWS)throw Error('Source exceeds report safety limit');rows.push(JSON.parse(stmt.get()[0]))}}
- finally{stmt.free()}
- return rows
+ try {if(stmt){stmt.bind([table]);while(stmt.step()){if(rows.length>=MAX_ROWS)throw Error('Source exceeds report safety limit');rows.push(JSON.parse(stmt.get()[0]))}}}
+ finally{if(stmt)stmt.free()}
+ if(rows.length+local.length>MAX_ROWS)throw Error('Source exceeds report safety limit')
+ return rows.concat(local)
 }
 function numeric(row,keys) {
  for(const key of keys){if(row[key]!=null && row[key]!==''){const n=Number(row[key]);if(Number.isFinite(n)&&n>=0)return n}}
@@ -25,11 +29,11 @@ function crossModuleReport(db,key) {
  const def=REPORTS.find(r=>r.key===key)
  if(!def)throw Error('Unknown cross-module report')
  const orders=read(db,'orders')
- if(!orders)return {key,title:def.title,available:false,reason:'Orders not included in imported snapshot',rows:[]}
+ if(!orders)return {key,title:def.title,available:false,reason:'Orders not found in saved offline records',rows:[]}
  let sources=read(db,def.source)
  let sourceTable=def.source
  if(!sources && key==='order_shipping_status'){sources=read(db,'bookings');sourceTable='bookings'}
- if(!sources)return {key,title:def.title,available:false,reason:def.source+' not included in imported snapshot',rows:[]}
+ if(!sources)return {key,title:def.title,available:false,reason:def.source+' not found in saved offline records',rows:[]}
  const orderIndex=new Map()
  for(const order of orders){if(order.id!=null)orderIndex.set(String(order.id),order)}
  const grouped=new Map()
@@ -51,7 +55,7 @@ function crossModuleReport(db,key) {
  }
  const rows=orders.filter(order=>order.id!=null).map(order=>{
   const id=String(order.id),group=grouped.get(id)
-  const ordered=numeric(order,['quantity','total_quantity','order_quantity','qty'])
+  const ordered=numeric(order,['quantity','total_quantity','total_qty','order_quantity','qty'])
   const produced=group?.quantityRecords ? group.quantity : null
   const progress=key==='order_production_progress'&&ordered!=null&&ordered>0&&produced!=null
    ? Math.round(produced/ordered*10000)/100 : null
