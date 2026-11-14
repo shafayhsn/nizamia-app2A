@@ -12,10 +12,11 @@ function offlineQuery(table) {
     const response=await fetch('/api/offline/records?table='+encodeURIComponent(table))
     const body=await response.json()
     if(!response.ok)throw Error(body.error||'Offline database read failed')
-    let rows=body.data||[]
+    if(!Array.isArray(body.data))throw Error('Invalid offline database response')
+    let rows=body.data
     const matches=(r,field,op,value)=>{
       const actual=r[field]
-      if(op==='eq')return actual===value||(actual!=null&&value!=null&&String(actual)===String(value))
+      if(op==='eq')return actual!=null&&value!=null&&(actual===value||String(actual)===String(value))
       if(op==='neq')return actual!=null&&value!=null&&String(actual)!==String(value)
       if(op==='is')return value===null?actual==null:actual===value
       if(op==='not-is')return value===null?actual!=null:actual!==value
@@ -46,6 +47,7 @@ function offlineQuery(table) {
       if(operation==='create'&&Array.isArray(payload)&&payload.length>500)throw Error('Maximum 500 records per batch')
       if(operation==='create'&&Array.isArray(payload)&&!payload.length)throw Error('Empty insert batch')
       if(operation==='create'&&Array.isArray(payload)&&payload.length>1){
+        if(upsert)throw Error('Offline multi-record upsert is unsupported; no records saved')
         const response=await fetch('/api/offline/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table,rows:payload})})
         const result=await response.json()
         if(!response.ok)throw Error(result.error||'Atomic batch insert failed')
@@ -55,16 +57,16 @@ function offlineQuery(table) {
         const saved=(await savedResponse.json()).data||[]
         const ids=new Set(result.data.map(row=>String(row.id)))
         const records=saved.filter(row=>ids.has(String(row.id)))
+        if(records.length!==ids.size)throw Error('Batch saved but some records could not be reloaded')
         return {data:records,error:null}
       }
-      if(upsert&&operation==='create'&&Array.isArray(payload))throw Error('Offline upsert of multiple records is not supported; no changes saved')
       if(upsert&&operation==='create'&&payload?.id){const oldColumns=columns,oldOffset=offset,oldLimit=limit;columns='*';offset=0;limit=null;let found;try{found=(await load()).rows.find(row=>String(row.id)===String(payload.id))}finally{columns=oldColumns;offset=oldOffset;limit=oldLimit}if(found){operation='update';existing=[found]}else throw Error('Offline upsert cannot assign an imported ID; use insert for new records')}
       const fields=operation==='create'?(Array.isArray(payload)?payload[0]:payload):operation==='update'?{...existing[0],...payload}:null
       if(fields){delete fields.id;delete fields._local_only;delete fields._local_updated_at;delete fields._local_edited}
       const response=await fetch('/api/offline/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:operation,table,id:existing[0]?.id,fields})})
       const result=await response.json()
       if(!response.ok)throw Error(result.error||'Offline save failed')
-      if(operation==='delete')return {data:null,error:null}
+      if(operation==='delete')return {data:returnRows?(single?existing[0]:existing):null,error:null}
       if(!returnRows)return {data:null,error:null}
       const savedResponse=await fetch('/api/offline/records?table='+encodeURIComponent(table))
       if(!savedResponse.ok)throw Error('Record saved but reload failed')
