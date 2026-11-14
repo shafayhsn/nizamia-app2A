@@ -65,7 +65,8 @@
       "snapshotViewerRenderer.js",
       "offline.html",
       "standaloneRecords.cjs",
-      "standaloneForms.cjs"
+      "standaloneForms.cjs",
+      "localDesktopAuth.cjs"
     ],
     "mac": {
       "category": "public.app-category.business",

@@ -6,6 +6,8 @@ const { importBackup } = require('./snapshotImport.cjs')
 const { inspectSnapshot } = require('./snapshotInspect.cjs')
 const { showLocalSnapshot } = require('./snapshotViewer.cjs')
 const fs = require('node:fs')
+const {createLocalAuth}=require('./localDesktopAuth.cjs')
+let desktopAuth
 const { snapshotReady } = require('./snapshotStartup.cjs')
 
 // Serve the bundled web SPA under a proper origin so BrowserRouter routes and
@@ -40,6 +42,7 @@ async function startDesktop() {
       await initializeDatabase(directory)
     }
     if (!await snapshotReady(directory)) throw new Error('Local SQLite database could not be verified')
+    desktopAuth=createLocalAuth(app.getPath('userData'))
     if(fs.existsSync(path.join(process.resourcesPath,'web','index.html')))openBundledWebApp()
     else showLocalSnapshot(null,getDatabaseDirectory)
   } catch(error) {
@@ -146,9 +149,14 @@ app.whenReady().then(() => {
   protocol.handle('app2a',async request=>{
     const url=new URL(request.url)
     if(url.hostname!=='local')return new Response('Not found',{status:404})
+    if(url.pathname==='/api/offline/auth'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      try{const raw=await request.text();if(raw.length>2048)return Response.json({error:'Request too large'},{status:413});const input=JSON.parse(raw);if(!desktopAuth)return Response.json({error:'Local account not ready'},{status:503});let data;if(input.action==='status')data=desktopAuth.status();else if(input.action==='setup')data=desktopAuth.setup(input.username,input.password);else if(input.action==='login')data=desktopAuth.login(input.username,input.password);else if(input.action==='logout')data=desktopAuth.logout();else return Response.json({error:'Unknown action'},{status:400});return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
+    }
     // Local-only read bridge for the bundled original React interface.
     // Never expose arbitrary SQL, filesystem paths, or cloud credentials.
     if(url.pathname==='/api/offline/records'){
+      if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
       if(request.method!=='GET')return new Response('Method not allowed',{status:405})
       const table=url.searchParams.get('table')
       const {listCombinedRecords}=require('./standaloneRecords.cjs')
@@ -161,6 +169,7 @@ app.whenReady().then(() => {
       }catch(error){return Response.json({error:error.message},{status:500})}
     }
     if(url.pathname==='/api/offline/mutate'){
+      if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})
       try{
         const {mutateLocalRecord,TABLES}=require('./standaloneRecords.cjs')

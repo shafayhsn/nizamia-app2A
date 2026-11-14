@@ -6,6 +6,8 @@ import { supabase } from './supabase'
 import { MODULES } from './permissions'
 
 const AuthContext = createContext(null)
+const IS_DESKTOP = typeof location !== 'undefined' && location.protocol === 'app2a:'
+const desktopRequest=async(action,fields={})=>{const response=await fetch('/api/offline/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...fields})});const result=await response.json();if(!response.ok)throw Error(result.error||'Local authentication failed');return result.data}
 const AUTH_TIMEOUT_MS = 5000
 const APP_USER_KEY = 'nizamia_app2a_user'
 
@@ -121,6 +123,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [userRole, setUserRole] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [offlineSetupRequired,setOfflineSetupRequired]=useState(false)
 
   const setAppUser = useCallback((appUser) => {
     setUser(appUser)
@@ -129,6 +132,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   const refreshUser = useCallback(async () => {
+    if(IS_DESKTOP){const result=await desktopRequest('status');setOfflineSetupRequired(result.setupRequired);setUser(result.user);setUserRole(result.user);return result.user}
     const saved = safeReadSession()
     if (!saved?.id) return null
     const { data, error } = await fetchUserById(saved.id)
@@ -145,6 +149,7 @@ export function AuthProvider({ children }) {
     let cancelled = false
     const init = async () => {
       try {
+        if(IS_DESKTOP){await refreshUser();return}
         const saved = safeReadSession()
         if (!cancelled && saved?.id) {
           setUser(saved)
@@ -162,6 +167,7 @@ export function AuthProvider({ children }) {
   }, [refreshUser])
 
   const login = async (identifier, password) => {
+    if(IS_DESKTOP){try{const result=await desktopRequest(offlineSetupRequired?'setup':'login',{username:identifier,password});setUser(result.user);setUserRole(result.user);setOfflineSetupRequired(false);return {user:result.user,error:null}}catch(error){return {user:null,error}}}
     const cleanIdentifier = String(identifier || '').trim()
     const cleanPassword = String(password || '')
     if (!cleanIdentifier || !cleanPassword) return { user: null, error: new Error('Username/email and password are required.') }
@@ -181,12 +187,13 @@ export function AuthProvider({ children }) {
   }
 
   const logout = async () => {
+    if(IS_DESKTOP){await desktopRequest('logout');setUser(null);setUserRole(null);return}
     await fetch('/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})}).catch(()=>{})
     setAppUser(null)
   }
 
   return (
-    <AuthContext.Provider value={{ user, userRole, loading, login, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, userRole, loading, login, logout, refreshUser, offlineSetupRequired }}>
       {children}
     </AuthContext.Provider>
   )

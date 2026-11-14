@@ -9,7 +9,7 @@ const REMEMBER_FLAG_KEY = 'nizamia_app2a_remember_login'
 
 export default function Login() {
   const navigate = useNavigate()
-  const { user, loading, login } = useAuth()
+  const { user, loading, login, offlineSetupRequired } = useAuth()
   const remembered = useMemo(() => localStorage.getItem(REMEMBER_FLAG_KEY) === 'yes', [])
   const [identifier, setIdentifier] = useState(() => remembered ? (localStorage.getItem(REMEMBER_LOGIN_KEY) || '') : '')
   const [password, setPassword] = useState('')
@@ -28,7 +28,7 @@ export default function Login() {
     e.preventDefault()
     const cleanIdentifier = identifier.trim()
     if (!cleanIdentifier || !password) {
-      setError('Please enter username/email and password.')
+      setError(offlineSetupRequired ? 'Choose a local username and password (12+ characters).' : 'Please enter username/email and password.')
       return
     }
 
@@ -47,7 +47,7 @@ export default function Login() {
       }
       navigate('/dashboard', { replace: true })
     } catch (err) {
-      setError('Invalid username/email or password.')
+      setError(err?.message || 'Invalid username/email or password.')
     } finally {
       setBusy(false)
     }
