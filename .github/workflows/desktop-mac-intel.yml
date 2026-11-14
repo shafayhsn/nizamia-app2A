@@ -98,6 +98,9 @@ jobs:
       - name: Test persistent offline report presets
         working-directory: desktop
         run: node offlineReportPresets.test.cjs
+      - name: Test downloadable calculated OMS report data
+        working-directory: desktop
+        run: node offlineSystemReportExport.test.cjs
       - name: Test cross-module order progress and purchasing/shipping reports
         working-directory: desktop
         run: node offlineCrossModuleReports.test.cjs
