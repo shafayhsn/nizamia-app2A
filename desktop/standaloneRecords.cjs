@@ -80,7 +80,14 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
    }else{
     const existing=db.exec('SELECT 1 FROM standalone_records WHERE id=? AND table_name=?',[id,table])
     if(!existing.length)throw Error('Standalone record not found')
-    if(action==='delete')db.run('DELETE FROM standalone_records WHERE id=? AND table_name=?',[id,table])
+    if(action==='delete'){
+     if(table==='orders'){
+      const linked=['production_daily_entries','purchase_orders','samples','shipments']
+      const dependencies=linked.flatMap(name=>read(db,name).filter(row=>String(row.order_id||'')===id).map(row=>name+': '+row.id))
+      if(dependencies.length)throw Error('Cannot delete order: '+dependencies.length+' linked production, purchasing, sampling or shipping record(s) exist')
+     }
+     db.run('DELETE FROM standalone_records WHERE id=? AND table_name=?',[id,table])
+    }
     else db.run('UPDATE standalone_records SET fields_json=?,updated_at=? WHERE id=? AND table_name=?',[JSON.stringify(fields),stamp,id,table])
    }
    if(crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')!==original)throw Error('Database changed during edit')
