@@ -150,12 +150,12 @@ app.whenReady().then(() => {
     if(url.pathname==='/api/offline/records'){
       if(request.method!=='GET')return new Response('Method not allowed',{status:405})
       const table=url.searchParams.get('table')
-      const {TABLES,listLocalRecords}=require('./standaloneRecords.cjs')
+      const {TABLES,listCombinedRecords}=require('./standaloneRecords.cjs')
       if(!TABLES.has(table))return Response.json({error:'Unsupported table'},{status:400})
       try{
         const directory=getDatabaseDirectory()
         if(!directory)return Response.json({error:'Local database unavailable'},{status:503})
-        const rows=await listLocalRecords(directory,table)
+        const rows=await listCombinedRecords(directory,table)
         return Response.json({data:rows,error:null},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:500})}
     }

@@ -50,7 +50,7 @@ function read(db,table){
  try{stmt.bind([table]);while(stmt.step()){const [id,json,updatedAt]=stmt.get();rows.push({id,...JSON.parse(json),_local_only:true,_local_updated_at:updatedAt})}}finally{stmt.free()}
  return rows
 }
-async function listLocalRecords(directory,table){
+async function listCombinedRecords(directory,table){
  const file=assertFile(directory),SQL=await sql(),db=new SQL.Database(fs.readFileSync(file))
  try{
   if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
@@ -114,4 +114,8 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
   }finally{db.close()}
  })
 }
-module.exports={TABLES,validateFields,listLocalRecords,mutateLocalRecord,readLocalRows:read}
+async function listLocalRecords(directory,table){
+ const file=assertFile(directory),SQL=await sql(),db=new SQL.Database(fs.readFileSync(file))
+ try{if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure');return read(db,table)}finally{db.close()}
+}
+module.exports={TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,readLocalRows:read}
