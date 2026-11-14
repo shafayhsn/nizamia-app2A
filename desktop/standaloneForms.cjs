@@ -12,6 +12,7 @@ const FORMS=Object.freeze({
  shipments:[['shipment_number','Shipment number','text',true],['order_id','Order reference','text'],['vessel','Vessel','text'],['quantity','Shipped quantity','number'],['container_number','Container','text'],['booking_number','Booking','text'],['etd','ETD','date'],['eta','ETA','date'],['status','Status','text']],
  costing:[['cost_sheet_number','Cost sheet number','text',true],['order_id','Order reference','text'],['style_number','Style','text'],['fabric_cost','Fabric cost','number'],['trims_cost','Trims cost','number'],['cmt_cost','CMT cost','number'],['washing_cost','Washing cost','number'],['overhead_cost','Overhead cost','number'],['target_fob','Target FOB','number'],['currency','Currency','text'],['status','Status','text'],['remarks','Remarks','textarea']],
  pp_meetings:[['meeting_reference','Meeting reference','text',true],['order_id','Order reference','text'],['meeting_date','Meeting date','date'],['style_number','Style','text'],['chairperson','Chairperson','text'],['attendees','Attendees','textarea'],['fabric_approved','Fabric approved','text'],['trims_approved','Trims approved','text'],['fit_approved','Fit approved','text'],['wash_approved','Wash approved','text'],['action_points','Action points','textarea'],['owner','Action owner','text'],['due_date','Due date','date'],['status','Status','text']],
+ production_plans:[['plan_reference','Plan reference','text',true],['order_id','Order reference','text',true],['department','Department','text',true],['planned_quantity','Planned quantity','number',true],['start_date','Start date','date'],['target_date','Target date','date'],['line','Production line','text'],['status','Status','text'],['remarks','Remarks','textarea']],
  production_daily_entries:[['order_id','Order reference','text',true],['department','Department','text',true],['production_date','Production date','date'],['quantity','Produced quantity','number'],['line','Production line','text'],['shift','Shift','text'],['remarks','Remarks','textarea']]
 })
 function validCalendarDate(value){
@@ -31,7 +32,7 @@ function normalizeForm(table,input){
   if(type==='number'){
    const number=Number(value)
    if(!Number.isFinite(number)||number<0)throw Error(label+' must be a non-negative number')
-   if(['total_qty','quantity'].includes(key)&&!Number.isSafeInteger(number))throw Error(label+' must be a whole number of garments or units')
+   if(['total_qty','quantity','planned_quantity'].includes(key)&&!Number.isSafeInteger(number))throw Error(label+' must be a whole number of garments or units')
    result[key]=number
   }else{
    if(typeof value!=='string'||value.length>4000)throw Error('Invalid '+label)
