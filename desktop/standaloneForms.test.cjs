@@ -13,6 +13,10 @@ async function main(){
  assert.equal(normalizeForm('production_daily_entries',{order_id:'local-1',department:'Cutting',line:'Line A'}).line,'Line A')
  assert.equal(normalizeForm('orders',{job_number:'J01',buyer_name:'Buyer',ex_factory_date:'2026-11-14'}).ex_factory_date,'2026-11-14')
  assert.throws(()=>normalizeForm('orders',{job_number:'J01',buyer_name:'Buyer',ex_factory_date:'not-a-date'}),/Invalid/)
+ assert.throws(()=>normalizeForm('orders',{job_number:'J01',buyer_name:'Buyer',ex_factory_date:'2026-02-30'}),/Invalid/)
+ assert.throws(()=>normalizeForm('orders',{job_number:'J01',buyer_name:'Buyer',ex_factory_date:'2026-13-01'}),/Invalid/)
+ assert.throws(()=>normalizeForm('orders',{job_number:'J01',buyer_name:'Buyer',ex_factory_date:'2025-02-29'}),/Invalid/)
+ assert.equal(normalizeForm('orders',{job_number:'J01',buyer_name:'Buyer',ex_factory_date:'2028-02-29'}).ex_factory_date,'2028-02-29')
  assert.throws(()=>normalizeForm('orders',{job_number:'J01',buyer_name:'Buyer',total_qty:'bad'}),/non-negative/)
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-form-report-'))
  try{
