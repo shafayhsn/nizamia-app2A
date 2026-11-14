@@ -8,6 +8,11 @@ on:
     paths:
       - 'desktop/**'
       - 'server/**'
+      - 'src/main.jsx'
+      - 'src/App.jsx'
+      - 'src/lib/**'
+      - 'src/pages/**'
+      - 'src/components/**'
       - 'src/offlineDesktop.jsx'
       - 'src/offlineDesktop.css'
       - 'offline-desktop.html'
