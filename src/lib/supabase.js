@@ -20,7 +20,7 @@ function offlineQuery(table) {
       if(op==='is')return value===null?actual==null:actual===value
       if(op==='not-is')return value===null?actual!=null:actual!==value
       if(op==='in')return Array.isArray(value)&&value.some(v=>String(v)===String(actual))
-      if(op==='like'||op==='ilike'){const pattern=String(value).split('%').map(part=>part.split('_').map(x=>x.replace(/[^a-zA-Z0-9 ]/g,match=>'\\'+match)).join('.')).join('.*');return new RegExp('^'+pattern+'
+      if(op==='like'||op==='ilike'){const pattern=String(value).split('%').map(part=>part.split('_').map(x=>x.replace(/[^a-zA-Z0-9 ]/g,match=>String.fromCharCode(92)+match)).join('.')).join('.*');return new RegExp('^'+pattern+'$',op==='ilike'?'i':'').test(String(actual??''))}
       if(op==='contains')return Array.isArray(actual)?Array.isArray(value)&&value.every(v=>actual.includes(v)):!!(actual&&typeof actual==='object'&&value&&typeof value==='object'&&Object.entries(value).every(([k,v])=>actual[k]===v))
       if(op==='overlaps')return Array.isArray(actual)&&Array.isArray(value)&&value.some(v=>actual.includes(v))
       if(['gt','gte','lt','lte'].includes(op)){if(actual==null)return false;return op==='gt'?actual>value:op==='gte'?actual>=value:op==='lt'?actual<value:actual<=value}
