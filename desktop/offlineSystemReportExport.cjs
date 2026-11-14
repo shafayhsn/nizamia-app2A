@@ -19,12 +19,13 @@ function reportExport(db,key,format) {
  if(!['csv','xlsx'].includes(format))throw Error('Unsupported report format')
  const {DEFINITIONS,systemReport}=require('./offlineSystemReports.cjs')
  const {REPORTS,crossModuleReport}=require('./offlineCrossModuleReports.cjs')
- const report=key==='production_stage_balance' ? require('./offlineProductionBalance.cjs').productionBalance(db) : REPORTS.some(d=>d.key===key)?crossModuleReport(db,key):systemReport(db,key)
- const rows=key==='production_stage_balance' ? (report.available?report.rows.map(row=>({...row})):reportRows(report)) : reportRows(report)
- const columns=key==='production_stage_balance' ? ['orderId','orderNumber','buyer','orderedQuantity','cutting','cuttingBalance','sewing','sewingBalance','washing','washingBalance','finishing','finishingBalance','packing','packingBalance'] : report.sourceTable
+ const {SPECS,operationalExceptions}=require('./offlineOperationalExceptions.cjs')
+ const report=Object.hasOwn(SPECS,key) ? operationalExceptions(db,key) : key==='production_stage_balance' ? require('./offlineProductionBalance.cjs').productionBalance(db) : REPORTS.some(d=>d.key===key)?crossModuleReport(db,key):systemReport(db,key)
+ const rows=Object.hasOwn(SPECS,key) ? (report.available ? report.rows.map(r=>({order_number:r.orderNumber,buyer:r.buyer,order_quantity:r.orderQuantity,source_a:r.sourceA,source_a_records:r.firstRecords,source_a_quantity:r.firstQuantity,source_b:r.sourceB,source_b_records:r.secondRecords,source_b_quantity:r.secondQuantity,gap:r.gap,warning:r.warning,source_a_statuses:JSON.stringify(r.firstStatuses),source_b_statuses:JSON.stringify(r.secondStatuses)})):reportRows(report)) : key==='production_stage_balance' ? (report.available?report.rows.map(row=>({...row})):reportRows(report)) : reportRows(report)
+ const columns=Object.hasOwn(SPECS,key) ? ['order_number','buyer','order_quantity','source_a','source_a_records','source_a_quantity','source_b','source_b_records','source_b_quantity','gap','warning','source_a_statuses','source_b_statuses'] : key==='production_stage_balance' ? ['orderId','orderNumber','buyer','orderedQuantity','cutting','cuttingBalance','sewing','sewingBalance','washing','washingBalance','finishing','finishingBalance','packing','packingBalance'] : report.sourceTable
   ? ['order_number','buyer','ordered_quantity','linked_records','linked_quantity','progress_percent','statuses']
   : ['group','records','quantity','quantity_record_count']
- return {key,title:report.title,rows,columns,source:report.sourceTable||report.table,
+ return {key,title:report.title,rows,columns,source:report.sourceTable||report.table||report.sources?.join(', ')||'',
   provenance:'Imported local snapshot; not live cloud data',generatedAt:new Date().toISOString()}
 }
 module.exports={reportRows,reportExport}
