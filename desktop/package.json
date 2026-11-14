@@ -43,6 +43,7 @@
       "offlineSystemReportExport.cjs",
       "offlineProductionBalance.cjs",
       "offlineReadiness.cjs",
+      "offlineTrustedGrantBroker.cjs",
       "offlineOperationalExceptions.cjs",
       "snapshotStartup.cjs",
       "offlineCsvExport.cjs",
