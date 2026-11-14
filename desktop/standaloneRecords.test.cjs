@@ -1,7 +1,7 @@
 'use strict'
 const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const initSqlJs=require('sql.js')
-const {mutateLocalRecord,listLocalRecords,listCombinedRecords,createLocalRecordBatch,mutateLocalRecordBatch}=require('./standaloneRecords.cjs')
+const {mutateLocalRecord,listLocalRecords,listCombinedRecords,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch}=require('./standaloneRecords.cjs')
 async function main(){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-local-crud-'))
  try{
@@ -68,6 +68,14 @@ async function main(){
   await mutateLocalRecord(dir,{action:'delete',table:'shipments',id:shipment.id})
   await mutateLocalRecord(dir,{action:'delete',table:'orders',id:parentOrder.id})
   await mutateLocalRecord(dir,{action:'delete',table:'buyers',id:buyer.id})
+  const firstSettlement=await upsertLocalRecordBatch(dir,{table:'payment_settlements',onConflict:'shipment_id',rows:[{shipment_id:'S1',payload:{received:100}},{shipment_id:'S2',payload:{received:200}}]})
+  assert.equal(firstSettlement.length,2)
+  const secondSettlement=await upsertLocalRecordBatch(dir,{table:'payment_settlements',onConflict:'shipment_id',rows:[{shipment_id:'S1',payload:{received:300}},{shipment_id:'S3',payload:{received:400}}]})
+  assert.equal(secondSettlement[0].id,firstSettlement[0].id)
+  assert.equal((await listLocalRecords(dir,'payment_settlements')).length,3)
+  assert.equal((await listLocalRecords(dir,'payment_settlements')).find(r=>r.shipment_id==='S1').payload.received,300)
+  await assert.rejects(()=>upsertLocalRecordBatch(dir,{table:'payment_settlements',onConflict:'shipment_id',rows:[{shipment_id:'S1',payload:{received:999}},{shipment_id:'S4',password:'bad'}]}),/Unsupported/)
+  assert.equal((await listLocalRecords(dir,'payment_settlements')).find(r=>r.shipment_id==='S1').payload.received,300)
   const a=await mutateLocalRecord(dir,{action:'create',table:'orders',fields:{job_number:'LOCAL1',buyer_name:'Buyer',total_qty:100}})
   assert.match(a.id,/^local-/)
   assert.equal((await listLocalRecords(dir,'orders')).length,1)

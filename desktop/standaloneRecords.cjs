@@ -248,8 +248,68 @@ async function mutateLocalRecordBatch(directory,{action,table,ids,fields}){
  })
 }
 
+
+async function upsertLocalRecordBatch(directory,{table,rows,onConflict}){
+ return serialize(directory,async()=>{
+  validateTable(table)
+  if(!Array.isArray(rows)||rows.length<1||rows.length>500)throw Error('Upsert requires 1–500 records')
+  const keys=String(onConflict||'id').split(',').map(k=>k.trim())
+  if(!keys.length||keys.some(k=>!/^[a-z][a-z0-9_]{0,63}$/.test(k)))throw Error('Invalid conflict columns')
+  if(rows.some(row=>!row||typeof row!=='object'||Array.isArray(row)))throw Error('Invalid upsert row')
+  const file=assertFile(directory),before=fs.readFileSync(file),original=crypto.createHash('sha256').update(before).digest('hex')
+  const SQL=await sql(),db=new SQL.Database(before)
+  try{
+   if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
+   schema(db)
+   const stamp=new Date().toISOString(),result=[]
+   db.run('BEGIN TRANSACTION')
+   try{
+    const imported=[]
+    if(db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_rows'").length){
+     const stmt=db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name=?')
+     try{stmt.bind([table]);while(stmt.step())imported.push(JSON.parse(stmt.get()[0]))}finally{stmt.free()}
+    }
+    const edits=new Map(),stmt=db.prepare('SELECT record_id,fields_json FROM snapshot_edits WHERE table_name=?')
+    try{stmt.bind([table]);while(stmt.step()){const [id,json]=stmt.get();edits.set(String(id),json===null?null:JSON.parse(json))}}finally{stmt.free()}
+    const available=()=>[...read(db,table),...imported.filter(row=>!edits.has(String(row.id))||edits.get(String(row.id))!==null).map(row=>edits.has(String(row.id))?{...row,...edits.get(String(row.id))}:row)]
+    for(const raw of rows){
+     const fields={...raw}
+     for(const key of ['_local_only','_local_updated_at','_local_edited'])delete fields[key]
+     const id=fields.id
+     delete fields.id
+     validateFields(fields)
+     const matches=keys.every(key=>raw[key]!==undefined&&raw[key]!==null)?available().filter(row=>keys.every(key=>row[key]!==undefined&&row[key]!==null&&String(row[key])===String(raw[key]))):[]
+     if(matches.length>1)throw Error('Ambiguous upsert conflict')
+     const found=matches[0]
+     if(found){
+      if(id!==undefined&&String(id)!==String(found.id))throw Error('Upsert ID conflict')
+      const next={...found,...fields}
+      for(const key of ['id','_local_only','_local_updated_at','_local_edited'])delete next[key]
+      validateFields(next);assertOrderReference(db,table,next);assertParentReference(db,table,next)
+      if(String(found.id).startsWith('local-'))db.run('UPDATE standalone_records SET fields_json=?,updated_at=? WHERE id=? AND table_name=?',[JSON.stringify(next),stamp,found.id,table])
+      else db.run('INSERT OR REPLACE INTO snapshot_edits (table_name,record_id,fields_json,updated_at) VALUES (?,?,?,?)',[table,found.id,JSON.stringify({...next,id:found.id}),stamp])
+      result.push({id:found.id,table,action:'update'})
+     }else{
+      if(id!==undefined)throw Error('Cannot create arbitrary offline record ID')
+      const normalized=FORMS[table]?normalizeForm(table,fields):fields
+      validateFields(normalized);assertOrderReference(db,table,normalized);assertParentReference(db,table,normalized)
+      const newId='local-'+crypto.randomUUID()
+      db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[newId,table,JSON.stringify(normalized),stamp,stamp])
+      result.push({id:newId,table,action:'create'})
+     }
+    }
+    db.run('COMMIT')
+   }catch(error){db.run('ROLLBACK');throw error}
+   if(crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')!==original)throw Error('Database changed during upsert')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600});fs.renameSync(temp,file)}finally{try{fs.unlinkSync(temp)}catch(e){if(e.code!=='ENOENT')throw e}}
+   return result
+  }finally{db.close()}
+ })
+}
+
 async function listLocalRecords(directory,table){
  const file=assertFile(directory),SQL=await sql(),db=new SQL.Database(fs.readFileSync(file))
  try{if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure');return read(db,table)}finally{db.close()}
 }
-module.exports={TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,readLocalRows:read}
+module.exports={TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
