@@ -12,6 +12,12 @@ const FORMS=Object.freeze({
  shipments:[['shipment_number','Shipment number','text',true],['order_id','Order reference','text'],['vessel','Vessel','text'],['quantity','Shipped quantity','number'],['container_number','Container','text'],['booking_number','Booking','text'],['etd','ETD','date'],['eta','ETA','date'],['status','Status','text']],
  production_daily_entries:[['order_id','Order reference','text',true],['department','Department','text',true],['production_date','Production date','date'],['quantity','Produced quantity','number'],['line','Production line','text'],['shift','Shift','text'],['remarks','Remarks','textarea']]
 })
+function validCalendarDate(value){
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(value))return false
+ const [year,month,day]=value.split('-').map(Number)
+ const date=new Date(Date.UTC(year,month-1,day))
+ return year>=1000&&date.getUTCFullYear()===year&&date.getUTCMonth()===month-1&&date.getUTCDate()===day
+}
 function normalizeForm(table,input){
  const fields=FORMS[table]
  if(!fields||!input||typeof input!=='object'||Array.isArray(input))throw Error('Unsupported business form')
@@ -26,8 +32,7 @@ function normalizeForm(table,input){
    result[key]=number
   }else{
    if(typeof value!=='string'||value.length>4000)throw Error('Invalid '+label)
-   if(type==='date'&&!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value))throw Error('Invalid '+label)
-   if(type==='date' && !Number.isFinite(Date.parse(value+'T00:00:00Z')))throw Error('Invalid '+label)
+   if(type==='date'&&!validCalendarDate(value))throw Error('Invalid '+label)
    result[key]=value.trim()
   }
  }
