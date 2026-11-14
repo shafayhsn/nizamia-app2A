@@ -28,6 +28,9 @@ const MODULES = [
 ]
 function App() {
   const [readiness,setReadiness]=useState(null)
+  const [enrollmentIdentity,setEnrollmentIdentity]=useState('')
+  const [syncBusy,setSyncBusy]=useState(false)
+  const [syncMessage,setSyncMessage]=useState('')
   const [reportDefinitions,setReportDefinitions]=useState([])
   const [reportKey,setReportKey]=useState('')
   const [systemReport,setSystemReport]=useState(null)
@@ -195,6 +198,26 @@ function App() {
     window.localSnapshot.relatedRows(detail.id).then(data => { if (!cancelled) setRelated(data) }).catch(e => { if (!cancelled) setError(e.message) })
     return () => { cancelled = true }
   }, [detail, selected])
+  async function enrollOffline(event) {
+    event.preventDefault()
+    setAuthBusy(true);setWorkspaceError('')
+    try{
+      const challenge=await window.localSnapshot.workspaceBeginEnrollment()
+      const result=await window.localSnapshot.workspaceEnroll(challenge.nonce,enrollmentIdentity,passphrase)
+      if(result.enrolled){setWorkspaceError('Enrollment completed. Sign in using your new offline passphrase.');setPassphrase('')}
+      setWorkspace(await window.localSnapshot.workspaceStatus())
+    }catch(e){setWorkspaceError(e.message)}
+    finally{setAuthBusy(false)}
+  }
+  async function synchronizeOffline(){
+    setSyncBusy(true);setSyncMessage('');setWorkspaceError('')
+    try{
+      const result=await window.localSnapshot.workspaceSync()
+      setSyncMessage('Submitted '+result.submitted+' draft(s). Archived: '+result.archived+'. Conflicts: '+result.conflicts+'. Retained: '+result.retained+'.')
+      setDrafts(await window.localSnapshot.workspaceDrafts())
+    }catch(e){setWorkspaceError(e.message)}
+    finally{setSyncBusy(false)}
+  }
   async function loginOffline(event) {
     event.preventDefault()
     setAuthBusy(true); setWorkspaceError('')
@@ -298,8 +321,8 @@ function App() {
     <div className="notice" role="status">These sections mirror the web app navigation but only browse tables present in the imported snapshot. They do not provide the live page forms or workflows. CSV export is available for saved records. Offline sign-in and draft queue are available only for previously verified enrollments. New enrollment, editing and cloud synchronization are not enabled. Access to this local copy must be protected by your Mac account.{snapshotAgeDays !== null && <strong> Snapshot imported {snapshotAgeDays === 0 ? 'today' : `${snapshotAgeDays} day${snapshotAgeDays === 1 ? '' : 's'} ago`}.{snapshotAgeDays >= 7 ? ' The saved data may be significantly outdated.' : ''}</strong>}{snapshotAgeDays === null && summary && <strong> Snapshot import date unavailable; freshness cannot be verified.</strong>}</div>
     <section className="notice" aria-label="Offline workspace">
       <strong>Offline workspace</strong>{workspace?.authenticated ? <>
-        <span> Signed in locally as {workspace.identity}. Pending drafts: {drafts.length}. Cloud sync is not enabled.</span>
-        <button onClick={logoutOffline}>Sign out</button> <button onClick={exportDraftRecovery}>Export draft recovery JSON</button>
+        <span> Signed in locally as {workspace.identity}. Pending drafts: {drafts.length}. Cloud sync requires a trusted online connection.</span>
+        <button onClick={logoutOffline}>Sign out</button> <button disabled={syncBusy || !drafts.some(d=>d.state==='pending')} onClick={synchronizeOffline}>{syncBusy?'Synchronizing…':'Synchronize pending drafts'}</button>{syncMessage && <span role="status">{syncMessage}</span>} <button onClick={exportDraftRecovery}>Export draft recovery JSON</button>
         {drafts.map(d => <div key={d.draftId}><span>{d.table} · {d.recordId} · {d.state} · {d.createdAt}</span> <button onClick={() => showDraftPreview(d.table, d.recordId)}>Compare local changes</button> <button onClick={() => cancelOfflineDraft(d.draftId)} disabled={d.state !== 'pending'}>Discard draft</button></div>)}
         {draftPreview && <div className="recorddetail"><button onClick={() => setDraftPreview(null)}>Close comparison</button><h3>Local changes — not synchronized</h3><dl>{Object.keys(draftPreview.preview).filter(key => draftPreview.original[key] !== draftPreview.preview[key]).map(key => <React.Fragment key={key}><dt>{key}</dt><dd>Saved: {String(draftPreview.original[key] ?? '')}</dd><dt>Pending</dt><dd>{String(draftPreview.preview[key] ?? '')}</dd></React.Fragment>)}</dl><p>{draftPreview.pending.length} draft(s) associated with this record. Original snapshot data is unchanged.</p></div>}
       </> : <span> {workspace?.unavailable ? 'Secure storage unavailable: ' + workspace.unavailable :
@@ -322,6 +345,7 @@ function App() {
         </div>)}</div>
       </div>}
     </section>
+    {module === 'settings' && !workspace?.enrolled && <section className="notice"><h3>Enroll this Mac for offline editing</h3><p>Requires a trusted online server session and administrator-enabled signed authorization. Enrollment cannot be completed on an unconfigured installation.</p><form onSubmit={enrollOffline}><label>Authorized user ID <input required maxLength={128} value={enrollmentIdentity} onChange={e=>setEnrollmentIdentity(e.target.value)}/></label><label>New offline passphrase <input required type="password" maxLength={256} value={passphrase} onChange={e=>setPassphrase(e.target.value)}/></label><button disabled={authBusy}>Enroll Mac</button></form></section>}
     {module === 'settings' && <section className="notice" aria-label="Offline synchronization readiness">
       <h2>Offline editing &amp; synchronization readiness</h2>
       <p>Business edits and cloud synchronization remain locked until server-issued authorization, scoped permissions and conflict-safe cloud writes are connected. This screen does not grant access.</p>
