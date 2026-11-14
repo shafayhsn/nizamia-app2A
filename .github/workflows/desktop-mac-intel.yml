@@ -101,6 +101,12 @@ jobs:
       - name: Test operational purchasing shipping and approval exceptions
         working-directory: desktop
         run: node offlineOperationalExceptions.test.cjs
+      - name: Test PostgreSQL sync transactions and rollback
+        working-directory: desktop
+        run: node ../server/offlinePostgresSyncTransaction.test.cjs
+      - name: Test sync HTTP request boundary
+        working-directory: desktop
+        run: node ../server/offlineSyncHttpHandler.test.cjs
       - name: Test authenticated desktop HTTPS sync transport
         working-directory: desktop
         run: node offlineSyncClient.test.cjs
