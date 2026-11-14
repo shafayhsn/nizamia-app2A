@@ -433,6 +433,7 @@ export default function SamplingApprovals() {
   }, [samples, orderMap, buyerMap, refreshKey, sampleComments, parcelItems])
 
   const isCompleted = r => r.stage === 'Ready' || (r.approvalStatus === 'Approved' && r.stage === 'Ready')
+  const stageOptions = viewTab === 'completed' ? ['Ready'] : STAGES.filter(x=>x!=='Ready')
   const rows = useMemo(() => {
     const filtered = allRows.filter(r => {
       if (viewTab === 'completed' ? !isCompleted(r) : isCompleted(r)) return false
@@ -481,7 +482,6 @@ export default function SamplingApprovals() {
   const inProgressCount = allRows.filter(r => !['Not Started','Ready'].includes(r.stage) && r.dispatchStatus !== 'Dispatched').length
   const overdueCount = allRows.filter(r => r.dueDate && new Date(r.dueDate) < new Date() && !isCompleted(r)).length
   const completedCount = allRows.filter(isCompleted).length
-  const stageOptions = viewTab === 'completed' ? ['Ready'] : STAGES.filter(x=>x!=='Ready')
 
 
   async function saveStage(sampleId, stage) {
