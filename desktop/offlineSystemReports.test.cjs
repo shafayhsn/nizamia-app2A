@@ -18,7 +18,10 @@ async function main(){
    tasks:[{status:'Open',assignee:'Ali'},{status:'Done',assignee:'Sara'}]
   }
   for(const [table,rows] of Object.entries(data))rows.forEach((row,i)=>db.run('INSERT INTO snapshot_rows VALUES (?,?,?)',[table,i,JSON.stringify(row)]))
-  assert.equal(DEFINITIONS.length,14)
+  assert.equal(DEFINITIONS.length,18)
+  assert.equal(new Set(DEFINITIONS.map(d=>d.key)).size,DEFINITIONS.length)
+  assert.equal(systemReport(db,'costing_by_style').available,false)
+  assert.equal(systemReport(db,'pp_meetings_by_owner').available,false)
   const buyers=systemReport(db,'orders_by_buyer')
   assert.equal(buyers.totalRecords,3)
   assert.equal(buyers.rows.find(r=>r.group==='Buyer A').quantity,150)
@@ -34,7 +37,7 @@ async function main(){
   assert.throws(()=>systemReport(db,'bad'),/Unknown/)
   db.run('DELETE FROM snapshot_manifest WHERE table_name = ?',['orders'])
   assert.equal(systemReport(db,'orders_by_buyer').available,false)
-  process.stdout.write('Fourteen snapshot and offline OMS report definition tests passed.\n')
+  process.stdout.write('Eighteen snapshot and offline OMS report definition tests passed.\n')
  } finally {db.close()}
 }
 main().catch(e=>{console.error(e);process.exitCode=1})
