@@ -34,7 +34,7 @@ function offlineQuery(table) {
       if(operation==='create'&&Array.isArray(payload)&&payload.length>500)throw Error('Maximum 500 records per batch')
       if(operation==='create'&&Array.isArray(payload)&&!payload.length)throw Error('Empty insert batch')
       if(operation==='create'&&Array.isArray(payload)&&payload.length>1){const saved=[];for(const item of payload){const result=await fetch('/api/offline/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create',table,fields:item})});const body=await result.json();if(!result.ok)throw Error('Batch partially saved ('+saved.length+'/'+payload.length+'): '+(body.error||'Save failed'));saved.push({id:body.data.id})}return {data:returnRows?saved:null,error:null}}
-      if(upsert&&operation==='create'&&payload?.id){const found=(await load()).find(row=>String(row.id)===String(payload.id));if(found){operation='update';filters=[['id','eq',found.id]]}}
+      if(upsert&&operation==='create'&&payload?.id){const existingRows=await load();const found=existingRows.find(row=>String(row.id)===String(payload.id));if(found){operation='update';filters=[['id','eq',found.id]]}else throw Error('Offline upsert cannot assign an imported ID; use insert for new records')}
       const fields=operation==='create'?(Array.isArray(payload)?payload[0]:payload):operation==='update'?{...existing[0],...payload}:null
       if(fields){delete fields.id;delete fields._local_only;delete fields._local_updated_at}
       const response=await fetch('/api/offline/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:operation,table,id:existing[0]?.id,fields})})

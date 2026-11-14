@@ -114,7 +114,8 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
     if(!imported)throw Error('Imported record not found')
     const prior=db.exec('SELECT fields_json FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id])
     if(prior.length&&prior[0].values[0][0]===null)throw Error('Imported record already deleted')
-    db.run('INSERT OR REPLACE INTO snapshot_edits (table_name,record_id,fields_json,updated_at) VALUES (?,?,?,?)',[table,id,action==='delete'?null:JSON.stringify({...imported,...fields,id}),stamp])
+    const previous=prior.length&&prior[0].values[0][0]?JSON.parse(prior[0].values[0][0]):imported
+    db.run('INSERT OR REPLACE INTO snapshot_edits (table_name,record_id,fields_json,updated_at) VALUES (?,?,?,?)',[table,id,action==='delete'?null:JSON.stringify({...previous,...fields,id}),stamp])
    }else if(action==='create'){
     id='local-'+crypto.randomUUID()
     db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(fields),stamp,stamp])
