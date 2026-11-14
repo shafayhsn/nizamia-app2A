@@ -98,6 +98,9 @@ jobs:
       - name: Test persistent offline report presets
         working-directory: desktop
         run: node offlineReportPresets.test.cjs
+      - name: Test operational purchasing shipping and approval exceptions
+        working-directory: desktop
+        run: node offlineOperationalExceptions.test.cjs
       - name: Test independent production stage balances
         working-directory: desktop
         run: node offlineProductionBalance.test.cjs
