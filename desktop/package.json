@@ -46,6 +46,7 @@
       "offlineTrustedGrantBroker.cjs",
       "offlineSyncClient.cjs",
       "offlineSyncReconciliation.cjs",
+      "offlineSyncCoordinator.cjs",
       "offlineOperationalExceptions.cjs",
       "snapshotStartup.cjs",
       "offlineCsvExport.cjs",
