@@ -48,7 +48,7 @@ async function main(){
   // End-to-end purchasing, production and shipping relationships.
   const buyer=await mutateLocalRecord(dir,{action:'create',table:'buyers',fields:{name:'Workflow Buyer'}})
   const parentOrder=await mutateLocalRecord(dir,{action:'create',table:'orders',fields:{job_number:'WF-1',buyer_name:'Workflow Buyer',total_qty:200}})
-  const po=await mutateLocalRecord(dir,{action:'create',table:'purchase_orders',fields:{order_id:parentOrder.id,po_number:'PO-WF-1'}})
+  const po=await mutateLocalRecord(dir,{action:'create',table:'purchase_orders',fields:{order_id:parentOrder.id,po_number:'PO-WF-1',supplier_name:'Workflow Supplier'}})
   const poLines=await createLocalRecordBatch(dir,{table:'purchase_order_items',rows:[{po_id:po.id,description:'Fabric',qty:100},{po_id:po.id,description:'Trims',qty:200}]})
   assert.equal((await listCombinedRecords(dir,'purchase_order_items')).filter(r=>r.po_id===po.id).length,2)
   await assert.rejects(()=>mutateLocalRecord(dir,{action:'delete',table:'purchase_orders',id:po.id}),/linked/)
