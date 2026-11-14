@@ -25,6 +25,7 @@ function mountOfflineRoutes({app,issuer,authenticateRequest,authorizeSync,pool})
  app.post('/api/offline-sync',async(req,res)=>{
   // Do not trust req.body to be raw bytes: bounded serialization is applied.
   const rawBody=JSON.stringify(req.body??null)
+  if(Buffer.byteLength(rawBody,'utf8')>262144)return res.status(413).json({error:'Sync request too large'})
   const result=await sync({...req,rawBody,headers:req.headers,method:req.method})
   return res.status(result.status).json(result.body)
  })

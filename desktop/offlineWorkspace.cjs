@@ -83,7 +83,7 @@ function createOfflineWorkspace(getDirectory, trusted = null) {
       try { enrolled = Boolean(store.load()) } catch (e) {
         return { ...status, enrolled: false, unavailable: e.message }
       }
-      return { ...status, enrolled, permissions: configured && status.authenticated ? ['offline:draft:orders','offline:draft:production_daily_entries'] : [] }
+      return { ...status, enrolled, permissions: [] }
     }
     if (name === 'beginEnrollment') {
       if(!configured)throw Error('Trusted online enrollment is not configured')
@@ -91,6 +91,9 @@ function createOfflineWorkspace(getDirectory, trusted = null) {
     }
     if (name === 'enroll') {
       if(!configured)throw Error('Trusted online enrollment is not configured')
+      if(typeof args.identity!=='string'||!/^[A-Za-z0-9_-]{1,128}$/.test(args.identity)||
+         typeof args.passphrase!=='string'||args.passphrase.length>256)
+        throw Error('Invalid enrollment details')
       const token=await trusted.getOnlineToken()
       const onlineProof=await authorization.enrollment(args.nonce,token)
       return service.enroll({identity:args.identity,passphrase:args.passphrase,onlineProof})
@@ -149,6 +152,7 @@ function createOfflineWorkspace(getDirectory, trusted = null) {
       const grant=await broker.request({identity:session.identity,table,snapshotHash:hash,token})
       const permission='offline:draft:'+table
       const verifiedSession={...session,verifiedIdentity:session.identity,permissions:[permission]}
+      if(sessions.status().identity!==session.identity)throw Error('Offline session changed')
       return stageTrustedRecordEdit({
         directory,table,recordId:args.recordId,changes:args.changes,
         session:verifiedSession,grant,

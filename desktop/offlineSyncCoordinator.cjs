@@ -21,6 +21,8 @@ function createOfflineSyncCoordinator({client,getDirectory,getSession,getToken,a
    if(typeof token!=='string'||token.length<16)throw Error('Trusted online session required')
    if(await authenticateSession(session)!==true)throw Error('Offline session expired')
    const response=await client.submit({drafts,identity:session.identity,token})
+   if(!response||!Array.isArray(response.results)||response.results.length!==drafts.length)
+    throw Error('Invalid trusted sync result')
    if(await authenticateSession(session)!==true)throw Error('Offline session expired after sync')
    const summary=await commitSyncResults({directory,session,authenticateSession,results:response.results})
    return {submitted:drafts.length,...summary}
