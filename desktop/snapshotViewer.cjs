@@ -393,6 +393,42 @@ function showLocalSnapshot(parent, getDirectory) {
         if (command === 'remove') return presets.remove(args?.table)
         throw new Error('Unsupported report preset action')
       }
+      if (action === 'standalone:restore') {
+        const choice=await dialog.showOpenDialog(viewer,{
+          title:'Select standalone SQLite database backup to restore',
+          properties:['openFile'],
+          filters:[{name:'SQLite database backup',extensions:['sqlite']}]
+        })
+        if(choice.canceled||choice.filePaths?.length!==1)return {cancelled:true}
+        const source=choice.filePaths[0]
+        const current=path.join(selectedDirectory,'nizamia-app2a.sqlite')
+        if(path.resolve(source)===path.resolve(current))throw Error('Cannot restore the currently active database')
+        const stat=fs.lstatSync(source)
+        if(!stat.isFile()||stat.isSymbolicLink()||stat.size>1024*1024*1024)throw Error('Unsafe backup file')
+        const bytes=fs.readFileSync(source)
+        const SQL=await getSqlEngine()
+        const backup=new SQL.Database(bytes)
+        try {
+          if(backup.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Backup database failed integrity check')
+          const tables=new Set((backup.exec("SELECT name FROM sqlite_master WHERE type='table'")[0]?.values||[]).map(row=>row[0]))
+          if(!['app_metadata','snapshot_manifest','snapshot_rows'].every(name=>tables.has(name)))throw Error('Not a compatible App-2A standalone backup')
+          const version=backup.exec("SELECT value FROM app_metadata WHERE key='schema_version'")[0]?.values?.[0]?.[0]
+          if(version!=='1')throw Error('Unsupported backup schema version')
+        }finally{backup.close()}
+        const confirm=await dialog.showMessageBox(viewer,{
+          type:'warning',buttons:['Cancel','Restore database'],defaultId:0,cancelId:0,noLink:true,
+          title:'Restore standalone database?',
+          message:'Replace all current offline records with this backup?',
+          detail:'This replaces the active database, including orders, production and other locally saved records. A safety copy of the current database will be kept automatically.'
+        })
+        if(confirm.response!==1)return {cancelled:true}
+        const safety=current+'.before-restore-'+new Date().toISOString().replace(/[:.]/g,'-')+'.sqlite'
+        fs.copyFileSync(current,safety,fs.constants.COPYFILE_EXCL)
+        const temp=current+'.'+require('node:crypto').randomUUID()+'.restore.tmp'
+        try{fs.writeFileSync(temp,bytes,{flag:'wx',mode:0o600});fs.renameSync(temp,current)}
+        finally{try{fs.unlinkSync(temp)}catch(e){if(e.code!=='ENOENT')throw e}}
+        return {restored:true,safetyBackup:path.basename(safety),restartRequired:true}
+      }
       if (action === 'standalone:backup') {
         const source=path.join(selectedDirectory,'nizamia-app2a.sqlite')
         const stat=fs.lstatSync(source)
