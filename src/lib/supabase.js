@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 const isMacOffline = typeof location !== 'undefined' && location.protocol === 'app2a:'
 const offlineTables = new Set(['orders','tasks','buyers','suppliers','purchase_orders','purchase_order_items','samples','parcels','shipments','shipment_lines','production_daily_entries','costing','pp_meetings','production_plans','jobs','order_queues','bom_items','washing','embellishments','finishing','work_orders','buyer_addresses','buyer_contacts','supplier_contacts','size_groups','size_group_colors','size_group_breakdown','order_processes','work_order_items','payment_settlements','production_batches','production_batch_orders','sample_comments','finishing_packs','fitting_blocks','library_items','sample_logs','fitting','work_order_changelog','shipping_bookings','shipping_booking_lines','shipping_booking_shipments'])
 function offlineQuery(table) {
-  let filters=[],sort=null,limit=null,offset=0,single=false,strictSingle=false,headOnly=false,operation=null,payload=null,upsert=false,returnRows=false,countRequested=false,orGroups=[],columns='*'
+  let filters=[],sort=null,limit=null,offset=0,single=false,strictSingle=false,headOnly=false,operation=null,payload=null,upsert=false,conflictKeys=[],returnRows=false,countRequested=false,orGroups=[],columns='*'
   const load=async()=>{
     if(!/^[a-z][a-z0-9_]{0,63}$/.test(table))throw Error('Invalid offline table')
     const response=await fetch('/api/offline/records?table='+encodeURIComponent(table))
@@ -43,7 +43,27 @@ function offlineQuery(table) {
       columns='*';offset=0;limit=null
       let existing
       try{existing=operation==='create'?[]:(await load()).rows}finally{columns=previousColumns;offset=previousOffset;limit=previousLimit}
-      if(operation!=='create' && existing.length===0)throw Error('No matching offline records')
+      if(operation!=='create' && existing.length===0)return {data:returnRows?(single?null:[]):null,error:null,count:countRequested?0:null}
+      if(operation==='create'&&upsert){
+        const values=Array.isArray(payload)?payload:[payload]
+        if(!values.length||values.length>500||values.some(row=>!row||typeof row!=='object'||Array.isArray(row)))throw Error('Invalid offline upsert rows')
+        const keys=conflictKeys.length?conflictKeys:['id']
+        const savedResponse=await fetch('/api/offline/records?table='+encodeURIComponent(table))
+        if(!savedResponse.ok)throw Error('Offline conflict lookup failed')
+        const saved=(await savedResponse.json()).data
+        if(!Array.isArray(saved))throw Error('Invalid offline conflict lookup')
+        const existingByKey=values.map(row=>keys.every(key=>row[key]!==undefined&&row[key]!==null)?saved.filter(item=>keys.every(key=>String(item[key])===String(row[key]))):[])
+        if(existingByKey.some(matches=>matches.length>1))throw Error('Ambiguous offline upsert conflict')
+        const keyOf=row=>JSON.stringify(keys.map(key=>row[key]))
+        if(new Set(values.map(keyOf)).size!==values.length)throw Error('Duplicate offline upsert conflict keys')
+        const found=existingByKey.map(matches=>matches[0]||null)
+        if(values.length>1){
+          if(found.some(row=>!row))throw Error('Mixed multi-row upsert requires atomic conflict resolution; no records saved')
+          throw Error('Multi-row conflict upsert requires atomic field-specific updates; no records saved')
+        }
+        if(found[0]){operation='update';existing=[found[0]]}
+        else if(values[0].id)throw Error('Offline upsert cannot create an arbitrary record ID')
+      }
       if(operation!=='create' && existing.length>1){
         if(existing.length>500)throw Error('Maximum 500 records per batch')
         const ids=existing.map(row=>String(row.id))
@@ -74,7 +94,7 @@ function offlineQuery(table) {
         if(records.length!==ids.size)throw Error('Batch saved but some records could not be reloaded')
         return {data:records,error:null}
       }
-      if(upsert&&operation==='create'&&payload?.id){const oldColumns=columns,oldOffset=offset,oldLimit=limit;columns='*';offset=0;limit=null;let found;try{found=(await load()).rows.find(row=>String(row.id)===String(payload.id))}finally{columns=oldColumns;offset=oldOffset;limit=oldLimit}if(found){operation='update';existing=[found]}else throw Error('Offline upsert cannot assign an imported ID; use insert for new records')}
+
       const fields=operation==='create'?(Array.isArray(payload)?payload[0]:payload):operation==='update'?{...existing[0],...payload}:null
       if(fields){delete fields.id;delete fields._local_only;delete fields._local_updated_at;delete fields._local_edited}
       const response=await fetch('/api/offline/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:operation,table,id:existing[0]?.id,fields})})
@@ -114,7 +134,7 @@ function offlineQuery(table) {
     insert:value=>(operation='create',payload=value,query),
     update:value=>(operation='update',payload=value,query),
     delete:()=>(operation='delete',query),
-    upsert:value=>(operation='create',payload=value,upsert=true,query),
+    upsert:(value,options={})=>(operation='create',payload=value,upsert=true,conflictKeys=String(options.onConflict||'id').split(',').map(k=>k.trim()).filter(k=>/^[a-z][a-z0-9_]*$/.test(k)),query),
     then:(resolve,reject)=>run().then(resolve,reject)
   }
   return query
