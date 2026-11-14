@@ -8,6 +8,7 @@ const { csvFromRows, selectSnapshotRows } = require('./offlineCsvExport.cjs')
 const { layoutRows, validateLayout } = require('./offlineReportLayout.cjs')
 const { createReportPresets } = require('./offlineReportPresets.cjs')
 const { createLocalAnnotations } = require('./offlinePersonalNotes.cjs')
+const { productionBalance } = require('./offlineProductionBalance.cjs')
 const { reportExport } = require('./offlineSystemReportExport.cjs')
 const { crossModuleReport, REPORTS } = require('./offlineCrossModuleReports.cjs')
 const { systemReport, DEFINITIONS } = require('./offlineSystemReports.cjs')
@@ -113,8 +114,8 @@ async function querySnapshot(directory, action, args) {
       }
       return {exported:result.rows.length,file:path.basename(choice.filePath)}
     }
-    if (action === 'systemReportDefinitions') return [...DEFINITIONS.map(({key,title,table})=>({key,title,table})),...REPORTS.map(({key,title,source})=>({key,title,table:source}))]
-    if (action === 'systemReport') return REPORTS.some(r=>r.key===args?.key) ? crossModuleReport(db,args.key) : systemReport(db,args?.key)
+    if (action === 'systemReportDefinitions') return [{key:'production_stage_balance',title:'Order-wise department production balance',table:'production_daily_entries'},...DEFINITIONS.map(({key,title,table})=>({key,title,table})),...REPORTS.map(({key,title,source})=>({key,title,table:source}))]
+    if (action === 'systemReport') return args?.key==='production_stage_balance' ? productionBalance(db) : REPORTS.some(r=>r.key===args?.key) ? crossModuleReport(db,args.key) : systemReport(db,args?.key)
     if (action === 'globalSearch') return searchSnapshot(db, args?.query, 100)
     if (action === 'tables') {
       const result = db.exec('SELECT table_name, row_count FROM snapshot_manifest ORDER BY table_name')
