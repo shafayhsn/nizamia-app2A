@@ -148,7 +148,7 @@ app.whenReady().then(() => {
       if(request.method!=='GET')return new Response('Method not allowed',{status:405})
       const table=url.searchParams.get('table')
       const {TABLES,listLocalRecords}=require('./standaloneRecords.cjs')
-      if(!TABLES.includes(table))return Response.json({error:'Unsupported table'},{status:400})
+      if(!TABLES.has(table))return Response.json({error:'Unsupported table'},{status:400})
       try{
         const directory=getDatabaseDirectory()
         if(!directory)return Response.json({error:'Local database unavailable'},{status:503})
