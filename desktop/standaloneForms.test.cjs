@@ -18,6 +18,11 @@ async function main(){
  assert.throws(()=>normalizeForm('orders',{job_number:'J01',buyer_name:'Buyer',ex_factory_date:'2025-02-29'}),/Invalid/)
  assert.equal(normalizeForm('orders',{job_number:'J01',buyer_name:'Buyer',ex_factory_date:'2028-02-29'}).ex_factory_date,'2028-02-29')
  assert.throws(()=>normalizeForm('orders',{job_number:'J01',buyer_name:'Buyer',total_qty:'bad'}),/non-negative/)
+ assert.throws(()=>normalizeForm('orders',{job_number:'J01',buyer_name:'Buyer',total_qty:'1.5'}),/whole number/)
+ assert.throws(()=>normalizeForm('shipments',{shipment_number:'S-1',quantity:'2.25'}),/whole number/)
+ assert.throws(()=>normalizeForm('production_daily_entries',{order_id:'local-1',department:'Cutting',quantity:'9007199254740992'}),/whole number/)
+ assert.equal(normalizeForm('production_daily_entries',{order_id:'local-1',department:'Cutting',quantity:'0'}).quantity,0)
+ assert.equal(normalizeForm('purchase_orders',{po_number:'P-1',supplier_name:'Mill',unit_price:'2.75'}).unit_price,2.75)
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-form-report-'))
  try{
   const SQL=await initSqlJs({locateFile:()=>require.resolve('sql.js/dist/sql-wasm.wasm')})
