@@ -3,7 +3,7 @@
 // rows and never implies these records have been synchronized.
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto')
 const initSqlJs=require('sql.js')
-const TABLES=new Set(['orders','tasks','buyers','suppliers','purchase_orders','samples','parcels','shipments','production_daily_entries','costing','pp_meetings'])
+const TABLES=new Set(['orders','tasks','buyers','suppliers','purchase_orders','samples','parcels','shipments','production_daily_entries','costing','pp_meetings','production_plans'])
 const DB_NAME='nizamia-app2a.sqlite'
 const {normalizeForm}=require('./standaloneForms.cjs')
 const queues=new Map()
@@ -35,7 +35,7 @@ let engine
 async function sql(){if(!engine)engine=initSqlJs({locateFile:()=>require.resolve('sql.js/dist/sql-wasm.wasm').replace('app.asar'+path.sep,'app.asar.unpacked'+path.sep)});return engine}
 function schema(db){db.run("CREATE TABLE IF NOT EXISTS standalone_records (id TEXT PRIMARY KEY, table_name TEXT NOT NULL, fields_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")}
 function assertOrderReference(db,table,fields){
- if(!['production_daily_entries','purchase_orders','samples','shipments','costing','pp_meetings'].includes(table)||!fields.order_id)return
+ if(!['production_daily_entries','purchase_orders','samples','shipments','costing','pp_meetings','production_plans'].includes(table)||!fields.order_id)return
  const id=String(fields.order_id).trim()
  if(!id)throw Error('Order reference is required')
  if(!id.startsWith('local-'))return // Imported order references are read-only and may use non-UUID identifiers.
@@ -82,7 +82,7 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
     if(!existing.length)throw Error('Standalone record not found')
     if(action==='delete'){
      if(table==='orders'){
-      const linked=['production_daily_entries','purchase_orders','samples','shipments','costing','pp_meetings']
+      const linked=['production_daily_entries','purchase_orders','samples','shipments','costing','pp_meetings','production_plans']
       const dependencies=linked.flatMap(name=>read(db,name).filter(row=>String(row.order_id||'')===id).map(row=>name+': '+row.id))
       if(dependencies.length)throw Error('Cannot delete order: '+dependencies.length+' linked production, purchasing, sampling or shipping record(s) exist')
      }
