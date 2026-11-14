@@ -27,6 +27,7 @@ const MODULES = [
   { key: 'all', label: 'All tables', match: () => true }
 ]
 function App() {
+  const [readiness,setReadiness]=useState(null)
   const [reportDefinitions,setReportDefinitions]=useState([])
   const [reportKey,setReportKey]=useState('')
   const [systemReport,setSystemReport]=useState(null)
@@ -75,6 +76,7 @@ function App() {
   useEffect(() => {
     const api = window.localSnapshot
     if (!api) { setError('Local SQLite bridge is unavailable. Open this screen from the desktop Database menu.'); return }
+    api.workspaceReadiness?.().then(setReadiness).catch(()=>{})
     api.systemReportDefinitions?.().then(setReportDefinitions).catch(e=>setReportError(e.message))
     api.workspaceStatus?.().then(setWorkspace).catch(e => setWorkspaceError(e.message))
     Promise.all([api.summary(), api.tables()]).then(([s, t]) => {
@@ -320,6 +322,13 @@ function App() {
         </div>)}</div>
       </div>}
     </section>
+    {module === 'settings' && <section className="notice" aria-label="Offline synchronization readiness">
+      <h2>Offline editing &amp; synchronization readiness</h2>
+      <p>Business edits and cloud synchronization remain locked until server-issued authorization, scoped permissions and conflict-safe cloud writes are connected. This screen does not grant access.</p>
+      <button onClick={async()=>{try{setReadiness(await window.localSnapshot.workspaceReadiness())}catch(e){setReportError(e.message)}}}>Recheck readiness</button>
+      {readiness && <><p>Offline drafts: {readiness.readyForDrafts?'Authorization prerequisites met':'Locked'} · Cloud sync: {readiness.readyForSync?'Prerequisites met':'Locked'}</p>
+      <ul>{Object.entries(readiness.checks).map(([name,ok])=><li key={name}>{ok?'✓':'○'} {name.replace(/([A-Z])/g,' $1').toLowerCase()} — {ok?'verified':'not connected or not verified'}</li>)}</ul></>}
+    </section>}
     {module === 'reports' && <section className="notice" aria-label="Operational reports">
       <h2>System reports · From saved OMS data</h2>
       <p>Reports calculate directly from the imported Orders, Production, Purchasing and Tasks records. No manually entered report figures. The report reflects the last imported snapshot, not live cloud data.</p>
