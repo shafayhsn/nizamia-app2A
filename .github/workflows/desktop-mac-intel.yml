@@ -126,6 +126,9 @@ jobs:
       - name: Test offline business forms and local operational reports
         working-directory: desktop
         run: node standaloneForms.test.cjs
+      - name: Verify all 40 bundled QMS Excel workbooks
+        working-directory: desktop
+        run: node qmsWorkbookIntegrity.test.cjs
       - name: Verify original business screen offline contract
         working-directory: desktop
         run: node originalScreenContract.test.cjs
