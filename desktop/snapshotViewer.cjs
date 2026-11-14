@@ -8,6 +8,7 @@ const { csvFromRows, selectSnapshotRows } = require('./offlineCsvExport.cjs')
 const { layoutRows, validateLayout } = require('./offlineReportLayout.cjs')
 const { createReportPresets } = require('./offlineReportPresets.cjs')
 const { createLocalAnnotations } = require('./offlinePersonalNotes.cjs')
+const { reportExport } = require('./offlineSystemReportExport.cjs')
 const { crossModuleReport, REPORTS } = require('./offlineCrossModuleReports.cjs')
 const { systemReport, DEFINITIONS } = require('./offlineSystemReports.cjs')
 const { searchSnapshot } = require('./offlineGlobalSearch.cjs')
@@ -76,6 +77,41 @@ async function querySnapshot(directory, action, args) {
       // The OS dialog selects the destination. No network or cloud writes occur.
       fs.writeFileSync(choice.filePath, csv, { encoding: 'utf8', flag: 'w', mode: 0o600 })
       return { exported: rows.length, file: path.basename(choice.filePath) }
+    }
+    if (action === 'exportSystemReport') {
+      const format=args?.format
+      const result=reportExport(db,args?.key,format)
+      const filename='nizamia-'+result.key+'-'+new Date().toISOString().slice(0,10)+'.'+format
+      const choice=await dialog.showSaveDialog(viewer,{
+        title:'Export calculated OMS report',
+        defaultPath:filename,
+        filters:[{name:format==='xlsx'?'Excel workbook':'CSV spreadsheet',extensions:[format]}]
+      })
+      if(choice.canceled||!choice.filePath)return {cancelled:true}
+      if(path.extname(choice.filePath).toLowerCase()!=='.'+format)throw Error('Invalid report destination')
+      if(fs.existsSync(choice.filePath)){
+        const stat=fs.lstatSync(choice.filePath)
+        if(!stat.isFile()||stat.isSymbolicLink())throw Error('Unsafe report destination')
+      }
+      if(format==='csv') {
+        const csv=csvFromRows(result.rows.length?result.rows:[Object.fromEntries(result.columns.map(c=>[c,'']))])
+        fs.writeFileSync(choice.filePath,csv,{mode:0o600,flag:'w'})
+      } else {
+        const book=XLSX.utils.book_new()
+        const sheet=XLSX.utils.aoa_to_sheet([result.columns,...result.rows.map(row=>result.columns.map(c=>{
+          const value=row[c]
+          if(value==null)return ''
+          if(typeof value==='number')return value
+          const str=String(value)
+          return /^[\\s]*[=+@-]/.test(str)?"'"+str:str
+        }))])
+        sheet['!cols']=result.columns.map(c=>({wch:Math.min(40,Math.max(16,c.length+4))}))
+        XLSX.utils.book_append_sheet(book,sheet,'OMS Report')
+        const meta=XLSX.utils.aoa_to_sheet([['Report',result.title],['Source',result.source],['Generated',result.generatedAt],['Data',result.provenance]])
+        XLSX.utils.book_append_sheet(book,meta,'Report Info')
+        fs.writeFileSync(choice.filePath,XLSX.write(book,{type:'buffer',bookType:'xlsx'}),{mode:0o600,flag:'w'})
+      }
+      return {exported:result.rows.length,file:path.basename(choice.filePath)}
     }
     if (action === 'systemReportDefinitions') return [...DEFINITIONS.map(({key,title,table})=>({key,title,table})),...REPORTS.map(({key,title,source})=>({key,title,table:source}))]
     if (action === 'systemReport') return REPORTS.some(r=>r.key===args?.key) ? crossModuleReport(db,args.key) : systemReport(db,args?.key)
