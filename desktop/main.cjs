@@ -10,7 +10,8 @@ const { snapshotReady } = require('./snapshotStartup.cjs')
 
 // Serve the bundled web SPA under a proper origin so BrowserRouter routes and
 // local asset URLs work without an internet connection.
-protocol.registerSchemesAsPrivileged([{scheme:'app2a',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}])\nconst APP_URL = 'https://app.nizamia.com'
+protocol.registerSchemesAsPrivileged([{scheme:'app2a',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}])
+const APP_URL = 'https://app.nizamia.com'
 const ALLOWED_ORIGIN = new URL(APP_URL).origin
 
 function allowedNavigation(url) {
@@ -41,7 +42,9 @@ async function startDesktop() {
     if (!await snapshotReady(directory)) throw new Error('Local SQLite database could not be verified')
     showLocalSnapshot(null,getDatabaseDirectory)
   } catch(error) {
-    dialog.showErrorBox('Standalone startup failed',error.message+'\n\nChoose a database folder from the Database menu to recover. The cloud app will not open automatically.')
+    dialog.showErrorBox('Standalone startup failed',error.message+'
+
+Choose a database folder from the Database menu to recover. The cloud app will not open automatically.')
   }
 }
 // The original App-2A React entry is bundled with the DMG. This opens that
@@ -125,7 +128,9 @@ function createWindow() {
       dialog.showMessageBox(win, {
         type: 'warning', title: 'Cloud connection unavailable',
         message: 'App-2A cannot reach the cloud application.',
-        detail: 'Your previously imported SQLite snapshot can still be viewed locally. It is read-only and may be out of date.\\n\\n' + description,
+        detail: 'Your previously imported SQLite snapshot can still be viewed locally. It is read-only and may be out of date.\
+\
+' + description,
         buttons: ['Open Local Data', 'Retry Connection', 'Cancel'],
         defaultId: 0, cancelId: 2
       }).then(({ response }) => {
