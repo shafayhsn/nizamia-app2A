@@ -101,6 +101,9 @@ jobs:
       - name: Test operational purchasing shipping and approval exceptions
         working-directory: desktop
         run: node offlineOperationalExceptions.test.cjs
+      - name: Test offline editing and synchronization readiness
+        working-directory: desktop
+        run: node offlineReadiness.test.cjs
       - name: Test independent production stage balances
         working-directory: desktop
         run: node offlineProductionBalance.test.cjs
