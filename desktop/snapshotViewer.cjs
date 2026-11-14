@@ -224,13 +224,14 @@ async function querySnapshot(directory, action, args) {
       if (!['string','number'].includes(typeof orderId) || !String(orderId).trim() ||
           String(orderId).length > 120) throw new Error('Invalid order reference')
       const orderRows = db.exec('SELECT row_json FROM snapshot_rows WHERE table_name = ?', ['orders'])
-      const order = (orderRows[0]?.values || []).map(([json]) => JSON.parse(json))
+      const order = [...(orderRows[0]?.values || []).map(([json]) => JSON.parse(json)),...readLocalRows(db,'orders')]
         .find(row => String(row.id) === String(orderId))
-      if (!order) throw new Error('Order not found in snapshot')
+      if (!order) throw new Error('Order not found in local database')
       const relatedTables = ['size_groups','size_group_colors','size_group_breakdown','bom_items',
         'purchase_orders','order_queues','washing','finishing','finishing_packs',
         'production_daily_entries','production_batch_orders','production_entries','order_items']
       const available = new Set((db.exec('SELECT table_name FROM snapshot_manifest')[0]?.values || []).map(r => r[0]))
+      for(const table of LOCAL_TABLES)if(readLocalRows(db,table).length)available.add(table)
       const groups = new Set(), colors = new Set(), related = {}
       let total = 0
       for (const table of relatedTables) {
@@ -251,6 +252,11 @@ async function querySnapshot(directory, action, args) {
             found.push(row)
           }
         } finally { stmt.free() }
+        if(LOCAL_TABLES.has(table))for(const row of readLocalRows(db,table)){
+          if(String(row.order_id??'')!==String(orderId))continue
+          if(found.length>=1000||++total>5000)throw Error('Order dossier exceeds safe export limit')
+          found.push(row)
+        }
         if (found.length) related[table] = found
       }
       const clean = value => Object.fromEntries(Object.entries(value).filter(([key]) =>
@@ -279,6 +285,7 @@ async function querySnapshot(directory, action, args) {
       const related = {}
       const names = ['size_groups', 'size_group_colors', 'size_group_breakdown', 'bom_items', 'purchase_orders', 'order_queues', 'washing', 'finishing', 'finishing_packs', 'production_daily_entries', 'production_batch_orders', 'production_entries', 'order_items']
       const available = new Set((db.exec('SELECT table_name FROM snapshot_manifest')[0]?.values || []).map(v => v[0]))
+      for(const table of LOCAL_TABLES)if(readLocalRows(db,table).length)available.add(table)
       const sizeGroupIds = new Set()
       const colorIds = new Set()
       for (const name of names) {
@@ -300,6 +307,9 @@ async function querySnapshot(directory, action, args) {
             }
           }
         } finally { statement.free() }
+        if(LOCAL_TABLES.has(name))for(const row of readLocalRows(db,name)){
+          if(String(row.order_id??'')===String(orderId)&&found.length<100)found.push(row)
+        }
         related[name] = found
       }
       return related
