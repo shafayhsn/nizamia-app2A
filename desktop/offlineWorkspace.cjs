@@ -4,6 +4,7 @@
 const path = require('node:path')
 const fs = require('node:fs')
 const { safeStorage, app, dialog, BrowserWindow } = require('electron')
+const { assessOfflineReadiness } = require('./offlineReadiness.cjs')
 const { createCredentialStore } = require('./offlineCredentialStore.cjs')
 const { createOfflineAuthService } = require('./offlineAuthService.cjs')
 const { createOfflineSessionManager } = require('./offlineSessionManager.cjs')
@@ -33,6 +34,20 @@ function createOfflineWorkspace(getDirectory) {
     return { authenticated: true, identity: status.identity }
   }
   async function action(name, args = {}) {
+    if (name === 'readiness') {
+      const status=sessions.status()
+      let credentialExists=false
+      try {credentialExists=Boolean(store.load())} catch {}
+      const readiness=assessOfflineReadiness({
+        signedEnrollment:credentialExists,
+        authenticatedSession:status.authenticated,
+        // No pinned backend key, scoped grants or cloud conditional-write endpoint
+        // are currently connected. Never infer authorization from local data.
+        pinnedServerKey:false,scopedEditGrant:false,snapshotIntegrity:false,
+        serverSyncEndpoint:false,conditionalCloudWrites:false
+      })
+      return {...readiness,enrolled:credentialExists,authenticated:status.authenticated}
+    }
     if (name === 'status') {
       const status = sessions.status()
       let enrolled = false
