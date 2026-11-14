@@ -40,7 +40,8 @@ async function startDesktop() {
       await initializeDatabase(directory)
     }
     if (!await snapshotReady(directory)) throw new Error('Local SQLite database could not be verified')
-    openBundledWebApp()
+    if(fs.existsSync(path.join(process.resourcesPath,'web','index.html')))openBundledWebApp()
+    else showLocalSnapshot(null,getDatabaseDirectory)
   } catch(error) {
     dialog.showErrorBox('Standalone startup failed',error.message+'\n\nChoose a database folder from the Database menu to recover. The cloud app will not open automatically.')
   }
