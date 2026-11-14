@@ -10,6 +10,12 @@ function assertSnapshotReplaceSafe(db) {
     if (!Number.isSafeInteger(count) || count < 0) throw new Error('Invalid standalone record state')
     if (count > 0) throw new Error('Snapshot import blocked: '+count+' standalone offline record(s) are stored locally. Back up or safely migrate them before importing. No data was replaced.')
   }
+  const overlays = db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_edits'")
+  if (overlays.length) {
+    const count = db.exec('SELECT COUNT(*) FROM snapshot_edits')[0]?.values?.[0]?.[0]
+    if (!Number.isSafeInteger(count) || count < 0) throw new Error('Invalid imported-record edit state')
+    if (count > 0) throw new Error('Snapshot import blocked: '+count+' locally edited or deleted imported record(s) would be lost. Back up or migrate these changes first. No data was replaced.')
+  }
   if (!exists.length) return
   const result = db.exec("SELECT COUNT(*) FROM offline_draft_journal WHERE state IN ('pending', 'conflict')")
   const count = result[0]?.values?.[0]?.[0]

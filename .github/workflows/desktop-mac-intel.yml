@@ -38,6 +38,11 @@ jobs:
           node-version: '22'
       - name: Install web application dependencies
         run: npm install --no-audit --no-fund
+      - name: Check offline adapter source integrity
+        run: |
+          node --input-type=module --check < src/lib/supabase.js
+          node --check desktop/snapshotReplaceGuard.cjs
+          node --check desktop/standaloneRecords.cjs
       - name: Validate production web application build
         run: npm run build
       - name: Build packaged React assets with relative URLs

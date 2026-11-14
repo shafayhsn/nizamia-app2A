@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 const isMacOffline = typeof location !== 'undefined' && location.protocol === 'app2a:'
 const offlineTables = new Set(['orders','tasks','buyers','suppliers','purchase_orders','purchase_order_items','samples','parcels','shipments','shipment_lines','production_daily_entries','costing','pp_meetings','production_plans','jobs','order_queues','bom_items','washing','embellishments','finishing','work_orders','buyer_addresses','buyer_contacts','supplier_contacts'])
 function offlineQuery(table) {
-  let filters=[],sort=null,limit=null,offset=0,single=false,operation=null,payload=null,upsert=false,returnRows=false,countRequested=false,orGroups=[],columns='*'
+  let filters=[],sort=null,limit=null,offset=0,single=false,strictSingle=false,operation=null,payload=null,upsert=false,returnRows=false,countRequested=false,orGroups=[],columns='*'
   const load=async()=>{
     if(!/^[a-z][a-z0-9_]{0,63}$/.test(table))throw Error('Invalid offline table')
     const response=await fetch('/api/offline/records?table='+encodeURIComponent(table))
@@ -36,14 +36,17 @@ function offlineQuery(table) {
   }
   const run=async()=>{
     try{
-      if(!operation){const {rows,total}=await load();return {data:single?(rows[0]||null):rows,error:null,count:countRequested?total:null}}
+      if(!operation){const {rows,total}=await load();if(strictSingle&&rows.length!==1)return {data:null,error:new Error('Expected exactly one record; found '+rows.length),count:countRequested?total:null};return {data:single?(rows[0]||null):rows,error:null,count:countRequested?total:null}}
       if(!offlineTables.has(table))throw Error('This table is not available offline')
-      let existing=operation==='create'?[]:(await load()).rows
+      const previousColumns=columns,previousOffset=offset,previousLimit=limit
+      columns='*';offset=0;limit=null
+      let existing
+      try{existing=operation==='create'?[]:(await load()).rows}finally{columns=previousColumns;offset=previousOffset;limit=previousLimit}
       if(operation!=='create' && existing.length!==1)throw Error('Exactly one local record must be selected for editing')
       if(operation==='create'&&Array.isArray(payload)&&payload.length>500)throw Error('Maximum 500 records per batch')
       if(operation==='create'&&Array.isArray(payload)&&!payload.length)throw Error('Empty insert batch')
       if(operation==='create'&&Array.isArray(payload)&&payload.length>1)throw Error('Atomic batch inserts are not yet supported offline; no records were saved')
-      if(upsert&&operation==='create'&&payload?.id){const previousColumns=columns;columns='*';let found;try{found=(await load()).rows.find(row=>String(row.id)===String(payload.id))}finally{columns=previousColumns}if(found){operation='update';existing=[found]}else throw Error('Offline upsert cannot assign an imported ID; use insert for new records')}
+      if(upsert&&operation==='create'&&payload?.id){const oldColumns=columns,oldOffset=offset,oldLimit=limit;columns='*';offset=0;limit=null;let found;try{found=(await load()).rows.find(row=>String(row.id)===String(payload.id))}finally{columns=oldColumns;offset=oldOffset;limit=oldLimit}if(found){operation='update';existing=[found]}else throw Error('Offline upsert cannot assign an imported ID; use insert for new records')}
       const fields=operation==='create'?(Array.isArray(payload)?payload[0]:payload):operation==='update'?{...existing[0],...payload}:null
       if(fields){delete fields.id;delete fields._local_only;delete fields._local_updated_at;delete fields._local_edited}
       const response=await fetch('/api/offline/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:operation,table,id:existing[0]?.id,fields})})
@@ -77,7 +80,7 @@ function offlineQuery(table) {
     range:(start,end)=>(offset=Math.max(0,Number(start)||0),limit=Math.max(0,Number(end)-offset+1),query),
     maybeSingle:()=>(single=true,query),
     match:values=>(Object.entries(values||{}).forEach(([field,value])=>filters.push([field,'eq',value])),query),
-    single:()=>(single=true,query),
+    single:()=>(single=true,strictSingle=true,query),
     insert:value=>(operation='create',payload=value,query),
     update:value=>(operation='update',payload=value,query),
     delete:()=>(operation='delete',query),

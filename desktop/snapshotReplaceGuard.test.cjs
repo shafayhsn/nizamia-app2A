@@ -20,6 +20,14 @@ async function main() {
     assert.throws(()=>assertSnapshotReplaceSafe(db),/standalone offline record/)
     db.run('DELETE FROM standalone_records')
     assert.doesNotThrow(()=>assertSnapshotReplaceSafe(db))
+    db.run('CREATE TABLE snapshot_edits (table_name TEXT,record_id TEXT,fields_json TEXT,updated_at TEXT)')
+    assert.doesNotThrow(()=>assertSnapshotReplaceSafe(db))
+    db.run("INSERT INTO snapshot_edits VALUES ('orders','cloud-1','{}','now')")
+    assert.throws(()=>assertSnapshotReplaceSafe(db),/locally edited or deleted imported record/)
+    db.run("UPDATE snapshot_edits SET fields_json=NULL")
+    assert.throws(()=>assertSnapshotReplaceSafe(db),/locally edited or deleted imported record/)
+    db.run('DELETE FROM snapshot_edits')
+    assert.doesNotThrow(()=>assertSnapshotReplaceSafe(db))
     process.stdout.write('Snapshot replacement guard tests passed: pending/conflict edits block import.\n')
   } finally { db.close() }
 }
