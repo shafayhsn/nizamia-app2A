@@ -139,9 +139,23 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  protocol.handle('app2a',request=>{
+  protocol.handle('app2a',async request=>{
     const url=new URL(request.url)
     if(url.hostname!=='local')return new Response('Not found',{status:404})
+    // Local-only read bridge for the bundled original React interface.
+    // Never expose arbitrary SQL, filesystem paths, or cloud credentials.
+    if(url.pathname==='/api/offline/records'){
+      if(request.method!=='GET')return new Response('Method not allowed',{status:405})
+      const table=url.searchParams.get('table')
+      const {TABLES,listLocalRecords}=require('./standaloneRecords.cjs')
+      if(!TABLES.includes(table))return Response.json({error:'Unsupported table'},{status:400})
+      try{
+        const directory=getDatabaseDirectory()
+        if(!directory)return Response.json({error:'Local database unavailable'},{status:503})
+        const rows=await listLocalRecords(directory,table)
+        return Response.json({data:rows,error:null},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:500})}
+    }
     const root=path.resolve(process.resourcesPath,'web')
     let relative
     try{relative=decodeURIComponent(url.pathname)}catch{return new Response('Bad request',{status:400})}
