@@ -202,4 +202,73 @@ async function cancelDraftInternal({ directory, draftId, session, authenticateSe
     return { cancelled: true }
   } finally { db.close() }
 }
-module.exports = { stageDraft, listDrafts, previewSync, cancelDraft, snapshotFingerprint }
+
+// Owner-scoped pending drafts for a trusted main-process sync coordinator.
+// No renderer-facing IPC should expose draft payloads or session credentials.
+async function pendingSyncDrafts({directory,session,authenticateSession}){
+ if(typeof authenticateSession!=='function'||await authenticateSession(session)!==true||
+    !session||typeof session.identity!=='string'||!session.identity)
+  throw Error('Authenticated session required')
+ assertDirectory(directory)
+ const file=path.join(directory,DB_NAME)
+ fingerprint(file)
+ const SQL=await sqlEngine(),db=new SQL.Database(fs.readFileSync(file))
+ try{
+  if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
+  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_draft_journal'").length)return []
+  const stmt=db.prepare("SELECT draft_json FROM offline_draft_journal WHERE identity = ? AND state = 'pending' ORDER BY created_at LIMIT 101")
+  const drafts=[]
+  try{
+   stmt.bind([session.identity])
+   while(stmt.step())drafts.push(JSON.parse(stmt.get()[0]))
+  }finally{stmt.free()}
+  if(drafts.length>100)throw Error('Sync batch limit exceeded')
+  const {validateDraft}=require('./offlineSyncPlanner.cjs')
+  drafts.forEach(validateDraft)
+  return drafts
+ }finally{db.close()}
+}
+// Persist server outcomes only after a trusted, authenticated main-process
+// coordinator has verified the response. Archive applied drafts in place.
+async function commitSyncResults(args){
+ return serializedMutation(args.directory,()=>commitSyncResultsInternal(args))
+}
+async function commitSyncResultsInternal({directory,session,authenticateSession,results}){
+ if(typeof authenticateSession!=='function'||await authenticateSession(session)!==true||
+    !session||typeof session.identity!=='string'||!session.identity)
+  throw Error('Authenticated session required')
+ if(!Array.isArray(results)||results.length<1||results.length>100)throw Error('Invalid sync results')
+ assertDirectory(directory)
+ const file=path.join(directory,DB_NAME),fileHash=fingerprint(file)
+ const SQL=await sqlEngine(),db=new SQL.Database(fs.readFileSync(file))
+ try{
+  if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
+  ensureSchema(db)
+  db.run("CREATE TABLE IF NOT EXISTS offline_sync_history (draft_id TEXT PRIMARY KEY NOT NULL, identity TEXT NOT NULL, decision TEXT NOT NULL, updated_at TEXT NOT NULL)")
+  const drafts=[]
+  for(const result of results){
+   const row=db.exec("SELECT draft_json FROM offline_draft_journal WHERE draft_id = ? AND identity = ? AND state = 'pending'",[result.draftId,session.identity])
+   if(!row.length||row[0].values.length!==1)throw Error('Pending owner draft missing or changed')
+   drafts.push(JSON.parse(row[0].values[0][0]))
+  }
+  const {reconcileSyncResults}=require('./offlineSyncReconciliation.cjs')
+  const actions=reconcileSyncResults(drafts,results)
+  const stamp=new Date().toISOString()
+  for(const action of actions){
+   if(action.action==='archive-applied'){
+    db.run("INSERT INTO offline_sync_history (draft_id,identity,decision,updated_at) VALUES (?,?,?,?)",[action.draftId,session.identity,'applied',stamp])
+    db.run("DELETE FROM offline_draft_journal WHERE draft_id = ? AND identity = ? AND state = 'pending'",[action.draftId,session.identity])
+   }else if(action.action==='mark-conflict'){
+    db.run("UPDATE offline_draft_journal SET state = 'conflict' WHERE draft_id = ? AND identity = ? AND state = 'pending'",[action.draftId,session.identity])
+   }
+  }
+  if(await authenticateSession(session)!==true)throw Error('Session expired before journal commit')
+  if(fingerprint(file)!==fileHash)throw Error('Database changed during synchronization')
+  persist(file,db)
+  return {archived:actions.filter(a=>a.action==='archive-applied').length,
+   conflicts:actions.filter(a=>a.action==='mark-conflict').length,
+   retained:actions.filter(a=>a.action.startsWith('retain-')).length}
+ }finally{db.close()}
+}
+
+module.exports = { stageDraft, listDrafts, previewSync, cancelDraft, snapshotFingerprint, pendingSyncDrafts, commitSyncResults }
