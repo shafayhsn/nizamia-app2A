@@ -104,6 +104,9 @@ jobs:
       - name: Test authenticated offline API route wiring
         working-directory: desktop
         run: node ../server/offlineRoutes.test.cjs
+      - name: Test offline costing calculations and FOB margin
+        working-directory: desktop
+        run: node offlineCosting.test.cjs
       - name: Test offline business forms and local operational reports
         working-directory: desktop
         run: node standaloneForms.test.cjs
