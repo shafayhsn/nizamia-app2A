@@ -393,6 +393,28 @@ function showLocalSnapshot(parent, getDirectory) {
         if (command === 'remove') return presets.remove(args?.table)
         throw new Error('Unsupported report preset action')
       }
+      if (action === 'standalone:backup') {
+        const source=path.join(selectedDirectory,'nizamia-app2a.sqlite')
+        const stat=fs.lstatSync(source)
+        if(!stat.isFile()||stat.isSymbolicLink()||stat.size>1024*1024*1024)throw Error('Unsafe database file')
+        const bytes=fs.readFileSync(source)
+        const SQL=await getSqlEngine()
+        const db=new SQL.Database(bytes)
+        try{if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity check failed')}finally{db.close()}
+        const choice=await dialog.showSaveDialog(viewer,{
+          title:'Back up complete standalone database',
+          defaultPath:'nizamia-app2a-backup-'+new Date().toISOString().slice(0,10)+'.sqlite',
+          filters:[{name:'SQLite database backup',extensions:['sqlite']}]
+        })
+        if(choice.canceled||!choice.filePath)return {cancelled:true}
+        if(path.extname(choice.filePath).toLowerCase()!=='.sqlite')throw Error('SQLite backup destination required')
+        if(path.resolve(choice.filePath)===path.resolve(source))throw Error('Backup destination cannot overwrite live database')
+        if(fs.existsSync(choice.filePath)){const dest=fs.lstatSync(choice.filePath);if(!dest.isFile()||dest.isSymbolicLink())throw Error('Unsafe backup destination')}
+        const temp=choice.filePath+'.'+require('node:crypto').randomUUID()+'.tmp'
+        try{fs.writeFileSync(temp,bytes,{flag:'wx',mode:0o600});fs.renameSync(temp,choice.filePath)}
+        finally{try{fs.unlinkSync(temp)}catch(e){if(e.code!=='ENOENT')throw e}}
+        return {saved:true,file:path.basename(choice.filePath),bytes:bytes.length}
+      }
       if (action === 'standalone:save') return mutateLocalRecord(selectedDirectory,args)
       if (action === 'standalone:list') return listLocalRecords(selectedDirectory,args?.table)
       if (typeof action === 'string' && action.startsWith('workspace:'))

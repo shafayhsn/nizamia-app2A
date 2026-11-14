@@ -364,6 +364,12 @@ function App() {
         </div>)}</div>
       </div>}
     </section>
+    {module === 'settings' && <section className="notice" aria-label="Standalone database backup">
+      <h2>Standalone database backup</h2>
+      <p>Save a complete copy of your local SQLite database, including orders, production entries, purchasing, sampling and shipping records. Keep the backup in a separate safe folder or drive. Cloud sync is not required.</p>
+      <button onClick={async()=>{try{const result=await window.localSnapshot.standaloneBackup();if(!result.cancelled)setLocalMessage('Database backup saved: '+result.file)}catch(e){setLocalMessage('Backup failed: '+e.message)}}}>Back up database (.sqlite)</button>
+      {localMessage&&<p role="status">{localMessage}</p>}
+    </section>}
     {module === 'settings' && !workspace?.enrolled && <section className="notice"><h3>Enroll this Mac for offline editing</h3><p>Requires a trusted online server session and administrator-enabled signed authorization. Enrollment cannot be completed on an unconfigured installation.</p><form onSubmit={enrollOffline}><label>Authorized user ID <input required maxLength={128} value={enrollmentIdentity} onChange={e=>setEnrollmentIdentity(e.target.value)}/></label><label>New offline passphrase <input required type="password" maxLength={256} value={passphrase} onChange={e=>setPassphrase(e.target.value)}/></label><button disabled={authBusy}>Enroll Mac</button></form></section>}
     {module === 'settings' && <section className="notice" aria-label="Offline synchronization readiness">
       <h2>Offline editing &amp; synchronization readiness</h2>

@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('localSnapshot', Object.freeze({
   workspaceCancelDraft: draftId => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:cancelDraft', { draftId }),
   exportXlsx: (table, query, department, layout) => ipcRenderer.invoke('nizamia-local-snapshot', 'exportXlsx', { table, query, department, layout }),
   exportCsv: (table, query, department, layout) => ipcRenderer.invoke('nizamia-local-snapshot', 'exportCsv', { table, query, department, layout }),
+  standaloneBackup: () => ipcRenderer.invoke('nizamia-local-snapshot','standalone:backup',{}),
   standaloneSave: (action,table,id,fields) => ipcRenderer.invoke('nizamia-local-snapshot','standalone:save',{action,table,id,fields}),
   standaloneList: table => ipcRenderer.invoke('nizamia-local-snapshot','standalone:list',{table}),
   filteredRows: (table, offset, query, department, layout) => ipcRenderer.invoke('nizamia-local-snapshot', 'filteredRows', { table, offset, query, department, layout }),
