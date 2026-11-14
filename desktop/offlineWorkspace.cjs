@@ -83,7 +83,7 @@ function createOfflineWorkspace(getDirectory, trusted = null) {
       try { enrolled = Boolean(store.load()) } catch (e) {
         return { ...status, enrolled: false, unavailable: e.message }
       }
-      return { ...status, enrolled }
+      return { ...status, enrolled, permissions: configured && status.authenticated ? ['offline:draft:orders','offline:draft:production_daily_entries'] : [] }
     }
     if (name === 'beginEnrollment') {
       if(!configured)throw Error('Trusted online enrollment is not configured')
