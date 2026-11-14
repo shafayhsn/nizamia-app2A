@@ -1,7 +1,7 @@
 'use strict'
 const path = require('node:path')
 const { app, BrowserWindow, shell, dialog, Menu } = require('electron')
-const { chooseDatabaseFolder, showDatabaseLocation, getDatabaseDirectory } = require('./localDatabase.cjs')
+const { chooseDatabaseFolder, showDatabaseLocation, getDatabaseDirectory, initializeDatabase } = require('./localDatabase.cjs')
 const { importBackup } = require('./snapshotImport.cjs')
 const { inspectSnapshot } = require('./snapshotInspect.cjs')
 const { showLocalSnapshot } = require('./snapshotViewer.cjs')
@@ -25,12 +25,23 @@ function openLocalData() {
   } catch (error) { dialog.showErrorBox('Local SQLite viewer', error.message) }
 }
 async function startDesktop() {
-  const directory = getDatabaseDirectory()
-  if (await snapshotReady(directory)) {
-    try { showLocalSnapshot(null, getDatabaseDirectory); return }
-    catch (error) { dialog.showErrorBox('Local startup failed', error.message) }
+  try {
+    let directory=getDatabaseDirectory()
+    if (!directory) {
+      directory=path.join(app.getPath('userData'),'Standalone Database')
+      fs.mkdirSync(directory,{recursive:true,mode:0o700})
+      await initializeDatabase(directory)
+      // Persist the default folder without prompting on every offline launch.
+      require('./localDatabase.cjs').saveSettings({databaseDirectory:fs.realpathSync(directory)})
+    } else if (!fs.existsSync(path.join(directory,'nizamia-app2a.sqlite'))) {
+      await initializeDatabase(directory)
+    }
+    if (!await snapshotReady(directory)) throw new Error('Local SQLite database could not be verified')
+    showLocalSnapshot(null,getDatabaseDirectory)
+  } catch(error) {
+    dialog.showErrorBox('Standalone startup failed',error.message+'\n\nChoose a database folder from the Database menu to recover.')
+    createWindow()
   }
-  createWindow()
 }
 function createWindow() {
   const win = new BrowserWindow({

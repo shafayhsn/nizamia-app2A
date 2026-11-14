@@ -15,7 +15,7 @@ const { crossModuleReport, REPORTS } = require('./offlineCrossModuleReports.cjs'
 const { systemReport, DEFINITIONS } = require('./offlineSystemReports.cjs')
 const { searchSnapshot } = require('./offlineGlobalSearch.cjs')
 const { createOfflineWorkspace } = require('./offlineWorkspace.cjs')
-const {listLocalRecords,mutateLocalRecord,TABLES:LOCAL_TABLES}=require('./standaloneRecords.cjs')
+const {listLocalRecords,mutateLocalRecord,readLocalRows,TABLES:LOCAL_TABLES}=require('./standaloneRecords.cjs')
 const initSqlJs = require('sql.js')
 const channel = 'nizamia-local-snapshot'
 let viewer = null
@@ -121,7 +121,12 @@ async function querySnapshot(directory, action, args) {
     if (action === 'globalSearch') return searchSnapshot(db, args?.query, 100)
     if (action === 'tables') {
       const result = db.exec('SELECT table_name, row_count FROM snapshot_manifest ORDER BY table_name')
-      return (result[0]?.values || []).map(([name, count]) => ({ name, count }))
+      const items=new Map((result[0]?.values || []).map(([name,count])=>[name,{name,count}]))
+      for(const table of LOCAL_TABLES){
+        const count=readLocalRows(db,table).length
+        if(count || !items.has(table))items.set(table,{name:table,count:(items.get(table)?.count||0)+count})
+      }
+      return [...items.values()].sort((a,b)=>a.name.localeCompare(b.name))
     }
     if (action === 'summary') {
       const result = db.exec("SELECT value FROM app_metadata WHERE key='snapshot_imported_at'")
@@ -173,7 +178,7 @@ async function querySnapshot(directory, action, args) {
       if (!Number.isInteger(offset) || offset < 0 || offset > 10000000) throw new Error('Invalid offset')
       if (typeof query !== 'string' || query.length > 120) throw new Error('Invalid search')
       if (typeof department !== 'string' || department.length > 80) throw new Error('Invalid department')
-      if (!db.exec('SELECT 1 FROM snapshot_manifest WHERE table_name = ?', [name]).length) throw new Error('Unknown table')
+      if (!db.exec('SELECT 1 FROM snapshot_manifest WHERE table_name = ?', [name]).length && !LOCAL_TABLES.has(name)) throw new Error('Unknown table')
       // Only snapshot JSON is searched; never executes user-supplied SQL.
       const matches = []
       let total = 0

@@ -65,6 +65,8 @@ async function initializeDatabase(directory) {
   const db = await openSqlite(existed ? fs.readFileSync(target) : null)
   try {
     db.run('CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)')
+    db.run('CREATE TABLE IF NOT EXISTS snapshot_rows (table_name TEXT NOT NULL, row_index INTEGER NOT NULL, row_json TEXT NOT NULL, PRIMARY KEY(table_name,row_index))')
+    db.run('CREATE TABLE IF NOT EXISTS snapshot_manifest (table_name TEXT PRIMARY KEY NOT NULL, row_count INTEGER NOT NULL)')
     db.run('INSERT OR IGNORE INTO app_metadata (key, value) VALUES (?, ?)', ['schema_version', String(SCHEMA_VERSION)])
     const version = db.exec("SELECT value FROM app_metadata WHERE key = 'schema_version'")
     if (version[0]?.values[0]?.[0] !== String(SCHEMA_VERSION)) throw new Error('Unsupported local database schema version.')
@@ -102,7 +104,7 @@ async function chooseDatabaseFolder(parent) {
     await dialog.showMessageBox(parent, {
       type: 'info', title: 'Local database ready',
       message: 'SQLite database initialized successfully.',
-      detail: target + '\n\nThis is a local foundation database only. Your App-2A records still load from Supabase; offline data and synchronization are not yet enabled.'
+      detail: target + '\n\nYour standalone offline database is ready. Local records remain on this Mac and are not synchronized to Supabase.'
     })
     return true
   } catch (error) {
@@ -130,4 +132,4 @@ async function showDatabaseLocation(parent) {
 
 function getDatabaseDirectory() { return readSettings().databaseDirectory || null }
 
-module.exports = { chooseDatabaseFolder, showDatabaseLocation, getDatabaseDirectory }
+module.exports = { chooseDatabaseFolder, showDatabaseLocation, getDatabaseDirectory, initializeDatabase, saveSettings }
