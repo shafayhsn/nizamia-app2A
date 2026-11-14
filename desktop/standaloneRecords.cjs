@@ -3,7 +3,7 @@
 // rows and never implies these records have been synchronized.
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto')
 const initSqlJs=require('sql.js')
-const TABLES=new Set(['orders','tasks','buyers','suppliers','purchase_orders','samples','parcels','shipments','production_daily_entries','costing','pp_meetings','production_plans'])
+const TABLES=new Set(['orders','tasks','buyers','suppliers','purchase_orders','purchase_order_items','samples','parcels','shipments','shipment_lines','production_daily_entries','costing','pp_meetings','production_plans','jobs','order_queues','bom_items','washing','embellishments','finishing','work_orders','buyer_addresses','buyer_contacts','supplier_contacts'])
 const DB_NAME='nizamia-app2a.sqlite'
 const {normalizeForm}=require('./standaloneForms.cjs')
 const queues=new Map()
@@ -11,16 +11,28 @@ function validateTable(table){if(!TABLES.has(table))throw Error('Unsupported sta
 function validateFields(fields){
  if(!fields||typeof fields!=='object'||Array.isArray(fields))throw Error('Invalid record fields')
  const keys=Object.keys(fields)
- if(!keys.length||keys.length>50)throw Error('Record requires 1–50 fields')
+ if(!keys.length||keys.length>200)throw Error('Record requires 1–200 fields')
  for(const key of keys){
   if(!/^[a-z][a-z0-9_]{0,63}$/.test(key)||['id','_local_only','_local_updated_at'].includes(key)||
      /password|secret|token|credential|api_key|private_key/i.test(key))throw Error('Unsupported record field')
   const value=fields[key]
-  if(value!==null&&typeof value!=='string'&&typeof value!=='number'&&typeof value!=='boolean')throw Error('Scalar record fields required')
+  if(value!==null&&typeof value==='object'){
+   const walk=(item,depth)=>{
+    if(depth>8)throw Error('Nested record too deep')
+    if(item===null)return
+    if(Array.isArray(item)){if(item.length>1000)throw Error('Array too large');for(const entry of item)walk(entry,depth+1);return}
+    if(typeof item==='object'){if(Object.keys(item).length>200)throw Error('Object too large');for(const [k,v] of Object.entries(item)){if(/password|secret|token|credential|api_key|private_key/i.test(k))throw Error('Unsupported nested field');walk(v,depth+1)}return}
+    if(typeof item==='string'&&item.length<=4000)return
+    if(typeof item==='number'&&Number.isFinite(item))return
+    if(typeof item==='boolean')return
+    throw Error('Unsupported nested record value')
+   }
+   walk(value,0)
+  }else if(value!==null&&typeof value!=='string'&&typeof value!=='number'&&typeof value!=='boolean')throw Error('Unsupported record value')
   if(typeof value==='string'&&value.length>4000)throw Error('Record field too long')
   if(typeof value==='number'&&!Number.isFinite(value))throw Error('Invalid number')
  }
- if(Buffer.byteLength(JSON.stringify(fields),'utf8')>32768)throw Error('Record exceeds size limit')
+ if(Buffer.byteLength(JSON.stringify(fields),'utf8')>262144)throw Error('Record exceeds size limit')
  return fields
 }
 function assertFile(directory){
@@ -28,7 +40,7 @@ function assertFile(directory){
  const dir=fs.lstatSync(directory),file=path.join(directory,DB_NAME)
  if(!dir.isDirectory()||dir.isSymbolicLink())throw Error('Invalid database directory')
  const stat=fs.lstatSync(file)
- if(!stat.isFile()||stat.isSymbolicLink()||stat.size>50*1024*1024)throw Error('Unsafe database file')
+ if(!stat.isFile()||stat.isSymbolicLink()||stat.size>1024*1024*1024)throw Error('Unsafe database file')
  return file
 }
 let engine

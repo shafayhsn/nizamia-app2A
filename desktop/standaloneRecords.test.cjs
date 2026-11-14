@@ -1,7 +1,7 @@
 'use strict'
 const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const initSqlJs=require('sql.js')
-const {mutateLocalRecord,listLocalRecords}=require('./standaloneRecords.cjs')
+const {mutateLocalRecord,listLocalRecords,listCombinedRecords}=require('./standaloneRecords.cjs')
 async function main(){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-local-crud-'))
  try{
@@ -16,6 +16,8 @@ async function main(){
   const a=await mutateLocalRecord(dir,{action:'create',table:'orders',fields:{job_number:'LOCAL1',buyer_name:'Buyer',total_qty:100}})
   assert.match(a.id,/^local-/)
   assert.equal((await listLocalRecords(dir,'orders')).length,1)
+  assert.equal((await listCombinedRecords(dir,'orders')).length,2)
+  assert.equal((await listCombinedRecords(dir,'orders')).find(x=>x.id==='cloud1')._local_only,false)
   await mutateLocalRecord(dir,{action:'update',table:'orders',id:a.id,fields:{job_number:'LOCAL2',buyer_name:'Buyer',total_qty:200}})
   assert.equal((await listLocalRecords(dir,'orders'))[0].total_qty,200)
   await assert.rejects(()=>mutateLocalRecord(dir,{action:'delete',table:'orders',id:'cloud1'}),/Only standalone/)
