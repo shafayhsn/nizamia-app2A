@@ -101,6 +101,9 @@ jobs:
       - name: Test operational purchasing shipping and approval exceptions
         working-directory: desktop
         run: node offlineOperationalExceptions.test.cjs
+      - name: Test offline draft queue reconciliation
+        working-directory: desktop
+        run: node offlineSyncReconciliation.test.cjs
       - name: Test end-to-end desktop-to-cloud sync contract
         working-directory: desktop
         run: node ../server/offlineSyncEndToEnd.test.cjs
