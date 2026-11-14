@@ -64,4 +64,4 @@ function crossModuleReport(db,key) {
   note:'Progress compares available linked production quantities against ordered quantity; it is not a stage-adjusted completion metric. Unlinked records are excluded.',
   rows}
 }
-module.exports={REPORTS,crossModuleReport}
+module.exports={REPORTS,crossModuleReport,read,numeric}
