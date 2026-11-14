@@ -5,7 +5,7 @@ const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypt
 const initSqlJs=require('sql.js')
 const TABLES=new Set(['orders','tasks','buyers','suppliers','purchase_orders','purchase_order_items','samples','parcels','shipments','shipment_lines','production_daily_entries','costing','pp_meetings','production_plans','jobs','order_queues','bom_items','washing','embellishments','finishing','work_orders','buyer_addresses','buyer_contacts','supplier_contacts','size_groups','size_group_colors','size_group_breakdown','order_processes','work_order_items','payment_settlements','production_batches','production_batch_orders','sample_comments'])
 const DB_NAME='nizamia-app2a.sqlite'
-const {normalizeForm}=require('./standaloneForms.cjs')
+const {normalizeForm,FORMS}=require('./standaloneForms.cjs')
 const queues=new Map()
 function validateTable(table){if(!TABLES.has(table))throw Error('Unsupported standalone record table')}
 function validateFields(fields){
@@ -101,7 +101,7 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
    // Imported rows use the original Supabase schema, not the simplified starter forms.
    // Preserve those fields and validate them without requiring unrelated form inputs.
    if(action==='update'&&typeof id==='string'&&!id.startsWith('local-'))validateFields(fields)
-   else {fields=normalizeForm(table,fields);validateFields(fields)}
+   else {fields=FORMS[table]?normalizeForm(table,fields):validateFields(fields);validateFields(fields)}
   }
   if(action!=='create'&&(typeof id!=='string'||id.length>256||!id))throw Error('Valid record ID required')
   const file=assertFile(directory),original=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
@@ -149,7 +149,7 @@ async function createLocalRecordBatch(directory,{table,rows}){
  return serialize(directory,async()=>{
   validateTable(table)
   if(!Array.isArray(rows)||rows.length<1||rows.length>500)throw Error('Batch requires 1–500 records')
-  const normalized=rows.map(fields=>{const result=normalizeForm(table,fields);validateFields(result);return result})
+  const normalized=rows.map(fields=>{const result=FORMS[table]?normalizeForm(table,fields):validateFields(fields);validateFields(result);return result})
   const file=assertFile(directory),original=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
   const SQL=await sql(),db=new SQL.Database(fs.readFileSync(file))
   try{
