@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 const isMacOffline = typeof location !== 'undefined' && location.protocol === 'app2a:'
 const offlineTables = new Set(['orders','tasks','buyers','suppliers','purchase_orders','purchase_order_items','samples','parcels','shipments','shipment_lines','production_daily_entries','costing','pp_meetings','production_plans','jobs','order_queues','bom_items','washing','embellishments','finishing','work_orders','buyer_addresses','buyer_contacts','supplier_contacts'])
 function offlineQuery(table) {
-  let filters=[],sort=null,limit=null,offset=0,single=false,strictSingle=false,operation=null,payload=null,upsert=false,returnRows=false,countRequested=false,orGroups=[],columns='*'
+  let filters=[],sort=null,limit=null,offset=0,single=false,strictSingle=false,headOnly=false,operation=null,payload=null,upsert=false,returnRows=false,countRequested=false,orGroups=[],columns='*'
   const load=async()=>{
     if(!/^[a-z][a-z0-9_]{0,63}$/.test(table))throw Error('Invalid offline table')
     const response=await fetch('/api/offline/records?table='+encodeURIComponent(table))
@@ -16,14 +16,14 @@ function offlineQuery(table) {
     const matches=(r,field,op,value)=>{
       const actual=r[field]
       if(op==='eq')return actual===value||(actual!=null&&value!=null&&String(actual)===String(value))
-      if(op==='neq')return String(actual??'')!==String(value??'')
+      if(op==='neq')return actual!=null&&value!=null&&String(actual)!==String(value)
       if(op==='is')return value===null?actual==null:actual===value
       if(op==='not-is')return value===null?actual!=null:actual!==value
-      if(op==='in')return Array.isArray(value)&&value.some(v=>String(v)===String(actual))
-      if(op==='like'||op==='ilike'){const pattern=String(value).split('%').map(part=>part.split('_').map(x=>x.replace(/[^a-zA-Z0-9 ]/g,match=>String.fromCharCode(92)+match)).join('.')).join('.*');return new RegExp('^'+pattern+'$',op==='ilike'?'i':'').test(String(actual??''))}
+      if(op==='in')return actual!=null&&Array.isArray(value)&&value.some(v=>v!=null&&String(v)===String(actual))
+      if(op==='like'||op==='ilike'){if(actual==null)return false;const pattern=String(value).split('%').map(part=>part.split('_').map(x=>x.replace(/[^a-zA-Z0-9 ]/g,match=>String.fromCharCode(92)+match)).join('.')).join('.*');return new RegExp('^'+pattern+'$',op==='ilike'?'i':'').test(String(actual??''))}
       if(op==='contains')return Array.isArray(actual)?Array.isArray(value)&&value.every(v=>actual.includes(v)):!!(actual&&typeof actual==='object'&&value&&typeof value==='object'&&Object.entries(value).every(([k,v])=>actual[k]===v))
       if(op==='overlaps')return Array.isArray(actual)&&Array.isArray(value)&&value.some(v=>actual.includes(v))
-      if(['gt','gte','lt','lte'].includes(op)){if(actual==null)return false;return op==='gt'?actual>value:op==='gte'?actual>=value:op==='lt'?actual<value:actual<=value}
+      if(['gt','gte','lt','lte'].includes(op)){if(actual==null||value==null)return false;return op==='gt'?actual>value:op==='gte'?actual>=value:op==='lt'?actual<value:actual<=value}
       return false
     }
     for(const [field,op,value] of filters)rows=rows.filter(r=>matches(r,field,op,value))
@@ -36,7 +36,7 @@ function offlineQuery(table) {
   }
   const run=async()=>{
     try{
-      if(!operation){const {rows,total}=await load();if(strictSingle&&rows.length!==1)return {data:null,error:new Error('Expected exactly one record; found '+rows.length),count:countRequested?total:null};return {data:single?(rows[0]||null):rows,error:null,count:countRequested?total:null}}
+      if(!operation){const {rows,total}=await load();if(strictSingle&&rows.length!==1)return {data:null,error:new Error('Expected exactly one record; found '+rows.length),count:countRequested?total:null};return {data:headOnly?null:single?(rows[0]||null):rows,error:null,count:countRequested?total:null}}
       if(!offlineTables.has(table))throw Error('This table is not available offline')
       const previousColumns=columns,previousOffset=offset,previousLimit=limit
       columns='*';offset=0;limit=null
@@ -57,6 +57,7 @@ function offlineQuery(table) {
         const records=saved.filter(row=>ids.has(String(row.id)))
         return {data:records,error:null}
       }
+      if(upsert&&operation==='create'&&Array.isArray(payload))throw Error('Offline upsert of multiple records is not supported; no changes saved')
       if(upsert&&operation==='create'&&payload?.id){const oldColumns=columns,oldOffset=offset,oldLimit=limit;columns='*';offset=0;limit=null;let found;try{found=(await load()).rows.find(row=>String(row.id)===String(payload.id))}finally{columns=oldColumns;offset=oldOffset;limit=oldLimit}if(found){operation='update';existing=[found]}else throw Error('Offline upsert cannot assign an imported ID; use insert for new records')}
       const fields=operation==='create'?(Array.isArray(payload)?payload[0]:payload):operation==='update'?{...existing[0],...payload}:null
       if(fields){delete fields.id;delete fields._local_only;delete fields._local_updated_at;delete fields._local_edited}
@@ -65,13 +66,15 @@ function offlineQuery(table) {
       if(!response.ok)throw Error(result.error||'Offline save failed')
       if(operation==='delete')return {data:null,error:null}
       if(!returnRows)return {data:null,error:null}
-      const saved=(await fetch('/api/offline/records?table='+encodeURIComponent(table))).json()
-      const record=(await saved).data?.find(row=>String(row.id)===String(result.data.id))||{id:result.data.id}
+      const savedResponse=await fetch('/api/offline/records?table='+encodeURIComponent(table))
+      if(!savedResponse.ok)throw Error('Record saved but reload failed')
+      const record=(await savedResponse.json()).data?.find(row=>String(row.id)===String(result.data.id))
+      if(!record)throw Error('Record saved but not found on reload')
       return {data:single?record:[record],error:null}
     }catch(error){return {data:null,error}}
   }
   const query={
-    select:(_columns='*',options={})=>(columns=_columns,countRequested=!!options.count,returnRows=!!operation,query),
+    select:(_columns='*',options={})=>(columns=_columns,countRequested=!!options.count,headOnly=!!options.head,returnRows=!!operation,query),
     eq:(field,value)=>(filters.push([field,'eq',value]),query),
     neq:(field,value)=>(filters.push([field,'neq',value]),query),
     in:(field,values)=>(filters.push([field,'in',values]),query),

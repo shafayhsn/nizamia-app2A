@@ -13,7 +13,7 @@ function validateFields(fields){
  const keys=Object.keys(fields)
  if(!keys.length||keys.length>200)throw Error('Record requires 1–200 fields')
  for(const key of keys){
-  if(!/^[a-z][a-z0-9_]{0,63}$/.test(key)||['id','_local_only','_local_updated_at'].includes(key)||
+  if(!/^[a-z][a-z0-9_]{0,63}$/.test(key)||['id','_local_only','_local_updated_at','_local_edited'].includes(key)||
      /password|secret|token|credential|api_key|private_key/i.test(key))throw Error('Unsupported record field')
   const value=fields[key]
   if(value!==null&&typeof value==='object'){
