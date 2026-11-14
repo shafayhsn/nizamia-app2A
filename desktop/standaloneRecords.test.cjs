@@ -20,6 +20,14 @@ async function main(){
   assert.equal((await listLocalRecords(dir,'buyers')).length,2)
   await assert.rejects(()=>createLocalRecordBatch(dir,{table:'buyers',rows:[]}),/Batch requires/)
   await assert.rejects(()=>createLocalRecordBatch(dir,{table:'users',rows:[{name:'No'}]}),/Unsupported/)
+  for(const table of ["size_groups","size_group_colors","size_group_breakdown","order_processes","work_order_items","payment_settlements","production_batches","production_batch_orders","sample_comments"]){
+    const row=await mutateLocalRecord(dir,{action:'create',table,fields:{name:'Offline '+table}})
+    assert.equal((await listLocalRecords(dir,table)).find(x=>x.id===row.id).name,'Offline '+table)
+    await mutateLocalRecord(dir,{action:'update',table,id:row.id,fields:{name:'Updated '+table}})
+    assert.equal((await listCombinedRecords(dir,table)).find(x=>x.id===row.id).name,'Updated '+table)
+    await mutateLocalRecord(dir,{action:'delete',table,id:row.id})
+    assert.equal((await listLocalRecords(dir,table)).length,0)
+  }
   const a=await mutateLocalRecord(dir,{action:'create',table:'orders',fields:{job_number:'LOCAL1',buyer_name:'Buyer',total_qty:100}})
   assert.match(a.id,/^local-/)
   assert.equal((await listLocalRecords(dir,'orders')).length,1)

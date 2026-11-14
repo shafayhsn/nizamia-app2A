@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 // The Mac preview uses its existing SQLite records via Electron's local origin.
 // The online web app keeps its original Supabase client unchanged.
 const isMacOffline = typeof location !== 'undefined' && location.protocol === 'app2a:'
-const offlineTables = new Set(['orders','tasks','buyers','suppliers','purchase_orders','purchase_order_items','samples','parcels','shipments','shipment_lines','production_daily_entries','costing','pp_meetings','production_plans','jobs','order_queues','bom_items','washing','embellishments','finishing','work_orders','buyer_addresses','buyer_contacts','supplier_contacts'])
+const offlineTables = new Set(['orders','tasks','buyers','suppliers','purchase_orders','purchase_order_items','samples','parcels','shipments','shipment_lines','production_daily_entries','costing','pp_meetings','production_plans','jobs','order_queues','bom_items','washing','embellishments','finishing','work_orders','buyer_addresses','buyer_contacts','supplier_contacts','size_groups','size_group_colors','size_group_breakdown','order_processes','work_order_items','payment_settlements','production_batches','production_batch_orders','sample_comments'])
 function offlineQuery(table) {
   let filters=[],sort=null,limit=null,offset=0,single=false,strictSingle=false,headOnly=false,operation=null,payload=null,upsert=false,returnRows=false,countRequested=false,orGroups=[],columns='*'
   const load=async()=>{
