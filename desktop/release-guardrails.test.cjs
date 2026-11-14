@@ -9,7 +9,11 @@ const viewer = read('snapshotViewer.cjs')
 const preload = read('snapshotViewerPreload.cjs')
 const importer = read('snapshotImport.cjs')
 assert.match(main, /showLocalSnapshot\(null,getDatabaseDirectory\)/, 'Standalone offline app must be the startup default')
-assert.doesNotMatch(main, /Standalone startup failed[\s\S]{0,200}createWindow\(\)/, 'Offline startup failure must not silently open the cloud app')
+// Restrict the cloud-fallback guard to the startup function itself. The cloud window
+// function is defined immediately afterward and must not trigger a false positive.
+const standaloneStartup = main.match(/async function startDesktop\(\)\s*\{[\s\S]*?(?=\nfunction createWindow\(\))/)
+assert.ok(standaloneStartup, 'Standalone startup function missing or changed')
+assert.doesNotMatch(standaloneStartup[0], /\bcreateWindow\s*\(/, 'Offline startup failure must not silently open the cloud app')
 assert.doesNotMatch(main, /preload:\s*path\.join/, 'Remote window must not receive the local SQLite bridge')
 assert.match(viewer, /event\.sender\.id !== viewer\.webContents\.id/, 'IPC must verify the caller window')
 assert.match(viewer, /senderURL\.protocol !== 'file:'/, 'IPC must verify the local file origin')
