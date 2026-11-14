@@ -104,6 +104,9 @@ jobs:
       - name: Test authenticated offline API route wiring
         working-directory: desktop
         run: node ../server/offlineRoutes.test.cjs
+      - name: Test refreshed-snapshot conflict rebase
+        working-directory: desktop
+        run: node offlineConflictRebase.test.cjs
       - name: Test offline sync history and conflict resolution
         working-directory: desktop
         run: node offlineSyncHistory.test.cjs

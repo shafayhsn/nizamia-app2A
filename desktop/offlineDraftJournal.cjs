@@ -296,4 +296,48 @@ async function listSyncHistory({directory,session,authenticateSession}){
   return history
  }finally{db.close()}
 }
-module.exports = { stageDraft, listDrafts, previewSync, cancelDraft, snapshotFingerprint, pendingSyncDrafts, commitSyncResults, listSyncHistory }
+
+async function rebaseConflict(args){
+ return serializedMutation(args.directory,()=>rebaseConflictInternal(args))
+}
+async function rebaseConflictInternal({directory,draftId,session,authenticateSession,grant,authenticateEvidence,now=Date.now()}){
+ if(typeof authenticateSession!=='function'||await authenticateSession(session)!==true||
+    !session?.authenticated||!session.identity)throw Error('Authenticated session required')
+ if(typeof authenticateEvidence!=='function'||await authenticateEvidence({grant,session})!==true)
+  throw Error('Trusted authorization evidence required')
+ if(typeof draftId!=='string'||!/^[a-f0-9-]{36}$/i.test(draftId))throw Error('Invalid draft ID')
+ assertDirectory(directory)
+ const file=path.join(directory,DB_NAME),original=fingerprint(file)
+ const SQL=await sqlEngine(),db=new SQL.Database(fs.readFileSync(file))
+ try{
+  if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
+  const row=db.exec("SELECT draft_json FROM offline_draft_journal WHERE draft_id = ? AND identity = ? AND state = 'conflict'",[draftId,session.identity])
+  if(!row.length||row[0].values.length!==1)throw Error('Owned conflict not found')
+  const old=JSON.parse(row[0].values[0][0])
+  const record=findRecord(db,old.table,old.recordId)
+  if(!record)throw Error('Snapshot record unavailable')
+  const hash=snapshotFingerprint(db)
+  const draft=makeDraft({table:old.table,record,changes:old.changes,snapshotHash:hash})
+  if(!authorizedDraft(draft,grant,session,now))throw Error('Fresh signed authorization required')
+  const overlapping=db.prepare("SELECT draft_json FROM offline_draft_journal WHERE table_name = ? AND record_id = ? AND state = 'pending'")
+  try{
+   overlapping.bind([old.table,old.recordId])
+   while(overlapping.step()){
+    const earlier=JSON.parse(overlapping.get()[0])
+    if(Object.keys(draft.changes).some(f=>Object.hasOwn(earlier.changes,f)))
+     throw Error('Pending draft already changes this field')
+   }
+  }finally{overlapping.free()}
+  // A cloud conflict cannot be automatically rebased against a stale local
+  // snapshot. Explicitly require a freshly imported snapshot first.
+  if(hash===old.snapshotHash)throw Error('Import a fresh cloud snapshot before retrying this conflict')
+  db.run("UPDATE offline_draft_journal SET draft_id=?,snapshot_hash=?,draft_json=?,state='pending',created_at=? WHERE draft_id=? AND identity=? AND state='conflict'",
+   [draft.draftId,hash,JSON.stringify(draft),draft.createdAt,draftId,session.identity])
+  if(await authenticateSession(session)!==true||fingerprint(file)!==original)
+   throw Error('Session or database changed during conflict rebase')
+  persist(file,db)
+  return {draftId:draft.draftId,state:'pending',replacedDraftId:draftId}
+ }finally{db.close()}
+}
+
+module.exports = { stageDraft, listDrafts, previewSync, cancelDraft, snapshotFingerprint, pendingSyncDrafts, commitSyncResults, listSyncHistory, rebaseConflict }

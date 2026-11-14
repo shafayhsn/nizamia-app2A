@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('localSnapshot', Object.freeze({
   reportPresetRemove: table => ipcRenderer.invoke('nizamia-local-snapshot', 'preset:remove', { table }),
   workspaceBeginEnrollment: () => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:beginEnrollment', {}),
   workspaceEnroll: (nonce,identity,passphrase) => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:enroll', {nonce,identity,passphrase}),
+  workspaceRetryConflict: (draftId) => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:retryConflict', {draftId}),
   workspaceSyncHistory: () => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:syncHistory', {}),
   workspaceSync: () => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:sync', {}),
   workspaceReadiness: () => ipcRenderer.invoke('nizamia-local-snapshot', 'workspace:readiness', {}),

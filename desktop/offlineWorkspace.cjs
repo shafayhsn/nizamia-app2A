@@ -15,7 +15,7 @@ const { assessOfflineReadiness } = require('./offlineReadiness.cjs')
 const { createCredentialStore } = require('./offlineCredentialStore.cjs')
 const { createOfflineAuthService } = require('./offlineAuthService.cjs')
 const { createOfflineSessionManager } = require('./offlineSessionManager.cjs')
-const { listDrafts, cancelDraft, listSyncHistory } = require('./offlineDraftJournal.cjs')
+const { listDrafts, cancelDraft, listSyncHistory, rebaseConflict } = require('./offlineDraftJournal.cjs')
 const { previewLocalDrafts } = require('./offlineDraftPreview.cjs')
 const { buildDraftRecovery } = require('./offlineDraftRecovery.cjs')
 function createOfflineWorkspace(getDirectory, trusted = null) {
@@ -184,6 +184,23 @@ function createOfflineWorkspace(getDirectory, trusted = null) {
         const current=sessions.status()
         return current.authenticated && current.identity===session.identity
       }})
+    }
+    if (name === 'retryConflict') {
+      if(!configured)throw Error('Trusted online editing authorization is not configured')
+      const session=authenticated(),directory=getDirectory()
+      if(!directory)throw Error('Local database not configured')
+      const conflicts=await listDrafts({directory,session,authenticateSession:async()=>{
+        const current=sessions.status()
+        return current.authenticated&&current.identity===session.identity
+      }})
+      const conflict=conflicts.find(d=>d.draftId===args.draftId&&d.state==='conflict')
+      if(!conflict)throw Error('Owned conflict not found')
+      const hash=await snapshotHash(directory),token=await trusted.getOnlineToken()
+      const grant=await broker.request({identity:session.identity,table:conflict.table,snapshotHash:hash,token})
+      const verifiedSession={...session,verifiedIdentity:session.identity,permissions:['offline:draft:'+conflict.table]}
+      return rebaseConflict({directory,draftId:args.draftId,session:verifiedSession,grant,
+        authenticateSession:async()=>{const current=sessions.status();return current.authenticated&&current.identity===session.identity},
+        authenticateEvidence:async()=>{const current=sessions.status();return current.authenticated&&current.identity===session.identity&&Date.now()<grant.expiresAt}})
     }
     if (name === 'cancelDraft') {
       const session = authenticated()
