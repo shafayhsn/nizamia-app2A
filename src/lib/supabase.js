@@ -89,7 +89,7 @@ function offlineQuery(table) {
         return {data:records,error:null}
       }
 
-      const fields=operation==='create'?(Array.isArray(payload)?payload[0]:payload):operation==='update'?{...existing[0],...payload}:null
+      const fields=operation==='create'?(Array.isArray(payload)?payload[0]:payload):operation==='update'?{...payload}:null
       if(fields){delete fields.id;delete fields._local_only;delete fields._local_updated_at;delete fields._local_edited}
       const response=await fetch('/api/offline/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:operation,table,id:existing[0]?.id,fields})})
       const result=await response.json()
@@ -128,7 +128,7 @@ function offlineQuery(table) {
     insert:value=>(operation='create',payload=value,query),
     update:value=>(operation='update',payload=value,query),
     delete:()=>(operation='delete',query),
-    upsert:(value,options={})=>(operation='create',payload=value,upsert=true,conflictKeys=String(options.onConflict||'id').split(',').map(k=>k.trim()).filter(k=>/^[a-z][a-z0-9_]*$/.test(k)),query),
+    upsert:(value,options={})=>(operation='create',payload=value,upsert=true,conflictKeys=String(options.onConflict||'id').split(',').map(k=>k.trim()),query),
     then:(resolve,reject)=>run().then(resolve,reject)
   }
   return query

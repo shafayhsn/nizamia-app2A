@@ -18,4 +18,6 @@ for(const method of ['select:','insert:','update:','delete:','upsert:','eq:','in
 assert.ok(backend.includes('BEGIN TRANSACTION'),'Atomic SQLite transactions missing')
 assert.ok(backend.includes('ROLLBACK'),'SQLite rollback missing')
 assert.ok(adapter.includes('onConflict'),'Shipping and production conflict-key upserts missing')
+assert.ok(adapter.includes("operation==='update'?{...payload}:null"),'Offline updates must send only changed fields to preserve imported rows')
+assert.ok(!adapter.includes("filter(k=>/^[a-z][a-z0-9_]*$/.test(k))"),'Invalid conflict columns must not be silently discarded')
 process.stdout.write('Original Orders, Purchasing, Production, Shipping and Reports offline contract passed.\n')
