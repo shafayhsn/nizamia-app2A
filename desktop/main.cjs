@@ -40,7 +40,7 @@ async function startDesktop() {
       await initializeDatabase(directory)
     }
     if (!await snapshotReady(directory)) throw new Error('Local SQLite database could not be verified')
-    showLocalSnapshot(null,getDatabaseDirectory)
+    openBundledWebApp()
   } catch(error) {
     dialog.showErrorBox('Standalone startup failed',error.message+'\n\nChoose a database folder from the Database menu to recover. The cloud app will not open automatically.')
   }
@@ -56,7 +56,7 @@ function openBundledWebApp() {
   }
   const win=new BrowserWindow({
     width:1360,height:900,minWidth:960,minHeight:650,
-    title:'Nizamia App-2A — Original Interface (Preview)',
+    title:'Nizamia App-2A',
     webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}
   })
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}))
@@ -164,7 +164,7 @@ app.whenReady().then(() => {
       try{
         const {mutateLocalRecord,TABLES}=require('./standaloneRecords.cjs')
         const raw=await request.text()
-        if(Buffer.byteLength(raw)>65536)return Response.json({error:'Request too large'},{status:413})
+        if(Buffer.byteLength(raw)>300000)return Response.json({error:'Request too large'},{status:413})
         const input=JSON.parse(raw)
         if(!TABLES.has(input.table))return Response.json({error:'Unsupported table'},{status:400})
         if(!['create','update','delete'].includes(input.action))return Response.json({error:'Unsupported operation'},{status:400})
@@ -193,7 +193,7 @@ app.whenReady().then(() => {
     ] },
     { label: 'App', submenu: [
       { label: 'Open Offline Desktop', click: openLocalData },
-      { label: 'Open Original Web Interface (Preview)', click: openBundledWebApp },
+      { label: 'Open App-2A Interface', click: openBundledWebApp },
       { label: 'Open Cloud App', click: createWindow }
     ] },
     { label: 'View', submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }] },
@@ -201,8 +201,8 @@ app.whenReady().then(() => {
   ])
   Menu.setApplicationMenu(menu)
   startDesktop().catch(error => dialog.showErrorBox('Desktop startup', error.message))
-  // Local records remain accessible without waiting for a cloud timeout.
-  // Opening the viewer never grants editing or cloud synchronization rights.
+  // Open the bundled original UI by default; the SQLite viewer remains in the menu.
+  // Offline authentication and complete feature coverage still require integration.
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) startDesktop().catch(error => dialog.showErrorBox('Desktop startup', error.message)) })
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
