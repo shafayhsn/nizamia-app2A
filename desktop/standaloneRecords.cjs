@@ -52,7 +52,24 @@ function read(db,table){
 }
 async function listLocalRecords(directory,table){
  const file=assertFile(directory),SQL=await sql(),db=new SQL.Database(fs.readFileSync(file))
- try{if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure');return read(db,table)}finally{db.close()}
+ try{
+  if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
+  const local=read(db,table)
+  // Imported Supabase business rows are available to the original UI, but
+  // remain immutable. Standalone records are stored in a separate table.
+  const snapshot=[]
+  if(db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_rows'").length){
+    const stmt=db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name=? ORDER BY row_index')
+    try{
+      stmt.bind([table])
+      while(stmt.step()){
+        const row=JSON.parse(stmt.get()[0])
+        if(row&&typeof row==='object'&&!Array.isArray(row))snapshot.push({...row,_local_only:false})
+      }
+    }finally{stmt.free()}
+  }
+  return [...local,...snapshot]
+}finally{db.close()}
 }
 function serialize(directory,task){
  const key=path.resolve(directory),prior=queues.get(key)||Promise.resolve()
