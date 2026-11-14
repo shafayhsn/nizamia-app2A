@@ -97,7 +97,12 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
  return serialize(directory,async()=>{
   validateTable(table)
   if(!['create','update','delete'].includes(action))throw Error('Unsupported local record operation')
-  if(action!=='delete'){fields=normalizeForm(table,fields);validateFields(fields)}
+  if(action!=='delete'){
+   // Imported rows use the original Supabase schema, not the simplified starter forms.
+   // Preserve those fields and validate them without requiring unrelated form inputs.
+   if(action==='update'&&typeof id==='string'&&!id.startsWith('local-'))validateFields(fields)
+   else {fields=normalizeForm(table,fields);validateFields(fields)}
+  }
   if(action!=='create'&&(typeof id!=='string'||id.length>256||!id))throw Error('Valid record ID required')
   const file=assertFile(directory),original=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
   const SQL=await sql(),db=new SQL.Database(fs.readFileSync(file))
