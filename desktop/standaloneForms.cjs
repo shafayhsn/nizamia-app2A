@@ -29,6 +29,7 @@ function normalizeForm(table,input){
   if(type==='number'){
    const number=Number(value)
    if(!Number.isFinite(number)||number<0)throw Error(label+' must be a non-negative number')
+   if(['total_qty','quantity'].includes(key)&&!Number.isSafeInteger(number))throw Error(label+' must be a whole number of garments or units')
    result[key]=number
   }else{
    if(typeof value!=='string'||value.length>4000)throw Error('Invalid '+label)
