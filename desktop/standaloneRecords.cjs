@@ -46,6 +46,15 @@ function assertFile(directory){
 let engine
 async function sql(){if(!engine)engine=initSqlJs({locateFile:()=>require.resolve('sql.js/dist/sql-wasm.wasm').replace('app.asar'+path.sep,'app.asar.unpacked'+path.sep)});return engine}
 function schema(db){db.run("CREATE TABLE IF NOT EXISTS standalone_records (id TEXT PRIMARY KEY, table_name TEXT NOT NULL, fields_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)");db.run('CREATE TABLE IF NOT EXISTS snapshot_edits (table_name TEXT NOT NULL,record_id TEXT NOT NULL,fields_json TEXT,updated_at TEXT NOT NULL,PRIMARY KEY(table_name,record_id))')}
+const REFERENCE_FIELDS={purchase_order_items:['po_id','purchase_orders'],shipment_lines:['shipment_id','shipments'],work_order_items:['wo_id','work_orders'],shipping_booking_lines:['booking_id','shipping_bookings'],shipping_booking_shipments:['booking_id','shipping_bookings'],size_group_colors:['size_group_id','size_groups'],size_group_breakdown:['size_group_id','size_groups'],production_batch_orders:['batch_id','production_batches']}
+function assertParentReference(db,table,fields){
+ const link=REFERENCE_FIELDS[table]
+ if(!link)return
+ const [field,parentTable]=link,id=fields[field]
+ if(id==null||id==='')return
+ if(typeof id!=='string'||!id.startsWith('local-'))return
+ if(!read(db,parentTable).some(row=>row.id===id))throw Error('Linked standalone '+parentTable+' record does not exist')
+}
 function assertOrderReference(db,table,fields){
  if(!['production_daily_entries','purchase_orders','samples','shipments','costing','pp_meetings','production_plans'].includes(table)||!fields.order_id)return
  const id=String(fields.order_id).trim()
@@ -53,6 +62,12 @@ function assertOrderReference(db,table,fields){
  if(!id.startsWith('local-'))return // Imported order references are read-only and may use non-UUID identifiers.
  const orders=read(db,'orders')
  if(!orders.some(row=>row.id===id))throw Error('Linked standalone order does not exist')
+}
+function assertNoChildren(db,table,id){
+ const dependent=Object.entries(REFERENCE_FIELDS).filter(([,value])=>value[1]===table)
+ for(const [child,[field]] of dependent){
+  if(read(db,child).some(row=>String(row[field]||'')===id))throw Error('Cannot delete '+table+': linked '+child+' records exist')
+ }
 }
 function read(db,table){
  validateTable(table)
@@ -109,7 +124,7 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
   try{
    if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
    schema(db)
-   if(action!=='delete')assertOrderReference(db,table,fields)
+   if(action!=='delete'){assertOrderReference(db,table,fields);assertParentReference(db,table,fields)}
    const stamp=new Date().toISOString()
    if(action!=='create'&&!id.startsWith('local-')){
     if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_rows'").length)throw Error('Imported snapshot unavailable')
@@ -128,8 +143,9 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
     const existing=db.exec('SELECT 1 FROM standalone_records WHERE id=? AND table_name=?',[id,table])
     if(!existing.length)throw Error('Standalone record not found')
     if(action==='delete'){
+     assertNoChildren(db,table,id)
      if(table==='orders'){
-      const linked=['production_daily_entries','purchase_orders','samples','shipments','costing','pp_meetings','production_plans']
+      const linked=['production_daily_entries','purchase_orders','samples','shipments','costing','pp_meetings','production_plans','order_queues','bom_items','washing','embellishments','finishing','size_groups','order_processes','work_orders','production_batch_orders']
       const dependencies=linked.flatMap(name=>read(db,name).filter(row=>String(row.order_id||'')===id).map(row=>name+': '+row.id))
       if(dependencies.length)throw Error('Cannot delete order: '+dependencies.length+' linked production, purchasing, sampling or shipping record(s) exist')
      }
@@ -159,7 +175,7 @@ async function createLocalRecordBatch(directory,{table,rows}){
    db.run('BEGIN TRANSACTION')
    try{
     for(const fields of normalized){
-     assertOrderReference(db,table,fields)
+     assertOrderReference(db,table,fields);assertParentReference(db,table,fields)
      const id='local-'+crypto.randomUUID()
      db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(fields),stamp,stamp])
      created.push({id,table,action:'create',localOnly:true})
@@ -198,15 +214,16 @@ async function mutateLocalRecordBatch(directory,{action,table,ids,fields}){
       const existing=read(db,table).find(row=>row.id===id)
       if(!existing)throw Error('Standalone batch record not found: '+id)
       if(action==='delete'){
+       assertNoChildren(db,table,id)
        if(table==='orders'){
-        const linked=['production_daily_entries','purchase_orders','samples','shipments','costing','pp_meetings','production_plans']
+        const linked=['production_daily_entries','purchase_orders','samples','shipments','costing','pp_meetings','production_plans','order_queues','bom_items','washing','embellishments','finishing','size_groups','order_processes','work_orders','production_batch_orders']
         if(linked.some(name=>read(db,name).some(row=>String(row.order_id||'')===id)))throw Error('Cannot delete order with linked records')
        }
        db.run('DELETE FROM standalone_records WHERE id=? AND table_name=?',[id,table])
       }else{
        const next={...existing,...fields}
        for(const key of ['id','_local_only','_local_updated_at','_local_edited'])delete next[key]
-       validateFields(next);assertOrderReference(db,table,next)
+       validateFields(next);assertOrderReference(db,table,next);assertParentReference(db,table,next)
        db.run('UPDATE standalone_records SET fields_json=?,updated_at=? WHERE id=? AND table_name=?',[JSON.stringify(next),stamp,id,table])
       }
      }else{
@@ -216,7 +233,7 @@ async function mutateLocalRecordBatch(directory,{action,table,ids,fields}){
       if(prior.length&&prior[0].values[0][0]===null)throw Error('Imported batch record already deleted: '+id)
       const previous=prior.length&&prior[0].values[0][0]?JSON.parse(prior[0].values[0][0]):source
       const next=action==='delete'?null:{...previous,...fields,id}
-      if(next){const clean={...next};delete clean.id;validateFields(clean);assertOrderReference(db,table,clean)}
+      if(next){const clean={...next};delete clean.id;validateFields(clean);assertOrderReference(db,table,clean);assertParentReference(db,table,clean)}
       db.run('INSERT OR REPLACE INTO snapshot_edits (table_name,record_id,fields_json,updated_at) VALUES (?,?,?,?)',[table,id,next===null?null:JSON.stringify(next),stamp])
      }
      results.push({id,table,action,localOnly:id.startsWith('local-')})
