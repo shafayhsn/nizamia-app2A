@@ -256,6 +256,8 @@ async function upsertLocalRecordBatch(directory,{table,rows,onConflict}){
   const keys=String(onConflict||'id').split(',').map(k=>k.trim())
   if(!keys.length||keys.some(k=>!/^[a-z][a-z0-9_]{0,63}$/.test(k)))throw Error('Invalid conflict columns')
   if(rows.some(row=>!row||typeof row!=='object'||Array.isArray(row)))throw Error('Invalid upsert row')
+  const completeKeys=rows.filter(row=>keys.every(key=>row[key]!==undefined&&row[key]!==null)).map(row=>JSON.stringify(keys.map(key=>String(row[key]))))
+  if(new Set(completeKeys).size!==completeKeys.length)throw Error('Duplicate upsert conflict keys in batch')
   const file=assertFile(directory),before=fs.readFileSync(file),original=crypto.createHash('sha256').update(before).digest('hex')
   const SQL=await sql(),db=new SQL.Database(before)
   try{
