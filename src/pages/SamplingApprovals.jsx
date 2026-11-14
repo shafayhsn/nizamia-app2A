@@ -7,7 +7,7 @@ import { formatDate } from '../lib/utils'
 import { usageObject, usageNumber } from '../lib/usageMath'
 import {buildSampleProgramHTML} from '../lib/sampleProgramPrint'
 import { loadSamplingStore, getSampleComments, updateSampleMeta, addSampleComment, sendSampleToParcelPool } from '../lib/samplingStore'
-import { ClipboardCheck, MessageSquarePlus, PackagePlus, Printer, RefreshCw, Search, ChevronDown } from 'lucide-react'
+import { ClipboardCheck, MessageSquarePlus, PackagePlus, Printer, Undo2, Search, ChevronDown } from 'lucide-react'
 import { statusBadgeStyle, statusDisplay } from '../lib/statusColors'
 import { useWindowManager } from '../components/ui/WindowManager'
 import { Minus, X } from 'lucide-react'
@@ -432,7 +432,7 @@ export default function SamplingApprovals() {
     })
   }, [samples, orderMap, buyerMap, refreshKey, sampleComments, parcelItems])
 
-  const isCompleted = r => r.stage === 'Ready' || r.approvalStatus === 'Approved' || ['complete','completed'].includes(String(r.status || '').toLowerCase())
+  const isCompleted = r => r.stage === 'Ready' || (r.approvalStatus === 'Approved' && r.stage === 'Ready')
   const rows = useMemo(() => {
     const filtered = allRows.filter(r => {
       if (viewTab === 'completed' ? !isCompleted(r) : isCompleted(r)) return false
@@ -441,7 +441,7 @@ export default function SamplingApprovals() {
       if (!hay.includes(query.toLowerCase())) return false
       if (filterBuyer.length && !filterBuyer.includes(customer)) return false
       if (filterType.length && !filterType.includes((r.sample_type || ''))) return false
-      if (filterStage.length && !filterStage.includes(r.stage)) return false
+      if (filterStage.some(x=>stageOptions.includes(x)) && !filterStage.includes(r.stage)) return false
       if (filterApproval.length && !filterApproval.includes(r.approvalStatus)) return false
       return true
     })
@@ -481,6 +481,7 @@ export default function SamplingApprovals() {
   const inProgressCount = allRows.filter(r => !['Not Started','Ready'].includes(r.stage) && r.dispatchStatus !== 'Dispatched').length
   const overdueCount = allRows.filter(r => r.dueDate && new Date(r.dueDate) < new Date() && !isCompleted(r)).length
   const completedCount = allRows.filter(isCompleted).length
+  const stageOptions = viewTab === 'completed' ? ['Ready'] : STAGES.filter(x=>x!=='Ready')
 
 
   async function saveStage(sampleId, stage) {
@@ -570,6 +571,15 @@ export default function SamplingApprovals() {
   const canSingle = !!selectedRow
   const selectedHasComments = !!latestEditableComment(selectedRow, sampleComments)
   const canSend = !!selectedRow && selectedRow.stage === 'Ready' && selectedRow.dispatchStatus !== 'Dispatched'
+  const canUndoReady = !!selectedRow && selectedRow.stage === 'Ready' && selectedRow.approvalStatus === 'Pending' && !['Dispatched','Delivered'].includes(selectedRow.dispatchStatus)
+  const [undoBusy,setUndoBusy] = useState(false)
+  async function undoReady(){
+    if(!canUndoReady||undoBusy)return
+    if(!window.confirm('Return '+selectedRow.sample_number+' from Ready to Finishing in Sampling WIP?'))return
+    setUndoBusy(true)
+    try { await saveStage(selectedRow.id,'Finishing');setSelectedIds([]) }
+    finally { setUndoBusy(false) }
+  }
 
   async function printSampleProgram(row) {
     const html=await buildSampleProgramHTML(row,{bomItems,fittingBlocks,allRows,sampleComments,parcelItems})
@@ -615,7 +625,7 @@ export default function SamplingApprovals() {
         <div style={{display:'flex',gap:6,flex:'1 1 auto',minWidth:0}}>{[
           ...(viewTab==='active' ? [['Total Samples',allRows.length,false],...STAGES.map(stage=>[stage,allRows.filter(r=>!isCompleted(r)&&(r.stage||'Not Started')===stage).length,stage==='Not Started']),['Overdue',overdueCount,true]] : approvalKpis)
         ].map(([label,value,amber])=><div key={label} style={{padding:'6px 5px',border:'1px solid var(--border)',borderRadius:8,background:'#fff',minWidth:0,flex:'1 1 0'}}><div style={{fontSize:8,fontWeight:600,color:'var(--text-light)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'clip',lineHeight:'12px',minHeight:12}}>{label}</div><div style={{fontSize:18,fontWeight:700,lineHeight:1,color:amber?'#d97706':'#0d0d0d'}}>{value}</div></div>)}</div>
-        <div style={{marginLeft:'auto',display:'flex',gap:8}}><button className="btn btn-secondary" title="Refresh" aria-label="Refresh" onClick={()=>setRefreshKey(x=>x+1)}><RefreshCw size={14}/></button>
+        <div style={{marginLeft:'auto',display:'flex',gap:8}}><button className="btn btn-secondary" title={canUndoReady?'Return selected Ready sample to Finishing':'Select one undispatched Ready sample with pending approval'} aria-label="Undo Ready to Finishing" disabled={!canUndoReady||undoBusy} onClick={undoReady}><Undo2 size={14}/></button>
           {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSingle} onClick={()=>selectedRow&&setCommenting(selectedRow)}><MessageSquarePlus size={13}/> {selectedHasComments ? 'Edit Comment' : 'Add Comment'}</button>}
           {viewTab === 'completed' && <button className="btn btn-secondary" disabled={!canSingle} onClick={()=>{if(selectedRow){setRevisionRequest(selectedRow);setRevisionDue('')}}}><ClipboardCheck size={13}/> Create V+</button>}
 
@@ -629,7 +639,7 @@ export default function SamplingApprovals() {
         <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...inp,width:'100%',minWidth:0}}><option value="due-asc">⇅ Due Date (Asc)</option><option value="due-desc">⇅ Due Date (Desc)</option><option value="sam-new">⇅ SAM # (Newest)</option><option value="sam-old">⇅ SAM # (Oldest)</option><option value="customer">⇅ Customer (A–Z)</option><option value="style">⇅ Style # (A–Z)</option><option value="qty-desc">⇅ Qty (High–Low)</option></select>
         <MultiFilter title="Customers" options={buyerOptions} value={filterBuyer} onChange={setFilterBuyer}/>
         <MultiFilter title="Types" options={typeOptions} value={filterType} onChange={setFilterType}/>
-        <MultiFilter title="Stages" options={STAGES} value={filterStage} onChange={setFilterStage}/>
+        <MultiFilter title="Stages" options={stageOptions} value={filterStage.filter(x=>stageOptions.includes(x))} onChange={setFilterStage}/>
         <MultiFilter title="Approvals" options={approvalOptions} value={filterApproval} onChange={setFilterApproval}/>
 
       </div>
