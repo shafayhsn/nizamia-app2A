@@ -43,7 +43,21 @@ function offlineQuery(table) {
       columns='*';offset=0;limit=null
       let existing
       try{existing=operation==='create'?[]:(await load()).rows}finally{columns=previousColumns;offset=previousOffset;limit=previousLimit}
-      if(operation!=='create' && existing.length!==1)throw Error('Exactly one local record must be selected for editing')
+      if(operation!=='create' && existing.length===0)throw Error('No matching offline records')
+      if(operation!=='create' && existing.length>1){
+        if(existing.length>500)throw Error('Maximum 500 records per batch')
+        const ids=existing.map(row=>String(row.id))
+        const response=await fetch('/api/offline/mutate-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:operation,table,ids,fields:payload})})
+        const result=await response.json()
+        if(!response.ok)throw Error(result.error||'Atomic batch edit failed')
+        if(!returnRows)return {data:null,error:null}
+        if(operation==='delete')return {data:existing,error:null}
+        const reloaded=await fetch('/api/offline/records?table='+encodeURIComponent(table))
+        if(!reloaded.ok)throw Error('Batch edited but reload failed')
+        const records=(await reloaded.json()).data.filter(row=>ids.includes(String(row.id)))
+        if(records.length!==ids.length)throw Error('Batch edited but some records could not be reloaded')
+        return {data:records,error:null}
+      }
       if(operation==='create'&&Array.isArray(payload)&&payload.length>500)throw Error('Maximum 500 records per batch')
       if(operation==='create'&&Array.isArray(payload)&&!payload.length)throw Error('Empty insert batch')
       if(operation==='create'&&Array.isArray(payload)&&payload.length>1){

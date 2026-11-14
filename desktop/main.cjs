@@ -181,6 +181,19 @@ app.whenReady().then(() => {
         return Response.json({data:result,error:null},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({data:null,error:error.message},{status:400})}
     }
+    if(url.pathname==='/api/offline/mutate-batch'){
+      if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      try{
+        const {mutateLocalRecordBatch}=require('./standaloneRecords.cjs')
+        const raw=await request.text()
+        if(Buffer.byteLength(raw)>1048576)return Response.json({error:'Batch too large'},{status:413})
+        const input=JSON.parse(raw),directory=getDatabaseDirectory()
+        if(!directory)return Response.json({error:'Local database unavailable'},{status:503})
+        const result=await mutateLocalRecordBatch(directory,input)
+        return Response.json({data:result,error:null},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({data:null,error:error.message},{status:400})}
+    }
     if(url.pathname==='/api/offline/mutate'){
       if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})

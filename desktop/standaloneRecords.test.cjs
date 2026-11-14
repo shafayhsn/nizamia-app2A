@@ -1,7 +1,7 @@
 'use strict'
 const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const initSqlJs=require('sql.js')
-const {mutateLocalRecord,listLocalRecords,listCombinedRecords,createLocalRecordBatch}=require('./standaloneRecords.cjs')
+const {mutateLocalRecord,listLocalRecords,listCombinedRecords,createLocalRecordBatch,mutateLocalRecordBatch}=require('./standaloneRecords.cjs')
 async function main(){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-local-crud-'))
  try{
@@ -28,6 +28,15 @@ async function main(){
     await mutateLocalRecord(dir,{action:'delete',table,id:row.id})
     assert.equal((await listLocalRecords(dir,table)).length,0)
   }
+  const multi=await createLocalRecordBatch(dir,{table:'buyers',rows:[{name:'Batch A'},{name:'Batch B'}]})
+  await mutateLocalRecordBatch(dir,{action:'update',table:'buyers',ids:multi.map(r=>r.id),fields:{country:'Pakistan'}})
+  assert.equal((await listLocalRecords(dir,'buyers')).filter(r=>r.country==='Pakistan').length,2)
+  await assert.rejects(()=>mutateLocalRecordBatch(dir,{action:'delete',table:'buyers',ids:[multi[0].id,'local-missing']}),/not found/)
+  assert.equal((await listLocalRecords(dir,'buyers')).filter(r=>multi.some(x=>x.id===r.id)).length,2)
+  await mutateLocalRecordBatch(dir,{action:'delete',table:'buyers',ids:multi.map(r=>r.id)})
+  assert.equal((await listLocalRecords(dir,'buyers')).filter(r=>multi.some(x=>x.id===r.id)).length,0)
+  await mutateLocalRecordBatch(dir,{action:'update',table:'orders',ids:['cloud1'],fields:{job_number:'BATCH-UPDATED'}})
+  assert.equal((await listCombinedRecords(dir,'orders')).find(r=>r.id==='cloud1').job_number,'BATCH-UPDATED')
   const a=await mutateLocalRecord(dir,{action:'create',table:'orders',fields:{job_number:'LOCAL1',buyer_name:'Buyer',total_qty:100}})
   assert.match(a.id,/^local-/)
   assert.equal((await listLocalRecords(dir,'orders')).length,1)

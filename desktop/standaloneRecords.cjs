@@ -173,8 +173,66 @@ async function createLocalRecordBatch(directory,{table,rows}){
   }finally{db.close()}
  })
 }
+
+async function mutateLocalRecordBatch(directory,{action,table,ids,fields}){
+ return serialize(directory,async()=>{
+  validateTable(table)
+  if(!['update','delete'].includes(action))throw Error('Unsupported batch action')
+  if(!Array.isArray(ids)||ids.length<1||ids.length>500||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=='string'||!id||id.length>256))throw Error('Batch requires 1–500 unique record IDs')
+  if(action==='update')validateFields(fields)
+  const file=assertFile(directory),before=fs.readFileSync(file),original=crypto.createHash('sha256').update(before).digest('hex')
+  const SQL=await sql(),db=new SQL.Database(before)
+  try{
+   if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
+   schema(db)
+   const stamp=new Date().toISOString(),results=[]
+   db.run('BEGIN TRANSACTION')
+   try{
+    const imported=new Map()
+    if(db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_rows'").length){
+     const stmt=db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name=?')
+     try{stmt.bind([table]);while(stmt.step()){const row=JSON.parse(stmt.get()[0]);imported.set(String(row.id),row)}}finally{stmt.free()}
+    }
+    for(const id of ids){
+     if(id.startsWith('local-')){
+      const existing=read(db,table).find(row=>row.id===id)
+      if(!existing)throw Error('Standalone batch record not found: '+id)
+      if(action==='delete'){
+       if(table==='orders'){
+        const linked=['production_daily_entries','purchase_orders','samples','shipments','costing','pp_meetings','production_plans']
+        if(linked.some(name=>read(db,name).some(row=>String(row.order_id||'')===id)))throw Error('Cannot delete order with linked records')
+       }
+       db.run('DELETE FROM standalone_records WHERE id=? AND table_name=?',[id,table])
+      }else{
+       const next={...existing,...fields}
+       for(const key of ['id','_local_only','_local_updated_at','_local_edited'])delete next[key]
+       validateFields(next);assertOrderReference(db,table,next)
+       db.run('UPDATE standalone_records SET fields_json=?,updated_at=? WHERE id=? AND table_name=?',[JSON.stringify(next),stamp,id,table])
+      }
+     }else{
+      const source=imported.get(id)
+      if(!source)throw Error('Imported batch record not found: '+id)
+      const prior=db.exec('SELECT fields_json FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id])
+      if(prior.length&&prior[0].values[0][0]===null)throw Error('Imported batch record already deleted: '+id)
+      const previous=prior.length&&prior[0].values[0][0]?JSON.parse(prior[0].values[0][0]):source
+      const next=action==='delete'?null:{...previous,...fields,id}
+      if(next){const clean={...next};delete clean.id;validateFields(clean);assertOrderReference(db,table,clean)}
+      db.run('INSERT OR REPLACE INTO snapshot_edits (table_name,record_id,fields_json,updated_at) VALUES (?,?,?,?)',[table,id,next===null?null:JSON.stringify(next),stamp])
+     }
+     results.push({id,table,action,localOnly:id.startsWith('local-')})
+    }
+    db.run('COMMIT')
+   }catch(error){db.run('ROLLBACK');throw error}
+   if(crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')!==original)throw Error('Database changed during batch edit')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600});fs.renameSync(temp,file)}finally{try{fs.unlinkSync(temp)}catch(e){if(e.code!=='ENOENT')throw e}}
+   return results
+  }finally{db.close()}
+ })
+}
+
 async function listLocalRecords(directory,table){
  const file=assertFile(directory),SQL=await sql(),db=new SQL.Database(fs.readFileSync(file))
  try{if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure');return read(db,table)}finally{db.close()}
 }
-module.exports={TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,readLocalRows:read}
+module.exports={TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,readLocalRows:read}
