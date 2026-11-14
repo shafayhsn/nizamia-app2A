@@ -3,7 +3,7 @@
 // Missing fields are reported as unavailable, never fabricated or counted as zero.
 const {readLocalRows}=require('./standaloneRecords.cjs')
 const DEFINITIONS = Object.freeze([
- {key:'orders_by_buyer',title:'Orders by buyer',table:'orders',group:['buyer_name','buyer','customer_name','customer','buyer_id'],quantity:['quantity','total_quantity','order_quantity','qty']},
+ {key:'orders_by_buyer',title:'Orders by buyer',table:'orders',group:['buyer_name','buyer','customer_name','customer','buyer_id'],quantity:['quantity','total_quantity','total_qty','order_quantity','qty']},
  {key:'orders_by_status',title:'Orders by status',table:'orders',group:['status','order_status'],quantity:['quantity','total_quantity','order_quantity','qty']},
  {key:'production_by_department',title:'Production by department',table:'production_daily_entries',group:['department','dept','department_name'],quantity:['quantity','produced_qty','production_qty','output_qty','qty','pieces']},
  {key:'production_by_date',title:'Daily production',table:'production_daily_entries',group:['production_date','entry_date','date'],quantity:['quantity','produced_qty','production_qty','output_qty','qty','pieces']},
