@@ -16,7 +16,11 @@ const DEFINITIONS = Object.freeze([
  {key:'purchasing_by_order',title:'Purchasing by order',table:'purchase_orders',group:['order_id','job_number','order_number'],quantity:['quantity','total_quantity','total_qty','qty']},
  {key:'shipping_by_status',title:'Shipments by status',table:'shipments',group:['status','shipment_status'],quantity:[]},
  {key:'sampling_by_status',title:'Samples by status',table:'samples',group:['status','sample_status'],quantity:[]},
- {key:'parcels_by_courier',title:'Parcels by courier',table:'parcels',group:['courier','courier_name','carrier'],quantity:[]}
+ {key:'parcels_by_courier',title:'Parcels by courier',table:'parcels',group:['courier','courier_name','carrier'],quantity:[]},
+ {key:'costing_by_status',title:'Cost sheets by status',table:'costing',group:['status'],quantity:[]},
+ {key:'costing_by_style',title:'Cost sheets by style',table:'costing',group:['style_number','style'],quantity:[]},
+ {key:'pp_meetings_by_status',title:'Pre-production meetings by status',table:'pp_meetings',group:['status'],quantity:[]},
+ {key:'pp_meetings_by_owner',title:'Pre-production action owners',table:'pp_meetings',group:['owner','chairperson'],quantity:[]}
 ])
 function systemReport(db,key) {
  const def=DEFINITIONS.find(d=>d.key===key)
