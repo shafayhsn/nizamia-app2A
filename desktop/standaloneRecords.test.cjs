@@ -19,7 +19,7 @@ async function main(){
   await mutateLocalRecord(dir,{action:'update',table:'orders',id:a.id,fields:{job_number:'LOCAL2',buyer_name:'Buyer',total_qty:200}})
   assert.equal((await listLocalRecords(dir,'orders'))[0].total_qty,200)
   await assert.rejects(()=>mutateLocalRecord(dir,{action:'delete',table:'orders',id:'cloud1'}),/Only standalone/)
-  await assert.rejects(()=>mutateLocalRecord(dir,{action:'create',table:'orders',fields:{password:'secret'}}),/Unsupported/)
+  await assert.rejects(()=>mutateLocalRecord(dir,{action:'create',table:'orders',fields:{job_number:'TEST',buyer_name:'Buyer',password:'secret'}}),/Unsupported/)
   await assert.rejects(()=>mutateLocalRecord(dir,{action:'create',table:'users',fields:{name:'X'}}),/Unsupported/)
   const persisted=new SQL.Database(fs.readFileSync(file))
   assert.equal(JSON.parse(persisted.exec('SELECT row_json FROM snapshot_rows')[0].values[0][0]).job_number,'J100')
