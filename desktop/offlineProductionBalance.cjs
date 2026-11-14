@@ -13,6 +13,7 @@ function stageOf(row){
  const raw=DEPT_KEYS.map(k=>row[k]).find(v=>typeof v==='string'&&v.trim())
  if(!raw)return null
  const s=raw.toLowerCase()
+ if(s.includes('stitching'))return 'sewing' // Web app uses Stitching; preserve existing report column.
  return STAGES.find(stage=>s.includes(stage))||null
 }
 function productionBalance(db){
