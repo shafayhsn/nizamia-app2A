@@ -1,0 +1,32 @@
+'use strict'
+const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
+const initSqlJs=require('sql.js')
+const {mutateLocalRecord,listLocalRecords}=require('./standaloneRecords.cjs')
+async function main(){
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-local-crud-'))
+ try{
+  const SQL=await initSqlJs({locateFile:()=>require.resolve('sql.js/dist/sql-wasm.wasm')})
+  const db=new SQL.Database()
+  db.run('CREATE TABLE snapshot_manifest (table_name TEXT,row_count INTEGER)')
+  db.run("INSERT INTO snapshot_manifest VALUES ('orders',1)")
+  db.run('CREATE TABLE snapshot_rows (table_name TEXT,row_index INTEGER,row_json TEXT)')
+  db.run('INSERT INTO snapshot_rows VALUES (?,?,?)',['orders',0,JSON.stringify({id:'cloud1',job_number:'J100'})])
+  const file=path.join(dir,'nizamia-app2a.sqlite')
+  fs.writeFileSync(file,Buffer.from(db.export()));db.close()
+  const a=await mutateLocalRecord(dir,{action:'create',table:'orders',fields:{job_number:'LOCAL1',total_qty:100}})
+  assert.match(a.id,/^local-/)
+  assert.equal((await listLocalRecords(dir,'orders')).length,1)
+  await mutateLocalRecord(dir,{action:'update',table:'orders',id:a.id,fields:{job_number:'LOCAL2',total_qty:200}})
+  assert.equal((await listLocalRecords(dir,'orders'))[0].total_qty,200)
+  await assert.rejects(()=>mutateLocalRecord(dir,{action:'delete',table:'orders',id:'cloud1'}),/Only standalone/)
+  await assert.rejects(()=>mutateLocalRecord(dir,{action:'create',table:'orders',fields:{password:'secret'}}),/Unsupported/)
+  await assert.rejects(()=>mutateLocalRecord(dir,{action:'create',table:'users',fields:{name:'X'}}),/Unsupported/)
+  const persisted=new SQL.Database(fs.readFileSync(file))
+  assert.equal(JSON.parse(persisted.exec('SELECT row_json FROM snapshot_rows')[0].values[0][0]).job_number,'J100')
+  persisted.close()
+  await mutateLocalRecord(dir,{action:'delete',table:'orders',id:a.id})
+  assert.equal((await listLocalRecords(dir,'orders')).length,0)
+  process.stdout.write('Standalone offline CRUD integration passed.\\n')
+ }finally{fs.rmSync(dir,{recursive:true,force:true})}
+}
+main().catch(e=>{console.error(e);process.exitCode=1})

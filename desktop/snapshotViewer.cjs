@@ -15,6 +15,7 @@ const { crossModuleReport, REPORTS } = require('./offlineCrossModuleReports.cjs'
 const { systemReport, DEFINITIONS } = require('./offlineSystemReports.cjs')
 const { searchSnapshot } = require('./offlineGlobalSearch.cjs')
 const { createOfflineWorkspace } = require('./offlineWorkspace.cjs')
+const {listLocalRecords,mutateLocalRecord,TABLES:LOCAL_TABLES}=require('./standaloneRecords.cjs')
 const initSqlJs = require('sql.js')
 const channel = 'nizamia-local-snapshot'
 let viewer = null
@@ -192,6 +193,14 @@ async function querySnapshot(directory, action, args) {
           total++
         }
       } finally { statement.free() }
+      if(LOCAL_TABLES.has(name)){
+        const local=await listLocalRecords(directory,name)
+        for(const record of local){
+          if(query&&!Object.values(record).some(v=>String(v??'').toLowerCase().includes(query.toLowerCase())))continue
+          if(department&&String(record.department||record.dept||record.department_name||'').toLowerCase()!==department.toLowerCase())continue
+          matches.unshift(record);total++
+        }
+      }
       const departments = [...departmentsSeen].sort()
       if (matches.length > 20000 && layout.sortBy) throw new Error('Sorting more than 20,000 records requires narrower filters')
       const sorted = layout.sortBy ? layoutRows(matches, { sortBy: layout.sortBy, descending: layout.descending }) : matches
@@ -378,6 +387,8 @@ function showLocalSnapshot(parent, getDirectory) {
         if (command === 'remove') return presets.remove(args?.table)
         throw new Error('Unsupported report preset action')
       }
+      if (action === 'standalone:save') return mutateLocalRecord(selectedDirectory,args)
+      if (action === 'standalone:list') return listLocalRecords(selectedDirectory,args?.table)
       if (typeof action === 'string' && action.startsWith('workspace:'))
         return workspace.action(action.slice('workspace:'.length), args)
       return querySnapshot(selectedDirectory, action, args)
