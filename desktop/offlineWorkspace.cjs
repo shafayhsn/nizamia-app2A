@@ -4,6 +4,13 @@
 const path = require('node:path')
 const fs = require('node:fs')
 const { safeStorage, app, dialog, BrowserWindow } = require('electron')
+const { createOfflineSyncCoordinator } = require('./offlineSyncCoordinator.cjs')
+const { createOfflineSyncClient } = require('./offlineSyncClient.cjs')
+const { createOfflineAuthorizationClient } = require('./offlineAuthorizationClient.cjs')
+const { createTrustedGrantBroker } = require('./offlineTrustedGrantBroker.cjs')
+const { stageTrustedRecordEdit } = require('./offlineEditCoordinator.cjs')
+const { snapshotFingerprint } = require('./offlineDraftJournal.cjs')
+const initSqlJs = require('sql.js')
 const { assessOfflineReadiness } = require('./offlineReadiness.cjs')
 const { createCredentialStore } = require('./offlineCredentialStore.cjs')
 const { createOfflineAuthService } = require('./offlineAuthService.cjs')
@@ -11,7 +18,29 @@ const { createOfflineSessionManager } = require('./offlineSessionManager.cjs')
 const { listDrafts, cancelDraft } = require('./offlineDraftJournal.cjs')
 const { previewLocalDrafts } = require('./offlineDraftPreview.cjs')
 const { buildDraftRecovery } = require('./offlineDraftRecovery.cjs')
-function createOfflineWorkspace(getDirectory) {
+function createOfflineWorkspace(getDirectory, trusted = null) {
+  // Only Electron main-process configuration may provide these dependencies.
+  // A missing trusted backend keeps all business writes disabled.
+  const configured = Boolean(trusted && trusted.authorizationEndpoint && trusted.syncEndpoint &&
+    trusted.publicKey && typeof trusted.getOnlineToken === 'function')
+  const authorization = configured ? createOfflineAuthorizationClient({
+    endpoint:trusted.authorizationEndpoint,fetchImpl:trusted.fetchImpl || globalThis.fetch
+  }) : null
+  const broker = configured ? createTrustedGrantBroker({
+    client:authorization,publicKey:trusted.publicKey
+  }) : null
+  const syncClient = configured ? createOfflineSyncClient({
+    endpoint:trusted.syncEndpoint,fetchImpl:trusted.fetchImpl || globalThis.fetch
+  }) : null
+  async function snapshotHash(directory){
+    const file=path.join(directory,'nizamia-app2a.sqlite')
+    const SQL=await initSqlJs({locateFile:()=>require.resolve('sql.js/dist/sql-wasm.wasm').replace('app.asar'+path.sep,'app.asar.unpacked'+path.sep)})
+    const db=new SQL.Database(fs.readFileSync(file))
+    try{
+      if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Invalid local database')
+      return snapshotFingerprint(db)
+    }finally{db.close()}
+  }
   const store = createCredentialStore({
     safeStorage,
     file: path.join(app.getPath('userData'), 'offline-credentials.enc')
@@ -20,13 +49,13 @@ function createOfflineWorkspace(getDirectory) {
   // pinned server signature and independently validated online authorization.
   const service = createOfflineAuthService({
     store,
-    authorizeEnrollment: async () => false,
-    enrollmentPublicKey: 'enrollment-not-configured'
+    authorizeEnrollment: async ({identity}) => configured && typeof identity==='string',
+    enrollmentPublicKey: configured ? trusted.publicKey : 'enrollment-not-configured'
   })
   const sessions = createOfflineSessionManager({
     authenticate: (passphrase, now) => service.authenticate(passphrase, now),
     // No edit permissions until signed per-user authorization is integrated.
-    resolvePermissions: async () => []
+    resolvePermissions: async () => configured ? ['offline:draft:orders','offline:draft:production_daily_entries'] : []
   })
   function authenticated() {
     const status = sessions.status()
@@ -43,8 +72,8 @@ function createOfflineWorkspace(getDirectory) {
         authenticatedSession:status.authenticated,
         // No pinned backend key, scoped grants or cloud conditional-write endpoint
         // are currently connected. Never infer authorization from local data.
-        pinnedServerKey:false,scopedEditGrant:false,snapshotIntegrity:false,
-        serverSyncEndpoint:false,conditionalCloudWrites:false
+        pinnedServerKey:configured,scopedEditGrant:false,snapshotIntegrity:false,
+        serverSyncEndpoint:configured,conditionalCloudWrites:false
       })
       return {...readiness,enrolled:credentialExists,authenticated:status.authenticated}
     }
@@ -55,6 +84,29 @@ function createOfflineWorkspace(getDirectory) {
         return { ...status, enrolled: false, unavailable: e.message }
       }
       return { ...status, enrolled }
+    }
+    if (name === 'beginEnrollment') {
+      if(!configured)throw Error('Trusted online enrollment is not configured')
+      return service.beginEnrollment()
+    }
+    if (name === 'enroll') {
+      if(!configured)throw Error('Trusted online enrollment is not configured')
+      const token=await trusted.getOnlineToken()
+      const onlineProof=await authorization.enrollment(args.nonce,token)
+      return service.enroll({identity:args.identity,passphrase:args.passphrase,onlineProof})
+    }
+    if (name === 'sync') {
+      if(!configured)throw Error('Authenticated synchronization is not configured')
+      const coordinator=createOfflineSyncCoordinator({
+        client:syncClient,getDirectory,
+        getSession:async()=>authenticated(),
+        getToken:async()=>trusted.getOnlineToken(),
+        authenticateSession:async session=>{
+          const current=sessions.status()
+          return current.authenticated && current.identity===session.identity
+        }
+      })
+      return coordinator.synchronize()
     }
     if (name === 'login') {
       if (typeof args.passphrase !== 'string' || args.passphrase.length > 256)
@@ -86,9 +138,26 @@ function createOfflineWorkspace(getDirectory) {
       return { exported: recovery.drafts.length, file: path.basename(destination) }
     }
     if (name === 'stageDraft') {
-      // No trusted server enrollment or signed per-user editing grants exist yet.
-      // Do not accept a renderer-provided grant or silently write a business draft.
-      throw new Error('Business draft saving is locked until verified server enrollment and edit permissions are configured')
+      if(!configured)throw Error('Trusted online editing authorization is not configured')
+      const session=authenticated()
+      const directory=getDirectory()
+      if(!directory)throw Error('Local database not configured')
+      const table=args.table
+      if(!['orders','production_daily_entries'].includes(table))throw Error('Unsupported edit table')
+      const hash=await snapshotHash(directory)
+      const token=await trusted.getOnlineToken()
+      const grant=await broker.request({identity:session.identity,table,snapshotHash:hash,token})
+      const permission='offline:draft:'+table
+      const verifiedSession={...session,verifiedIdentity:session.identity,permissions:[permission]}
+      return stageTrustedRecordEdit({
+        directory,table,recordId:args.recordId,changes:args.changes,
+        session:verifiedSession,grant,
+        authenticateEvidence:async ({session:evidence,grant:proof})=>{
+          const current=sessions.status()
+          return current.authenticated && current.identity===evidence.identity &&
+            proof===grant && Date.now()<grant.expiresAt
+        }
+      })
     }
     if (name === 'previewDrafts') {
       const session = authenticated()
