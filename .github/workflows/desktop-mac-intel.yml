@@ -101,6 +101,9 @@ jobs:
       - name: Test operational purchasing shipping and approval exceptions
         working-directory: desktop
         run: node offlineOperationalExceptions.test.cjs
+      - name: Test durable offline sync queue integration
+        working-directory: desktop
+        run: node offlineSyncCoordinator.test.cjs
       - name: Test offline draft queue reconciliation
         working-directory: desktop
         run: node offlineSyncReconciliation.test.cjs
