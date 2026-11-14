@@ -280,6 +280,7 @@ async function upsertLocalRecordBatch(directory,{table,rows,onConflict}){
      validateFields(fields)
      const matches=keys.every(key=>raw[key]!==undefined&&raw[key]!==null)?available().filter(row=>keys.every(key=>row[key]!==undefined&&row[key]!==null&&String(row[key])===String(raw[key]))):[]
      if(matches.length>1)throw Error('Ambiguous upsert conflict')
+     if(id!==undefined&&keys.includes('id')&&!matches.length)throw Error('Upsert ID not found; cannot create arbitrary offline record ID')
      const found=matches[0]
      if(found){
       if(id!==undefined&&String(id)!==String(found.id))throw Error('Upsert ID conflict')
