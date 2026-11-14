@@ -11,7 +11,8 @@ if (typeof navigator !== 'undefined') {
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-const missingCreds = !supabaseUrl || !supabaseAnonKey
+const isMacOffline = typeof location !== 'undefined' && location.protocol === 'app2a:'
+const missingCreds = !isMacOffline && (!supabaseUrl || !supabaseAnonKey)
 
 function SetupScreen() {
   return (
