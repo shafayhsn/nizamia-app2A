@@ -166,10 +166,11 @@ async function querySnapshot(directory, action, args) {
       const result = {}
       for (const name of modules[requested]) {
         if (!available.has(name)) continue
-        const count = db.exec('SELECT row_count FROM snapshot_manifest WHERE table_name = ?', [name])[0]?.values[0]?.[0] || 0
-        // Keep previews bounded and never include credential or permission tables.
-        const records = (db.exec('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index LIMIT 10', [name])[0]?.values || []).map(([json]) => JSON.parse(json))
-        result[name] = { count, records }
+        const importedCount = db.exec('SELECT row_count FROM snapshot_manifest WHERE table_name = ?', [name])[0]?.values[0]?.[0] || 0
+        // Local records belong in the same dashboard preview and count as imported rows.
+        const local = LOCAL_TABLES.has(name) ? readLocalRows(db,name) : []
+        const imported = (db.exec('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index LIMIT 10', [name])[0]?.values || []).map(([json]) => JSON.parse(json))
+        result[name] = { count: importedCount + local.length, records: [...local.slice(0,10),...imported].slice(0,10) }
       }
       return result
     }
