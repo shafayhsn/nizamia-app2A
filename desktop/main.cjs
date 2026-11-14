@@ -8,7 +8,9 @@ const { showLocalSnapshot } = require('./snapshotViewer.cjs')
 const fs = require('node:fs')
 const { snapshotReady } = require('./snapshotStartup.cjs')
 
-// Serve the bundled web SPA under a proper origin so BrowserRouter routes and\n// local asset URLs work without an internet connection.\nprotocol.registerSchemesAsPrivileged([{scheme:'app2a',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}])\nconst APP_URL = 'https://app.nizamia.com'
+// Serve the bundled web SPA under a proper origin so BrowserRouter routes and
+// local asset URLs work without an internet connection.
+protocol.registerSchemesAsPrivileged([{scheme:'app2a',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}])\nconst APP_URL = 'https://app.nizamia.com'
 const ALLOWED_ORIGIN = new URL(APP_URL).origin
 
 function allowedNavigation(url) {
