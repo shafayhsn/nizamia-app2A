@@ -159,6 +159,21 @@ app.whenReady().then(() => {
         return Response.json({data:rows,error:null},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:500})}
     }
+    if(url.pathname==='/api/offline/mutate'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      try{
+        const {mutateLocalRecord,TABLES}=require('./standaloneRecords.cjs')
+        const raw=await request.text()
+        if(Buffer.byteLength(raw)>65536)return Response.json({error:'Request too large'},{status:413})
+        const input=JSON.parse(raw)
+        if(!TABLES.has(input.table))return Response.json({error:'Unsupported table'},{status:400})
+        if(!['create','update','delete'].includes(input.action))return Response.json({error:'Unsupported operation'},{status:400})
+        const directory=getDatabaseDirectory()
+        if(!directory)return Response.json({error:'Local database unavailable'},{status:503})
+        const result=await mutateLocalRecord(directory,{action:input.action,table:input.table,id:input.id,fields:input.fields})
+        return Response.json({data:result,error:null},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({data:null,error:error.message},{status:400})}
+    }
     const root=path.resolve(process.resourcesPath,'web')
     let relative
     try{relative=decodeURIComponent(url.pathname)}catch{return new Response('Bad request',{status:400})}

@@ -6,22 +6,35 @@ import { createClient } from '@supabase/supabase-js'
 const isMacOffline = typeof location !== 'undefined' && location.protocol === 'app2a:'
 const offlineTables = new Set(['orders','tasks','buyers','suppliers','purchase_orders','samples','parcels','shipments','production_daily_entries','costing','pp_meetings'])
 function offlineQuery(table) {
-  let filters=[],sort=null,limit=null,single=false
+  let filters=[],sort=null,limit=null,single=false,operation=null,payload=null
+  const load=async()=>{
+    if(!offlineTables.has(table))throw Error('This table is not yet available offline')
+    const response=await fetch('/api/offline/records?table='+encodeURIComponent(table))
+    const body=await response.json()
+    if(!response.ok)throw Error(body.error||'Offline database read failed')
+    let rows=body.data||[]
+    for(const [field,op,value] of filters){
+      if(op==='eq')rows=rows.filter(r=>String(r[field]??'')===String(value??''))
+      if(op==='neq')rows=rows.filter(r=>String(r[field]??'')!==String(value??''))
+      if(op==='is')rows=rows.filter(r=>value===null?r[field]==null:r[field]===value)
+    }
+    if(sort)rows=[...rows].sort((a,b)=>String(a[sort.field]??'').localeCompare(String(b[sort.field]??''))*(sort.ascending?1:-1))
+    if(limit!==null)rows=rows.slice(0,limit)
+    return rows
+  }
   const run=async()=>{
-    try {
-      if(!offlineTables.has(table))return {data:single?null:[],error:new Error('This table is not yet available offline')}
-      const response=await fetch('/api/offline/records?table='+encodeURIComponent(table))
-      const payload=await response.json()
-      if(!response.ok)throw Error(payload.error||'Offline database read failed')
-      let rows=payload.data||[]
-      for(const [field,operator,value] of filters){
-        if(operator==='eq')rows=rows.filter(r=>String(r[field]??'')===String(value??''))
-        if(operator==='neq')rows=rows.filter(r=>String(r[field]??'')!==String(value??''))
-        if(operator==='is')rows=rows.filter(r=>value===null?r[field]==null:r[field]===value)
-      }
-      if(sort)rows=[...rows].sort((a,b)=>String(a[sort.field]??'').localeCompare(String(b[sort.field]??''))*(sort.ascending?1:-1))
-      if(limit!==null)rows=rows.slice(0,limit)
-      return {data:single?(rows[0]||null):rows,error:null}
+    try{
+      if(!operation){const rows=await load();return {data:single?(rows[0]||null):rows,error:null}}
+      if(!offlineTables.has(table))throw Error('This table is not available offline')
+      const existing=operation==='create'?[]:await load()
+      if(operation!=='create' && existing.length!==1)throw Error('Exactly one local record must be selected for editing')
+      if(operation!=='create' && !String(existing[0].id||'').startsWith('local-'))throw Error('Imported cloud records are read-only')
+      const fields=operation==='create'?(Array.isArray(payload)?payload[0]:payload):operation==='update'?{...existing[0],...payload}:null
+      if(fields){delete fields.id;delete fields._local_only;delete fields._local_updated_at}
+      const response=await fetch('/api/offline/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:operation,table,id:existing[0]?.id,fields})})
+      const result=await response.json()
+      if(!response.ok)throw Error(result.error||'Offline save failed')
+      return {data:operation==='delete'?null:single?{id:result.data.id}:{id:result.data.id},error:null}
     }catch(error){return {data:null,error}}
   }
   const query={
@@ -34,11 +47,11 @@ function offlineQuery(table) {
     limit:value=>(limit=Math.max(0,Number(value)||0),query),
     maybeSingle:()=>(single=true,query),
     single:()=>(single=true,query),
-    then:(resolve,reject)=>run().then(resolve,reject),
-    insert:()=>Promise.resolve({data:null,error:new Error('Original web editor is not yet connected to local SQLite')}),
-    update:()=>Promise.resolve({data:null,error:new Error('Original web editor is not yet connected to local SQLite')}),
-    delete:()=>Promise.resolve({data:null,error:new Error('Original web editor is not yet connected to local SQLite')}),
-    upsert:()=>Promise.resolve({data:null,error:new Error('Original web editor is not yet connected to local SQLite')})
+    insert:value=>(operation='create',payload=value,query),
+    update:value=>(operation='update',payload=value,query),
+    delete:()=>(operation='delete',query),
+    upsert:()=>({then:resolve=>Promise.resolve({data:null,error:new Error('Upsert is not yet available offline')}).then(resolve)}),
+    then:(resolve,reject)=>run().then(resolve,reject)
   }
   return query
 }
