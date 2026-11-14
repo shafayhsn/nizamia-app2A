@@ -17,6 +17,8 @@ async function main() {
     db.run('CREATE TABLE snapshot_rows (table_name TEXT, row_index INTEGER, row_json TEXT)')
     db.run('CREATE TABLE snapshot_manifest (table_name TEXT, row_count INTEGER)')
     db.run('CREATE TABLE app_metadata (key TEXT, value TEXT)')
+    fs.writeFileSync(file, Buffer.from(db.export()))
+    assert.equal(await snapshotReady(dir),true,'fresh local SQLite launches without imported data')
     db.run("INSERT INTO snapshot_manifest VALUES ('orders', 0)")
     db.run("INSERT INTO app_metadata VALUES ('snapshot_imported_at', '2026-11-13T00:00:00Z')")
     fs.writeFileSync(file, Buffer.from(db.export()))
