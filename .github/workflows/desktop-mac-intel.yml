@@ -101,6 +101,9 @@ jobs:
       - name: Test operational purchasing shipping and approval exceptions
         working-directory: desktop
         run: node offlineOperationalExceptions.test.cjs
+      - name: Test trusted server-signed offline draft grants
+        working-directory: desktop
+        run: node offlineTrustedGrantBroker.test.cjs
       - name: Test offline editing and synchronization readiness
         working-directory: desktop
         run: node offlineReadiness.test.cjs
