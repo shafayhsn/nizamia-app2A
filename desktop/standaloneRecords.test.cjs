@@ -1,7 +1,7 @@
 'use strict'
 const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const initSqlJs=require('sql.js')
-const {mutateLocalRecord,listLocalRecords,listCombinedRecords}=require('./standaloneRecords.cjs')
+const {mutateLocalRecord,listLocalRecords,listCombinedRecords,createLocalRecordBatch}=require('./standaloneRecords.cjs')
 async function main(){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-local-crud-'))
  try{
@@ -13,6 +13,13 @@ async function main(){
   db.run('INSERT INTO snapshot_rows VALUES (?,?,?)',['orders',0,JSON.stringify({id:'cloud1',job_number:'J100'})])
   const file=path.join(dir,'nizamia-app2a.sqlite')
   fs.writeFileSync(file,Buffer.from(db.export()));db.close()
+  const batch=await createLocalRecordBatch(dir,{table:'buyers',rows:[{name:'Buyer One'},{name:'Buyer Two'}]})
+  assert.equal(batch.length,2)
+  assert.equal((await listLocalRecords(dir,'buyers')).length,2)
+  await assert.rejects(()=>createLocalRecordBatch(dir,{table:'buyers',rows:[{name:'Valid'},{name:''}]}),/required/)
+  assert.equal((await listLocalRecords(dir,'buyers')).length,2)
+  await assert.rejects(()=>createLocalRecordBatch(dir,{table:'buyers',rows:[]}),/Batch requires/)
+  await assert.rejects(()=>createLocalRecordBatch(dir,{table:'users',rows:[{name:'No'}]}),/Unsupported/)
   const a=await mutateLocalRecord(dir,{action:'create',table:'orders',fields:{job_number:'LOCAL1',buyer_name:'Buyer',total_qty:100}})
   assert.match(a.id,/^local-/)
   assert.equal((await listLocalRecords(dir,'orders')).length,1)

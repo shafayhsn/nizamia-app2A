@@ -45,7 +45,18 @@ function offlineQuery(table) {
       if(operation!=='create' && existing.length!==1)throw Error('Exactly one local record must be selected for editing')
       if(operation==='create'&&Array.isArray(payload)&&payload.length>500)throw Error('Maximum 500 records per batch')
       if(operation==='create'&&Array.isArray(payload)&&!payload.length)throw Error('Empty insert batch')
-      if(operation==='create'&&Array.isArray(payload)&&payload.length>1)throw Error('Atomic batch inserts are not yet supported offline; no records were saved')
+      if(operation==='create'&&Array.isArray(payload)&&payload.length>1){
+        const response=await fetch('/api/offline/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table,rows:payload})})
+        const result=await response.json()
+        if(!response.ok)throw Error(result.error||'Atomic batch insert failed')
+        if(!returnRows)return {data:null,error:null}
+        const savedResponse=await fetch('/api/offline/records?table='+encodeURIComponent(table))
+        if(!savedResponse.ok)throw Error('Batch saved but record reload failed')
+        const saved=(await savedResponse.json()).data||[]
+        const ids=new Set(result.data.map(row=>String(row.id)))
+        const records=saved.filter(row=>ids.has(String(row.id)))
+        return {data:records,error:null}
+      }
       if(upsert&&operation==='create'&&payload?.id){const oldColumns=columns,oldOffset=offset,oldLimit=limit;columns='*';offset=0;limit=null;let found;try{found=(await load()).rows.find(row=>String(row.id)===String(payload.id))}finally{columns=oldColumns;offset=oldOffset;limit=oldLimit}if(found){operation='update';existing=[found]}else throw Error('Offline upsert cannot assign an imported ID; use insert for new records')}
       const fields=operation==='create'?(Array.isArray(payload)?payload[0]:payload):operation==='update'?{...existing[0],...payload}:null
       if(fields){delete fields.id;delete fields._local_only;delete fields._local_updated_at;delete fields._local_edited}

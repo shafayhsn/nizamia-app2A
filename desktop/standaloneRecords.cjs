@@ -144,8 +144,37 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
   }finally{db.close()}
  })
 }
+
+async function createLocalRecordBatch(directory,{table,rows}){
+ return serialize(directory,async()=>{
+  validateTable(table)
+  if(!Array.isArray(rows)||rows.length<1||rows.length>500)throw Error('Batch requires 1–500 records')
+  const normalized=rows.map(fields=>{const result=normalizeForm(table,fields);validateFields(result);return result})
+  const file=assertFile(directory),original=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
+  const SQL=await sql(),db=new SQL.Database(fs.readFileSync(file))
+  try{
+   if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
+   schema(db)
+   const stamp=new Date().toISOString(),created=[]
+   db.run('BEGIN TRANSACTION')
+   try{
+    for(const fields of normalized){
+     assertOrderReference(db,table,fields)
+     const id='local-'+crypto.randomUUID()
+     db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(fields),stamp,stamp])
+     created.push({id,table,action:'create',localOnly:true})
+    }
+    db.run('COMMIT')
+   }catch(error){db.run('ROLLBACK');throw error}
+   if(crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')!==original)throw Error('Database changed during batch edit')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600});fs.renameSync(temp,file)}finally{try{fs.unlinkSync(temp)}catch(e){if(e.code!=='ENOENT')throw e}}
+   return created
+  }finally{db.close()}
+ })
+}
 async function listLocalRecords(directory,table){
  const file=assertFile(directory),SQL=await sql(),db=new SQL.Database(fs.readFileSync(file))
  try{if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure');return read(db,table)}finally{db.close()}
 }
-module.exports={TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,readLocalRows:read}
+module.exports={TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,readLocalRows:read}
