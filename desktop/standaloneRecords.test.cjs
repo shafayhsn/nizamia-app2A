@@ -37,6 +37,14 @@ async function main(){
   assert.equal((await listLocalRecords(dir,'buyers')).filter(r=>multi.some(x=>x.id===r.id)).length,0)
   await mutateLocalRecordBatch(dir,{action:'update',table:'orders',ids:['cloud1'],fields:{job_number:'BATCH-UPDATED'}})
   assert.equal((await listCombinedRecords(dir,'orders')).find(r=>r.id==='cloud1').job_number,'BATCH-UPDATED')
+  for(const table of ["finishing_packs","fitting_blocks","library_items","sample_logs","fitting","work_order_changelog","shipping_bookings","shipping_booking_lines","shipping_booking_shipments"]){
+    const row=await mutateLocalRecord(dir,{action:'create',table,fields:{name:'Offline '+table}})
+    assert.equal((await listCombinedRecords(dir,table)).find(x=>x.id===row.id).name,'Offline '+table)
+    await mutateLocalRecord(dir,{action:'update',table,id:row.id,fields:{name:'Edited '+table}})
+    assert.equal((await listLocalRecords(dir,table)).find(x=>x.id===row.id).name,'Edited '+table)
+    await mutateLocalRecord(dir,{action:'delete',table,id:row.id})
+    assert.equal((await listLocalRecords(dir,table)).length,0)
+  }
   const a=await mutateLocalRecord(dir,{action:'create',table:'orders',fields:{job_number:'LOCAL1',buyer_name:'Buyer',total_qty:100}})
   assert.match(a.id,/^local-/)
   assert.equal((await listLocalRecords(dir,'orders')).length,1)
