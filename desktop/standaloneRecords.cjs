@@ -5,6 +5,7 @@ const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypt
 const initSqlJs=require('sql.js')
 const TABLES=new Set(['orders','tasks','buyers','suppliers','purchase_orders','samples','parcels','shipments','production_daily_entries'])
 const DB_NAME='nizamia-app2a.sqlite'
+const {normalizeForm}=require('./standaloneForms.cjs')
 const queues=new Map()
 function validateTable(table){if(!TABLES.has(table))throw Error('Unsupported standalone record table')}
 function validateFields(fields){
@@ -56,7 +57,7 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
  return serialize(directory,async()=>{
   validateTable(table)
   if(!['create','update','delete'].includes(action))throw Error('Unsupported local record operation')
-  if(action!=='delete')validateFields(fields)
+  if(action!=='delete'){fields=normalizeForm(table,fields);validateFields(fields)}
   if(action!=='create'&&(typeof id!=='string'||!/^local-[a-f0-9-]{36}$/.test(id)))throw Error('Only standalone records may be changed')
   const file=assertFile(directory),original=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
   const SQL=await sql(),db=new SQL.Database(fs.readFileSync(file))
@@ -80,4 +81,4 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
   }finally{db.close()}
  })
 }
-module.exports={TABLES,validateFields,listLocalRecords,mutateLocalRecord}
+module.exports={TABLES,validateFields,listLocalRecords,mutateLocalRecord,readLocalRows:read}
