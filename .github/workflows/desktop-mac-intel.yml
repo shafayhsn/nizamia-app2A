@@ -52,6 +52,11 @@ jobs:
           grep -q 'assets/' dist/index.html
           grep -q 'assets/' dist/offline-desktop.html
           test -n "$(find dist/assets -type f -name '*.js' -print -quit)"
+      - name: Verify standalone SQLite modules are packaged
+        run: |
+          node -e "const p=require('./desktop/package.json');for(const f of ['standaloneRecords.cjs','standaloneForms.cjs']){if(!p.build.files.includes(f))throw Error('Missing packaged module '+f)}"
+          node --check desktop/standaloneRecords.cjs
+          node --check desktop/standaloneForms.cjs
       - name: Install desktop dependencies
         working-directory: desktop
         run: npm install --no-audit --no-fund
