@@ -1,7 +1,7 @@
 'use strict'
 const assert=require('node:assert/strict')
 const initSqlJs=require('sql.js')
-const {productionBalance}=require('./offlineProductionBalance.cjs')
+const {productionBalance,stageOf}=require('./offlineProductionBalance.cjs')
 const {reportExport}=require('./offlineSystemReportExport.cjs')
 async function main(){
  const SQL=await initSqlJs(),db=new SQL.Database()
@@ -26,6 +26,8 @@ async function main(){
    db.run('INSERT INTO snapshot_manifest VALUES (?,?)',[table,rows.length])
    rows.forEach((row,i)=>db.run('INSERT INTO snapshot_rows VALUES (?,?,?)',[table,i,JSON.stringify(row)]))
   }
+  assert.equal(stageOf({department:'Stitching'}),'sewing')
+  assert.equal(stageOf({department:'Sewing'}),'sewing')
   const report=productionBalance(db)
   assert.equal(report.available,true)
   assert.equal(report.rows[0].cutting,100)
