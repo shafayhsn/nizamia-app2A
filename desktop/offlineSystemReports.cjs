@@ -20,7 +20,9 @@ const DEFINITIONS = Object.freeze([
  {key:'costing_by_status',title:'Cost sheets by status',table:'costing',group:['status'],quantity:[]},
  {key:'costing_by_style',title:'Cost sheets by style',table:'costing',group:['style_number','style'],quantity:[]},
  {key:'pp_meetings_by_status',title:'Pre-production meetings by status',table:'pp_meetings',group:['status'],quantity:[]},
- {key:'pp_meetings_by_owner',title:'Pre-production action owners',table:'pp_meetings',group:['owner','chairperson'],quantity:[]}
+ {key:'pp_meetings_by_owner',title:'Pre-production action owners',table:'pp_meetings',group:['owner','chairperson'],quantity:[]},
+ {key:'production_plan_by_department',title:'Planned production by department',table:'production_plans',group:['department'],quantity:['planned_quantity']},
+ {key:'production_plan_by_status',title:'Production plans by status',table:'production_plans',group:['status'],quantity:['planned_quantity']}
 ])
 function systemReport(db,key) {
  const def=DEFINITIONS.find(d=>d.key===key)
