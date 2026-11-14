@@ -42,6 +42,26 @@ async function startDesktop() {
     dialog.showErrorBox('Standalone startup failed',error.message+'\n\nChoose a database folder from the Database menu to recover. The cloud app will not open automatically.')
   }
 }
+// The original App-2A React entry is bundled with the DMG. This opens that
+// exact UI rather than reconstructing it in the standalone snapshot viewer.
+// Its Supabase-dependent operations still need a local data adapter for offline use.
+function openBundledWebApp() {
+  const bundled=path.join(process.resourcesPath,'web','index.html')
+  if(!fs.existsSync(bundled)) {
+    dialog.showErrorBox('App-2A web interface','Bundled web application is missing from this installation.')
+    return
+  }
+  const win=new BrowserWindow({
+    width:1360,height:900,minWidth:960,minHeight:650,
+    title:'Nizamia App-2A — Original Interface',
+    webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}
+  })
+  win.webContents.setWindowOpenHandler(()=>({action:'deny'}))
+  win.webContents.on('will-navigate',(event,url)=>{
+    if(!url.startsWith('file://'+path.join(process.resourcesPath,'web')+path.sep))event.preventDefault()
+  })
+  win.loadFile(bundled).catch(error=>dialog.showErrorBox('App-2A web interface',error.message))
+}
 function createWindow() {
   const win = new BrowserWindow({
     width: 1360, height: 900, minWidth: 960, minHeight: 650,
@@ -129,6 +149,7 @@ app.whenReady().then(() => {
     ] },
     { label: 'App', submenu: [
       { label: 'Open Offline Desktop', click: openLocalData },
+      { label: 'Open Original Web Interface (Preview)', click: openBundledWebApp },
       { label: 'Open Cloud App', click: createWindow }
     ] },
     { label: 'View', submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }] },
