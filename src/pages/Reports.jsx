@@ -625,11 +625,21 @@ export default function Reports() {
     if(outputMode==='pdf'){
       const popup=window.open('','_blank')
       if(!popup){window.alert('Please allow pop-ups to download the PDF.');return}
+      // Electron's offline PDF workflow uses the native macOS Print > Save as PDF.
+      // The former CDN-loaded PDF generator failed without an internet connection.
+      const offlinePdf = typeof location !== 'undefined' && location.protocol === 'app2a:'
+      if(offlinePdf){
+        popup.document.open()
+        popup.document.write(html)
+        popup.document.close()
+        popup.addEventListener('load',()=>setTimeout(()=>{try{popup.focus();popup.print()}catch(error){window.alert('Choose Print, then Save as PDF in macOS.') }},300),{once:true})
+      }else{
       // Render each prepared A4 section to exactly one PDF page. This avoids
       // html2pdf's automatic overflow pagination and trailing blank pages.
       const script='<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"><'+ '/script><script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"><'+'/script><script>window.addEventListener("load",async()=>{try{if(!window.html2canvas||!window.jspdf)throw Error("PDF generator unavailable");await Promise.all([...document.images].map(i=>i.complete?Promise.resolve():new Promise(r=>{i.onload=r;i.onerror=r})));const pdf=new window.jspdf.jsPDF({unit:"mm",format:"a4",orientation:'+JSON.stringify(printOrientation)+'});const pages=[...document.querySelectorAll(".report-page")];for(let i=0;i<pages.length;i++){const canvas=await window.html2canvas(pages[i],{scale:2,useCORS:true,backgroundColor:"#ffffff"});if(i)pdf.addPage();pdf.addImage(canvas.toDataURL("image/jpeg",0.98),"JPEG",0,0,pdf.internal.pageSize.getWidth(),pdf.internal.pageSize.getHeight())}pdf.save('+JSON.stringify(filename()+'.pdf')+');window.close()}catch(e){document.body.insertAdjacentHTML("afterbegin","<p style=color:red>PDF download failed. Please use Print.</p>")}});<'+'/script>'
 
       popup.document.open();popup.document.write(html.replace('</body>',script+'</body>'));popup.document.close()
+      }
     }else printHTML(html)
   }
   const reportCatalog=[...flatten,{title:'PP Meeting',table:'pp_meetings',category:'Orders & Customers',ppm:true}]
