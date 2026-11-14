@@ -4,7 +4,7 @@ import './offlineDesktop.css'
 import { FORMS } from '../desktop/standaloneForms.cjs'
 
 const PAGE_SIZE = 25
-const STANDALONE_TABLES = new Set(['orders','tasks','buyers','suppliers','purchase_orders','samples','parcels','shipments','production_daily_entries'])
+const STANDALONE_TABLES = new Set(['orders','tasks','buyers','suppliers','purchase_orders','samples','parcels','shipments','production_daily_entries','costing','pp_meetings'])
 // Snapshot navigation mirrors the existing web app; these are read-only data views,
 // not replacements for the live pages or their workflow forms.
 const MODULES = [
@@ -96,7 +96,7 @@ function App() {
     }).catch(e => setError(e.message))
   }, [])
   useEffect(() => {
-    if(!localForm || !['production_daily_entries','purchase_orders','samples','shipments'].includes(selected?.name))return
+    if(!localForm || !['production_daily_entries','purchase_orders','samples','shipments','costing','pp_meetings'].includes(selected?.name))return
     let cancelled=false
     setOrderLoadError('')
     window.localSnapshot.standaloneList('orders').then(records=>{
