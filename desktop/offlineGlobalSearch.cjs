@@ -1,5 +1,6 @@
 'use strict'
-// Search the imported offline snapshot across all manifest tables.
+// Search imported and standalone offline records without exposing sensitive fields.
+const {TABLES:LOCAL_TABLES,readLocalRows}=require('./standaloneRecords.cjs')
 // Never query credentials or execute user-provided SQL.
 function searchSnapshot(db, query, limit = 100) {
   if (typeof query !== 'string' || query.trim().length < 2 || query.length > 120)
@@ -33,6 +34,16 @@ function searchSnapshot(db, query, limit = 100) {
       }
     }
   } finally { stmt.free() }
+  for(const table of LOCAL_TABLES){
+    for(const row of readLocalRows(db,table)){
+      scanned++
+      if(scanned>100000)throw Error('Offline search limit exceeded')
+      const safe=Object.fromEntries(Object.entries(row).filter(([key])=>!/(password|secret|credential|token|hash|salt|private_key)/i.test(key)))
+      if(!Object.values(safe).some(value=>String(value??'').toLocaleLowerCase().includes(needle)))continue
+      counts[table]=(counts[table]||0)+1
+      if(matches.length<limit)matches.push({table,record:safe})
+    }
+  }
   return {query:query.trim(),matches,counts,total:Object.values(counts).reduce((a,b)=>a+b,0),truncated:Object.values(counts).reduce((a,b)=>a+b,0)>limit}
 }
 module.exports={searchSnapshot}

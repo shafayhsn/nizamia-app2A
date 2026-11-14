@@ -131,7 +131,11 @@ async function querySnapshot(directory, action, args) {
     if (action === 'summary') {
       const result = db.exec("SELECT value FROM app_metadata WHERE key='snapshot_imported_at'")
       const counts = db.exec('SELECT COUNT(*), COALESCE(SUM(row_count), 0) FROM snapshot_manifest')
-      return { importedAt: result[0]?.values[0]?.[0] || null, tables: counts[0]?.values[0]?.[0] || 0, records: counts[0]?.values[0]?.[1] || 0 }
+      const localCounts=[...LOCAL_TABLES].map(table=>readLocalRows(db,table).length)
+      const localTotal=localCounts.reduce((a,b)=>a+b,0)
+      const importedNames=new Set((db.exec('SELECT table_name FROM snapshot_manifest')[0]?.values||[]).map(row=>row[0]))
+      const localTables=[...LOCAL_TABLES].filter((table,i)=>localCounts[i]>0&&!importedNames.has(table)).length
+      return { importedAt: result[0]?.values[0]?.[0] || null, tables: (counts[0]?.values[0]?.[0] || 0)+localTables, records: (counts[0]?.values[0]?.[1] || 0)+localTotal, localRecords:localTotal }
     }
     if (action === 'moduleOverview') {
       const requested = args?.module
@@ -158,6 +162,7 @@ async function querySnapshot(directory, action, args) {
       if (typeof requested !== 'string' || !Object.hasOwn(modules, requested))
         throw new Error('Unsupported module')
       const available = new Set((db.exec('SELECT table_name FROM snapshot_manifest')[0]?.values || []).map(row => row[0]))
+      for(const table of LOCAL_TABLES)if(readLocalRows(db,table).length)available.add(table)
       const result = {}
       for (const name of modules[requested]) {
         if (!available.has(name)) continue
