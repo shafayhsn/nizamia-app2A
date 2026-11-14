@@ -15,7 +15,7 @@ const { assessOfflineReadiness } = require('./offlineReadiness.cjs')
 const { createCredentialStore } = require('./offlineCredentialStore.cjs')
 const { createOfflineAuthService } = require('./offlineAuthService.cjs')
 const { createOfflineSessionManager } = require('./offlineSessionManager.cjs')
-const { listDrafts, cancelDraft } = require('./offlineDraftJournal.cjs')
+const { listDrafts, cancelDraft, listSyncHistory } = require('./offlineDraftJournal.cjs')
 const { previewLocalDrafts } = require('./offlineDraftPreview.cjs')
 const { buildDraftRecovery } = require('./offlineDraftRecovery.cjs')
 function createOfflineWorkspace(getDirectory, trusted = null) {
@@ -122,7 +122,7 @@ function createOfflineWorkspace(getDirectory, trusted = null) {
       const directory = getDirectory()
       if (!directory) throw new Error('Local database not configured')
       const recovery = await buildDraftRecovery({ directory, session,
-        authenticateSession: async () => sessions.status().identity === session.identity })
+        authenticateSession: async () => { const current=sessions.status(); return current.authenticated && current.identity===session.identity } })
       if (!sessions.status().authenticated || sessions.status().identity !== session.identity)
         throw new Error('Offline session expired during export')
       const choice = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow() || undefined, {
@@ -175,6 +175,15 @@ function createOfflineWorkspace(getDirectory, trusted = null) {
       const directory = getDirectory()
       if (!directory) throw new Error('Local database not configured')
       return listDrafts({ directory, session, authenticateSession: async () => sessions.status().identity === session.identity })
+    }
+    if (name === 'syncHistory') {
+      const session=authenticated()
+      const directory=getDirectory()
+      if(!directory)throw Error('Local database not configured')
+      return listSyncHistory({directory,session,authenticateSession:async()=> {
+        const current=sessions.status()
+        return current.authenticated && current.identity===session.identity
+      }})
     }
     if (name === 'cancelDraft') {
       const session = authenticated()

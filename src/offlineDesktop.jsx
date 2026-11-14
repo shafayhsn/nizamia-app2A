@@ -31,6 +31,7 @@ function App() {
   const [enrollmentIdentity,setEnrollmentIdentity]=useState('')
   const [syncBusy,setSyncBusy]=useState(false)
   const [syncMessage,setSyncMessage]=useState('')
+  const [syncHistory,setSyncHistory]=useState([])
   const [reportDefinitions,setReportDefinitions]=useState([])
   const [reportKey,setReportKey]=useState('')
   const [systemReport,setSystemReport]=useState(null)
@@ -215,6 +216,7 @@ function App() {
       const result=await window.localSnapshot.workspaceSync()
       setSyncMessage('Submitted '+result.submitted+' draft(s). Archived: '+result.archived+'. Conflicts: '+result.conflicts+'. Retained: '+result.retained+'.')
       setDrafts(await window.localSnapshot.workspaceDrafts())
+      setSyncHistory(await window.localSnapshot.workspaceSyncHistory())
     }catch(e){setWorkspaceError(e.message)}
     finally{setSyncBusy(false)}
   }
@@ -237,7 +239,7 @@ function App() {
     try {
       await window.localSnapshot.workspaceLogout()
       setWorkspace(await window.localSnapshot.workspaceStatus())
-      setDrafts([]); setDraftPreview(null)
+      setDrafts([]); setDraftPreview(null);setSyncHistory([])
     } catch (e) { setWorkspaceError(e.message) }
   }
   async function exportDraftRecovery() {
@@ -322,8 +324,8 @@ function App() {
     <section className="notice" aria-label="Offline workspace">
       <strong>Offline workspace</strong>{workspace?.authenticated ? <>
         <span> Signed in locally as {workspace.identity}. Queued drafts: {drafts.length} (including conflicts). Cloud sync requires a trusted online connection.</span>
-        <button onClick={logoutOffline}>Sign out</button> <button disabled={syncBusy || !drafts.some(d=>d.state==='pending')} onClick={synchronizeOffline}>{syncBusy?'Synchronizing…':'Synchronize pending drafts'}</button>{syncMessage && <span role="status">{syncMessage}</span>} <button onClick={exportDraftRecovery}>Export draft recovery JSON</button>
-        {drafts.map(d => <div key={d.draftId}><span>{d.table} · {d.recordId} · {d.state} · {d.createdAt}</span> <button onClick={() => showDraftPreview(d.table, d.recordId)}>Compare local changes</button> <button onClick={() => cancelOfflineDraft(d.draftId)} disabled={d.state !== 'pending'}>Discard draft</button></div>)}
+        <button onClick={logoutOffline}>Sign out</button> <button disabled={syncBusy || !drafts.some(d=>d.state==='pending')} onClick={synchronizeOffline}>{syncBusy?'Synchronizing…':'Synchronize pending drafts'}</button>{syncMessage && <span role="status">{syncMessage}</span>} <button onClick={async()=>{try{setSyncHistory(await window.localSnapshot.workspaceSyncHistory())}catch(e){setWorkspaceError(e.message)}}}>View sync history</button>{syncHistory.length>0 && <div aria-label="Synchronization history"><strong>Recently synchronized</strong>{syncHistory.map(item=><div key={item.draftId}>{item.updatedAt} · {item.decision} · {item.draftId}</div>)}</div>} <button onClick={exportDraftRecovery}>Export draft recovery JSON</button>
+        {drafts.map(d => <div key={d.draftId}><span>{d.table} · {d.recordId} · {d.state} · {d.createdAt}</span> <button onClick={() => showDraftPreview(d.table, d.recordId)}>Compare local changes</button> <button onClick={() => cancelOfflineDraft(d.draftId)}>{d.state === 'conflict' ? 'Discard conflicted draft' : 'Discard draft'}</button></div>)}
         {draftPreview && <div className="recorddetail"><button onClick={() => setDraftPreview(null)}>Close comparison</button><h3>Local changes — not synchronized</h3><dl>{Object.keys(draftPreview.preview).filter(key => draftPreview.original[key] !== draftPreview.preview[key]).map(key => <React.Fragment key={key}><dt>{key}</dt><dd>Saved: {String(draftPreview.original[key] ?? '')}</dd><dt>Pending</dt><dd>{String(draftPreview.preview[key] ?? '')}</dd></React.Fragment>)}</dl><p>{draftPreview.pending.length} draft(s) associated with this record. Original snapshot data is unchanged.</p></div>}
       </> : <span> {workspace?.unavailable ? 'Secure storage unavailable: ' + workspace.unavailable :
         workspace?.enrolled ? 'Existing offline enrollment detected. Sign in to view your draft queue.' :

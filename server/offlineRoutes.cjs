@@ -17,6 +17,7 @@ function mountOfflineRoutes({app,issuer,authenticateRequest,authorizeSync,pool})
  })})
  app.post('/api/offline-authorization',async(req,res)=>{
   // req.body must be parsed by the server's existing JSON middleware.
+  if(!req.body||typeof req.body!=='object'||Array.isArray(req.body))return res.status(400).json({error:'Invalid JSON body'})
   const result=await authorization({
    ...req,method:req.method,headers:req.headers,kind:req.body?.kind,body:req.body
   })
@@ -24,7 +25,8 @@ function mountOfflineRoutes({app,issuer,authenticateRequest,authorizeSync,pool})
  })
  app.post('/api/offline-sync',async(req,res)=>{
   // Do not trust req.body to be raw bytes: bounded serialization is applied.
-  const rawBody=JSON.stringify(req.body??null)
+  if(!req.body||typeof req.body!=='object'||Array.isArray(req.body))return res.status(400).json({error:'Invalid JSON body'})
+  const rawBody=JSON.stringify(req.body)
   if(Buffer.byteLength(rawBody,'utf8')>262144)return res.status(413).json({error:'Sync request too large'})
   const result=await sync({...req,rawBody,headers:req.headers,method:req.method})
   return res.status(result.status).json(result.body)

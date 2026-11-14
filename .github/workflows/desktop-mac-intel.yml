@@ -104,6 +104,9 @@ jobs:
       - name: Test authenticated offline API route wiring
         working-directory: desktop
         run: node ../server/offlineRoutes.test.cjs
+      - name: Test offline sync history and conflict resolution
+        working-directory: desktop
+        run: node offlineSyncHistory.test.cjs
       - name: Test durable offline sync queue integration
         working-directory: desktop
         run: node offlineSyncCoordinator.test.cjs

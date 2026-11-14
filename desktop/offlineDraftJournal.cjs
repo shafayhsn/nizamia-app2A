@@ -194,7 +194,7 @@ async function cancelDraftInternal({ directory, draftId, session, authenticateSe
     if (db.exec('PRAGMA integrity_check')[0]?.values[0]?.[0] !== 'ok') throw new Error('Database integrity failure')
     const exists = db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_draft_journal'")
     if (!exists.length) return { cancelled: false }
-    db.run("DELETE FROM offline_draft_journal WHERE draft_id = ? AND identity = ? AND state = 'pending'", [draftId, session.identity])
+    db.run("DELETE FROM offline_draft_journal WHERE draft_id = ? AND identity = ? AND state IN ('pending','conflict')", [draftId, session.identity])
     const changed = db.getRowsModified()
     if (!changed) return { cancelled: false }
     if (fingerprint(file) !== fileHash) throw new Error('Database changed during cancellation')
@@ -271,4 +271,29 @@ async function commitSyncResultsInternal({directory,session,authenticateSession,
  }finally{db.close()}
 }
 
-module.exports = { stageDraft, listDrafts, previewSync, cancelDraft, snapshotFingerprint, pendingSyncDrafts, commitSyncResults }
+
+async function listSyncHistory({directory,session,authenticateSession}){
+ if(typeof authenticateSession!=='function'||await authenticateSession(session)!==true||
+    !session||typeof session.identity!=='string'||!session.identity)
+  throw Error('Authenticated session required')
+ assertDirectory(directory)
+ const file=path.join(directory,DB_NAME)
+ fingerprint(file)
+ const SQL=await sqlEngine(),db=new SQL.Database(fs.readFileSync(file))
+ try{
+  if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
+  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_sync_history'").length)return []
+  const stmt=db.prepare('SELECT draft_id,decision,updated_at FROM offline_sync_history WHERE identity = ? ORDER BY updated_at DESC LIMIT 100')
+  const history=[]
+  try{
+   stmt.bind([session.identity])
+   while(stmt.step()){
+    const [draftId,decision,updatedAt]=stmt.get()
+    history.push({draftId,decision,updatedAt})
+   }
+  }finally{stmt.free()}
+  if(await authenticateSession(session)!==true)throw Error('Session expired during history read')
+  return history
+ }finally{db.close()}
+}
+module.exports = { stageDraft, listDrafts, previewSync, cancelDraft, snapshotFingerprint, pendingSyncDrafts, commitSyncResults, listSyncHistory }

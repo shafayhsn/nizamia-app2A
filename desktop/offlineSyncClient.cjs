@@ -32,7 +32,7 @@ function createOfflineSyncClient({endpoint,fetchImpl,maxResponseBytes=65536}){
     headers:{'content-type':'application/json','authorization':'Bearer '+token},
     body:JSON.stringify({operations}),signal:controller.signal
    })
-   if(response.status!==200)throw Error('Server synchronization rejected')
+   if(!response||response.status!==200)throw Error('Server synchronization rejected')
    const size=Number(response.headers?.get?.('content-length')||0)
    if(!Number.isFinite(size)||size>maxResponseBytes)throw Error('Synchronization response too large')
    const raw=await response.text()

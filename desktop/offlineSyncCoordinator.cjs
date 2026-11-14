@@ -15,6 +15,7 @@ function createOfflineSyncCoordinator({client,getDirectory,getSession,getToken,a
    if(!session?.authenticated||!session.identity||await authenticateSession(session)!==true)
     throw Error('Authenticated offline session required')
    const directory=getDirectory()
+   if(typeof directory!=='string'||!directory)throw Error('Local database directory unavailable')
    const drafts=await pendingSyncDrafts({directory,session,authenticateSession})
    if(!drafts.length)return {submitted:0,archived:0,conflicts:0,retained:0}
    const token=await getToken(session)
