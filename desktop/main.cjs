@@ -138,7 +138,18 @@ function createWindow() {
   win.loadURL(APP_URL)
 }
 
-app.whenReady().then(() => {\n  protocol.handle('app2a',request=>{\n    const url=new URL(request.url)\n    if(url.hostname!=='local')return new Response('Not found',{status:404})\n    const root=path.resolve(process.resourcesPath,'web')\n    let relative\n    try{relative=decodeURIComponent(url.pathname)}catch{return new Response('Bad request',{status:400})}\n    const candidate=path.resolve(root,'.'+relative)\n    if(candidate!==root&&!candidate.startsWith(root+path.sep))return new Response('Forbidden',{status:403})\n    const target=fs.existsSync(candidate)&&fs.statSync(candidate).isFile()?candidate:path.join(root,'index.html')\n    return net.fetch(require('node:url').pathToFileURL(target).toString())\n  })
+app.whenReady().then(() => {
+  protocol.handle('app2a',request=>{
+    const url=new URL(request.url)
+    if(url.hostname!=='local')return new Response('Not found',{status:404})
+    const root=path.resolve(process.resourcesPath,'web')
+    let relative
+    try{relative=decodeURIComponent(url.pathname)}catch{return new Response('Bad request',{status:400})}
+    const candidate=path.resolve(root,'.'+relative)
+    if(candidate!==root&&!candidate.startsWith(root+path.sep))return new Response('Forbidden',{status:403})
+    const target=fs.existsSync(candidate)&&fs.statSync(candidate).isFile()?candidate:path.join(root,'index.html')
+    return net.fetch(require('node:url').pathToFileURL(target).toString())
+  })
   const menu = Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ label: app.name, submenu: [{ role: 'about' }, { role: 'quit' }] }] : []),
     { label: 'Database', submenu: [
