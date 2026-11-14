@@ -18,7 +18,7 @@ function mountOfflineRoutes({app,issuer,authenticateRequest,authorizeSync,pool})
  app.post('/api/offline-authorization',async(req,res)=>{
   // req.body must be parsed by the server's existing JSON middleware.
   const result=await authorization({
-   ...req,kind:req.body?.kind,body:req.body
+   ...req,method:req.method,headers:req.headers,kind:req.body?.kind,body:req.body
   })
   return res.status(result.status).json(result.body)
  })
