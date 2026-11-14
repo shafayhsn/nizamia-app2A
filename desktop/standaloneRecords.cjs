@@ -45,7 +45,7 @@ function assertFile(directory){
 }
 let engine
 async function sql(){if(!engine)engine=initSqlJs({locateFile:()=>require.resolve('sql.js/dist/sql-wasm.wasm').replace('app.asar'+path.sep,'app.asar.unpacked'+path.sep)});return engine}
-function schema(db){db.run("CREATE TABLE IF NOT EXISTS standalone_records (id TEXT PRIMARY KEY, table_name TEXT NOT NULL, fields_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")}
+function schema(db){db.run("CREATE TABLE IF NOT EXISTS standalone_records (id TEXT PRIMARY KEY, table_name TEXT NOT NULL, fields_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)");db.run('CREATE TABLE IF NOT EXISTS snapshot_edits (table_name TEXT NOT NULL,record_id TEXT NOT NULL,fields_json TEXT,updated_at TEXT NOT NULL,PRIMARY KEY(table_name,record_id))')}
 function assertOrderReference(db,table,fields){
  if(!['production_daily_entries','purchase_orders','samples','shipments','costing','pp_meetings','production_plans'].includes(table)||!fields.order_id)return
  const id=String(fields.order_id).trim()
@@ -81,7 +81,9 @@ async function listCombinedRecords(directory,table){
       }
     }finally{stmt.free()}
   }
-  return [...local,...snapshot]
+  const edits=new Map()
+  if(db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_edits'").length){const stmt=db.prepare('SELECT record_id,fields_json FROM snapshot_edits WHERE table_name=?');try{stmt.bind([table]);while(stmt.step()){const [id,json]=stmt.get();edits.set(String(id),json===null?null:JSON.parse(json))}}finally{stmt.free()}}
+  return [...local,...snapshot.filter(row=>!edits.has(String(row.id))||edits.get(String(row.id))!==null).map(row=>edits.has(String(row.id))?{...row,...edits.get(String(row.id)),_local_only:false,_local_edited:true}:row)]
 }finally{db.close()}
 }
 function serialize(directory,task){
@@ -96,7 +98,7 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
   validateTable(table)
   if(!['create','update','delete'].includes(action))throw Error('Unsupported local record operation')
   if(action!=='delete'){fields=normalizeForm(table,fields);validateFields(fields)}
-  if(action!=='create'&&(typeof id!=='string'||!/^local-[a-f0-9-]{36}$/.test(id)))throw Error('Only standalone records may be changed')
+  if(action!=='create'&&(typeof id!=='string'||id.length>256||!id))throw Error('Valid record ID required')
   const file=assertFile(directory),original=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
   const SQL=await sql(),db=new SQL.Database(fs.readFileSync(file))
   try{
@@ -104,7 +106,16 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
    schema(db)
    if(action!=='delete')assertOrderReference(db,table,fields)
    const stamp=new Date().toISOString()
-   if(action==='create'){
+   if(action!=='create'&&!id.startsWith('local-')){
+    if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_rows'").length)throw Error('Imported snapshot unavailable')
+    const stmt=db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name=?')
+    let imported=null
+    try{stmt.bind([table]);while(stmt.step()){const row=JSON.parse(stmt.get()[0]);if(String(row.id)===id){imported=row;break}}}finally{stmt.free()}
+    if(!imported)throw Error('Imported record not found')
+    const prior=db.exec('SELECT fields_json FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id])
+    if(prior.length&&prior[0].values[0][0]===null)throw Error('Imported record already deleted')
+    db.run('INSERT OR REPLACE INTO snapshot_edits (table_name,record_id,fields_json,updated_at) VALUES (?,?,?,?)',[table,id,action==='delete'?null:JSON.stringify({...imported,...fields,id}),stamp])
+   }else if(action==='create'){
     id='local-'+crypto.randomUUID()
     db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(fields),stamp,stamp])
    }else{

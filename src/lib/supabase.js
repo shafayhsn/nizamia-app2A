@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 const isMacOffline = typeof location !== 'undefined' && location.protocol === 'app2a:'
 const offlineTables = new Set(['orders','tasks','buyers','suppliers','purchase_orders','purchase_order_items','samples','parcels','shipments','shipment_lines','production_daily_entries','costing','pp_meetings','production_plans','jobs','order_queues','bom_items','washing','embellishments','finishing','work_orders','buyer_addresses','buyer_contacts','supplier_contacts'])
 function offlineQuery(table) {
-  let filters=[],sort=null,limit=null,single=false,operation=null,payload=null
+  let filters=[],sort=null,limit=null,offset=0,single=false,operation=null,payload=null,upsert=false,returnRows=false,countRequested=false
   const load=async()=>{
     if(!/^[a-z][a-z0-9_]{0,63}$/.test(table))throw Error('Invalid offline table')
     const response=await fetch('/api/offline/records?table='+encodeURIComponent(table))
@@ -22,27 +22,29 @@ function offlineQuery(table) {
       if(['gt','gte','lt','lte'].includes(op))rows=rows.filter(r=>{const a=r[field],b=value;if(a==null)return false;return op==='gt'?a>b:op==='gte'?a>=b:op==='lt'?a<b:a<=b})
     }
     if(sort)rows=[...rows].sort((a,b)=>{const x=a[sort.field],y=b[sort.field];const comparison=typeof x==='number'&&typeof y==='number'?x-y:String(x??'').localeCompare(String(y??''));return comparison*(sort.ascending?1:-1)})
-    if(limit!==null)rows=rows.slice(0,limit)
+    if(offset||limit!==null)rows=rows.slice(offset,limit===null?undefined:offset+limit)
     return rows
   }
   const run=async()=>{
     try{
-      if(!operation){const rows=await load();return {data:single?(rows[0]||null):rows,error:null}}
+      if(!operation){const rows=await load();return {data:single?(rows[0]||null):rows,error:null,count:countRequested?rows.length:null}}
       if(!offlineTables.has(table))throw Error('This table is not available offline')
       const existing=operation==='create'?[]:await load()
       if(operation!=='create' && existing.length!==1)throw Error('Exactly one local record must be selected for editing')
-      if(operation!=='create' && !String(existing[0].id||'').startsWith('local-'))throw Error('Imported cloud records are read-only')
-      if(operation==='create'&&Array.isArray(payload)&&payload.length!==1)throw Error('Batch inserts are not supported offline yet')
+      if(operation==='create'&&Array.isArray(payload)&&payload.length>500)throw Error('Maximum 500 records per batch')
+      if(operation==='create'&&Array.isArray(payload)&&!payload.length)throw Error('Empty insert batch')
+      if(operation==='create'&&Array.isArray(payload)&&payload.length>1){const saved=[];for(const item of payload){const result=await fetch('/api/offline/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create',table,fields:item})});const body=await result.json();if(!result.ok)throw Error('Batch partially saved ('+saved.length+'/'+payload.length+'): '+(body.error||'Save failed'));saved.push({id:body.data.id})}return {data:returnRows?saved:null,error:null}}
+      if(upsert&&operation==='create'&&payload?.id){const found=(await load()).find(row=>String(row.id)===String(payload.id));if(found){operation='update';filters=[['id','eq',found.id]]}}
       const fields=operation==='create'?(Array.isArray(payload)?payload[0]:payload):operation==='update'?{...existing[0],...payload}:null
       if(fields){delete fields.id;delete fields._local_only;delete fields._local_updated_at}
       const response=await fetch('/api/offline/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:operation,table,id:existing[0]?.id,fields})})
       const result=await response.json()
       if(!response.ok)throw Error(result.error||'Offline save failed')
-      return {data:operation==='delete'?null:single?{id:result.data.id}:{id:result.data.id},error:null}
+      return {data:operation==='delete'?null:returnRows?(single?{id:result.data.id}:[{id:result.data.id}]):null,error:null}
     }catch(error){return {data:null,error}}
   }
   const query={
-    select:()=>query,
+    select:(_columns='*',options={})=>(countRequested=!!options.count,returnRows=!!operation,query),
     eq:(field,value)=>(filters.push([field,'eq',value]),query),
     neq:(field,value)=>(filters.push([field,'neq',value]),query),
     in:(field,values)=>(filters.push([field,'in',values]),query),
@@ -54,12 +56,13 @@ function offlineQuery(table) {
     not:(field,operator,value)=>(filters.push([field,operator==='is'?'not-is':'neq',value]),query),
     order:(field,opts={})=>(sort={field,ascending:opts.ascending!==false},query),
     limit:value=>(limit=Math.max(0,Number(value)||0),query),
+    range:(start,end)=>(offset=Math.max(0,Number(start)||0),limit=Math.max(0,Number(end)-offset+1),query),
     maybeSingle:()=>(single=true,query),
     single:()=>(single=true,query),
     insert:value=>(operation='create',payload=value,query),
     update:value=>(operation='update',payload=value,query),
     delete:()=>(operation='delete',query),
-    upsert:()=>({then:(resolve,reject)=>Promise.resolve({data:null,error:new Error('Upsert is not yet available offline')}).then(resolve,reject)}),
+    upsert:value=>(operation='create',payload=value,upsert=true,query),
     then:(resolve,reject)=>run().then(resolve,reject)
   }
   return query
