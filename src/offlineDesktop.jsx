@@ -153,7 +153,7 @@ function App() {
     setOverview(null)
     window.localSnapshot.moduleOverview(module).then(data => { if (!cancelled) setOverview(data) }).catch(e => { if (!cancelled) setError(e.message) })
     return () => { cancelled = true }
-  }, [module])
+  }, [module, localRevision])
   useEffect(() => {
     setBusinessEdit({ notes: typeof detail?.notes === 'string' ? detail.notes : '', remarks: typeof detail?.remarks === 'string' ? detail.remarks : '' })
     setBusinessEditMessage('')

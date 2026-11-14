@@ -20,7 +20,7 @@ function openLocalData() {
   try {
     const directory = getDatabaseDirectory()
     if (!directory || !fs.existsSync(path.join(directory, 'nizamia-app2a.sqlite')))
-      throw new Error('Choose a database folder and import a snapshot first.')
+      throw new Error('Choose a database folder to initialize your standalone database.')
     showLocalSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null, getDatabaseDirectory)
   } catch (error) { dialog.showErrorBox('Local SQLite viewer', error.message) }
 }
@@ -39,8 +39,7 @@ async function startDesktop() {
     if (!await snapshotReady(directory)) throw new Error('Local SQLite database could not be verified')
     showLocalSnapshot(null,getDatabaseDirectory)
   } catch(error) {
-    dialog.showErrorBox('Standalone startup failed',error.message+'\n\nChoose a database folder from the Database menu to recover.')
-    createWindow()
+    dialog.showErrorBox('Standalone startup failed',error.message+'\n\nChoose a database folder from the Database menu to recover. The cloud app will not open automatically.')
   }
 }
 function createWindow() {
