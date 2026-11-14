@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 // The Mac preview uses its existing SQLite records via Electron's local origin.
 // The online web app keeps its original Supabase client unchanged.
 const isMacOffline = typeof location !== 'undefined' && location.protocol === 'app2a:'
-const offlineTables = new Set(['orders','tasks','buyers','suppliers','purchase_orders','samples','parcels','shipments','production_daily_entries','costing','pp_meetings'])
+const offlineTables = new Set(['orders','tasks','buyers','suppliers','purchase_orders','purchase_order_items','samples','parcels','shipments','shipment_lines','production_daily_entries','costing','pp_meetings','production_plans','jobs','order_queues','bom_items','washing','embellishments','finishing','work_orders','buyer_addresses','buyer_contacts','supplier_contacts'])
 function offlineQuery(table) {
   let filters=[],sort=null,limit=null,single=false,operation=null,payload=null
   const load=async()=>{
@@ -17,10 +17,11 @@ function offlineQuery(table) {
       if(op==='eq')rows=rows.filter(r=>String(r[field]??'')===String(value??''))
       if(op==='neq')rows=rows.filter(r=>String(r[field]??'')!==String(value??''))
       if(op==='is')rows=rows.filter(r=>value===null?r[field]==null:r[field]===value)
+      if(op==='not-is')rows=rows.filter(r=>value===null?r[field]!=null:r[field]!==value)
       if(op==='in')rows=rows.filter(r=>Array.isArray(value)&&value.some(v=>String(v)===String(r[field])))
       if(['gt','gte','lt','lte'].includes(op))rows=rows.filter(r=>{const a=r[field],b=value;if(a==null)return false;return op==='gt'?a>b:op==='gte'?a>=b:op==='lt'?a<b:a<=b})
     }
-    if(sort)rows=[...rows].sort((a,b)=>String(a[sort.field]??'').localeCompare(String(b[sort.field]??''))*(sort.ascending?1:-1))
+    if(sort)rows=[...rows].sort((a,b)=>{const x=a[sort.field],y=b[sort.field];const comparison=typeof x==='number'&&typeof y==='number'?x-y:String(x??'').localeCompare(String(y??''));return comparison*(sort.ascending?1:-1)})
     if(limit!==null)rows=rows.slice(0,limit)
     return rows
   }
@@ -50,7 +51,7 @@ function offlineQuery(table) {
     lt:(field,value)=>(filters.push([field,'lt',value]),query),
     lte:(field,value)=>(filters.push([field,'lte',value]),query),
     is:(field,value)=>(filters.push([field,'is',value]),query),
-    not:(field,operator,value)=>(filters.push([field,operator==='is'?'neq':'neq',value]),query),
+    not:(field,operator,value)=>(filters.push([field,operator==='is'?'not-is':'neq',value]),query),
     order:(field,opts={})=>(sort={field,ascending:opts.ascending!==false},query),
     limit:value=>(limit=Math.max(0,Number(value)||0),query),
     maybeSingle:()=>(single=true,query),
