@@ -101,6 +101,9 @@ jobs:
       - name: Test operational purchasing shipping and approval exceptions
         working-directory: desktop
         run: node offlineOperationalExceptions.test.cjs
+      - name: Test authenticated desktop HTTPS sync transport
+        working-directory: desktop
+        run: node offlineSyncClient.test.cjs
       - name: Test authenticated conditional cloud sync apply
         working-directory: desktop
         run: node ../server/offlineSyncApply.test.cjs
