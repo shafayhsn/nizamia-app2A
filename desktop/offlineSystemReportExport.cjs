@@ -26,6 +26,6 @@ function reportExport(db,key,format) {
   ? ['order_number','buyer','ordered_quantity','linked_records','linked_quantity','progress_percent','statuses']
   : ['group','records','quantity','quantity_record_count']
  return {key,title:report.title,rows,columns,source:report.sourceTable||report.table||report.sources?.join(', ')||'',
-  provenance:report.localRecords ? 'Imported snapshot plus '+report.localRecords+' standalone offline records; not synchronized to cloud' : 'Imported local snapshot; not live cloud data',generatedAt:new Date().toISOString()}
+  provenance:report.localRecords ? 'Includes '+report.localRecords+' standalone offline records alongside available imported snapshot data; not synchronized to cloud' : 'Imported local snapshot; not live cloud data',generatedAt:new Date().toISOString()}
 }
 module.exports={reportRows,reportExport}

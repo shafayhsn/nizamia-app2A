@@ -2,6 +2,8 @@
 // Stage-aware production balance: each department is reported separately.
 // Never add cutting + sewing + washing as if they were distinct finished garments.
 const {read,numeric}=require('./offlineCrossModuleReports.cjs')
+const {readLocalRows}=require('./standaloneRecords.cjs')
+function combined(db,table){const imported=read(db,table);const local=['orders','production_daily_entries'].includes(table)?readLocalRows(db,table):[];return imported||local.length?[...(imported||[]),...local]:null}
 const STAGES=['cutting','sewing','washing','finishing','packing']
 const DEPT_KEYS=['department','dept','department_name','stage','process']
 const ORDER_KEYS=['order_id','orderId','oms_order_id']
@@ -13,11 +15,11 @@ function stageOf(row){
  return STAGES.find(stage=>s.includes(stage))||null
 }
 function productionBalance(db){
- const orders=read(db,'orders')
+ const orders=combined(db,'orders')
  if(!orders)return {available:false,reason:'Orders source missing',rows:[]}
  const sources=['production_daily_entries','production_entries']
  let data=null,source=null
- for(const table of sources){const found=read(db,table);if(found){data=found;source=table;break}}
+ for(const table of sources){const found=combined(db,table);if(found){data=found;source=table;break}}
  if(!data)return {available:false,reason:'Production entries source missing',rows:[]}
  const orderIds=new Set(orders.filter(o=>o.id!=null).map(o=>String(o.id)))
  const totals=new Map(), issues={unlinked:0,unknownStage:0,missingQuantity:0}
@@ -34,7 +36,7 @@ function productionBalance(db){
   stages[stage]=(stages[stage]||0)+qty
  }
  const rows=orders.filter(o=>o.id!=null).map(order=>{
-  const id=String(order.id),ordered=numeric(order,['quantity','total_quantity','order_quantity','qty'])
+  const id=String(order.id),ordered=numeric(order,['quantity','total_quantity','total_qty','order_quantity','qty'])
   const stageTotals=totals.get(id)||{}
   const stageValues=Object.fromEntries(STAGES.map(stage=>[stage,stageTotals[stage]??null]))
   const balances=Object.fromEntries(STAGES.map(stage=>[stage,
@@ -46,7 +48,7 @@ function productionBalance(db){
    finishingBalance:balances.finishing,packingBalance:balances.packing}
  })
  return {available:true,key:'production_stage_balance',title:'Order-wise department production balance',
-  sourceTable:source,rows,issues,stages:STAGES,
+  sourceTable:source,rows,issues,stages:STAGES,localRecords:readLocalRows(db,'orders').length+readLocalRows(db,'production_daily_entries').length,
   note:'Each stage is totaled independently. Negative balances flag output above ordered quantity. Missing stage quantities remain blank; stages are never added together.'}
 }
 module.exports={STAGES,stageOf,productionBalance}
