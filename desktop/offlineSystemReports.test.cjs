@@ -18,19 +18,23 @@ async function main(){
    tasks:[{status:'Open',assignee:'Ali'},{status:'Done',assignee:'Sara'}]
   }
   for(const [table,rows] of Object.entries(data))rows.forEach((row,i)=>db.run('INSERT INTO snapshot_rows VALUES (?,?,?)',[table,i,JSON.stringify(row)]))
-  assert.equal(DEFINITIONS.length,8)
+  assert.equal(DEFINITIONS.length,14)
   const buyers=systemReport(db,'orders_by_buyer')
   assert.equal(buyers.totalRecords,3)
   assert.equal(buyers.rows.find(r=>r.group==='Buyer A').quantity,150)
   assert.equal(buyers.rows.find(r=>r.group==='Buyer A').records,2)
   assert.equal(systemReport(db,'production_by_department').rows.length,2)
+  assert.equal(systemReport(db,'orders_by_style').available,false)
+  assert.equal(systemReport(db,'shipping_by_status').available,false)
+  assert.equal(systemReport(db,'sampling_by_status').available,false)
+  assert.equal(systemReport(db,'parcels_by_courier').available,false)
   assert.equal(systemReport(db,'production_by_date').rows[0].quantity,175)
   assert.equal(systemReport(db,'tasks_by_status').quantityAvailable,false)
   assert.equal(systemReport(db,'purchasing_by_supplier').rows[0].group,'Fabric Co')
   assert.throws(()=>systemReport(db,'bad'),/Unknown/)
   db.run('DELETE FROM snapshot_manifest WHERE table_name = ?',['orders'])
   assert.equal(systemReport(db,'orders_by_buyer').available,false)
-  process.stdout.write('Eight snapshot-driven OMS report tests passed.\n')
+  process.stdout.write('Fourteen snapshot and offline OMS report definition tests passed.\n')
  } finally {db.close()}
 }
 main().catch(e=>{console.error(e);process.exitCode=1})

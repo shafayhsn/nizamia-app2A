@@ -4,18 +4,24 @@
 const {readLocalRows}=require('./standaloneRecords.cjs')
 const DEFINITIONS = Object.freeze([
  {key:'orders_by_buyer',title:'Orders by buyer',table:'orders',group:['buyer_name','buyer','customer_name','customer','buyer_id'],quantity:['quantity','total_quantity','total_qty','order_quantity','qty']},
- {key:'orders_by_status',title:'Orders by status',table:'orders',group:['status','order_status'],quantity:['quantity','total_quantity','order_quantity','qty']},
+ {key:'orders_by_status',title:'Orders by status',table:'orders',group:['status','order_status'],quantity:['quantity','total_quantity','total_qty','order_quantity','qty']},
  {key:'production_by_department',title:'Production by department',table:'production_daily_entries',group:['department','dept','department_name'],quantity:['quantity','produced_qty','production_qty','output_qty','qty','pieces']},
  {key:'production_by_date',title:'Daily production',table:'production_daily_entries',group:['production_date','entry_date','date'],quantity:['quantity','produced_qty','production_qty','output_qty','qty','pieces']},
  {key:'purchasing_by_supplier',title:'Purchasing by supplier',table:'purchase_orders',group:['supplier_name','supplier','vendor_name','supplier_id'],quantity:['quantity','total_quantity','qty']},
  {key:'purchasing_by_status',title:'Purchasing by status',table:'purchase_orders',group:['status','po_status'],quantity:['quantity','total_quantity','qty']},
  {key:'tasks_by_status',title:'Tasks by status',table:'tasks',group:['status','task_status'],quantity:[]},
- {key:'tasks_by_assignee',title:'Tasks by assignee',table:'tasks',group:['assigned_to_name','assignee_name','assigned_to','assignee','owner'],quantity:[]}
+ {key:'tasks_by_assignee',title:'Tasks by assignee',table:'tasks',group:['assigned_to_name','assignee_name','assigned_to','assignee','owner'],quantity:[]},
+ {key:'orders_by_style',title:'Orders by style',table:'orders',group:['style_number','style_no','style'],quantity:['quantity','total_quantity','total_qty','order_quantity','qty']},
+ {key:'production_by_order',title:'Production by order',table:'production_daily_entries',group:['order_id','job_number','order_number'],quantity:['quantity','produced_qty','production_qty','output_qty','qty','pieces']},
+ {key:'purchasing_by_order',title:'Purchasing by order',table:'purchase_orders',group:['order_id','job_number','order_number'],quantity:['quantity','total_quantity','total_qty','qty']},
+ {key:'shipping_by_status',title:'Shipments by status',table:'shipments',group:['status','shipment_status'],quantity:[]},
+ {key:'sampling_by_status',title:'Samples by status',table:'samples',group:['status','sample_status'],quantity:[]},
+ {key:'parcels_by_courier',title:'Parcels by courier',table:'parcels',group:['courier','courier_name','carrier'],quantity:[]}
 ])
 function systemReport(db,key) {
  const def=DEFINITIONS.find(d=>d.key===key)
  if(!def) throw new Error('Unknown operational report')
- const present=db.exec('SELECT 1 FROM snapshot_manifest WHERE table_name = ?',[def.table])
+ const present=db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_manifest'").length ? db.exec('SELECT 1 FROM snapshot_manifest WHERE table_name = ?',[def.table]) : []
  const local=readLocalRows(db,def.table)
  if(!present.length&&!local.length) return {key,title:def.title,table:def.table,available:false,reason:'Source table not in imported snapshot or standalone records',rows:[],totalRecords:0,quantityAvailable:false}
  const stmt=present.length?db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name = ? ORDER BY row_index'):null
@@ -46,6 +52,6 @@ function systemReport(db,key) {
  } finally {if(stmt)stmt.free()}
  const groupField=def.group.find(k=>fields.has(k))||null
  const rows=[...grouped.values()].sort((a,b)=>b.records-a.records||a.group.localeCompare(b.group))
- return {key,title:def.title,table:def.table,available:Boolean(groupField),reason:groupField?null:'Required grouping field missing in snapshot',groupField,rows:groupField?rows:[],totalRecords,quantityAvailable,localRecords:local.length}
+ return {key,title:def.title,table:def.table,available:Boolean(groupField),reason:groupField?null:'Required grouping field missing from saved records',groupField,rows:groupField?rows:[],totalRecords,quantityAvailable,localRecords:local.length}
 }
 module.exports={DEFINITIONS,systemReport}
