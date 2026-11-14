@@ -42,6 +42,7 @@
       "offlineCrossModuleReports.cjs",
       "offlineSystemReportExport.cjs",
       "offlineProductionBalance.cjs",
+      "offlineReadiness.cjs",
       "offlineOperationalExceptions.cjs",
       "snapshotStartup.cjs",
       "offlineCsvExport.cjs",
