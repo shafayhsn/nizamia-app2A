@@ -19,9 +19,9 @@ function reportExport(db,key,format) {
  if(!['csv','xlsx'].includes(format))throw Error('Unsupported report format')
  const {DEFINITIONS,systemReport}=require('./offlineSystemReports.cjs')
  const {REPORTS,crossModuleReport}=require('./offlineCrossModuleReports.cjs')
- const report=REPORTS.some(d=>d.key===key)?crossModuleReport(db,key):systemReport(db,key)
- const rows=reportRows(report)
- const columns=report.sourceTable
+ const report=key==='production_stage_balance' ? require('./offlineProductionBalance.cjs').productionBalance(db) : REPORTS.some(d=>d.key===key)?crossModuleReport(db,key):systemReport(db,key)
+ const rows=key==='production_stage_balance' ? (report.available?report.rows.map(row=>({...row})):reportRows(report)) : reportRows(report)
+ const columns=key==='production_stage_balance' ? ['orderId','orderNumber','buyer','orderedQuantity','cutting','cuttingBalance','sewing','sewingBalance','washing','washingBalance','finishing','finishingBalance','packing','packingBalance'] : report.sourceTable
   ? ['order_number','buyer','ordered_quantity','linked_records','linked_quantity','progress_percent','statuses']
   : ['group','records','quantity','quantity_record_count']
  return {key,title:report.title,rows,columns,source:report.sourceTable||report.table,
