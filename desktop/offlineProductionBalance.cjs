@@ -3,7 +3,8 @@
 // Never add cutting + sewing + washing as if they were distinct finished garments.
 const {read,numeric}=require('./offlineCrossModuleReports.cjs')
 const {readLocalRows}=require('./standaloneRecords.cjs')
-function combined(db,table){const imported=read(db,table);const local=['orders','production_daily_entries'].includes(table)?readLocalRows(db,table):[];return imported||local.length?[...(imported||[]),...local]:null}
+// Shared read() already combines imported and standalone records; never append them twice.
+function combined(db,table){return read(db,table)}
 const STAGES=['cutting','sewing','washing','finishing','packing']
 const DEPT_KEYS=['department','dept','department_name','stage','process']
 const ORDER_KEYS=['order_id','orderId','oms_order_id']
