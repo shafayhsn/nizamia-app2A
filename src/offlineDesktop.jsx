@@ -252,6 +252,15 @@ function App() {
     catch (e) { setGlobalError(e.message) }
     finally { setGlobalBusy(false) }
   }
+  async function downloadSystemReport(format) {
+    if(!reportKey||!systemReport?.available||reportBusy)return
+    setReportBusy(true);setReportError('');setExportMessage('')
+    try {
+      const result=await window.localSnapshot.exportSystemReport(reportKey,format)
+      if(!result.cancelled)setExportMessage('System report exported: '+result.exported+' rows to '+result.file)
+    } catch(e){setReportError(e.message||'Report export failed')}
+    finally{setReportBusy(false)}
+  }
   async function runSystemReport(event) {
     event.preventDefault()
     if (!reportKey) return
@@ -316,7 +325,7 @@ function App() {
       <p>Reports calculate directly from the imported Orders, Production, Purchasing and Tasks records. No manually entered report figures. The report reflects the last imported snapshot, not live cloud data.</p>
       <form onSubmit={runSystemReport}><select aria-label="Operational report" value={reportKey} onChange={e=>{setReportKey(e.target.value);setSystemReport(null)}}><option value="">Choose system report</option>{reportDefinitions.map(d=><option key={d.key} value={d.key}>{d.title}</option>)}</select><button disabled={!reportKey||reportBusy}>{reportBusy?'Calculating…':'Generate report'}</button></form>
       {reportError && <p role="alert">{reportError}</p>}
-      {systemReport && <div><h3>{systemReport.title}</h3>{!systemReport.available ? <p role="status">Unavailable: {systemReport.reason}. No figures have been estimated.</p> : systemReport.sourceTable ? <><p>{systemReport.matched.toLocaleString()} linked records · {systemReport.unmatched.toLocaleString()} unmatched source records · Source: {systemReport.sourceTable}</p><p>{systemReport.note}</p><div className="tablewrap"><table><thead><tr><th>Order</th><th>Buyer</th><th>Ordered qty</th><th>Linked records</th><th>Linked qty</th><th>Progress %</th><th>Statuses</th></tr></thead><tbody>{systemReport.rows.map(r=><tr key={r.orderId}><td>{r.orderNumber}</td><td>{r.buyer}</td><td>{r.orderedQuantity??'Not recorded'}</td><td>{r.linkedRecords}</td><td>{r.linkedQuantity??'Not recorded'}</td><td>{r.progressPercent==null?'Not available':r.progressPercent+'%'}</td><td>{Object.entries(r.statuses).map(([k,v])=>k+': '+v).join(', ')||'No linked records'}</td></tr>)}</tbody></table></div></> : <>
+      {systemReport && <div><h3>{systemReport.title}</h3>{systemReport.available && <div className="pages"><button disabled={reportBusy} onClick={()=>downloadSystemReport('xlsx')}>Download report Excel</button><button disabled={reportBusy} onClick={()=>downloadSystemReport('csv')}>Download report CSV</button></div>}{!systemReport.available ? <p role="status">Unavailable: {systemReport.reason}. No figures have been estimated.</p> : systemReport.sourceTable ? <><p>{systemReport.matched.toLocaleString()} linked records · {systemReport.unmatched.toLocaleString()} unmatched source records · Source: {systemReport.sourceTable}</p><p>{systemReport.note}</p><div className="tablewrap"><table><thead><tr><th>Order</th><th>Buyer</th><th>Ordered qty</th><th>Linked records</th><th>Linked qty</th><th>Progress %</th><th>Statuses</th></tr></thead><tbody>{systemReport.rows.map(r=><tr key={r.orderId}><td>{r.orderNumber}</td><td>{r.buyer}</td><td>{r.orderedQuantity??'Not recorded'}</td><td>{r.linkedRecords}</td><td>{r.linkedQuantity??'Not recorded'}</td><td>{r.progressPercent==null?'Not available':r.progressPercent+'%'}</td><td>{Object.entries(r.statuses).map(([k,v])=>k+': '+v).join(', ')||'No linked records'}</td></tr>)}</tbody></table></div></> : <>
         <p>{systemReport.totalRecords.toLocaleString()} source records · Grouped by {systemReport.groupField.replaceAll('_',' ')}</p>
         <div className="tablewrap"><table><thead><tr><th>Group</th><th>Records</th>{systemReport.quantityAvailable&&<th>Quantity (available records only)</th>}</tr></thead><tbody>{systemReport.rows.map(r=><tr key={r.group}><td>{r.group}</td><td>{r.records.toLocaleString()}</td>{systemReport.quantityAvailable&&<td>{r.quantityRecords?r.quantity.toLocaleString()+' ('+r.quantityRecords+' records)':'Not recorded'}</td>}</tr>)}</tbody></table></div>
       </>}</div>}
