@@ -418,7 +418,7 @@ function showLocalSnapshot(parent, getDirectory) {
         const confirm=await dialog.showMessageBox(viewer,{
           type:'warning',buttons:['Cancel','Restore database'],defaultId:0,cancelId:0,noLink:true,
           title:'Restore standalone database?',
-          message:'Replace all current offline records with this backup?',
+          message:'Restore this backup over the current offline database?',
           detail:'This replaces the active database, including orders, production and other locally saved records. A safety copy of the current database will be kept automatically.'
         })
         if(confirm.response!==1)return {cancelled:true}
