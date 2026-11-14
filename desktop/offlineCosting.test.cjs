@@ -1,0 +1,17 @@
+'use strict'
+const assert=require('node:assert/strict')
+const {calculateCosting}=require('./offlineCosting.cjs')
+const full={fabric_cost:3.37,trims_cost:0.5,cmt_cost:0.55,washing_cost:0.5,overhead_cost:0.18,target_fob:6}
+const result=calculateCosting(full)
+assert.equal(result.complete,true)
+assert.equal(result.cost,5.1)
+assert.equal(result.margin,0.9)
+assert.equal(result.marginPercent,15)
+assert.equal(calculateCosting({...full,washing_cost:''}).complete,false)
+assert.deepEqual(calculateCosting({...full,washing_cost:''}).missing,['washing_cost'])
+assert.equal(calculateCosting({...full,target_fob:''}).margin,null)
+assert.equal(calculateCosting({...full,target_fob:0}).marginPercent,null)
+assert.equal(calculateCosting({...full,target_fob:4}).margin,-1.1)
+assert.throws(()=>calculateCosting({...full,fabric_cost:-1}),/Invalid/)
+assert.throws(()=>calculateCosting({...full,target_fob:'bad'}),/Invalid/)
+process.stdout.write('Offline costing arithmetic and missing-input handling passed.\n')
