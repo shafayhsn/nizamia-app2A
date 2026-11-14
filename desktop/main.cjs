@@ -1,6 +1,6 @@
 'use strict'
 const path = require('node:path')
-const { app, BrowserWindow, shell, dialog, Menu } = require('electron')
+const { app, BrowserWindow, shell, dialog, Menu, protocol, net } = require('electron')
 const { chooseDatabaseFolder, showDatabaseLocation, getDatabaseDirectory, initializeDatabase } = require('./localDatabase.cjs')
 const { importBackup } = require('./snapshotImport.cjs')
 const { inspectSnapshot } = require('./snapshotInspect.cjs')
@@ -8,7 +8,7 @@ const { showLocalSnapshot } = require('./snapshotViewer.cjs')
 const fs = require('node:fs')
 const { snapshotReady } = require('./snapshotStartup.cjs')
 
-const APP_URL = 'https://app.nizamia.com'
+// Serve the bundled web SPA under a proper origin so BrowserRouter routes and\n// local asset URLs work without an internet connection.\nprotocol.registerSchemesAsPrivileged([{scheme:'app2a',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}])\nconst APP_URL = 'https://app.nizamia.com'
 const ALLOWED_ORIGIN = new URL(APP_URL).origin
 
 function allowedNavigation(url) {
@@ -53,15 +53,16 @@ function openBundledWebApp() {
   }
   const win=new BrowserWindow({
     width:1360,height:900,minWidth:960,minHeight:650,
-    title:'Nizamia App-2A — Original Interface',
+    title:'Nizamia App-2A — Original Interface (Preview)',
     webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}
   })
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}))
   win.webContents.on('will-navigate',(event,url)=>{
-    if(!url.startsWith('file://'+path.join(process.resourcesPath,'web')+path.sep))event.preventDefault()
+    if(!url.startsWith('app2a://local/'))event.preventDefault()
   })
-  win.loadFile(bundled).catch(error=>dialog.showErrorBox('App-2A web interface',error.message))
+  win.loadURL('app2a://local/').catch(error=>dialog.showErrorBox('App-2A web interface',error.message))
 }
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1360, height: 900, minWidth: 960, minHeight: 650,
@@ -137,7 +138,7 @@ function createWindow() {
   win.loadURL(APP_URL)
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(() => {\n  protocol.handle('app2a',request=>{\n    const url=new URL(request.url)\n    if(url.hostname!=='local')return new Response('Not found',{status:404})\n    const root=path.resolve(process.resourcesPath,'web')\n    let relative\n    try{relative=decodeURIComponent(url.pathname)}catch{return new Response('Bad request',{status:400})}\n    const candidate=path.resolve(root,'.'+relative)\n    if(candidate!==root&&!candidate.startsWith(root+path.sep))return new Response('Forbidden',{status:403})\n    const target=fs.existsSync(candidate)&&fs.statSync(candidate).isFile()?candidate:path.join(root,'index.html')\n    return net.fetch(require('node:url').pathToFileURL(target).toString())\n  })
   const menu = Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ label: app.name, submenu: [{ role: 'about' }, { role: 'quit' }] }] : []),
     { label: 'Database', submenu: [
