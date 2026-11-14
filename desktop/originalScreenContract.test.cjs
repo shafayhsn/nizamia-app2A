@@ -23,4 +23,8 @@ assert.ok(!adapter.includes("filter(k=>/^[a-z][a-z0-9_]*$/.test(k))"),'Invalid c
 const reportSource=fs.readFileSync(path.join(root,'src/pages/Reports.jsx'),'utf8')
 assert.ok(reportSource.includes("location.protocol === 'app2a:'"),'Offline PDF fallback missing')
 assert.ok(reportSource.includes('popup.print()'),'Native offline PDF print path missing')
+const formatsSource=fs.readFileSync(path.join(root,'src/pages/ProductionFormats.jsx'),'utf8')
+assert.ok(formatsSource.includes("../../QMS Excel formats.zip?url"),'QMS Excel templates must be bundled')
+assert.ok(!formatsSource.includes('raw.githubusercontent.com'),'QMS Excel download must work offline')
+assert.ok(fs.statSync(path.join(root,'QMS Excel formats.zip')).size>1000,'QMS workbook archive missing')
 process.stdout.write('Original Orders, Purchasing, Production, Shipping and Reports offline contract passed.\n')

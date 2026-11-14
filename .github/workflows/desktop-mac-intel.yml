@@ -54,6 +54,7 @@ jobs:
           test -s dist/index.html
           test -s dist/offline-desktop.html
           test -d dist/assets
+          test -n "$(find dist/assets -type f -name '*.zip' -print -quit)"
           grep -q 'assets/' dist/index.html
           grep -q 'assets/' dist/offline-desktop.html
           test -n "$(find dist/assets -type f -name '*.js' -print -quit)"

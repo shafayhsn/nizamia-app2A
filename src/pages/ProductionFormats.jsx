@@ -1,5 +1,6 @@
 import React,{useState} from 'react'
 import JSZip from 'jszip'
+import bundledQmsExcelZipUrl from '../../QMS Excel formats.zip?url'
 import {ArrowLeft,Download,Printer,Search,SlidersHorizontal} from 'lucide-react'
 
 const PILOT_FORMATS=[
@@ -12,7 +13,8 @@ const FORMATS=["MEASUREMENT AUDIT","CUTTING INSPECTION","MATERIAL NONCONFORMANCE
  filename:name+'.xlsx',code:'QMS-'+String(index+1).padStart(2,'0'),
  department:'QMS',pilot:PILOT_FORMATS.find(p=>p.name.toUpperCase()===name)
 }))
-const ZIP_URL='https://raw.githubusercontent.com/shafayhsn/nizamia-app2A/feature/production-formats/QMS%20Excel%20formats.zip'
+// Master workbooks are packaged with the desktop app, not downloaded from GitHub.
+const ZIP_URL=bundledQmsExcelZipUrl
 let cachedZipPromise=null
 async function getZip(){
  if(!cachedZipPromise)cachedZipPromise=fetch(ZIP_URL).then(r=>{
