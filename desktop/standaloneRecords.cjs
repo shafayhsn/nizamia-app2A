@@ -66,10 +66,11 @@ async function listCombinedRecords(directory,table){
  const file=assertFile(directory),SQL=await sql(),db=new SQL.Database(fs.readFileSync(file))
  try{
   if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
-  const local=read(db,table)
+  const local=TABLES.has(table)?read(db,table):[]
   // Imported Supabase business rows are available to the original UI, but
   // remain immutable. Standalone records are stored in a separate table.
   const snapshot=[]
+  if(!/^[a-z][a-z0-9_]{0,63}$/.test(table)||/^(users|permissions|roles|app_database_sync_status|notification_reads|app_task_reads)$/.test(table))throw Error('Unsupported offline business table')
   if(db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_rows'").length){
     const stmt=db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name=? ORDER BY row_index')
     try{

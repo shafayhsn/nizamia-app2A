@@ -8,7 +8,7 @@ const offlineTables = new Set(['orders','tasks','buyers','suppliers','purchase_o
 function offlineQuery(table) {
   let filters=[],sort=null,limit=null,single=false,operation=null,payload=null
   const load=async()=>{
-    if(!offlineTables.has(table))throw Error('This table is not yet available offline')
+    if(!/^[a-z][a-z0-9_]{0,63}$/.test(table))throw Error('Invalid offline table')
     const response=await fetch('/api/offline/records?table='+encodeURIComponent(table))
     const body=await response.json()
     if(!response.ok)throw Error(body.error||'Offline database read failed')
