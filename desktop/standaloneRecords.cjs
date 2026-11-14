@@ -34,6 +34,14 @@ function assertFile(directory){
 let engine
 async function sql(){if(!engine)engine=initSqlJs({locateFile:()=>require.resolve('sql.js/dist/sql-wasm.wasm').replace('app.asar'+path.sep,'app.asar.unpacked'+path.sep)});return engine}
 function schema(db){db.run("CREATE TABLE IF NOT EXISTS standalone_records (id TEXT PRIMARY KEY, table_name TEXT NOT NULL, fields_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")}
+function assertOrderReference(db,table,fields){
+ if(!['production_daily_entries','purchase_orders','samples','shipments'].includes(table)||!fields.order_id)return
+ const id=String(fields.order_id).trim()
+ if(!id)throw Error('Order reference is required')
+ if(!id.startsWith('local-'))return // Imported order references are read-only and may use non-UUID identifiers.
+ const orders=read(db,'orders')
+ if(!orders.some(row=>row.id===id))throw Error('Linked standalone order does not exist')
+}
 function read(db,table){
  validateTable(table)
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='standalone_records'").length)return []
@@ -64,6 +72,7 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
   try{
    if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
    schema(db)
+   if(action!=='delete')assertOrderReference(db,table,fields)
    const stamp=new Date().toISOString()
    if(action==='create'){
     id='local-'+crypto.randomUUID()

@@ -26,7 +26,8 @@ function normalizeForm(table,input){
    result[key]=number
   }else{
    if(typeof value!=='string'||value.length>4000)throw Error('Invalid '+label)
-   if(type==='date'&&!/^\\d{4}-\\d{2}-\\d{2}$/.test(value))throw Error('Invalid '+label)
+   if(type==='date'&&!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value))throw Error('Invalid '+label)
+   if(type==='date' && !Number.isFinite(Date.parse(value+'T00:00:00Z')))throw Error('Invalid '+label)
    result[key]=value.trim()
   }
  }
