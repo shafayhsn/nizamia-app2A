@@ -237,11 +237,17 @@ jobs:
       - name: Test signed offline enrollment proof verification
         working-directory: desktop
         run: node offlineEnrollmentProof.test.cjs
+      - name: Verify original offline desktop release inputs
+        working-directory: desktop
+        run: node releaseInputs.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run dist:mac
+      - name: Verify DMG artifact exists and is nonempty
+        run: |
+          test -n "$(find desktop/release -maxdepth 1 -name '*.dmg' -size +1M -print -quit)"
       - name: Upload unsigned Intel Mac DMG
         uses: actions/upload-artifact@v7
         with:
