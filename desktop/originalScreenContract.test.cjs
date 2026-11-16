@@ -27,4 +27,6 @@ const formatsSource=fs.readFileSync(path.join(root,'src/pages/ProductionFormats.
 assert.ok(formatsSource.includes("../../QMS Excel formats.zip?url"),'QMS Excel templates must be bundled')
 assert.ok(!formatsSource.includes('raw.githubusercontent.com'),'QMS Excel download must work offline')
 assert.ok(fs.statSync(path.join(root,'QMS Excel formats.zip')).size>1000,'QMS workbook archive missing')
+assert.ok(formatsSource.includes("split.setAttribute('hidden'"),'QMS merged column ranges must support individual visibility')
+assert.ok(formatsSource.includes('const lastRow=Math.max('),'QMS worksheet dimensions must match actual output')
 process.stdout.write('Original Orders, Purchasing, Production, Shipping and Reports offline contract passed.\n')

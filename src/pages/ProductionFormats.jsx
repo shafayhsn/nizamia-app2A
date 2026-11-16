@@ -115,8 +115,20 @@ function customizeSheet(t,date,visible,rows){
  }
  const cols=xChild(sheet.documentElement,'cols')
  for(const col of xChildren(cols,'col')){
-  const n=+col.getAttribute('min')
-  col.setAttribute('hidden',visible.includes(n)?'0':'1')
+  const first=+col.getAttribute('min'),last=+(col.getAttribute('max')||first)
+  if(first===last)col.setAttribute('hidden',visible.includes(first)?'0':'1')
+  else if(Array.from({length:last-first+1},(_,i)=>first+i).every(n=>visible.includes(n)))col.setAttribute('hidden','0')
+  else if(Array.from({length:last-first+1},(_,i)=>first+i).every(n=>!visible.includes(n)))col.setAttribute('hidden','1')
+  else{
+   const parent=col.parentNode
+   for(let n=first;n<=last;n++){
+    const split=col.cloneNode(true)
+    split.setAttribute('min',String(n));split.setAttribute('max',String(n))
+    split.setAttribute('hidden',visible.includes(n)?'0':'1')
+    parent.insertBefore(split,col)
+   }
+   col.remove()
+  }
  }
  const merges=xChild(sheet.documentElement,'mergeCells')
  for(const merge of xChildren(merges,'mergeCell')){
@@ -129,7 +141,10 @@ function customizeSheet(t,date,visible,rows){
   if(v)v.textContent=v.textContent.replace(/DATE:\s*_{3,}/i,'DATE: '+date)
  }
  const dimension=xChild(sheet.documentElement,'dimension')
- if(dimension)dimension.setAttribute('ref',dimension.getAttribute('ref').replace(/\d+$/,String(32+delta)))
+ if(dimension){
+  const lastRow=Math.max(...xChildren(data,'row').map(r=>Number(r.getAttribute('r'))||0))
+  dimension.setAttribute('ref',dimension.getAttribute('ref').replace(/\d+$/,String(lastRow)))
+ }
  return t
 }
 async function buildCustomized(form,date,visible,rows){
