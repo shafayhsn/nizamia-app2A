@@ -77,8 +77,11 @@ async function loadTemplate(form){
  const original=await file.async('arraybuffer')
  const book=await JSZip.loadAsync(original)
  const path='xl/worksheets/sheet1.xml'
- const sheet=xmlParse(await book.file(path).async('string'))
+ const worksheet=book.file(path)
+ if(!worksheet)throw Error('Worksheet is missing from '+form.filename)
+ const sheet=xmlParse(await worksheet.async('string'))
  const data=xChild(sheet.documentElement,'sheetData')
+ if(!data)throw Error('Worksheet data is missing from '+form.filename)
  const header=xChildren(data,'row').find(r=>r.getAttribute('r')==='9')
  if(!header)throw Error('Missing table header in '+form.filename)
  const columns=rowCells(header).filter(c=>cellText(c).trim()).map(c=>({index:colNumber(c.getAttribute('r').replace(/\d/g,'')),label:cellText(c)}))
@@ -91,6 +94,7 @@ function customizeSheet(t,date,visible,rows){
  const count=Math.max(1,Math.min(60,Number(rows)||20))
  const delta=count-entry.length
  const template=entry[0]
+ if(!template)throw Error('Editable row template is missing from the workbook')
  const footer=originalRows.filter(r=>+r.getAttribute('r')>=30)
  for(const row of entry)row.remove()
  for(const row of footer){
