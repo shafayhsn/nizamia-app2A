@@ -41,6 +41,7 @@ jobs:
       - name: Check offline adapter source integrity
         run: |
           node --input-type=module --check < src/lib/supabase.js
+          node src/lib/offlineAdapterContract.test.cjs
           node --check desktop/snapshotReplaceGuard.cjs
           node --check desktop/standaloneRecords.cjs
       - name: Validate production web application build

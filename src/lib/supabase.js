@@ -14,6 +14,8 @@ function offlineQuery(table) {
     if(!response.ok)throw Error(body.error||'Offline database read failed')
     if(!Array.isArray(body.data))throw Error('Invalid offline database response')
     let rows=body.data
+    // Relational selects require joins; returning unjoined rows would silently corrupt screens.
+    if(typeof columns==='string' && columns.includes('('))throw Error('Relational queries are not yet available offline')
     const matches=(r,field,op,value)=>{
       const actual=r[field]
       if(op==='eq')return actual!=null&&value!=null&&(actual===value||String(actual)===String(value))
@@ -73,6 +75,10 @@ function offlineQuery(table) {
         return {data:records,error:null}
       }
       if(operation==='create'&&Array.isArray(payload)&&payload.length>500)throw Error('Maximum 500 records per batch')
+      if(operation==='create'&&!upsert){
+        const values=Array.isArray(payload)?payload:[payload]
+        if(values.some(v=>v&&typeof v==='object'&&Object.hasOwn(v,'id')))throw Error('Offline creates cannot preserve cloud IDs; save was cancelled')
+      }
       if(operation==='create'&&Array.isArray(payload)&&!payload.length)throw Error('Empty insert batch')
       if(operation==='create'&&Array.isArray(payload)&&payload.length>1){
         if(upsert)throw Error('Offline multi-record upsert is unsupported; no records saved')
@@ -89,8 +95,8 @@ function offlineQuery(table) {
         return {data:records,error:null}
       }
 
-      const fields=operation==='create'?(Array.isArray(payload)?payload[0]:payload):operation==='update'?{...payload}:null
-      if(fields){delete fields.id;delete fields._local_only;delete fields._local_updated_at;delete fields._local_edited}
+      const fields=operation==='create'?(Array.isArray(payload)?{...payload[0]}:{...payload}):operation==='update'?{...payload}:null
+      if(fields){delete fields._local_only;delete fields._local_updated_at;delete fields._local_edited}
       const response=await fetch('/api/offline/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:operation,table,id:existing[0]?.id,fields})})
       const result=await response.json()
       if(!response.ok)throw Error(result.error||'Offline save failed')
