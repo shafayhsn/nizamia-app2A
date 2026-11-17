@@ -77,7 +77,9 @@
       "desktopUpdateLaunch.cjs",
       "desktopLocalBackup.cjs",
       "offlineSchemaAlignment.cjs",
-      "offlineSchemaMigration.cjs"
+      "offlineSchemaMigration.cjs",
+      "offlineSchemaStartup.cjs",
+      "schema/public-schema-inventory.json"
     ],
     "mac": {
       "category": "public.app-category.business",
