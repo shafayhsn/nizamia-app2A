@@ -467,7 +467,7 @@ export default function Reports() {
     ws['!margins']={left:0.25,right:0.25,top:0.55,bottom:0.55,header:0.2,footer:0.2}
     XLSX.utils.book_append_sheet(wb,ws,safe(active.title).slice(0,31));XLSX.writeFile(wb,`${filename()}.xlsx`)
   }
-  const print=(outputMode='print')=>{
+  const print=async(outputMode='print')=>{
     if(!active||loading||truncated)return
     const when=reportTimestamp()
     // Explicit A4 page sections: each page owns its header, table heading, and footer.
