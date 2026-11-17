@@ -244,6 +244,9 @@ jobs:
       - name: Test desktop release checker
         working-directory: desktop
         run: node desktopUpdates.test.cjs
+      - name: Test pre-update database backup
+        working-directory: desktop
+        run: node desktopUpdateBackup.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:

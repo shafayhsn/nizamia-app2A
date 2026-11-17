@@ -1,0 +1,20 @@
+'use strict'
+const assert=require('node:assert/strict')
+const fs=require('node:fs')
+const os=require('node:os')
+const path=require('node:path')
+const {backupDatabaseBeforeUpdate}=require('./desktopUpdateBackup.cjs')
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-update-backup-'))
+try{
+ const db=path.join(root,'live'),backup=path.join(root,'backups')
+ fs.mkdirSync(db)
+ const bytes=Buffer.alloc(2048,91)
+ fs.writeFileSync(path.join(db,'nizamia-app2a.sqlite'),bytes)
+ const result=backupDatabaseBeforeUpdate({directory:db,backupRoot:backup})
+ assert.deepEqual(fs.readFileSync(result.file),bytes)
+ assert.deepEqual(fs.readFileSync(path.join(db,'nizamia-app2a.sqlite')),bytes)
+ assert.throws(()=>backupDatabaseBeforeUpdate({directory:db,backupRoot:db}),/outside/)
+ fs.unlinkSync(path.join(db,'nizamia-app2a.sqlite'))
+ assert.throws(()=>backupDatabaseBeforeUpdate({directory:db,backupRoot:backup}),/ENOENT/)
+ console.log('Desktop pre-update database backup tests passed')
+}finally{fs.rmSync(root,{recursive:true,force:true})}
