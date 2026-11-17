@@ -138,6 +138,34 @@ function OrderWindowTrayEntry({ id, title, active, onRestore, onClose }) {
   return null
 }
 
+// Desktop-only visibility: never describe unsynced local edits as uploaded.
+function DesktopLocalStatus({ pathname }) {
+  const [status,setStatus]=useState(null)
+  const [error,setError]=useState('')
+  const [refresh,setRefresh]=useState(0)
+  useEffect(()=>{
+    let active=true
+    const read=async()=>{
+      try{
+        const response=await fetch('/api/offline/pending-status',{cache:'no-store'})
+        const result=await response.json()
+        if(!response.ok)throw Error(result.error||'Local status unavailable')
+        if(active){setStatus(result.data);setError('')}
+      }catch(e){if(active){setStatus(null);setError(e.message)}}
+    }
+    read()
+    const onFocus=()=>setRefresh(v=>v+1)
+    window.addEventListener('focus',onFocus)
+    return ()=>{active=false;window.removeEventListener('focus',onFocus)}
+  },[pathname,refresh])
+  return <div role="status" aria-live="polite" style={{padding:'5px 14px',fontSize:11,background:'#f8fafc',borderBottom:'1px solid #e2e8f0',color:'#475569'}}>
+    {error?'Offline database status unavailable: '+error:status?
+      'Desktop local database · '+status.totalUnsyncedLocalChanges+' local records/edits not synchronized · Cloud sync not connected'
+      :'Checking desktop database…'}
+    <button type="button" onClick={()=>setRefresh(v=>v+1)} style={{marginLeft:12,fontSize:11,border:'1px solid #cbd5e1',borderRadius:4,padding:'1px 7px',background:'white',cursor:'pointer'}}>Refresh</button>
+  </div>
+}
+
 export default function Layout() {
   const [deadlinesOpen, setDeadlinesOpen] = useState(false)
   // Each wizard is a separate mounted React instance. Hiding one never replaces its state.
@@ -186,6 +214,7 @@ export default function Layout() {
       <Sidebar onOpenDeadlines={() => setDeadlinesOpen(true)} />
       <div className="app-main-column" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <Topbar onOpenDeadlines={() => setDeadlinesOpen(true)} />
+        {typeof window !== 'undefined' && window.location.protocol === 'app2a:' && <DesktopLocalStatus pathname={loc.pathname} />}
         <main className="app-main-area" style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
           <Suspense fallback={<div role="status" style={{ padding: 24, fontSize: 12, color: "#64748b" }}>Loading page…</div>}>
             <div style={{display: (base === '/orders' || base === '/buyers' || base === '/suppliers' || base === '/library' || base === '/sampling' || base === '/purchasing' || base === '/parcels' || base === '/shipping') && can(userRole, base.slice(1), 'view') ? 'none' : 'contents'}}><Outlet /></div>
