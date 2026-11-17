@@ -279,17 +279,33 @@ app.whenReady().then(() => {
       { label: 'Open Cloud App', click: createWindow },
       { type:'separator' },
       { label: 'Check for App Updates…', click: async()=>{
-        const {checkForDesktopRelease}=require('./desktopUpdates.cjs')
+        const {checkForDesktopRelease,downloadVerifiedInstaller}=require('./desktopUpdates.cjs')
+        const owner=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows()[0]
         try{
           const result=await checkForDesktopRelease({currentVersion:app.getVersion()})
           if(result.status==='newer'){
-            const answer=await dialog.showMessageBox({type:'info',title:'Nizamia App-2A updates',message:'Version '+result.version+' is available',detail:'Installed version: '+app.getVersion()+'\\n\\nThis installer is downloaded from the official release page. Automatic installation will be enabled after Apple signing and a verified update feed are configured. Local data is not replaced by downloading an installer.',buttons:['Open Official Release','Later'],defaultId:0,cancelId:1})
-            if(answer.response===0)await shell.openExternal(result.url)
+            const asset=result.asset
+            const detail='Installed: '+app.getVersion()+'\\nAvailable: '+result.version+'\\n\\n'+(asset?'Verified installer available ('+Math.round(asset.size/1048576)+' MB).':'No SHA-256-verified macOS installer is attached to this release.')
+            const answer=await dialog.showMessageBox(owner,{type:'info',title:'Nizamia App-2A updates',message:'New desktop version available',detail,buttons:asset?['Download Verified DMG','Open Release Page','Later']:['Open Release Page','Later'],defaultId:0,cancelId:asset?2:1})
+            if(asset&&answer.response===0){
+              const target=await dialog.showSaveDialog(owner,{title:'Save Nizamia App-2A update',defaultPath:path.join(app.getPath('downloads'),asset.name),buttonLabel:'Download',filters:[{name:'Mac Installer',extensions:['dmg']}]})
+              if(target.canceled||!target.filePath)return
+              const progress=new BrowserWindow({parent:owner,modal:true,width:410,height:170,resizable:false,minimizable:false,maximizable:false,title:'Downloading App Update',webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}})
+              progress.setMenuBarVisibility(false)
+              progress.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent('<body style="font:14px system-ui;padding:20px"><strong>Downloading verified update…</strong><p>Keep this window open. The downloaded installer will be checked before use.</p></body>'))
+              try{
+                await downloadVerifiedInstaller({asset,destination:target.filePath})
+                progress.close()
+                const ready=await dialog.showMessageBox(owner,{type:'info',title:'Update downloaded',message:'Installer downloaded and SHA-256 verified',detail:'File: '+target.filePath+'\\n\\nThe installer can now be opened. Automatic replacement is not enabled for unsigned builds. Your local database is not modified.',buttons:['Open DMG','Show in Finder','Later'],defaultId:0,cancelId:2})
+                if(ready.response===0)await shell.openPath(target.filePath)
+                else if(ready.response===1)shell.showItemInFolder(target.filePath)
+              }catch(error){progress.close();throw error}
+            }else if(answer.response===(asset?1:0))await shell.openExternal(result.url)
           }else{
-            const answer=await dialog.showMessageBox({type:'info',title:'Nizamia App-2A updates',message:result.status==='current'?'You have the latest published release':'No signed desktop release is published yet',detail:'Installed version: '+app.getVersion()+'\\n\\nGitHub Actions test DMGs are not automatic updates. This checker will identify newer published versions once signed releases are available.',buttons:['OK','View Test Builds'],defaultId:0,cancelId:0})
+            const answer=await dialog.showMessageBox(owner,{type:'info',title:'Nizamia App-2A updates',message:result.status==='current'?'No newer published release':'No published desktop release yet',detail:'Installed: '+app.getVersion()+'\\n\\nTest builds from GitHub Actions are separate from published update releases.',buttons:['OK','View Test Builds'],defaultId:0,cancelId:0})
             if(answer.response===1)await shell.openExternal('https://github.com/shafayhsn/nizamia-app2A/actions/workflows/desktop-mac-intel.yml')
           }
-        }catch(error){await dialog.showMessageBox({type:'warning',title:'Update check unavailable',message:'Could not check for desktop updates',detail:error.message+'\\n\\nYour offline app and local data remain available.',buttons:['OK']})}
+        }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Update check failed',message:'The update could not be downloaded or verified',detail:error.message+'\\n\\nYour installed app and local database have not been changed.',buttons:['OK']})}
       } }
     ] },
     { label: 'View', submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }] },

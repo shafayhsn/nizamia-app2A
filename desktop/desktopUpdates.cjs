@@ -32,6 +32,52 @@ async function checkForDesktopRelease({currentVersion,fetchRelease=fetchLatestRe
  const version=String(release.tag_name||'').replace(/^v/i,'')
  const url=String(release.html_url||'')
  if(!parseVersion(version)||!url.startsWith('https://github.com/shafayhsn/nizamia-app2A/releases/'))return {status:'unpublished'}
- return isNewer(version,currentVersion)?{status:'newer',version,url}:{status:'current',version,url}
+ return isNewer(version,currentVersion)?{status:'newer',version,url,asset:trustedAsset(release)}:{status:'current',version,url}
 }
-module.exports={checkForDesktopRelease,isNewer,parseVersion}
+
+const fs=require('node:fs')
+const path=require('node:path')
+const crypto=require('node:crypto')
+const {pipeline}=require('node:stream/promises')
+const {Transform}=require('node:stream')
+const MAX_INSTALLER_BYTES=800*1024*1024
+function trustedAsset(release){
+ const asset=(release.assets||[]).find(a=>typeof a.name==='string'&&/^Nizamia.*\\.dmg$/i.test(a.name)&&/^sha256:[a-f0-9]{64}$/i.test(a.digest||'')&&a.size>1000000&&a.size<MAX_INSTALLER_BYTES&&/^https:\\/\\/github\\.com\\/shafayhsn\\/nizamia-app2A\\/releases\\/download\\//.test(a.browser_download_url||''))
+ return asset?{name:asset.name,url:asset.browser_download_url,digest:asset.digest.slice(7).toLowerCase(),size:asset.size}:null
+}
+function requestInstaller(url,redirects=0){
+ return new Promise((resolve,reject)=>{
+  const parsed=new URL(url)
+  if(parsed.protocol!=='https:'||!['github.com','release-assets.githubusercontent.com','objects.githubusercontent.com'].includes(parsed.hostname))return reject(new Error('Untrusted installer download host'))
+  const req=https.get(parsed,{headers:{'User-Agent':'Nizamia-App2A-Desktop','Accept':'application/octet-stream'},timeout:30000},res=>{
+   if([301,302,303,307,308].includes(res.statusCode)){
+    res.resume()
+    if(redirects>=5||!res.headers.location)return reject(new Error('Too many update redirects'))
+    try{resolve(requestInstaller(new URL(res.headers.location,parsed).toString(),redirects+1))}catch(error){reject(error)}
+    return
+   }
+   if(res.statusCode!==200){res.resume();reject(new Error('Download server returned '+res.statusCode));return}
+   resolve(res)
+  })
+  req.on('timeout',()=>req.destroy(new Error('Update download timed out')))
+  req.on('error',reject)
+ })
+}
+async function downloadVerifiedInstaller({asset,destination,requestStream=requestInstaller}){
+ if(!asset||!/^Nizamia.*\\.dmg$/i.test(asset.name)||!/^https:\\/\\/github\\.com\\/shafayhsn\\/nizamia-app2A\\/releases\\/download\\//.test(asset.url)||!/^([a-f0-9]{64})$/.test(asset.digest)||!Number.isSafeInteger(asset.size)||asset.size<1000000||asset.size>MAX_INSTALLER_BYTES)throw Error('Release is missing a trusted SHA-256 installer')
+ const dest=path.resolve(destination)
+ if(path.extname(dest).toLowerCase()!=='.dmg')throw Error('Choose a .dmg destination')
+ const temp=dest+'.partial'
+ let bytes=0
+ const hash=crypto.createHash('sha256')
+ try{
+  const response=await requestStream(asset.url)
+  const check=new Transform({transform(chunk,enc,cb){bytes+=chunk.length;if(bytes>asset.size){cb(new Error('Installer exceeds declared size'));return}hash.update(chunk);cb(null,chunk)}})
+  await pipeline(response,check,fs.createWriteStream(temp,{flags:'wx',mode:0o600}))
+  if(bytes!==asset.size||hash.digest('hex')!==asset.digest){throw Error('Installer SHA-256 verification failed')}
+  fs.renameSync(temp,dest)
+  return dest
+ }catch(error){try{fs.unlinkSync(temp)}catch{};throw error}
+}
+
+module.exports={checkForDesktopRelease,isNewer,parseVersion,trustedAsset,downloadVerifiedInstaller}
