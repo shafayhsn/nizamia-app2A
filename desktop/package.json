@@ -70,7 +70,8 @@
       "offlineOms.cjs",
       "desktopUpdates.cjs",
       "desktopUpdateBackup.cjs",
-      "desktopInstallGuard.cjs"
+      "desktopInstallGuard.cjs",
+      "desktopDmgPreflight.cjs"
     ],
     "mac": {
       "category": "public.app-category.business",

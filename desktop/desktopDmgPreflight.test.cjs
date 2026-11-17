@@ -1,0 +1,20 @@
+'use strict'
+const assert=require('node:assert/strict')
+const fs=require('node:fs')
+const os=require('node:os')
+const path=require('node:path')
+const {validateMountedBundle}=require('./desktopDmgPreflight.cjs')
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-preflight-'))
+try{
+ assert.throws(()=>validateMountedBundle({mountPath:root,version:'0.1.3'}),/not found/)
+ const app=path.join(root,'Nizamia App-2A.app')
+ fs.mkdirSync(path.join(app,'Contents','MacOS'),{recursive:true})
+ fs.writeFileSync(path.join(app,'Contents','Info.plist'),'test')
+ fs.writeFileSync(path.join(app,'Contents','MacOS','Nizamia App-2A'),'test')
+ assert.equal(validateMountedBundle({mountPath:root,version:'0.1.3'}).app,app)
+ assert.throws(()=>validateMountedBundle({mountPath:root,version:'bad'}),/version/)
+ fs.rmSync(app,{recursive:true})
+ fs.symlinkSync(root,app)
+ assert.throws(()=>validateMountedBundle({mountPath:root,version:'0.1.3'}),/bundle/)
+ console.log('DMG preflight bundle validation tests passed')
+}finally{fs.rmSync(root,{recursive:true,force:true})}

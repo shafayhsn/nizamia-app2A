@@ -250,6 +250,9 @@ jobs:
       - name: Test Mac installer target safety
         working-directory: desktop
         run: node desktopInstallGuard.test.cjs
+      - name: Test DMG preflight validation
+        working-directory: desktop
+        run: node desktopDmgPreflight.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
