@@ -29,4 +29,8 @@ assert.ok(!formatsSource.includes('raw.githubusercontent.com'),'QMS Excel downlo
 assert.ok(fs.statSync(path.join(root,'QMS Excel formats.zip')).size>1000,'QMS workbook archive missing')
 assert.ok(formatsSource.includes("split.setAttribute('hidden'"),'QMS merged column ranges must support individual visibility')
 assert.ok(formatsSource.includes('const lastRow=Math.max('),'QMS worksheet dimensions must match actual output')
+assert.ok(adapter.includes('channel:offlineChannel'),'Offline realtime channel compatibility missing')
+assert.ok(adapter.includes('removeChannel:async'),'Offline realtime cleanup compatibility missing')
+assert.ok(main.includes('desktopAuth=createDesktopSession()'),'Desktop should not force a new local login')
+assert.ok(main.includes('isAuthenticated:()=>true'),'Local desktop session must work without new credentials')
 process.stdout.write('Original Orders, Purchasing, Production, Shipping and Reports offline contract passed.\n')

@@ -133,7 +133,13 @@ function offlineQuery(table) {
   }
   return query
 }
-const offlineClient={from:offlineQuery}
+// Realtime subscriptions require a server. Offline screens receive a compatible inert channel;
+// local edits are immediately persisted through the SQLite adapter.
+function offlineChannel(){
+ const channel={on:()=>channel,subscribe:(callback)=>{if(typeof callback==='function')queueMicrotask(()=>callback('SUBSCRIBED'));return channel},unsubscribe:async()=> 'ok',send:async()=> 'ok',track:async()=> 'ok',untrack:async()=> 'ok',presenceState:()=>({})}
+ return channel
+}
+const offlineClient={from:offlineQuery,channel:offlineChannel,removeChannel:async()=> 'ok',removeAllChannels:async()=>[],getChannels:()=>[]}
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 export const supabase = isMacOffline ? offlineClient : (supabaseUrl && supabaseAnonKey)

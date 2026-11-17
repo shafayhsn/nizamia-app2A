@@ -6,7 +6,9 @@ const { importBackup } = require('./snapshotImport.cjs')
 const { inspectSnapshot } = require('./snapshotInspect.cjs')
 const { showLocalSnapshot } = require('./snapshotViewer.cjs')
 const fs = require('node:fs')
-const {createLocalAuth}=require('./localDesktopAuth.cjs')
+// Standalone mode runs under the current macOS user; no second application account is required.
+const localDesktopUser={id:'desktop-owner',username:'Desktop',displayName:'Desktop',role:'admin',is_active:true,permissions:null}
+const createDesktopSession=()=>({isAuthenticated:()=>true,status:()=>({setupRequired:false,user:localDesktopUser}),login:()=>({setupRequired:false,user:localDesktopUser}),setup:()=>({setupRequired:false,user:localDesktopUser}),logout:()=>({setupRequired:false,user:localDesktopUser})})
 let desktopAuth
 const { snapshotReady } = require('./snapshotStartup.cjs')
 
@@ -42,7 +44,7 @@ async function startDesktop() {
       await initializeDatabase(directory)
     }
     if (!await snapshotReady(directory)) throw new Error('Local SQLite database could not be verified')
-    desktopAuth=createLocalAuth(app.getPath('userData'))
+    desktopAuth=createDesktopSession()
     if(fs.existsSync(path.join(process.resourcesPath,'web','index.html')))openBundledWebApp()
     else showLocalSnapshot(null,getDatabaseDirectory)
   } catch(error) {
