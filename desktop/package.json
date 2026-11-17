@@ -75,7 +75,8 @@
       "desktopReplaceRollback.cjs",
       "desktopMacUpdateHelper.sh",
       "desktopUpdateLaunch.cjs",
-      "desktopLocalBackup.cjs"
+      "desktopLocalBackup.cjs",
+      "offlineSchemaAlignment.cjs"
     ],
     "mac": {
       "category": "public.app-category.business",
