@@ -41,13 +41,24 @@ function createOfflineSyncClient({endpoint,fetchImpl,maxResponseBytes=65536}){
    if(!parsed||!Array.isArray(parsed.results)||parsed.results.length!==drafts.length)
     throw Error('Malformed synchronization response')
    const expected=new Set(drafts.map(d=>d.draftId)),received=new Set()
+   const decisions=new Set(['applied','already-applied','conflict','blocked','error'])
+   const clean=[]
    for(const result of parsed.results){
-    if(!result||typeof result.draftId!=='string'||!expected.has(result.draftId)||
-       received.has(result.draftId)||!['applied','already-applied','conflict','blocked','error'].includes(result.decision))
+    if(!result||typeof result!=='object'||Array.isArray(result)||
+       typeof result.draftId!=='string'||!expected.has(result.draftId)||
+       received.has(result.draftId)||!decisions.has(result.decision)||
+       (result.reason!==undefined&&(typeof result.reason!=='string'||result.reason.length>240)))
      throw Error('Untrusted synchronization response')
+    // Accept only the documented result fields. Never pass arbitrary server
+    // metadata into the durable local journal.
     received.add(result.draftId)
+    clean.push(Object.freeze({
+     draftId:result.draftId,
+     decision:result.decision,
+     ...(typeof result.reason==='string'?{reason:result.reason}:{})
+    }))
    }
-   return Object.freeze({results:parsed.results.map(result=>Object.freeze({...result}))})
+   return Object.freeze({results:Object.freeze(clean)})
   }finally{clearTimeout(timeout);busy=false}
  }
  return Object.freeze({submit})

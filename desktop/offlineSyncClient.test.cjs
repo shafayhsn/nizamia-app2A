@@ -32,6 +32,16 @@ async function main(){
    draftId:'other',decision:'applied'
   }]})})})
  await assert.rejects(()=>forged.submit(args),/Untrusted/)
+ const oversizedReason=createOfflineSyncClient({endpoint:'https://app.example.com/api/offline-sync',
+  fetchImpl:async()=>({status:200,headers:{get:()=>null},text:async()=>JSON.stringify({results:[{
+   draftId:draft.draftId,decision:'conflict',reason:'x'.repeat(241)
+  }]})})})
+ await assert.rejects(()=>oversizedReason.submit(args),/Untrusted/)
+ const sanitized=createOfflineSyncClient({endpoint:'https://app.example.com/api/offline-sync',
+  fetchImpl:async()=>({status:200,headers:{get:()=>null},text:async()=>JSON.stringify({results:[{
+   draftId:draft.draftId,decision:'conflict',reason:'changed',unexpected:'never persist'
+  }]})})})
+ assert.deepEqual((await sanitized.submit(args)).results[0],{draftId:draft.draftId,decision:'conflict',reason:'changed'})
  const huge=createOfflineSyncClient({endpoint:'https://app.example.com/api/offline-sync',
   fetchImpl:async()=>({status:200,headers:{get:()=>999999},text:async()=>''})})
  await assert.rejects(()=>huge.submit(args),/too large/)
