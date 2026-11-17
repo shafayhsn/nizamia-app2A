@@ -67,6 +67,7 @@ jobs:
           node desktopUpdates.test.cjs
           node standaloneRecords.test.cjs
           node offlineSyncPlannerSafety.test.cjs
+          node offlineCoverageReadiness.test.cjs
           node snapshotReplaceGuard.test.cjs
           node snapshotStartup.test.cjs
           node release-guardrails.test.cjs
