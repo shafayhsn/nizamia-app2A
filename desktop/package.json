@@ -76,7 +76,8 @@
       "desktopMacUpdateHelper.sh",
       "desktopUpdateLaunch.cjs",
       "desktopLocalBackup.cjs",
-      "offlineSchemaAlignment.cjs"
+      "offlineSchemaAlignment.cjs",
+      "offlineSchemaMigration.cjs"
     ],
     "mac": {
       "category": "public.app-category.business",
