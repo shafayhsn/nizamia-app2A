@@ -10,7 +10,7 @@ function backupDatabaseBeforeUpdate({directory,backupRoot}){
  const stat=fs.lstatSync(source)
  if(!stat.isFile()||stat.isSymbolicLink()||stat.size<100)throw Error('Local database is not a regular nonempty file')
  const backupDir=path.resolve(backupRoot)
- if(backupDir===path.dirname(source)||backupDir.startsWith(path.dirname(source)+path.sep))throw Error('Backup must be outside the live database folder')
+ if(backupDir===path.dirname(source)||backupDir.startsWith(path.dirname(source)+path.sep)||path.dirname(source).startsWith(backupDir+path.sep))throw Error('Backup must be outside the live database folder')
  fs.mkdirSync(backupDir,{recursive:true,mode:0o700})
  const bytes=fs.readFileSync(source)
  const digest=sha256(bytes)
