@@ -66,6 +66,7 @@ jobs:
           node --check main.cjs
           node desktopUpdates.test.cjs
           node standaloneRecords.test.cjs
+          node offlineSyncPlannerSafety.test.cjs
           node snapshotReplaceGuard.test.cjs
           node snapshotStartup.test.cjs
           node release-guardrails.test.cjs
