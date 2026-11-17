@@ -42,6 +42,14 @@ async function startDesktop() {
       await initializeDatabase(directory)
     }
     if (!await snapshotReady(directory)) throw new Error('Local SQLite database could not be verified')
+    // Align only explicitly reviewed business tables, after SQLite verification.
+    // The migration creates a verified pre-change backup and never drops columns.
+    const alignment=await require('./offlineSchemaStartup.cjs').migrateReviewedLocalSchema(directory)
+    if(alignment.status==='review-required') {
+      console.warn('Local schema needs manual review; existing database preserved:',alignment.issues)
+    } else if(alignment.status==='updated' && !await snapshotReady(directory)) {
+      throw new Error('Migrated local SQLite database failed startup verification; pre-change backup retained')
+    }
     desktopAuth=createLocalAuth(app.getPath('userData'))
     if(fs.existsSync(path.join(process.resourcesPath,'web','index.html')))openBundledWebApp()
     else showLocalSnapshot(null,getDatabaseDirectory)
