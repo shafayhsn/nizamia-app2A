@@ -11,7 +11,7 @@ try{
  fs.mkdirSync(path.join(app,'Contents','MacOS'),{recursive:true})
  fs.writeFileSync(path.join(app,'Contents','Info.plist'),'test')
  fs.writeFileSync(path.join(app,'Contents','MacOS','Nizamia App-2A'),'test')
- assert.equal(validateMountedBundle({mountPath:root,version:'0.1.3'}).app,app)
+ assert.equal(validateMountedBundle({mountPath:root,version:'0.1.3'}).app,fs.realpathSync(app))
  assert.throws(()=>validateMountedBundle({mountPath:root,version:'bad'}),/version/)
  fs.rmSync(app,{recursive:true})
  fs.symlinkSync(root,app)
