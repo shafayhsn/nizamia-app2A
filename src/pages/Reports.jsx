@@ -624,7 +624,15 @@ export default function Reports() {
     </style></head><body>${pageHTML}</body></html>`
     if(outputMode==='pdf'){
       const popup=window.open('','_blank')
-      if(!popup){window.alert('Please allow pop-ups to download the PDF.');return}
+      if(!popup){
+        if(location.protocol==='app2a:'){
+          const frame=document.createElement('iframe');frame.style.cssText='position:fixed;width:1px;height:1px;opacity:0;pointer-events:none';document.body.appendChild(frame)
+          frame.contentDocument.open();frame.contentDocument.write(fullHTML);frame.contentDocument.close()
+          setTimeout(()=>{try{frame.contentWindow.focus();frame.contentWindow.print()}finally{setTimeout(()=>frame.remove(),30000)}},250)
+          return
+        }
+        window.alert('Please allow pop-ups to download the PDF.');return
+      }
       // Electron's offline PDF workflow uses the native macOS Print > Save as PDF.
       // The former CDN-loaded PDF generator failed without an internet connection.
       const offlinePdf = typeof location !== 'undefined' && location.protocol === 'app2a:'
