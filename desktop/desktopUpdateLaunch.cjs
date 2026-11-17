@@ -27,9 +27,16 @@ async function stageMacUpdate({appPath,resourcesPath,dmgPath,version,asset,userD
  const token=crypto.randomBytes(20).toString('hex')
  const pending=path.join(userData,'desktop-update-pending.json')
  const ready=path.join(userData,'desktop-update-ready.txt')
- fs.writeFileSync(pending,JSON.stringify({version,token}),{flag:'wx',mode:0o600})
+ // A previous interrupted attempt may leave a pending marker; it is safe to
+ // supersede it only before launching the new helper. Each attempt uses a fresh token.
+ const pendingTemp=pending+'.'+crypto.randomBytes(8).toString('hex')
+ fs.writeFileSync(pendingTemp,JSON.stringify({version,token}),{flag:'wx',mode:0o600})
+ fs.renameSync(pendingTemp,pending)
  try{fs.unlinkSync(ready)}catch(error){if(error.code!=='ENOENT')throw error}
- const child=launch('/bin/bash',[helper,dmgPath,target.appPath,version,digest,String(pid),ready,token],{detached:true,stdio:'ignore',env:{HOME:require('node:os').homedir(),PATH:'/usr/bin:/bin:/usr/sbin:/sbin'}})
+ const logPath=path.join(folder,'latest-install.log')
+ const logFd=fs.openSync(logPath,'a',0o600)
+ let child
+ try{child=launch('/bin/bash',[helper,dmgPath,target.appPath,version,digest,String(pid),ready,token],{detached:true,stdio:['ignore',logFd,logFd],env:{HOME:require('node:os').homedir(),PATH:'/usr/bin:/bin:/usr/sbin:/sbin'}})}finally{fs.closeSync(logFd)}
  if(!child||!child.pid){try{fs.unlinkSync(pending)}catch{};throw Error('Could not start external update helper')}
  child.unref()
  return {helper,pid:child.pid}

@@ -14,7 +14,7 @@ BUNDLE_ID="com.nizamia.app2a.desktop"
 [[ "$(/usr/bin/shasum -a 256 "$DMG" | /usr/bin/awk '{print $1}')" == "$EXPECTED_SHA" ]] || exit 69
 PARENT="$(/usr/bin/dirname "$TARGET")"
 STAGING="$PARENT/.Nizamia-App-2A-staging-$$"
-ROLLBACK="$PARENT/.Nizamia-App-2A-rollback.app"
+ROLLBACK="$PARENT/.Nizamia-App-2A-rollback-$VERSION-$.app"
 MOUNT="$(/usr/bin/mktemp -d /tmp/app2a-update.XXXXXX)"
 MOUNTED=0
 OLD_MOVED=0
@@ -34,7 +34,7 @@ restore() {
   fi
 }
 trap 'restore; cleanup' EXIT
-[[ ! -e "$ROLLBACK" && ! -e "$STAGING" ]] || exit 70
+[[ ! -e "$ROLLBACK" && ! -e "$STAGING" && -w "$PARENT" ]] || exit 70
 /usr/bin/hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$MOUNT" "$DMG" -quiet
 MOUNTED=1
 SOURCE="$MOUNT/$APP_NAME"
@@ -44,6 +44,7 @@ PLIST="$SOURCE/Contents/Info.plist"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" == "$VERSION" ]] || exit 73
 /usr/bin/ditto "$SOURCE" "$STAGING"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$STAGING/Contents/Info.plist")" == "$BUNDLE_ID" ]] || exit 74
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$STAGING/Contents/Info.plist")" == "$VERSION" ]] || exit 74
 # Wait until the original Electron process has exited. Fail closed after 30s.
 for ((i=0;i<60;i++)); do
   if ! /bin/kill -0 "$APP_PID" 2>/dev/null; then break; fi
