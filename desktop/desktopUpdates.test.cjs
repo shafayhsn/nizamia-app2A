@@ -8,6 +8,12 @@ const fs=require('node:fs');const os=require('node:os');const path=require('node
  assert.equal(isNewer('0.0.9','0.1.0'),false)
  const result=await checkForDesktopRelease({currentVersion:'0.1.0',fetchRelease:async()=>({tag_name:'v0.2.0',html_url:'https://github.com/shafayhsn/nizamia-app2A/releases/tag/v0.2.0'})})
  assert.equal(result.status,'newer')
+ const releases=[{tag_name:'v0.1.1',html_url:'https://github.com/shafayhsn/nizamia-app2A/releases/tag/v0.1.1',prerelease:true},{tag_name:'v0.1.3',html_url:'https://github.com/shafayhsn/nizamia-app2A/releases/tag/v0.1.3',prerelease:true},{tag_name:'v0.1.2',html_url:'https://github.com/shafayhsn/nizamia-app2A/releases/tag/v0.1.2'}]
+ const newest=await checkForDesktopRelease({currentVersion:'0.1.1',fetchRelease:async()=>releases})
+ assert.equal(newest.version,'0.1.3')
+ assert.equal(newest.status,'newer')
+ assert.equal((await checkForDesktopRelease({currentVersion:'0.1.3',fetchRelease:async()=>releases})).status,'current')
+ assert.equal((await checkForDesktopRelease({currentVersion:'0.1.1',fetchRelease:async()=>[{tag_name:'v0.1.4',draft:true,html_url:'https://github.com/shafayhsn/nizamia-app2A/releases/tag/v0.1.4'}]})).status,'unpublished')
  assert.equal((await checkForDesktopRelease({currentVersion:'0.1.0',fetchRelease:async()=>null})).status,'unpublished')
  const payload=Buffer.alloc(1024*1024+2,65)
  const digest=crypto.createHash('sha256').update(payload).digest('hex')
