@@ -1,0 +1,20 @@
+'use strict'
+const assert=require('node:assert/strict')
+const fs=require('node:fs')
+const os=require('node:os')
+const path=require('node:path')
+const {validateMacInstallTarget}=require('./desktopInstallGuard.cjs')
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-install-'))
+try{
+ const app=path.join(root,'Nizamia App-2A.app')
+ const resources=path.join(app,'Contents','Resources')
+ fs.mkdirSync(resources,{recursive:true})
+ fs.writeFileSync(path.join(app,'Contents','Info.plist'),'test')
+ assert.throws(()=>validateMacInstallTarget({appPath:app,resourcesPath:resources,platform:'darwin'}),/approved Applications/)
+ assert.throws(()=>validateMacInstallTarget({appPath:app,resourcesPath:resources,platform:'win32'}),/macOS/)
+ assert.throws(()=>validateMacInstallTarget({appPath:path.join(root,'Other.app'),resourcesPath:resources,platform:'darwin'}),/name/)
+ const symlink=path.join(root,'symlink.app')
+ fs.symlinkSync(app,symlink)
+ assert.throws(()=>validateMacInstallTarget({appPath:symlink,resourcesPath:resources,platform:'darwin'}),/name/)
+ console.log('Mac installer target safety tests passed')
+}finally{fs.rmSync(root,{recursive:true,force:true})}

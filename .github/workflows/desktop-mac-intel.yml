@@ -247,6 +247,9 @@ jobs:
       - name: Test pre-update database backup
         working-directory: desktop
         run: node desktopUpdateBackup.test.cjs
+      - name: Test Mac installer target safety
+        working-directory: desktop
+        run: node desktopInstallGuard.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:

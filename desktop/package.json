@@ -69,7 +69,8 @@
       "localDesktopAuth.cjs",
       "offlineOms.cjs",
       "desktopUpdates.cjs",
-      "desktopUpdateBackup.cjs"
+      "desktopUpdateBackup.cjs",
+      "desktopInstallGuard.cjs"
     ],
     "mac": {
       "category": "public.app-category.business",
