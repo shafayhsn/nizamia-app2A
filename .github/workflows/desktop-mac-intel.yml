@@ -262,6 +262,12 @@ jobs:
       - name: Test updater launch bridge
         working-directory: desktop
         run: node desktopUpdateLaunch.test.cjs
+      - name: Check updater source syntax
+        working-directory: desktop
+        run: |
+          node --check desktopUpdateLaunch.cjs
+          node --check main.cjs
+          bash -n desktopMacUpdateHelper.sh
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:

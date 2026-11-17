@@ -45,6 +45,8 @@ async function startDesktop() {
     desktopAuth=createLocalAuth(app.getPath('userData'))
     if(fs.existsSync(path.join(process.resourcesPath,'web','index.html')))openBundledWebApp()
     else showLocalSnapshot(null,getDatabaseDirectory)
+    // Confirm only after the local database passed startup verification.
+    try{require('./desktopUpdateLaunch.cjs').confirmSuccessfulStartup({userData:app.getPath('userData'),version:app.getVersion()})}catch(error){console.error('Update startup confirmation failed:',error)}
   } catch(error) {
     dialog.showErrorBox('Standalone startup failed',error.message+'\n\nChoose a database folder from the Database menu to recover. The cloud app will not open automatically.')
   }

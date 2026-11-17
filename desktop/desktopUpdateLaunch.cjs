@@ -3,6 +3,7 @@ const fs=require('node:fs')
 const path=require('node:path')
 const crypto=require('node:crypto')
 const {spawn}=require('node:child_process')
+const os=require('node:os')
 const {validateMacInstallTarget}=require('./desktopInstallGuard.cjs')
 const {inspectVerifiedDmg}=require('./desktopDmgPreflight.cjs')
 function verifyDownloadedInstaller({file,asset}){
@@ -23,9 +24,23 @@ async function stageMacUpdate({appPath,resourcesPath,dmgPath,version,asset,userD
  fs.mkdirSync(folder,{recursive:true,mode:0o700})
  const helper=path.join(folder,'install-'+crypto.randomBytes(10).toString('hex')+'.sh')
  fs.writeFileSync(helper,bytes,{flag:'wx',mode:0o700})
- const child=launch('/bin/bash',[helper,dmgPath,target.appPath,version,digest,String(pid)],{detached:true,stdio:'ignore',env:{HOME:require('node:os').homedir(),PATH:'/usr/bin:/bin:/usr/sbin:/sbin'}})
- if(!child||!child.pid)throw Error('Could not start external update helper')
+ const token=crypto.randomBytes(20).toString('hex')
+ const pending=path.join(userData,'desktop-update-pending.json')
+ const ready=path.join(userData,'desktop-update-ready.txt')
+ fs.writeFileSync(pending,JSON.stringify({version,token}),{flag:'wx',mode:0o600})
+ try{fs.unlinkSync(ready)}catch(error){if(error.code!=='ENOENT')throw error}
+ const child=launch('/bin/bash',[helper,dmgPath,target.appPath,version,digest,String(pid),ready,token],{detached:true,stdio:'ignore',env:{HOME:require('node:os').homedir(),PATH:'/usr/bin:/bin:/usr/sbin:/sbin'}})
+ if(!child||!child.pid){try{fs.unlinkSync(pending)}catch{};throw Error('Could not start external update helper')}
  child.unref()
  return {helper,pid:child.pid}
 }
-module.exports={verifyDownloadedInstaller,stageMacUpdate}
+function confirmSuccessfulStartup({userData,version}){
+ const pending=path.join(userData,'desktop-update-pending.json')
+ if(!fs.existsSync(pending))return false
+ const data=JSON.parse(fs.readFileSync(pending,'utf8'))
+ if(data.version!==version||!/^([a-f0-9]{40})$/.test(data.token))return false
+ fs.writeFileSync(path.join(userData,'desktop-update-ready.txt'),data.token,{mode:0o600})
+ fs.unlinkSync(pending)
+ return true
+}
+module.exports={verifyDownloadedInstaller,stageMacUpdate,confirmSuccessfulStartup}
