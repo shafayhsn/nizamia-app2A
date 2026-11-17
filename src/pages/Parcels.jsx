@@ -149,10 +149,10 @@ function ParcelEditModal({parcel,samples,orders,parcels,onClose,onSave,onDispatc
  const [sampleSearch,setSampleSearch]=useState('')
  const set=(key,value)=>setForm(v=>({...v,[key]:value}))
  const setCustom=(i,key,value)=>setForm(v=>({...v,customItems:v.customItems.map((x,j)=>i===j?{...x,[key]:value}:x)}))
+ const orderMap=Object.fromEntries(orders.map(o=>[o.id,o]))
  const taken=new Set(parcels.filter(p=>p.id!==parcel.id).flatMap(p=>(p.items||[]).map(it=>it.sampleId)))
  const choices=samples.filter(x=>!taken.has(x.id) && !form.items.some(it=>it.sampleId===x.id) && String(x.stage||'').toLowerCase()==='ready')
  const matchingChoices=choices.filter(x=>[x.sample_number,orderMap[x.order_id]?.style_number,x.sample_type].join(' ').toLowerCase().includes(sampleSearch.toLowerCase()))
- const orderMap=Object.fromEntries(orders.map(o=>[o.id,o]))
  const submit=async(dispatch=false)=>{
    if(form.trackingUrl&&!validTrackingUrl(form.trackingUrl)){window.alert('Enter a valid http(s) tracking URL.');return}
    if(dispatch&&(!form.courier||!form.trackingNo||!form.dispatchDate)){window.alert('Courier, tracking number and dispatch date are required.');return}
