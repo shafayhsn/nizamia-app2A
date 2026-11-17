@@ -7,10 +7,13 @@ const TABLES=Object.freeze({
  production_daily_entries:'production_daily_entries'
 })
 const FIELDS=new Set(['notes','remarks'])
+const MAX_RETRIES=2
+const retryable=error=>error?.code==='40001'||error?.code==='40P01'
 function createPostgresSyncTransaction({pool}){
  if(!pool||typeof pool.connect!=='function')throw Error('Trusted PostgreSQL pool required')
  return async function transaction(work){
   if(typeof work!=='function')throw Error('Transaction callback required')
+  for(let attempt=0;attempt<=MAX_RETRIES;attempt++){
   const client=await pool.connect()
   let open=false
   try{
@@ -61,8 +64,10 @@ function createPostgresSyncTransaction({pool}){
    return result
   }catch(error){
    if(open){try{await client.query('ROLLBACK')}catch{}}
-   throw error
+   if(!retryable(error)||attempt===MAX_RETRIES)throw error
   }finally{client.release()}
+  }
+  throw Error('Database transaction retry exhausted')
  }
 }
 module.exports={createPostgresSyncTransaction}

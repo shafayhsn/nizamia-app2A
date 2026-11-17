@@ -45,6 +45,25 @@ async function main(){
  await assert.rejects(()=>transaction(async tx=>tx.updateConditional('users','o1',{notes:'old'},{notes:'new'})),/Invalid/)
  assert.equal(rollbacks,1)
  assert.equal(released,4)
+ let retryAttempts=0,retryReleases=0
+ const retryPool={connect:async()=>({
+  query:async sql=>{
+   if(sql.startsWith('BEGIN')&&retryAttempts++<1)throw Object.assign(Error('serialization conflict'),{code:'40001'})
+   return {rows:[],rowCount:0}
+  },release:()=>{retryReleases++}
+ })}
+ assert.equal(await createPostgresSyncTransaction({pool:retryPool})(async()=>42),42)
+ assert.equal(retryAttempts,2)
+ assert.equal(retryReleases,2)
+ let deadlocks=0
+ const deadlockPool={connect:async()=>({
+  query:async sql=>{
+   if(sql.startsWith('BEGIN')){deadlocks++;throw Object.assign(Error('deadlock'),{code:'40P01'})}
+   return {}
+  },release:()=>{}
+ })}
+ await assert.rejects(()=>createPostgresSyncTransaction({pool:deadlockPool})(async()=>1),/deadlock/)
+ assert.equal(deadlocks,3)
  assert.throws(()=>createPostgresSyncTransaction({pool:{}}),/pool/)
  process.stdout.write('PostgreSQL conditional sync integration and rollback tests passed.\n')
 }
