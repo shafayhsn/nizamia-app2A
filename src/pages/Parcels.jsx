@@ -377,7 +377,7 @@ export default function Parcels() {
     if(!parcel.courier||!parcel.trackingNo||!parcel.dispatchDate){
       alert('Courier, tracking number and dispatch date are required.',{title:'Missing Dispatch Details'});return
     }
-    const ok=await patchParcel(parcel.id,{status:'Dispatched'})
+    const ok=await patchParcel(parcel.id,{...parcel,status:'Dispatched'})
     if(ok){
       await supabase.from('parcels').update({dispatched_at:new Date().toISOString()}).eq('id',parcel.id)
       for(const it of parcel.items||[]){
@@ -385,6 +385,7 @@ export default function Parcels() {
       }
       await load()
     }
+    return ok
   }
   async function changeStatus(id,status){
     if(status==='Delivered'||status==='Draft')return
@@ -618,7 +619,7 @@ export default function Parcels() {
           <div style={{display:'flex',justifyContent:'flex-end',gap:8}}><button style={btn} disabled={busy} onClick={()=>setDeliveryOpen(false)}>Cancel</button><button style={{...btn,background:'#dcfce7',color:'#166534',borderColor:'#bbf7d0'}} disabled={busy||!deliveryDate} onClick={confirmDelivered}><CheckCheck size={14}/> Confirm Delivery</button></div>
         </div>
       </div>}
-      {editing&&<ParcelEditModal parcel={editing} samples={samples} orders={orders} parcels={parcels} onClose={()=>setEditing(null)} onSave={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok)setEditing(null)}} onDispatch={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok){await doDispatch({...editing,...patch});setEditing(null)}}}/>}
+      {editing&&<ParcelEditModal parcel={editing} samples={samples} orders={orders} parcels={parcels} onClose={()=>setEditing(null)} onSave={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok)setEditing(null)}} onDispatch={async patch=>{const ok=await doDispatch({...editing,...patch});if(ok)setEditing(null)}}/>}
       {creating && <ParcelBuilderModal poolRows={selectedSamples.length?availableSamples.filter(r=>selectedSamples.includes(r.sampleId)):availableSamples} onClose={() => setCreating(false)} onCreated={createNewParcel} />}
       <Dialogs />
     </div>
