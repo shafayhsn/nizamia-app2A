@@ -285,7 +285,7 @@ app.whenReady().then(() => {
           const result=await checkForDesktopRelease({currentVersion:app.getVersion()})
           if(result.status==='newer'){
             const asset=result.asset
-            const detail='Installed: '+app.getVersion()+'\\nAvailable: '+result.version+'\\n\\n'+(asset?'Verified installer available ('+Math.round(asset.size/1048576)+' MB).':'No SHA-256-verified macOS installer is attached to this release.')
+            const detail='Installed: '+app.getVersion()+'\nAvailable: '+result.version+'\n\n'+(asset?'Verified installer available ('+Math.round(asset.size/1048576)+' MB).':'No SHA-256-verified macOS installer is attached to this release.')
             const answer=await dialog.showMessageBox(owner,{type:'info',title:'Nizamia App-2A updates',message:'New desktop version available',detail,buttons:asset?['Download Verified DMG','Open Release Page','Later']:['Open Release Page','Later'],defaultId:0,cancelId:asset?2:1})
             if(asset&&answer.response===0){
               const target=await dialog.showSaveDialog(owner,{title:'Save Nizamia App-2A update',defaultPath:path.join(app.getPath('downloads'),asset.name),buttonLabel:'Download',filters:[{name:'Mac Installer',extensions:['dmg']}]})
@@ -296,16 +296,16 @@ app.whenReady().then(() => {
               try{
                 await downloadVerifiedInstaller({asset,destination:target.filePath})
                 progress.close()
-                const ready=await dialog.showMessageBox(owner,{type:'info',title:'Update downloaded',message:'Installer downloaded and SHA-256 verified',detail:'File: '+target.filePath+'\\n\\nThe installer can now be opened. Automatic replacement is not enabled for unsigned builds. Your local database is not modified.',buttons:['Open DMG','Show in Finder','Later'],defaultId:0,cancelId:2})
+                const ready=await dialog.showMessageBox(owner,{type:'info',title:'Update downloaded',message:'Installer downloaded and SHA-256 verified',detail:'File: '+target.filePath+'\n\nThe installer can now be opened. Automatic replacement is not enabled for unsigned builds. Your local database is not modified.',buttons:['Open DMG','Show in Finder','Later'],defaultId:0,cancelId:2})
                 if(ready.response===0)await shell.openPath(target.filePath)
                 else if(ready.response===1)shell.showItemInFolder(target.filePath)
               }catch(error){progress.close();throw error}
             }else if(answer.response===(asset?1:0))await shell.openExternal(result.url)
           }else{
-            const answer=await dialog.showMessageBox(owner,{type:'info',title:'Nizamia App-2A updates',message:result.status==='current'?'No newer published release':'No published desktop release yet',detail:'Installed: '+app.getVersion()+'\\n\\nTest builds from GitHub Actions are separate from published update releases.',buttons:['OK','View Test Builds'],defaultId:0,cancelId:0})
+            const answer=await dialog.showMessageBox(owner,{type:'info',title:'Nizamia App-2A updates',message:result.status==='current'?'No newer published release':'No published desktop release yet',detail:'Installed: '+app.getVersion()+'\n\nTest builds from GitHub Actions are separate from published update releases.',buttons:['OK','View Test Builds'],defaultId:0,cancelId:0})
             if(answer.response===1)await shell.openExternal('https://github.com/shafayhsn/nizamia-app2A/actions/workflows/desktop-mac-intel.yml')
           }
-        }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Update check failed',message:'The update could not be downloaded or verified',detail:error.message+'\\n\\nYour installed app and local database have not been changed.',buttons:['OK']})}
+        }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Update check failed',message:'The update could not be downloaded or verified',detail:error.message+'\n\nYour installed app and local database have not been changed.',buttons:['OK']})}
       } }
     ] },
     { label: 'View', submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }] },
