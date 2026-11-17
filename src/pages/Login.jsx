@@ -28,7 +28,7 @@ export default function Login() {
     e.preventDefault()
     const cleanIdentifier = identifier.trim()
     if (!cleanIdentifier || !password) {
-      setError(offlineSetupRequired ? 'Choose a local username and password (12+ characters).' : 'Please enter username/email and password.')
+      setError('Please enter username/email and password.')
       return
     }
 
@@ -74,7 +74,7 @@ export default function Login() {
             <p style={{ margin: '12px 0 24px', color: '#9ca3af', fontSize: 13 }}>{offlineSetupRequired ? 'Create a local account for this Mac. Use a password of at least 12 characters. This account does not access Supabase.' : (location.protocol === 'app2a:' ? 'Sign in to your standalone Mac account.' : 'Login with your Nizamia username or email.')}</p>
 
             <Field label="Email or Username" icon={<UserRound size={15} />}>
-              <input value={identifier} onChange={e => setIdentifier(e.target.value)} placeholder={location.protocol === 'app2a:' ? 'Local username' : 'email@nizamia.com or username'} autoComplete="username" style={inputStyle} />
+              <input value={identifier} onChange={e => setIdentifier(e.target.value)} placeholder="email@nizamia.com or username" autoComplete="username" style={inputStyle} />
             </Field>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
@@ -83,7 +83,7 @@ export default function Login() {
             </div>
             <div style={passwordWrapStyle}>
               <Lock size={15} color="#9ca3af" />
-              <input value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••••••" autoComplete={offlineSetupRequired ? 'new-password' : 'current-password'} type={showPassword ? 'text' : 'password'} style={{ ...inputStyle, border: 0, padding: '0 4px', height: 38, flex: 1 }} />
+              <input value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••••••" autoComplete="current-password" type={showPassword ? 'text' : 'password'} style={{ ...inputStyle, border: 0, padding: '0 4px', height: 38, flex: 1 }} />
               <button type="button" onClick={() => setShowPassword(v => !v)} style={{ border: 0, background: 'transparent', display: 'flex', color: '#9ca3af', cursor: 'pointer', padding: 4 }}>
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
@@ -97,10 +97,10 @@ export default function Login() {
             {error && <div style={{ marginTop: 14, padding: '10px 12px', background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 10, fontSize: 12, fontWeight: 600 }}>{error}</div>}
 
             <button type="submit" disabled={busy} style={{ width: '100%', height: 42, border: 0, borderRadius: 10, background: busy ? '#93a8ff' : '#1746e8', color: '#fff', fontSize: 13, fontWeight: 700, marginTop: 22, cursor: busy ? 'default' : 'pointer', boxShadow: '0 9px 18px rgba(23,70,232,0.22)' }}>
-              {busy ? 'Please wait...' : (offlineSetupRequired ? 'Create Local Account' : 'Log in')}
+              {busy ? 'Please wait...' : 'Log in'}
             </button>
 
-            <div style={{ textAlign: 'center', marginTop: 16, color: '#6b7280', fontSize: 12 }}>{location.protocol === 'app2a:' ? 'Offline-only account. Your online Nizamia login remains separate.' : 'Users are managed inside App-2A User Management.'}</div>
+            <div style={{ textAlign: 'center', marginTop: 16, color: '#6b7280', fontSize: 12 }}>{location.protocol === 'app2a:' ? 'Use your existing Nizamia login. First sign-in on this Mac requires internet.' : 'Users are managed inside App-2A User Management.'}</div>
           </form>
         </section>
       </div>

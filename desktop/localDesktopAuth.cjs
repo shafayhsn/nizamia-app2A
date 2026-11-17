@@ -1,14 +1,30 @@
 'use strict'
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto')
 function createLocalAuth(directory){
- const file=path.join(directory,'desktop-local-account.json')
- let authenticated=false,failures=0,lockedUntil=0
- const read=()=>{if(!fs.existsSync(file))return null;const st=fs.lstatSync(file);if(!st.isFile()||st.isSymbolicLink()||st.size>8192)throw Error('Unsafe local account file');return JSON.parse(fs.readFileSync(file,'utf8'))}
- const profile=(username='Local Operator')=>({id:'desktop-local-operator',username,displayName:username,role:'admin',is_active:true,offline_local_only:true})
- const status=()=>({setupRequired:!read(),authenticated,user:authenticated?profile(read()?.username):null})
- function setup(username,password){if(read())throw Error('Local account already exists');if(typeof username!=='string'||username.trim().length<3||username.length>80||typeof password!=='string'||password.length<12||password.length>256)throw Error('Username must have 3+ characters and password at least 12 characters');const salt=crypto.randomBytes(32);const hash=crypto.scryptSync(password,salt,64);const fd=fs.openSync(file,'wx',0o600);try{fs.writeFileSync(fd,JSON.stringify({version:1,username:username.trim(),salt:salt.toString('hex'),hash:hash.toString('hex')}))}finally{fs.closeSync(fd)};authenticated=true;return {authenticated:true,user:profile(username.trim())}}
- function login(username,password){if(Date.now()<lockedUntil)throw Error('Too many attempts; try again later');const entry=read();if(!entry)throw Error('Set up the local account first');if(typeof username!=='string'||typeof password!=='string'||password.length>256)throw Error('Invalid credentials');const supplied=crypto.scryptSync(password,Buffer.from(entry.salt,'hex'),64);const expected=Buffer.from(entry.hash,'hex');if(username.trim()!==entry.username||expected.length!==supplied.length||!crypto.timingSafeEqual(expected,supplied)){failures++;if(failures>=5){lockedUntil=Date.now()+60000;failures=0}throw Error('Invalid credentials')};failures=0;authenticated=true;return {authenticated:true,user:profile(entry.username)}}
- const logout=()=>{authenticated=false;return status()}
- return {status,setup,login,logout,isAuthenticated:()=>authenticated}
+ const file=path.join(directory,'desktop-web-users.json')
+ let active=null,failures=0,lockedUntil=0
+ function read(){if(!fs.existsSync(file))return [];const st=fs.lstatSync(file);if(!st.isFile()||st.isSymbolicLink()||st.size>262144)throw Error('Unsafe offline account store');const value=JSON.parse(fs.readFileSync(file,'utf8'));return Array.isArray(value)?value:[]}
+ function save(rows){const tmp=file+'.'+crypto.randomBytes(8).toString('hex')+'.tmp';fs.writeFileSync(tmp,JSON.stringify(rows),{mode:0o600,flag:'wx'});fs.renameSync(tmp,file)}
+ const status=()=>({setupRequired:false,authenticated:!!active,user:active})
+ function login(username,password){
+  if(Date.now()<lockedUntil)throw Error('Too many attempts; try again later')
+  if(typeof username!=='string'||typeof password!=='string'||!password||password.length>256)throw Error('Invalid credentials')
+  const entry=read().find(row=>row.identifiers.includes(username.trim().toLowerCase()))
+  if(!entry)throw Error('First sign in online on this computer to enable offline login')
+  const supplied=crypto.scryptSync(password,Buffer.from(entry.salt,'hex'),64),expected=Buffer.from(entry.hash,'hex')
+  if(expected.length!==supplied.length||!crypto.timingSafeEqual(expected,supplied)){if(++failures>=5){lockedUntil=Date.now()+60000;failures=0}throw Error('Invalid credentials')}
+  if(entry.user.is_active===false||entry.user.is_restricted===true)throw Error('Account access denied')
+  failures=0;active=entry.user;return status()
+ }
+ function enroll(identifier,password,user){
+  if(!user||typeof user.id!=='string'||!user.id||!user.role||user.is_active!==true)throw Error('Online identity verification failed')
+  const salt=crypto.randomBytes(32),hash=crypto.scryptSync(password,salt,64)
+  const identifiers=[identifier,user.username,user.email].filter(Boolean).map(v=>String(v).trim().toLowerCase())
+  const rows=read().filter(row=>row.user.id!==user.id)
+  rows.push({user,identifiers:[...new Set(identifiers)],salt:salt.toString('hex'),hash:hash.toString('hex')})
+  save(rows);active=user;failures=0;return status()
+ }
+ const logout=()=>{active=null;return status()}
+ return {status,login,enroll,logout,isAuthenticated:()=>!!active}
 }
 module.exports={createLocalAuth}

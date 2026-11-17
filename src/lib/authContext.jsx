@@ -167,7 +167,7 @@ export function AuthProvider({ children }) {
   }, [refreshUser])
 
   const login = async (identifier, password) => {
-    if(IS_DESKTOP){try{const result=await desktopRequest(offlineSetupRequired?'setup':'login',{username:identifier,password});setUser(result.user);setUserRole(result.user);setOfflineSetupRequired(false);return {user:result.user,error:null}}catch(error){return {user:null,error}}}
+    if(IS_DESKTOP){try{const result=await desktopRequest('login',{username:identifier,password});setUser(result.user);setUserRole(result.user);setOfflineSetupRequired(false);return {user:result.user,error:null}}catch(error){return {user:null,error}}}
     const cleanIdentifier = String(identifier || '').trim()
     const cleanPassword = String(password || '')
     if (!cleanIdentifier || !cleanPassword) return { user: null, error: new Error('Username/email and password are required.') }

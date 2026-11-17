@@ -32,13 +32,18 @@ export default async function handler(req,res){
    const password=String(req.body?.password||'')
    if(!identifier||!password)return err(res,400,'Credentials required')
    const field=identifier.includes('@')?'email':'username'
-   const {data,error}=await db.from('users').select('id,password_hash,is_active,is_restricted').eq(field,identifier).maybeSingle()
+   const {data,error}=await db.from('users').select('id,username,email,role,role_id,password_hash,is_active,is_restricted').eq(field,identifier).maybeSingle()
    if(error||!data||data.is_active===false||data.is_restricted===true)return err(res,401,'Invalid credentials')
    const stored=Buffer.from(String(data.password_hash||''))
    const supplied=Buffer.from(password)
    if(stored.length!==supplied.length||!timingSafeEqual(stored,supplied))return err(res,401,'Invalid credentials')
    const payload=Buffer.from(JSON.stringify({id:data.id,exp:Date.now()+8*60*60*1000})).toString('base64url')
    res.setHeader('Set-Cookie',cookieName+'='+payload+'.'+sign(payload)+'; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=28800')
+   if(req.body?.desktopEnrollment===true){
+     let permissions=null
+     if(data.role!=='admin'&&data.role_id){const {data:rows,error:permissionError}=await db.from('permissions').select('module,can_view,can_create,can_edit,can_delete').eq('role_id',data.role_id);if(permissionError)return err(res,503,'Permissions unavailable');permissions=Object.fromEntries((rows||[]).map(row=>[row.module,{view:!!row.can_view,create:!!row.can_create,edit:!!row.can_edit,delete:!!row.can_delete}]))}
+     return res.json({ok:true,desktopUser:{id:data.id,username:data.username,email:data.email,displayName:data.username||data.email,role:data.role,role_id:data.role_id,is_active:true,permissions}})
+   }
    return res.json({ok:true})
  }
  if(action==='logout'&&req.method==='POST'){

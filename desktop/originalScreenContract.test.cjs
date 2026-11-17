@@ -31,6 +31,6 @@ assert.ok(formatsSource.includes("split.setAttribute('hidden'"),'QMS merged colu
 assert.ok(formatsSource.includes('const lastRow=Math.max('),'QMS worksheet dimensions must match actual output')
 assert.ok(adapter.includes('channel:offlineChannel'),'Offline realtime channel compatibility missing')
 assert.ok(adapter.includes('removeChannel:async'),'Offline realtime cleanup compatibility missing')
-assert.ok(main.includes('desktopAuth=createDesktopSession()'),'Desktop should not force a new local login')
-assert.ok(main.includes('isAuthenticated:()=>true'),'Local desktop session must work without new credentials')
+assert.ok(main.includes('desktopAuth=createLocalAuth('),'Desktop must require verified user login')
+assert.ok(main.includes('desktopEnrollment:true'),'Desktop enrollment must require backend verification')
 process.stdout.write('Original Orders, Purchasing, Production, Shipping and Reports offline contract passed.\n')

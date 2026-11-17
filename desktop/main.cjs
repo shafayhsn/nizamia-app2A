@@ -6,9 +6,7 @@ const { importBackup } = require('./snapshotImport.cjs')
 const { inspectSnapshot } = require('./snapshotInspect.cjs')
 const { showLocalSnapshot } = require('./snapshotViewer.cjs')
 const fs = require('node:fs')
-// Standalone mode runs under the current macOS user; no second application account is required.
-const localDesktopUser={id:'desktop-owner',username:'Desktop',displayName:'Desktop',role:'admin',is_active:true,permissions:null}
-const createDesktopSession=()=>({isAuthenticated:()=>true,status:()=>({setupRequired:false,user:localDesktopUser}),login:()=>({setupRequired:false,user:localDesktopUser}),setup:()=>({setupRequired:false,user:localDesktopUser}),logout:()=>({setupRequired:false,user:localDesktopUser})})
+const {createLocalAuth}=require('./localDesktopAuth.cjs')
 let desktopAuth
 const { snapshotReady } = require('./snapshotStartup.cjs')
 
@@ -44,7 +42,7 @@ async function startDesktop() {
       await initializeDatabase(directory)
     }
     if (!await snapshotReady(directory)) throw new Error('Local SQLite database could not be verified')
-    desktopAuth=createDesktopSession()
+    desktopAuth=createLocalAuth(app.getPath('userData'))
     if(fs.existsSync(path.join(process.resourcesPath,'web','index.html')))openBundledWebApp()
     else showLocalSnapshot(null,getDatabaseDirectory)
   } catch(error) {
@@ -153,7 +151,14 @@ app.whenReady().then(() => {
     if(url.hostname!=='local')return new Response('Not found',{status:404})
     if(url.pathname==='/api/offline/auth'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})
-      try{const raw=await request.text();if(raw.length>2048)return Response.json({error:'Request too large'},{status:413});const input=JSON.parse(raw);if(!desktopAuth)return Response.json({error:'Local account not ready'},{status:503});let data;if(input.action==='status')data=desktopAuth.status();else if(input.action==='setup')data=desktopAuth.setup(input.username,input.password);else if(input.action==='login')data=desktopAuth.login(input.username,input.password);else if(input.action==='logout')data=desktopAuth.logout();else return Response.json({error:'Unknown action'},{status:400});return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
+      try{const raw=await request.text();if(raw.length>2048)return Response.json({error:'Request too large'},{status:413});const input=JSON.parse(raw);if(!desktopAuth)return Response.json({error:'Local account not ready'},{status:503});let data;if(input.action==='status')data=desktopAuth.status();else if(input.action==='login'){
+        try{data=desktopAuth.login(input.username,input.password)}catch(localError){
+          if(!String(localError.message).includes('First sign in online'))throw localError
+          const response=await fetch(APP_URL+'/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'login',identifier:input.username,password:input.password,desktopEnrollment:true}),signal:AbortSignal.timeout(10000)})
+          const verified=await response.json();if(!response.ok||!verified.ok||!verified.desktopUser)throw Error('Online sign-in required before offline access; check your connection or contact admin')
+          data=desktopAuth.enroll(input.username,input.password,verified.desktopUser)
+        }
+      }else if(input.action==='logout')data=desktopAuth.logout();else return Response.json({error:'Unknown action'},{status:400});return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
     }
     // Local-only read bridge for the bundled original React interface.
     // Never expose arbitrary SQL, filesystem paths, or cloud credentials.
