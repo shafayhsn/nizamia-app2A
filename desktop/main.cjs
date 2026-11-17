@@ -305,7 +305,7 @@ app.whenReady().then(() => {
                   const directory=getDatabaseDirectory()
                   if(!directory)throw Error('No local database folder configured')
                   const backup=backupDatabaseBeforeUpdate({directory,backupRoot:path.join(app.getPath('userData'),'Pre-Update Backups')})
-                  await stageMacUpdate({appPath:app.getAppPath().replace(/\\/Contents\\/Resources\\/app\\.asar(?:\\/.*)?$/,''),resourcesPath:process.resourcesPath,dmgPath:target.filePath,version:result.version,asset,userData:app.getPath('userData'),pid:process.pid})
+                  await stageMacUpdate({appPath:path.resolve(process.resourcesPath,'..','..'),resourcesPath:process.resourcesPath,dmgPath:target.filePath,version:result.version,asset,userData:app.getPath('userData'),pid:process.pid})
                   await dialog.showMessageBox(owner,{type:'info',title:'Update started',message:'Verified backup saved; installation will begin when App-2A closes',detail:'Backup: '+backup.file+'\\n\\nThe previous application will be kept for rollback.',buttons:['Close App and Install']})
                   app.quit()
                 }else if(ready.response===1){
