@@ -14,7 +14,7 @@ BUNDLE_ID="com.nizamia.app2a.desktop"
 [[ "$(/usr/bin/shasum -a 256 "$DMG" | /usr/bin/awk '{print $1}')" == "$EXPECTED_SHA" ]] || exit 69
 PARENT="$(/usr/bin/dirname "$TARGET")"
 STAGING="$PARENT/.Nizamia-App-2A-staging-$$"
-ROLLBACK="$PARENT/.Nizamia-App-2A-rollback-$VERSION-$.app"
+ROLLBACK="$PARENT/.Nizamia-App-2A-rollback-$VERSION-$$.app"
 MOUNT="$(/usr/bin/mktemp -d /tmp/app2a-update.XXXXXX)"
 MOUNTED=0
 OLD_MOVED=0
