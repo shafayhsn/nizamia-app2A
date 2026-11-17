@@ -8,6 +8,7 @@ function verifySqlite(bytes){if(bytes.length<100||bytes.subarray(0,16).toString(
 function migrateLocalFile({file,inventory,allowedTables,openDatabase,onProgress=()=>{},fsImpl=fs}){
  if(typeof file!=='string'||!path.isAbsolute(file)||typeof openDatabase!=='function')throw Error('Trusted local file and SQLite opener required');
  const original=fsImpl.readFileSync(file);verifySqlite(original);
+ if(fsImpl.existsSync(file+'.schema-staging'))throw Error('Unresolved schema staging file; manual recovery required');
  const db=openDatabase(original);
  let plan,updated;
  try{
@@ -16,10 +17,18 @@ function migrateLocalFile({file,inventory,allowedTables,openDatabase,onProgress=
   if(!plan.operations.length)return {status:'unchanged',counts:plan.counts};
   applySchema(db,plan,{onProgress});
   updated=Buffer.from(db.export());verifySqlite(updated);
+  const check=openDatabase(updated);
+  try{
+   const integrity=check.exec('PRAGMA integrity_check');
+   if(integrity[0]?.values?.[0]?.[0]!=='ok')throw Error('Exported SQLite integrity check failed');
+   const actual=readLocalTables(check);
+   for(const op of plan.operations){
+    if(!actual[op.table]||(op.column&&!actual[op.table].some(c=>c.name===op.column)))throw Error('Exported SQLite schema verification failed');
+   }
+  }finally{check.close()}
  }finally{db.close()}
  const backup=file+'.schema-backup-'+sha(original).slice(0,16);
  const staging=file+'.schema-staging';
- if(fsImpl.existsSync(staging))throw Error('Unresolved schema staging file; manual recovery required');
  if(fsImpl.existsSync(backup)){
   if(sha(fsImpl.readFileSync(backup))!==sha(original))throw Error('Backup name collision with different contents');
  }else{
