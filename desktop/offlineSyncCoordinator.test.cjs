@@ -43,6 +43,31 @@ async function main(){
   const denied=createOfflineSyncCoordinator({getDirectory:()=>dir,getSession:async()=>session,
    getToken:async()=>'',authenticateSession:async()=>false,client:{submit:async()=>{throw Error('unexpected')}}})
   await assert.rejects(()=>denied.synchronize(),/Authenticated/)
+  // A failed server request must leave a pending draft intact for safe retry.
+  const third=await stageDraft({...base,changes:{notes:'retry after outage'}})
+  const outage=createOfflineSyncCoordinator({getDirectory:()=>dir,getSession:async()=>session,
+   getToken:async()=> 'valid-server-session-token',authenticateSession:async()=>true,
+   client:{submit:async()=>{throw Error('Simulated network outage')}}})
+  await assert.rejects(()=>outage.synchronize(),/Simulated network outage/)
+  let queued=await pendingSyncDrafts({directory:dir,session,authenticateSession:async()=>true})
+  assert.equal(queued.length,1)
+  assert.equal(queued[0].draftId,third.draftId)
+  // A forged/mismatched server response must not acknowledge the queued change.
+  const mismatch=createOfflineSyncCoordinator({getDirectory:()=>dir,getSession:async()=>session,
+   getToken:async()=> 'valid-server-session-token',authenticateSession:async()=>true,
+   client:{submit:async()=>({results:[]})}})
+  await assert.rejects(()=>mismatch.synchronize(),/Invalid trusted sync result/)
+  queued=await pendingSyncDrafts({directory:dir,session,authenticateSession:async()=>true})
+  assert.equal(queued.length,1)
+  // Expiring authorization after the server responds must prevent local acknowledgement.
+  let authChecks=0
+  const expired=createOfflineSyncCoordinator({getDirectory:()=>dir,getSession:async()=>session,
+   getToken:async()=> 'valid-server-session-token',
+   authenticateSession:async()=>++authChecks<4,
+   client:{submit:async()=>({results:[{draftId:third.draftId,decision:'applied'}]})}})
+  await assert.rejects(()=>expired.synchronize(),/expired after sync/)
+  queued=await pendingSyncDrafts({directory:dir,session,authenticateSession:async()=>true})
+  assert.equal(queued.length,1)
   process.stdout.write('Durable offline sync queue integration tests passed.\n')
  }finally{fs.rmSync(dir,{recursive:true,force:true})}
 }
