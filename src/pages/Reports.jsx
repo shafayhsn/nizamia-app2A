@@ -622,6 +622,21 @@ export default function Reports() {
       footer{flex-shrink:0;margin-top:8px;border-top:1px solid #aaa;display:flex;justify-content:space-between;gap:12px;font-size:9px;color:#000;font-weight:600;padding-top:5px}
       @media screen{body{background:#eee}.report-page{background:white;margin:8px auto;box-shadow:0 1px 6px #aaa}}
     </style></head><body>${pageHTML}</body></html>`
+    if(outputMode==='pdf'&&location.protocol==='app2a:'){
+      // The custom app2a scheme does not allow ordinary popup windows in Electron.
+      // Print the complete prepared report in a same-origin hidden iframe instead.
+      const frame=document.createElement('iframe')
+      frame.style.cssText='position:fixed;left:-10000px;top:0;width:1123px;height:794px;border:0'
+      document.body.appendChild(frame)
+      const doc=frame.contentDocument
+      doc.open();doc.write(html);doc.close()
+      setTimeout(()=>{
+        try{frame.contentWindow.focus();frame.contentWindow.print()}
+        catch(error){window.alert('Unable to open the macOS print dialog: '+error.message)}
+        setTimeout(()=>frame.remove(),60000)
+      },500)
+      return
+    }
     if(outputMode==='pdf'){
       const popup=window.open('','_blank')
       if(!popup){

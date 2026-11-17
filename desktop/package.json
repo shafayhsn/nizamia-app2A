@@ -66,7 +66,8 @@
       "offline.html",
       "standaloneRecords.cjs",
       "standaloneForms.cjs",
-      "localDesktopAuth.cjs"
+      "localDesktopAuth.cjs",
+      "offlineOms.cjs"
     ],
     "mac": {
       "category": "public.app-category.business",

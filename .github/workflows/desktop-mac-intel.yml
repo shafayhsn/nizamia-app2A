@@ -60,7 +60,7 @@ jobs:
           test -n "$(find dist/assets -type f -name '*.js' -print -quit)"
       - name: Verify standalone SQLite modules are packaged
         run: |
-          node -e "const p=require('./desktop/package.json');for(const f of ['standaloneRecords.cjs','standaloneForms.cjs']){if(!p.build.files.includes(f))throw Error('Missing packaged module '+f)}"
+          node -e "const p=require('./desktop/package.json');for(const f of ['standaloneRecords.cjs','standaloneForms.cjs','offlineOms.cjs']){if(!p.build.files.includes(f))throw Error('Missing packaged module '+f)}"
           node --check desktop/standaloneRecords.cjs
           node --check desktop/standaloneForms.cjs
       - name: Install desktop dependencies
@@ -70,6 +70,7 @@ jobs:
         working-directory: desktop
         run: |
           node --check main.cjs
+          node --check offlineOms.cjs
           node --check localDatabase.cjs
           node --check snapshotImport.cjs
           node --check snapshotReplaceGuard.cjs
