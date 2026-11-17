@@ -9,7 +9,7 @@ function migrateLocalFile({file,inventory,allowedTables,openDatabase,onProgress=
  if(typeof file!=='string'||!path.isAbsolute(file)||typeof openDatabase!=='function')throw Error('Trusted local file and SQLite opener required');
  const original=fsImpl.readFileSync(file);verifySqlite(original);
  if(fsImpl.existsSync(file+'.schema-staging'))throw Error('Unresolved schema staging file; manual recovery required');
- const db=openDatabase(original);
+ // sql.js may mutate an input buffer while opening the database. Keep the\n // immutable disk bytes intact for the verified pre-migration backup.\n const db=openDatabase(Buffer.from(original));
  let plan,updated;
  try{
   plan=planSchema({inventory,allowedTables,localTables:readLocalTables(db)});
@@ -17,7 +17,7 @@ function migrateLocalFile({file,inventory,allowedTables,openDatabase,onProgress=
   if(!plan.operations.length)return {status:'unchanged',counts:plan.counts};
   applySchema(db,plan,{onProgress});
   updated=Buffer.from(db.export());verifySqlite(updated);
-  const check=openDatabase(updated);
+  const check=openDatabase(Buffer.from(updated));
   try{
    const integrity=check.exec('PRAGMA integrity_check');
    if(integrity[0]?.values?.[0]?.[0]!=='ok')throw Error('Exported SQLite integrity check failed');
