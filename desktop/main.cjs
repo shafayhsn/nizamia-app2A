@@ -199,6 +199,17 @@ app.whenReady().then(() => {
     }
     // Local-only read bridge for the bundled original React interface.
     // Never expose arbitrary SQL, filesystem paths, or cloud credentials.
+    // Read-only local edit inventory. These edits are NOT marked as cloud-synced.
+    if(url.pathname==='/api/offline/pending-status'){
+      if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
+      if(request.method!=='GET')return new Response('Method not allowed',{status:405})
+      try{
+        const directory=getDatabaseDirectory()
+        if(!directory)return Response.json({error:'Local database unavailable'},{status:503})
+        const status=await require('./offlinePendingStatus.cjs').readPendingStatus(directory)
+        return Response.json({data:status,error:null},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:500})}
+    }
     if(url.pathname==='/api/offline/records'){
       if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
       if(request.method!=='GET')return new Response('Method not allowed',{status:405})

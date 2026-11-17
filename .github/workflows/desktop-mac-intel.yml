@@ -71,6 +71,7 @@ jobs:
         run: |
           node --check main.cjs
           node --check offlineOms.cjs
+          node --check offlinePendingStatus.cjs
           node --check localDatabase.cjs
           node --check snapshotImport.cjs
           node --check snapshotReplaceGuard.cjs

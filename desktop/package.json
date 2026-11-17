@@ -79,7 +79,8 @@
       "offlineSchemaAlignment.cjs",
       "offlineSchemaMigration.cjs",
       "offlineSchemaStartup.cjs",
-      "schema/public-schema-inventory.json"
+      "schema/public-schema-inventory.json",
+      "offlinePendingStatus.cjs"
     ],
     "mac": {
       "category": "public.app-category.business",
