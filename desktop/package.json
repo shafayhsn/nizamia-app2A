@@ -1,6 +1,6 @@
 {
   "name": "nizamia-app2a-desktop",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Nizamia App-2A desktop CP-18 SQLite foundation (online app with local metadata database)",
   "main": "main.cjs",
@@ -74,7 +74,8 @@
       "desktopDmgPreflight.cjs",
       "desktopReplaceRollback.cjs",
       "desktopMacUpdateHelper.sh",
-      "desktopUpdateLaunch.cjs"
+      "desktopUpdateLaunch.cjs",
+      "desktopLocalBackup.cjs"
     ],
     "mac": {
       "category": "public.app-category.business",

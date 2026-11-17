@@ -271,6 +271,19 @@ app.whenReady().then(() => {
     { label: 'Database', submenu: [
       { label: 'Choose Database Folder…', click: () => chooseDatabaseFolder(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]) },
       { label: 'Show Database Location', click: () => showDatabaseLocation(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]) },
+      { label: 'Back Up Local Database…', click: async () => {
+        const owner=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows()[0]
+        try {
+          const directory=getDatabaseDirectory()
+          if(!directory)throw Error('Choose a database folder before backing up.')
+          const filename='nizamia-app2a-local-'+new Date().toISOString().replace(/[:.]/g,'-')+'.sqlite'
+          const selection=await dialog.showSaveDialog(owner,{title:'Back Up Local SQLite Database',defaultPath:path.join(app.getPath('documents'),filename),buttonLabel:'Save Verified Backup',filters:[{name:'SQLite Database',extensions:['sqlite']}]})
+          if(selection.canceled||!selection.filePath)return
+          const {backupDatabaseToFile}=require('./desktopLocalBackup.cjs')
+          const result=backupDatabaseToFile({directory,destination:selection.filePath})
+          await dialog.showMessageBox(owner,{type:'info',title:'Local backup complete',message:'SQLite backup saved and verified',detail:'File: '+result.file+'\\nSHA-256: '+result.sha256+'\\n\\nThis backs up the Mac SQLite snapshot, not the Supabase cloud database.',buttons:['OK']})
+        }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Local backup failed',message:'The local backup was not completed',detail:error.message,buttons:['OK']})}
+      } },
       { label: 'Import Read-Only Snapshot…', click: () => importBackup(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },
       { label: 'Verify Local Snapshot…', click: () => inspectSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },
       { label: 'Browse Local Data (Read Only)…', click: openLocalData }

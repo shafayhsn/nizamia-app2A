@@ -268,6 +268,9 @@ jobs:
           node --check desktopUpdateLaunch.cjs
           node --check main.cjs
           bash -n desktopMacUpdateHelper.sh
+      - name: Test local SQLite backup
+        working-directory: desktop
+        run: node desktopLocalBackup.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:

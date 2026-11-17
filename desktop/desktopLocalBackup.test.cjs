@@ -1,0 +1,20 @@
+'use strict'
+const assert=require('node:assert/strict')
+const fs=require('node:fs')
+const os=require('node:os')
+const path=require('node:path')
+const {backupDatabaseToFile}=require('./desktopLocalBackup.cjs')
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-localbackup-'))
+try{
+ const live=path.join(root,'live'),backups=path.join(root,'backups')
+ fs.mkdirSync(live);fs.mkdirSync(backups)
+ const bytes=Buffer.concat([Buffer.from('SQLite format 3\0'),Buffer.alloc(256,2)])
+ fs.writeFileSync(path.join(live,'nizamia-app2a.sqlite'),bytes)
+ const dest=path.join(backups,'saved.sqlite')
+ const result=backupDatabaseToFile({directory:live,destination:dest})
+ assert.equal(result.size,bytes.length)
+ assert.deepEqual(fs.readFileSync(dest),bytes)
+ assert.throws(()=>backupDatabaseToFile({directory:live,destination:dest}),/already exists/)
+ assert.throws(()=>backupDatabaseToFile({directory:live,destination:path.join(live,'copy.sqlite')}),/outside/)
+ console.log('Local backup copy and verification tests passed')
+}finally{fs.rmSync(root,{recursive:true,force:true})}
