@@ -1,0 +1,50 @@
+'use strict'
+const assert=require('node:assert/strict');
+const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const init=require('sql.js');
+const {migrateLocalFile}=require('./offlineSchemaMigration.cjs');
+const {planSchema,readLocalTables}=require('./offlineSchemaAlignment.cjs');
+(async()=>{
+ const SQL=await init({locateFile:f=>require.resolve('sql.js/dist/'+f)});
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-real-sqlite-'));
+ const file=path.join(dir,'nizamia-app2a.sqlite');
+ const inventory={tableCount:1,columnCount:2,tables:[{table_name:'orders',columns:[{name:'id',type:'uuid'},{name:'notes',type:'text'}]}]};
+ const open=bytes=>new SQL.Database(bytes);
+ try{
+  const initial=new SQL.Database();
+  initial.run('CREATE TABLE app_metadata (key TEXT PRIMARY KEY, value TEXT)');
+  initial.run("INSERT INTO app_metadata VALUES ('schema_version','1')");
+  initial.run('CREATE TABLE snapshot_rows (table_name TEXT,row_index INTEGER,row_json TEXT)');
+  initial.run("INSERT INTO snapshot_rows VALUES ('orders',0,'{\"id\":\"order-1\"}')");
+  initial.run('CREATE TABLE offline_draft_journal (id TEXT PRIMARY KEY, content TEXT)');
+  initial.run("INSERT INTO offline_draft_journal VALUES ('draft-1','unsynced')");
+  fs.writeFileSync(file,Buffer.from(initial.export()));initial.close();
+  let result=migrateLocalFile({file,inventory,allowedTables:['orders'],openDatabase:open});
+  assert.equal(result.status,'updated');
+  let db=open(fs.readFileSync(file));
+  assert.equal(db.exec('SELECT COUNT(*) FROM snapshot_rows')[0].values[0][0],1);
+  assert.equal(db.exec('SELECT content FROM offline_draft_journal')[0].values[0][0],'unsynced');
+  assert.equal(readLocalTables(db).offline_orders.length,2);
+  db.run("INSERT INTO offline_orders (id,notes) VALUES ('order-1','test')");
+  fs.writeFileSync(file,Buffer.from(db.export()));db.close();
+  result=migrateLocalFile({file,inventory,allowedTables:['orders'],openDatabase:open});
+  assert.equal(result.status,'unchanged');
+  db=open(fs.readFileSync(file));
+  assert.equal(db.exec('SELECT notes FROM offline_orders')[0].values[0][0],'test');
+  db.close();
+  const extended={tableCount:1,columnCount:3,tables:[{table_name:'orders',columns:[...inventory.tables[0].columns,{name:'pieces',type:'int4'}]}]};
+  result=migrateLocalFile({file,inventory:extended,allowedTables:['orders'],openDatabase:open});
+  assert.equal(result.status,'updated');
+  db=open(fs.readFileSync(file));
+  assert.equal(db.exec('SELECT notes FROM offline_orders')[0].values[0][0],'test');
+  assert.equal(readLocalTables(db).offline_orders.length,3);
+  assert.equal(db.exec('PRAGMA integrity_check')[0].values[0][0],'ok');
+  db.close();
+  const conflicting={tableCount:1,columnCount:3,tables:[{table_name:'orders',columns:[{name:'id',type:'int4'},{name:'notes',type:'text'},{name:'pieces',type:'int4'}]}]};
+  const before=fs.readFileSync(file);
+  result=migrateLocalFile({file,inventory:conflicting,allowedTables:['orders'],openDatabase:open});
+  assert.equal(result.status,'review-required');
+  assert.deepEqual(fs.readFileSync(file),before);
+  console.log('Real sql.js migration integration tests passed: create, add, preserve, idempotence, review');
+ }finally{fs.rmSync(dir,{recursive:true,force:true})}
+})().catch(e=>{console.error(e);process.exitCode=1});
