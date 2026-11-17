@@ -10,7 +10,7 @@ BUNDLE_ID="com.nizamia.app2a.desktop"
 [[ -f "$DMG" && -d "$TARGET" && ! -L "$TARGET" ]] || exit 66
 [[ "$TARGET" == /Applications/"$APP_NAME" || "$TARGET" == "$HOME"/Applications/"$APP_NAME" ]] || exit 67
 # Never update through aliases/symlinked directories.
-[[ "$(/usr/bin/realpath "$TARGET")" == "$TARGET" ]] || exit 68
+[[ "$(cd "$(/usr/bin/dirname "$TARGET")" && /bin/pwd -P)" == "$(/usr/bin/dirname "$TARGET")" ]] || exit 68
 [[ "$(/usr/bin/shasum -a 256 "$DMG" | /usr/bin/awk '{print $1}')" == "$EXPECTED_SHA" ]] || exit 69
 PARENT="$(/usr/bin/dirname "$TARGET")"
 STAGING="$PARENT/.Nizamia-App-2A-staging-$$"
