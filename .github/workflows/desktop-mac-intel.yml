@@ -91,6 +91,11 @@ jobs:
           node --check offlineSessionManager.cjs
           node --check snapshotViewerPreload.cjs
           node --check snapshotViewerRenderer.js
+      - name: Test guarded offline schema alignment
+        working-directory: desktop
+        run: |
+          node --check offlineSchemaAlignment.cjs
+          node offlineSchemaAlignment.test.cjs
       - name: Run offline SQLite smoke tests
         working-directory: desktop
         run: node offline-smoke.test.cjs
