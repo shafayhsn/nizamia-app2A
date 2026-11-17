@@ -1,0 +1,30 @@
+'use strict'
+const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
+const init=require('sql.js')
+const {readPendingStatus}=require('./offlinePendingStatus.cjs')
+async function main(){
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-pending-status-'))
+ try{
+  const SQL=await init({locateFile:f=>require.resolve('sql.js/dist/'+f)})
+  const db=new SQL.Database()
+  db.run('CREATE TABLE standalone_records (id TEXT,table_name TEXT)')
+  db.run("INSERT INTO standalone_records VALUES ('local-1','orders')")
+  db.run('CREATE TABLE snapshot_edits (table_name TEXT,record_id TEXT)')
+  db.run("INSERT INTO snapshot_edits VALUES ('samples','s1')")
+  db.run('CREATE TABLE offline_draft_journal (state TEXT)')
+  db.run("INSERT INTO offline_draft_journal VALUES ('pending')")
+  db.run("INSERT INTO offline_draft_journal VALUES ('conflict')")
+  db.run('CREATE TABLE offline_sync_history (decision TEXT)')
+  db.run("INSERT INTO offline_sync_history VALUES ('applied')")
+  fs.writeFileSync(path.join(dir,'nizamia-app2a.sqlite'),Buffer.from(db.export()));db.close()
+  const result=await readPendingStatus(dir)
+  assert.equal(result.totalUnsyncedLocalChanges,4)
+  assert.deepEqual(result.draftStates,{pending:1,conflict:1})
+  assert.deepEqual(result.syncHistory,{applied:1,alreadyApplied:0,other:0})
+  assert.deepEqual(result.editedByTable,[{table:'samples',rows:1}])
+  assert.deepEqual(result.byTable,[{table:'orders',rows:1}])
+  assert.equal(result.syncConfigured,false)
+  process.stdout.write('Desktop offline pending status SQLite tests passed.\\n')
+ }finally{fs.rmSync(dir,{recursive:true,force:true})}
+}
+main().catch(e=>{console.error(e);process.exitCode=1})

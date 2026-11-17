@@ -23,12 +23,26 @@ async function readPendingStatus(directory){
    for(const [state,total] of result[0]?.values||[])draftStates[state]=total
   }
   const unsyncedDrafts=draftStates.pending+draftStates.conflict
+  const syncHistory={applied:0,alreadyApplied:0,other:0}
+  if(tables.has('offline_sync_history')){
+   const result=db.exec('SELECT decision,COUNT(*) FROM offline_sync_history GROUP BY decision')
+   for(const [decision,total] of result[0]?.values||[]){
+    if(decision==='applied')syncHistory.applied+=total
+    else if(decision==='already-applied')syncHistory.alreadyApplied+=total
+    else syncHistory.other+=total
+   }
+  }
+  const editedByTable=[]
+  if(tables.has('snapshot_edits')){
+   const result=db.exec('SELECT table_name,COUNT(*) FROM snapshot_edits GROUP BY table_name ORDER BY table_name')
+   for(const [table,rows] of result[0]?.values||[])editedByTable.push({table,rows})
+  }
   const grouped=[]
   if(tables.has('standalone_records')){
    const result=db.exec('SELECT table_name,COUNT(*) FROM standalone_records GROUP BY table_name ORDER BY table_name')
    for(const [table,rows] of result[0]?.values||[])grouped.push({table,rows})
   }
-  return {localRecords,editedSnapshots,unsyncedDrafts,draftStates,totalUnsyncedLocalChanges:localRecords+editedSnapshots+unsyncedDrafts,byTable:grouped,syncConfigured:false,syncState:'not-connected',message:'Local changes and pending drafts are saved on this device; automatic cloud synchronization is not connected.'}
+  return {localRecords,editedSnapshots,unsyncedDrafts,draftStates,syncHistory,editedByTable,totalUnsyncedLocalChanges:localRecords+editedSnapshots+unsyncedDrafts,byTable:grouped,syncConfigured:false,syncState:'not-connected',message:'Local changes and pending drafts are saved on this device; automatic cloud synchronization is not connected.'}
  }finally{db.close()}
 }
 module.exports={readPendingStatus}

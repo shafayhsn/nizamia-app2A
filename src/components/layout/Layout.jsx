@@ -160,7 +160,7 @@ function DesktopLocalStatus({ pathname }) {
   },[pathname,refresh])
   return <div role="status" aria-live="polite" style={{padding:'5px 14px',fontSize:11,background:'#f8fafc',borderBottom:'1px solid #e2e8f0',color:'#475569'}}>
     {error?'Offline database status unavailable: '+error:status?
-      'Desktop local database · '+status.totalUnsyncedLocalChanges+' unsynced local items ('+status.unsyncedDrafts+' drafts, '+status.draftStates.conflict+' conflicts) · Cloud sync not connected'
+      'Desktop local database · '+status.totalUnsyncedLocalChanges+' unsynced local items ('+status.unsyncedDrafts+' drafts, '+status.draftStates.conflict+' conflicts) · '+(status.syncHistory.applied+status.syncHistory.alreadyApplied)+' previously archived draft results · Cloud sync not connected'
       :'Checking desktop database…'}
     <button type="button" onClick={()=>setRefresh(v=>v+1)} style={{marginLeft:12,fontSize:11,border:'1px solid #cbd5e1',borderRadius:4,padding:'1px 7px',background:'white',cursor:'pointer'}}>Refresh</button>
   </div>
