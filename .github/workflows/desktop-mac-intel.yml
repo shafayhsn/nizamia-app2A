@@ -253,6 +253,9 @@ jobs:
       - name: Test DMG preflight validation
         working-directory: desktop
         run: node desktopDmgPreflight.test.cjs
+      - name: Test atomic replacement and rollback
+        working-directory: desktop
+        run: node desktopReplaceRollback.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
