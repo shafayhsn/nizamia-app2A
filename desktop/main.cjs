@@ -279,8 +279,17 @@ app.whenReady().then(() => {
       { label: 'Open Cloud App', click: createWindow },
       { type:'separator' },
       { label: 'Check for App Updates…', click: async()=>{
-        const answer=await dialog.showMessageBox({type:'info',title:'Nizamia App-2A updates',message:'Desktop update availability',detail:'This version can open the official build releases. Automatic in-place installation requires a signed update feed and is not enabled yet. Your local database is preserved when replacing the app.',buttons:['View Available Builds','Cancel'],defaultId:0,cancelId:1})
-        if(answer.response===0)await shell.openExternal('https://github.com/shafayhsn/nizamia-app2A/actions/workflows/desktop-mac-intel.yml')
+        const {checkForDesktopRelease}=require('./desktopUpdates.cjs')
+        try{
+          const result=await checkForDesktopRelease({currentVersion:app.getVersion()})
+          if(result.status==='newer'){
+            const answer=await dialog.showMessageBox({type:'info',title:'Nizamia App-2A updates',message:'Version '+result.version+' is available',detail:'Installed version: '+app.getVersion()+'\\n\\nThis installer is downloaded from the official release page. Automatic installation will be enabled after Apple signing and a verified update feed are configured. Local data is not replaced by downloading an installer.',buttons:['Open Official Release','Later'],defaultId:0,cancelId:1})
+            if(answer.response===0)await shell.openExternal(result.url)
+          }else{
+            const answer=await dialog.showMessageBox({type:'info',title:'Nizamia App-2A updates',message:result.status==='current'?'You have the latest published release':'No signed desktop release is published yet',detail:'Installed version: '+app.getVersion()+'\\n\\nGitHub Actions test DMGs are not automatic updates. This checker will identify newer published versions once signed releases are available.',buttons:['OK','View Test Builds'],defaultId:0,cancelId:0})
+            if(answer.response===1)await shell.openExternal('https://github.com/shafayhsn/nizamia-app2A/actions/workflows/desktop-mac-intel.yml')
+          }
+        }catch(error){await dialog.showMessageBox({type:'warning',title:'Update check unavailable',message:'Could not check for desktop updates',detail:error.message+'\\n\\nYour offline app and local data remain available.',buttons:['OK']})}
       } }
     ] },
     { label: 'View', submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }] },

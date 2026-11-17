@@ -67,7 +67,8 @@
       "standaloneRecords.cjs",
       "standaloneForms.cjs",
       "localDesktopAuth.cjs",
-      "offlineOms.cjs"
+      "offlineOms.cjs",
+      "desktopUpdates.cjs"
     ],
     "mac": {
       "category": "public.app-category.business",
