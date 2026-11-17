@@ -17,12 +17,18 @@ async function readPendingStatus(directory){
   const tables=new Set((db.exec("SELECT name FROM sqlite_master WHERE type='table'")[0]?.values||[]).map(x=>x[0]))
   const count=(name)=>tables.has(name)?db.exec('SELECT COUNT(*) FROM "'+name+'"')[0].values[0][0]:0
   const localRecords=count('standalone_records'),editedSnapshots=count('snapshot_edits')
+  const draftStates={pending:0,conflict:0}
+  if(tables.has('offline_draft_journal')){
+   const result=db.exec("SELECT state,COUNT(*) FROM offline_draft_journal WHERE state IN ('pending','conflict') GROUP BY state")
+   for(const [state,total] of result[0]?.values||[])draftStates[state]=total
+  }
+  const unsyncedDrafts=draftStates.pending+draftStates.conflict
   const grouped=[]
   if(tables.has('standalone_records')){
    const result=db.exec('SELECT table_name,COUNT(*) FROM standalone_records GROUP BY table_name ORDER BY table_name')
    for(const [table,rows] of result[0]?.values||[])grouped.push({table,rows})
   }
-  return {localRecords,editedSnapshots,totalUnsyncedLocalChanges:localRecords+editedSnapshots,byTable:grouped,syncConfigured:false,syncState:'not-connected',message:'Local changes are saved on this device; automatic cloud synchronization is not connected.'}
+  return {localRecords,editedSnapshots,unsyncedDrafts,draftStates,totalUnsyncedLocalChanges:localRecords+editedSnapshots+unsyncedDrafts,byTable:grouped,syncConfigured:false,syncState:'not-connected',message:'Local changes and pending drafts are saved on this device; automatic cloud synchronization is not connected.'}
  }finally{db.close()}
 }
 module.exports={readPendingStatus}
