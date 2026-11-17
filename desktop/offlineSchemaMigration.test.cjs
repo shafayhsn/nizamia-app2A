@@ -5,7 +5,7 @@ const inventory={tableCount:1,columnCount:2,tables:[{table_name:'orders',columns
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-schema-'));
 const file=path.join(dir,'db.sqlite');
 const bytes=Buffer.concat([Buffer.from('SQLite format 3\0','binary'),Buffer.alloc(512)]);
-const makeDb=(existing=[])=>({exec:s=>s.includes('sqlite_master')?[{values:[['offline_orders']]}]:s.includes('table_info')?[{values:[[0,'id','TEXT'],[1,'notes','TEXT']]}]:s==='PRAGMA integrity_check'?[{values:[['ok']]}]:[],run:()=>{},export:()=>bytes,close:()=>{}});
+const makeDb=()=>{let created=false;return {exec:s=>s.includes('sqlite_master')?(created?[{values:[['offline_orders']]}]:[]):s.includes('table_info')?(created?[{values:[[0,'id','TEXT'],[1,'notes','TEXT']]}]:[]):s==='PRAGMA integrity_check'?[{values:[['ok']]}]:[],run:s=>{if(s.startsWith('CREATE TABLE'))created=true},export:()=>bytes,close:()=>{}}};
 try{
  assert.throws(()=>verifySqlite(Buffer.from('bad')),/Invalid/);
  fs.writeFileSync(file,bytes);
