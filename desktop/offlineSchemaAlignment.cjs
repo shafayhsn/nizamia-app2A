@@ -56,10 +56,9 @@ function planSchema({inventory,allowedTables,localTables={}}){
   }
   if(!changed)counts.unchanged++;
  }
- for(const name of Object.keys(localTables))if(name.startsWith('offline_')&&!permitted.has(name.slice(8))){
-  operations.push({kind:'manual-review',table:name,reason:'Local table not in reviewed allowlist; never auto-delete'});
-  counts.retiredCandidates++;
- }
+ // Do not infer retired cloud tables from the offline_ prefix: existing draft
+ // journals and other local-only modules use the same prefix. Retirements
+ // require an explicit, reviewed migration manifest and are never auto-dropped.
  return {counts,operations,canApply:!operations.some(x=>x.kind==='manual-review')};
 }
 function readLocalTables(db){
