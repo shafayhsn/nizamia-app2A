@@ -172,6 +172,9 @@ jobs:
       - name: Verify offline sync server security
         working-directory: desktop
         run: node ../server/offlineSyncSecurity.test.cjs
+      - name: Test authenticated sync HTTP service integration
+        working-directory: desktop
+        run: node ../server/offlineSyncService.test.cjs
       - name: Test authenticated desktop HTTPS sync transport
         working-directory: desktop
         run: node offlineSyncClient.test.cjs
