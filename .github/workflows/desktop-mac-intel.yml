@@ -178,6 +178,9 @@ jobs:
       - name: Test existing OMS signed session verification for sync
         working-directory: desktop
         run: node ../server/offlineOmsSyncSecurity.test.cjs
+      - name: Test gated OMS PostgreSQL synchronization composition
+        working-directory: desktop
+        run: node ../server/offlineOmsPostgresSyncService.test.cjs
       - name: Test authenticated desktop HTTPS sync transport
         working-directory: desktop
         run: node offlineSyncClient.test.cjs
