@@ -241,7 +241,10 @@ jobs:
       - name: Verify original offline desktop release inputs
         working-directory: desktop
         run: node releaseInputs.test.cjs
-      - name: Test desktop release checker\n        working-directory: desktop\n        run: node desktopUpdates.test.cjs\n      - name: Build Intel macOS DMG
+      - name: Test desktop release checker
+        working-directory: desktop
+        run: node desktopUpdates.test.cjs
+      - name: Build Intel macOS DMG
         working-directory: desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
