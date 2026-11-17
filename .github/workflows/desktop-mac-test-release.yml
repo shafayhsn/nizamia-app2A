@@ -72,6 +72,7 @@ jobs:
           node offlineSyncClient.test.cjs
           node offlineSyncReconciliation.test.cjs
           node offlineSyncCoordinator.test.cjs
+          node desktopLocalBackup.test.cjs
           node snapshotReplaceGuard.test.cjs
           node snapshotStartup.test.cjs
           node release-guardrails.test.cjs
