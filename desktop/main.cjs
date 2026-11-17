@@ -160,6 +160,7 @@ app.whenReady().then(() => {
         }
       }else if(input.action==='logout')data=desktopAuth.logout();else return Response.json({error:'Unknown action'},{status:400});return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
     }
+    if(url.pathname==='/api/offline/version')return Response.json({version:app.getVersion(),platform:process.platform,pdf:'native',updates:'manual'})
     if(url.pathname==='/api/offline/pdf'){
       if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
       if(request.method!=='POST')return Response.json({error:'Method not allowed'},{status:405})
@@ -275,7 +276,12 @@ app.whenReady().then(() => {
     { label: 'App', submenu: [
       { label: 'Open Offline Desktop', click: openLocalData },
       { label: 'Open App-2A Interface', click: openBundledWebApp },
-      { label: 'Open Cloud App', click: createWindow }
+      { label: 'Open Cloud App', click: createWindow },
+      { type:'separator' },
+      { label: 'Check for App Updates…', click: async()=>{
+        const answer=await dialog.showMessageBox({type:'info',title:'Nizamia App-2A updates',message:'Desktop update availability',detail:'This version can open the official build releases. Automatic in-place installation requires a signed update feed and is not enabled yet. Your local database is preserved when replacing the app.',buttons:['View Available Builds','Cancel'],defaultId:0,cancelId:1})
+        if(answer.response===0)await shell.openExternal('https://github.com/shafayhsn/nizamia-app2A/actions/workflows/desktop-mac-intel.yml')
+      } }
     ] },
     { label: 'View', submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }] },
     { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'close' }] }

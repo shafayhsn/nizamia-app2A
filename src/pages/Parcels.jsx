@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import useManagedPopup from '../components/ui/useManagedPopup'
 import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { loadSetting } from '../lib/settingsStore'
 import { statusBadgeStyle, statusDisplay } from '../lib/statusColors'
 import { loadSamplingStore } from '../lib/samplingStore'
 import { FileText, Plus, RefreshCw, Truck, Pencil, Trash2, CheckCheck, ExternalLink, ArrowDownUp, Layers, Settings2, ListFilter } from 'lucide-react'
@@ -491,9 +492,11 @@ export default function Parcels() {
     setInvoiceSnapshot(data);setInvoiceChoice(null);printInvoice(parcel,data.consignee)
   }
 
-  function printInvoice(parcel, consignee = null) {
+  async function printInvoice(parcel, consignee = null) {
     let company = {}
     try { company = JSON.parse(localStorage.getItem('nizamia_company_info') || '{}') || {} } catch {}
+    try { company = { ...company, ...(await loadSetting('nizamia_company_info', company)) } } catch {}
+    if(location.protocol==='app2a:')company={name:'NIZAMIA APPARELS',address:'RCC14, SHED NR 2, ESTATE AVENUE ROAD, SITE INDUSTRIAL AREA, KARACHI 75700, PAKISTAN',...company}
     const missing = ['name','address','phone','email'].filter(k => !String(company[k] || '').trim())
     if (missing.length) { alert('Complete company information in Settings: '+missing.join(', ')); return }
     const firstItem = parcel.items?.[0]
