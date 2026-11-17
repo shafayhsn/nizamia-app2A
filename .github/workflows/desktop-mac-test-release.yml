@@ -1,0 +1,94 @@
+name: Publish desktop Mac test release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Desktop version to publish (must match desktop/package.json)'
+        required: true
+        type: string
+      confirmation:
+        description: 'Type PUBLISH-UNSIGNED-TEST to confirm this is an unsigned test release'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/feature/CP-18-sqlite-foundation' && inputs.confirmation == 'PUBLISH-UNSIGNED-TEST'
+    runs-on: macos-15-intel
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout desktop branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate release version and ensure no tag collision
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node -e "const p=require('./desktop/package.json');if(process.env.RELEASE_VERSION!==p.version||!/^[0-9]+\\.[0-9]+\\.[0-9]+$/.test(p.version))process.exit(1)"
+          if gh release view "v$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo "Release already exists; refusing to overwrite"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo "Version tag already exists; refusing to overwrite"
+            exit 1
+          fi
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install web dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build bundled desktop web application
+        env:
+          APP2A_DESKTOP_BUILD: '1'
+        run: npm run build
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+      - name: Verify updater and standalone offline safety
+        working-directory: desktop
+        run: |
+          node --check main.cjs
+          node desktopUpdates.test.cjs
+          node standaloneRecords.test.cjs
+          node snapshotReplaceGuard.test.cjs
+          node snapshotStartup.test.cjs
+          node release-guardrails.test.cjs
+      - name: Build unsigned Intel DMG
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist:mac
+      - name: Rename and checksum release installer
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          file="$(find desktop/release -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          test -n "$file"
+          test "$(stat -f%z "$file")" -gt 1000000
+          cp "$file" "desktop/release/Nizamia-App-2A-$RELEASE_VERSION.dmg"
+          shasum -a 256 "desktop/release/Nizamia-App-2A-$RELEASE_VERSION.dmg" > "desktop/release/Nizamia-App-2A-$RELEASE_VERSION.dmg.sha256"
+      - name: Publish explicitly marked unsigned prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "v$RELEASE_VERSION" \
+            "desktop/release/Nizamia-App-2A-$RELEASE_VERSION.dmg" \
+            "desktop/release/Nizamia-App-2A-$RELEASE_VERSION.dmg.sha256" \
+            --target "$GITHUB_SHA" \
+            --title "Nizamia App-2A v$RELEASE_VERSION (Unsigned Mac Test)" \
+            --notes "Unsigned internal macOS Intel test build. No automatic installation. Keep existing SQLite data folder; back up before replacing the application." \
+            --prerelease
