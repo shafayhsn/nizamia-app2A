@@ -1,0 +1,12 @@
+'use strict'
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path')
+const main=fs.readFileSync(path.join(__dirname,'main.cjs'),'utf8')
+const layout=fs.readFileSync(path.join(__dirname,'../src/components/layout/Layout.jsx'),'utf8')
+assert.match(main,/url\.pathname==='\/api\/offline\/drafts'/)
+assert.match(main,/desktopAuth\?\.isAuthenticated\(\)/)
+assert.match(main,/identity:user\.id/)
+assert.match(main,/offlineDraftJournal\.cjs'\)\.listDrafts/)
+assert.match(layout,/Offline draft queue \(read-only\)/)
+assert.match(layout,/No drafts are uploaded or modified from this panel/)
+assert.match(layout,/DesktopDraftDetails/)
+process.stdout.write('Authenticated read-only offline draft UI wiring checks passed.\\n')

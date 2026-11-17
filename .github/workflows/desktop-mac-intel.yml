@@ -102,6 +102,7 @@ jobs:
           node offlineSchemaMigration.test.cjs
           node offlineSchemaMigration.integration.test.cjs
           node offlinePendingStatus.test.cjs
+          node offlineDraftPanel.test.cjs
       - name: Run offline SQLite smoke tests
         working-directory: desktop
         run: node offline-smoke.test.cjs

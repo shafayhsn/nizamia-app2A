@@ -200,6 +200,23 @@ app.whenReady().then(() => {
     // Local-only read bridge for the bundled original React interface.
     // Never expose arbitrary SQL, filesystem paths, or cloud credentials.
     // Read-only local edit inventory. These edits are NOT marked as cloud-synced.
+    // Authenticated read-only draft queue. Identity is derived exclusively from
+    // the locally authenticated user, never from a renderer-supplied query.
+    if(url.pathname==='/api/offline/drafts'){
+      if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
+      if(request.method!=='GET')return new Response('Method not allowed',{status:405})
+      try{
+        const directory=getDatabaseDirectory()
+        const user=desktopAuth.status().user
+        if(!directory||!user?.id)return Response.json({error:'Local session unavailable'},{status:503})
+        const session={authenticated:true,identity:user.id}
+        const drafts=await require('./offlineDraftJournal.cjs').listDrafts({
+          directory,session,
+          authenticateSession:async candidate=>desktopAuth.isAuthenticated()&&desktopAuth.status().user?.id===candidate.identity
+        })
+        return Response.json({data:drafts,error:null},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:'Could not read local drafts'},{status:500})}
+    }
     if(url.pathname==='/api/offline/pending-status'){
       if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
       if(request.method!=='GET')return new Response('Method not allowed',{status:405})

@@ -139,8 +139,32 @@ function OrderWindowTrayEntry({ id, title, active, onRestore, onClose }) {
 }
 
 // Desktop-only visibility: never describe unsynced local edits as uploaded.
+function DesktopDraftDetails({ onClose }) {
+  const [drafts,setDrafts]=useState(null)
+  const [error,setError]=useState('')
+  useEffect(()=>{
+    let active=true
+    fetch('/api/offline/drafts',{cache:'no-store'}).then(async response=>{
+      const result=await response.json()
+      if(!response.ok)throw Error(result.error||'Drafts unavailable')
+      if(active)setDrafts(result.data)
+    }).catch(e=>{if(active)setError(e.message)})
+    return ()=>{active=false}
+  },[])
+  return <div role="dialog" aria-label="Offline draft queue" style={{padding:'10px 14px',borderBottom:'1px solid #cbd5e1',background:'#fff'}}>
+    <strong>Offline draft queue (read-only)</strong>
+    <button type="button" onClick={onClose} style={{float:'right'}}>Close</button>
+    {error?<p>{error}</p>:drafts===null?<p>Loading local drafts…</p>:drafts.length===0?<p>No pending or conflicting drafts for this account.</p>:
+      <ul style={{margin:'8px 0',paddingLeft:20,maxHeight:180,overflow:'auto'}}>
+        {drafts.map(d=><li key={d.draftId}>{d.table} · {d.recordId} · {d.state} · {d.createdAt}</li>)}
+      </ul>}
+    <small>No drafts are uploaded or modified from this panel.</small>
+  </div>
+}
+
 function DesktopLocalStatus({ pathname }) {
   const [status,setStatus]=useState(null)
+  const [detailsOpen,setDetailsOpen]=useState(false)
   const [error,setError]=useState('')
   const [refresh,setRefresh]=useState(0)
   const [connected,setConnected]=useState(typeof navigator==='undefined'?false:navigator.onLine)
@@ -166,12 +190,13 @@ function DesktopLocalStatus({ pathname }) {
     window.addEventListener('app2a-offline-data-changed',onFocus)
     return ()=>{active=false;window.removeEventListener('focus',onFocus);window.removeEventListener('app2a-offline-data-changed',onFocus)}
   },[pathname,refresh])
-  return <div role="status" aria-live="polite" style={{padding:'5px 14px',fontSize:11,background:'#f8fafc',borderBottom:'1px solid #e2e8f0',color:'#475569'}}>
+  return <div style={{flexShrink:0}}><div role="status" aria-live="polite" style={{padding:'5px 14px',fontSize:11,background:'#f8fafc',borderBottom:'1px solid #e2e8f0',color:'#475569'}}>
     {error?'Offline database status unavailable: '+error:status?
       'Desktop local database · '+status.totalUnsyncedLocalChanges+' unsynced local items ('+status.unsyncedDrafts+' drafts, '+status.draftStates.conflict+' conflicts) · '+(status.syncHistory.applied+status.syncHistory.alreadyApplied)+' previously archived draft results · Cloud sync not connected · '+(connected?'Network available':'No network')
       :'Checking desktop database…'}
     <button type="button" onClick={()=>setRefresh(v=>v+1)} style={{marginLeft:12,fontSize:11,border:'1px solid #cbd5e1',borderRadius:4,padding:'1px 7px',background:'white',cursor:'pointer'}}>Refresh</button>
-  </div>
+    <button type="button" onClick={()=>setDetailsOpen(v=>!v)} style={{marginLeft:8,fontSize:11,border:'1px solid #cbd5e1',borderRadius:4,padding:'1px 7px',background:'white',cursor:'pointer'}}>{detailsOpen?'Hide drafts':'View drafts'}</button>
+  </div>{detailsOpen&&<DesktopDraftDetails onClose={()=>setDetailsOpen(false)} />}</div>
 }
 
 export default function Layout() {
