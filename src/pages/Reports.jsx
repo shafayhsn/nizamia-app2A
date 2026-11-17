@@ -623,18 +623,11 @@ export default function Reports() {
       @media screen{body{background:#eee}.report-page{background:white;margin:8px auto;box-shadow:0 1px 6px #aaa}}
     </style></head><body>${pageHTML}</body></html>`
     if(outputMode==='pdf'&&location.protocol==='app2a:'){
-      // The custom app2a scheme does not allow ordinary popup windows in Electron.
-      // Print the complete prepared report in a same-origin hidden iframe instead.
-      const frame=document.createElement('iframe')
-      frame.style.cssText='position:fixed;left:-10000px;top:0;width:1123px;height:794px;border:0'
-      document.body.appendChild(frame)
-      const doc=frame.contentDocument
-      doc.open();doc.write(html);doc.close()
-      setTimeout(()=>{
-        try{frame.contentWindow.focus();frame.contentWindow.print()}
-        catch(error){window.alert('Unable to open the macOS print dialog: '+error.message)}
-        setTimeout(()=>frame.remove(),60000)
-      },500)
+      try{
+        const response=await fetch('/api/offline/pdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({html,filename:filename()})})
+        const result=await response.json()
+        if(!response.ok)throw Error(result.error||'Could not save PDF')
+      }catch(error){window.alert('PDF download failed: '+error.message)}
       return
     }
     if(outputMode==='pdf'){

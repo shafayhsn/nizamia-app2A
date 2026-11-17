@@ -160,6 +160,28 @@ app.whenReady().then(() => {
         }
       }else if(input.action==='logout')data=desktopAuth.logout();else return Response.json({error:'Unknown action'},{status:400});return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
     }
+    if(url.pathname==='/api/offline/pdf'){
+      if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
+      if(request.method!=='POST')return Response.json({error:'Method not allowed'},{status:405})
+      let pdfWindow=null
+      try{
+        const raw=await request.text()
+        if(raw.length>4000000)return Response.json({error:'Report too large'},{status:413})
+        const input=JSON.parse(raw)
+        if(typeof input.html!=='string'||!input.html.startsWith('<html')||input.html.length>3000000)return Response.json({error:'Invalid report HTML'},{status:400})
+        const filename=String(input.filename||'Nizamia Report').replace(/[^a-zA-Z0-9 _.-]/g,'').slice(0,100)||'Nizamia Report'
+        pdfWindow=new BrowserWindow({show:false,width:1123,height:794,webPreferences:{sandbox:true,nodeIntegration:false,contextIsolation:true,webSecurity:true}})
+        await pdfWindow.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(input.html))
+        await pdfWindow.webContents.executeJavaScript('document.fonts.ready.then(()=>Promise.all([...document.images].map(i=>i.complete?Promise.resolve():new Promise(r=>{i.onload=r;i.onerror=r}))))')
+        const pdf=await pdfWindow.webContents.printToPDF({printBackground:true,preferCSSPageSize:true})
+        const owner=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows().find(w=>w!==pdfWindow)
+        const choice=await dialog.showSaveDialog(owner,{title:'Save Nizamia Report PDF',defaultPath:filename.replace(/\.pdf$/i,'')+'.pdf',filters:[{name:'PDF',extensions:['pdf']}]})
+        if(choice.canceled||!choice.filePath)return Response.json({cancelled:true})
+        fs.writeFileSync(choice.filePath,pdf,{flag:'w'})
+        return Response.json({ok:true})
+      }catch(error){return Response.json({error:'PDF generation failed: '+error.message},{status:500})}
+      finally{if(pdfWindow&&!pdfWindow.isDestroyed())pdfWindow.destroy()}
+    }
     if(url.pathname==='/api/oms'){
       if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
       try{const directory=getDatabaseDirectory();if(!directory)return Response.json({error:'Local database unavailable'},{status:503});return await require('./offlineOms.cjs').handleOfflineOms(directory,url,request)}catch(error){return Response.json({error:error.message},{status:400})}
