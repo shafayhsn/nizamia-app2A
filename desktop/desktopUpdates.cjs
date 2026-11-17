@@ -2,7 +2,7 @@
 const https=require('node:https')
 const RELEASES_URL='https://api.github.com/repos/shafayhsn/nizamia-app2A/releases/latest'
 function parseVersion(v){
- const match=String(v||'').replace(/^v/i,'').match(/^(\\d+)\\.(\\d+)\\.(\\d+)(?:[-+].*)?$/)
+ const match=String(v||'').replace(/^v/i,'').match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/)
  return match?[Number(match[1]),Number(match[2]),Number(match[3])]:null
 }
 function isNewer(remote,current){
