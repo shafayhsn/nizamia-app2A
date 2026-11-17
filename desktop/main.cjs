@@ -297,7 +297,17 @@ app.whenReady().then(() => {
                 await downloadVerifiedInstaller({asset,destination:target.filePath})
                 progress.close()
                 const ready=await dialog.showMessageBox(owner,{type:'info',title:'Update downloaded',message:'Installer downloaded and SHA-256 verified',detail:'File: '+target.filePath+'\n\nThe installer can now be opened. Automatic replacement is not enabled for unsigned builds. Your local database is not modified.',buttons:['Open DMG','Show in Finder','Later'],defaultId:0,cancelId:2})
-                if(ready.response===0)await shell.openPath(target.filePath)
+                if(ready.response===0){
+                  const backupPrompt=await dialog.showMessageBox(owner,{type:'warning',title:'Protect local data before opening installer',message:'Create a verified SQLite backup?',detail:'A separate backup will be saved under your Mac application data folder before the installer is opened. This does not replace the app automatically.',buttons:['Back Up and Open DMG','Cancel'],defaultId:0,cancelId:1})
+                  if(backupPrompt.response!==0)return
+                  const {backupDatabaseBeforeUpdate}=require('./desktopUpdateBackup.cjs')
+                  const databaseDirectory=getDatabaseDirectory()
+                  if(!databaseDirectory)throw Error('No local database folder is configured. Installer will not open.')
+                  const backup=backupDatabaseBeforeUpdate({directory:databaseDirectory,backupRoot:path.join(app.getPath('userData'),'Pre-Update Backups')})
+                  await dialog.showMessageBox(owner,{type:'info',title:'Local data backup verified',message:'Database backup created and verified',detail:'Backup: '+backup.file+'\nSHA-256: '+backup.sha256,buttons:['OK']})
+                  const openError=await shell.openPath(target.filePath)
+                  if(openError)throw Error('Could not open downloaded installer: '+openError)
+                }
                 else if(ready.response===1)shell.showItemInFolder(target.filePath)
               }catch(error){progress.close();throw error}
             }else if(answer.response===(asset?1:0))await shell.openExternal(result.url)
