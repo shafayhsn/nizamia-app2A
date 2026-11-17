@@ -143,6 +143,13 @@ function DesktopLocalStatus({ pathname }) {
   const [status,setStatus]=useState(null)
   const [error,setError]=useState('')
   const [refresh,setRefresh]=useState(0)
+  const [connected,setConnected]=useState(typeof navigator==='undefined'?false:navigator.onLine)
+  useEffect(()=>{
+    const update=()=>setConnected(navigator.onLine)
+    window.addEventListener('online',update)
+    window.addEventListener('offline',update)
+    return ()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update)}
+  },[])
   useEffect(()=>{
     let active=true
     const read=async()=>{
@@ -156,11 +163,12 @@ function DesktopLocalStatus({ pathname }) {
     read()
     const onFocus=()=>setRefresh(v=>v+1)
     window.addEventListener('focus',onFocus)
-    return ()=>{active=false;window.removeEventListener('focus',onFocus)}
+    window.addEventListener('app2a-offline-data-changed',onFocus)
+    return ()=>{active=false;window.removeEventListener('focus',onFocus);window.removeEventListener('app2a-offline-data-changed',onFocus)}
   },[pathname,refresh])
   return <div role="status" aria-live="polite" style={{padding:'5px 14px',fontSize:11,background:'#f8fafc',borderBottom:'1px solid #e2e8f0',color:'#475569'}}>
     {error?'Offline database status unavailable: '+error:status?
-      'Desktop local database · '+status.totalUnsyncedLocalChanges+' unsynced local items ('+status.unsyncedDrafts+' drafts, '+status.draftStates.conflict+' conflicts) · '+(status.syncHistory.applied+status.syncHistory.alreadyApplied)+' previously archived draft results · Cloud sync not connected'
+      'Desktop local database · '+status.totalUnsyncedLocalChanges+' unsynced local items ('+status.unsyncedDrafts+' drafts, '+status.draftStates.conflict+' conflicts) · '+(status.syncHistory.applied+status.syncHistory.alreadyApplied)+' previously archived draft results · Cloud sync not connected · '+(connected?'Network available':'No network')
       :'Checking desktop database…'}
     <button type="button" onClick={()=>setRefresh(v=>v+1)} style={{marginLeft:12,fontSize:11,border:'1px solid #cbd5e1',borderRadius:4,padding:'1px 7px',background:'white',cursor:'pointer'}}>Refresh</button>
   </div>

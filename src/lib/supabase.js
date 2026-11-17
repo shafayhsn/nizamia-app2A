@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 // The online web app keeps its original Supabase client unchanged.
 const isMacOffline = typeof location !== 'undefined' && location.protocol === 'app2a:'
 const offlineTables = new Set(['orders','tasks','buyers','suppliers','purchase_orders','purchase_order_items','samples','parcels','shipments','shipment_lines','production_daily_entries','costing','pp_meetings','production_plans','jobs','order_queues','bom_items','washing','embellishments','finishing','work_orders','buyer_addresses','buyer_contacts','supplier_contacts','size_groups','size_group_colors','size_group_breakdown','order_processes','work_order_items','payment_settlements','production_batches','production_batch_orders','sample_comments','finishing_packs','fitting_blocks','library_items','sample_logs','fitting','work_order_changelog','shipping_bookings','shipping_booking_lines','shipping_booking_shipments','parcel_invoice_snapshots','testing_requirements','testing_orders','feature_assets','feature_certificates','parcel_status_history'])
+const notifyOfflineWrite=()=>{if(typeof window!=='undefined')window.dispatchEvent(new Event('app2a-offline-data-changed'))}
 function offlineQuery(table) {
   let filters=[],sort=null,limit=null,offset=0,single=false,strictSingle=false,headOnly=false,operation=null,payload=null,upsert=false,conflictKeys=[],returnRows=false,countRequested=false,orGroups=[],columns='*'
   const load=async()=>{
@@ -52,6 +53,7 @@ function offlineQuery(table) {
         const response=await fetch('/api/offline/upsert-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table,rows:values,onConflict:conflictKeys.join(',')})})
         const result=await response.json()
         if(!response.ok)throw Error(result.error||'Atomic upsert failed')
+        notifyOfflineWrite()
         if(!returnRows)return {data:null,error:null}
         const reloaded=await fetch('/api/offline/records?table='+encodeURIComponent(table))
         if(!reloaded.ok)throw Error('Upsert saved but reload failed')
@@ -66,6 +68,7 @@ function offlineQuery(table) {
         const response=await fetch('/api/offline/mutate-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:operation,table,ids,fields:payload})})
         const result=await response.json()
         if(!response.ok)throw Error(result.error||'Atomic batch edit failed')
+        notifyOfflineWrite()
         if(!returnRows)return {data:null,error:null}
         if(operation==='delete')return {data:existing,error:null}
         const reloaded=await fetch('/api/offline/records?table='+encodeURIComponent(table))
@@ -85,6 +88,7 @@ function offlineQuery(table) {
         const response=await fetch('/api/offline/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table,rows:payload})})
         const result=await response.json()
         if(!response.ok)throw Error(result.error||'Atomic batch insert failed')
+        notifyOfflineWrite()
         if(!returnRows)return {data:null,error:null}
         const savedResponse=await fetch('/api/offline/records?table='+encodeURIComponent(table))
         if(!savedResponse.ok)throw Error('Batch saved but record reload failed')
@@ -100,6 +104,7 @@ function offlineQuery(table) {
       const response=await fetch('/api/offline/mutate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:operation,table,id:existing[0]?.id,fields})})
       const result=await response.json()
       if(!response.ok)throw Error(result.error||'Offline save failed')
+      notifyOfflineWrite()
       if(operation==='delete')return {data:returnRows?(single?existing[0]:existing):null,error:null}
       if(!returnRows)return {data:null,error:null}
       const savedResponse=await fetch('/api/offline/records?table='+encodeURIComponent(table))
