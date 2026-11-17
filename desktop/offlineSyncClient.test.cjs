@@ -53,6 +53,16 @@ async function main(){
  await assert.rejects(()=>busy.submit(args),/already in progress/)
  release()
  await assert.rejects(()=>first,/rejected/)
+ const rejected=createOfflineSyncClient({endpoint:'https://app.example.com/api/offline-sync',fetchImpl:async()=>({status:503})})
+ await assert.rejects(()=>rejected.submit(args),/rejected/)
+ const malformed=createOfflineSyncClient({endpoint:'https://app.example.com/api/offline-sync',
+  fetchImpl:async()=>({status:200,headers:{get:()=>null},text:async()=>'{broken-json'})})
+ await assert.rejects(()=>malformed.submit(args),/JSON|Unexpected|position/)
+ const duplicateResults=createOfflineSyncClient({endpoint:'https://app.example.com/api/offline-sync',
+  fetchImpl:async()=>({status:200,headers:{get:()=>null},text:async()=>JSON.stringify({results:[
+   {draftId:draft.draftId,decision:'applied'},{draftId:draft.draftId,decision:'applied'}
+  ]})})})
+ await assert.rejects(()=>duplicateResults.submit({...args,drafts:[draft,{...draft,draftId:'223e4567-e89b-42d3-a456-426614174000'}]}),/Untrusted/)
  process.stdout.write('Authenticated HTTPS desktop sync transport tests passed.\n')
 }
 main().catch(e=>{console.error(e);process.exitCode=1})
