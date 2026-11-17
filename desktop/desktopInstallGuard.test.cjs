@@ -10,7 +10,7 @@ try{
  const resources=path.join(app,'Contents','Resources')
  fs.mkdirSync(resources,{recursive:true})
  fs.writeFileSync(path.join(app,'Contents','Info.plist'),'test')
- assert.throws(()=>validateMacInstallTarget({appPath:app,resourcesPath:resources,platform:'darwin'}),/approved Applications/)
+ assert.throws(()=>validateMacInstallTarget({appPath:app,resourcesPath:resources,platform:'darwin'}),/approved Applications|aliases or symlinks/)
  assert.throws(()=>validateMacInstallTarget({appPath:app,resourcesPath:resources,platform:'win32'}),/macOS/)
  assert.throws(()=>validateMacInstallTarget({appPath:path.join(root,'Other.app'),resourcesPath:resources,platform:'darwin'}),/name/)
  const symlink=path.join(root,'symlink.app')
