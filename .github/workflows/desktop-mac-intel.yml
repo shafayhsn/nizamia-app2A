@@ -169,6 +169,9 @@ jobs:
       - name: Test sync HTTP request boundary
         working-directory: desktop
         run: node ../server/offlineSyncHttpHandler.test.cjs
+      - name: Verify offline sync server security
+        working-directory: desktop
+        run: node ../server/offlineSyncSecurity.test.cjs
       - name: Test authenticated desktop HTTPS sync transport
         working-directory: desktop
         run: node offlineSyncClient.test.cjs
