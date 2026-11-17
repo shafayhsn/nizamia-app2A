@@ -175,6 +175,9 @@ jobs:
       - name: Test authenticated sync HTTP service integration
         working-directory: desktop
         run: node ../server/offlineSyncService.test.cjs
+      - name: Test existing OMS signed session verification for sync
+        working-directory: desktop
+        run: node ../server/offlineOmsSyncSecurity.test.cjs
       - name: Test authenticated desktop HTTPS sync transport
         working-directory: desktop
         run: node offlineSyncClient.test.cjs
