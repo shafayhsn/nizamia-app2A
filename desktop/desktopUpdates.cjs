@@ -1,6 +1,6 @@
 'use strict'
 const https=require('node:https')
-const RELEASES_URL='https://api.github.com/repos/shafayhsn/nizamia-app2A/releases/latest'
+const RELEASES_URL='https://api.github.com/repos/shafayhsn/nizamia-app2A/releases?per_page=20'
 function parseVersion(v){
  const match=String(v||'').replace(/^v/i,'').match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/)
  return match?[Number(match[1]),Number(match[2]),Number(match[3])]:null
@@ -27,8 +27,10 @@ function fetchLatestRelease(){
  })
 }
 async function checkForDesktopRelease({currentVersion,fetchRelease=fetchLatestRelease}){
- const release=await fetchRelease()
- if(!release||release.draft||release.prerelease)return {status:'unpublished'}
+ const fetched=await fetchRelease()
+ const candidates=Array.isArray(fetched)?fetched:[fetched].filter(Boolean)
+ const release=candidates.filter(r=>r&&!r.draft&&parseVersion(r.tag_name)&&r.html_url?.startsWith('https://github.com/shafayhsn/nizamia-app2A/releases/')).sort((a,b)=>isNewer(a.tag_name,b.tag_name)?-1:isNewer(b.tag_name,a.tag_name)?1:0)[0]
+ if(!release)return {status:'unpublished'}
  const version=String(release.tag_name||'').replace(/^v/i,'')
  const url=String(release.html_url||'')
  if(!parseVersion(version)||!url.startsWith('https://github.com/shafayhsn/nizamia-app2A/releases/'))return {status:'unpublished'}
