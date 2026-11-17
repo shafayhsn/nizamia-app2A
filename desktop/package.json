@@ -72,7 +72,8 @@
       "desktopUpdateBackup.cjs",
       "desktopInstallGuard.cjs",
       "desktopDmgPreflight.cjs",
-      "desktopReplaceRollback.cjs"
+      "desktopReplaceRollback.cjs",
+      "desktopMacUpdateHelper.sh"
     ],
     "mac": {
       "category": "public.app-category.business",

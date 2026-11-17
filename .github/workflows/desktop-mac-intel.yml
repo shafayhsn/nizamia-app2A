@@ -256,6 +256,9 @@ jobs:
       - name: Test atomic replacement and rollback
         working-directory: desktop
         run: node desktopReplaceRollback.test.cjs
+      - name: Test external Mac update helper
+        working-directory: desktop
+        run: node desktopMacUpdateHelper.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
