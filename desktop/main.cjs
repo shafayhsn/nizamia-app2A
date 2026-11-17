@@ -296,19 +296,22 @@ app.whenReady().then(() => {
               try{
                 await downloadVerifiedInstaller({asset,destination:target.filePath})
                 progress.close()
-                const ready=await dialog.showMessageBox(owner,{type:'info',title:'Update downloaded',message:'Installer downloaded and SHA-256 verified',detail:'File: '+target.filePath+'\n\nThe installer can now be opened. Automatic replacement is not enabled for unsigned builds. Your local database is not modified.',buttons:['Open DMG','Show in Finder','Later'],defaultId:0,cancelId:2})
+                const ready=await dialog.showMessageBox(owner,{type:'info',title:'Update downloaded',message:'Installer downloaded and SHA-256 verified',detail:'File: '+target.filePath+'\\n\\nAutomatic installation requires a backup and may request manual permission on unsigned builds.',buttons:['Install and Restart','Open DMG Manually','Later'],defaultId:0,cancelId:2})
                 if(ready.response===0){
-                  const backupPrompt=await dialog.showMessageBox(owner,{type:'warning',title:'Protect local data before opening installer',message:'Create a verified SQLite backup?',detail:'A separate backup will be saved under your Mac application data folder before the installer is opened. This does not replace the app automatically.',buttons:['Back Up and Open DMG','Cancel'],defaultId:0,cancelId:1})
-                  if(backupPrompt.response!==0)return
+                  const confirm=await dialog.showMessageBox(owner,{type:'warning',title:'Install verified update',message:'Back up local data, close App-2A and install version '+result.version+'?',detail:'Your existing application will be retained for rollback. Save any unfinished work first. Automatic installation works only from /Applications or ~/Applications when writable.',buttons:['Back Up and Install','Cancel'],defaultId:1,cancelId:1})
+                  if(confirm.response!==0)return
                   const {backupDatabaseBeforeUpdate}=require('./desktopUpdateBackup.cjs')
-                  const databaseDirectory=getDatabaseDirectory()
-                  if(!databaseDirectory)throw Error('No local database folder is configured. Installer will not open.')
-                  const backup=backupDatabaseBeforeUpdate({directory:databaseDirectory,backupRoot:path.join(app.getPath('userData'),'Pre-Update Backups')})
-                  await dialog.showMessageBox(owner,{type:'info',title:'Local data backup verified',message:'Database backup created and verified',detail:'Backup: '+backup.file+'\nSHA-256: '+backup.sha256,buttons:['OK']})
+                  const {stageMacUpdate}=require('./desktopUpdateLaunch.cjs')
+                  const directory=getDatabaseDirectory()
+                  if(!directory)throw Error('No local database folder configured')
+                  const backup=backupDatabaseBeforeUpdate({directory,backupRoot:path.join(app.getPath('userData'),'Pre-Update Backups')})
+                  await stageMacUpdate({appPath:app.getAppPath().replace(/\\/Contents\\/Resources\\/app\\.asar(?:\\/.*)?$/,''),resourcesPath:process.resourcesPath,dmgPath:target.filePath,version:result.version,asset,userData:app.getPath('userData'),pid:process.pid})
+                  await dialog.showMessageBox(owner,{type:'info',title:'Update started',message:'Verified backup saved; installation will begin when App-2A closes',detail:'Backup: '+backup.file+'\\n\\nThe previous application will be kept for rollback.',buttons:['Close App and Install']})
+                  app.quit()
+                }else if(ready.response===1){
                   const openError=await shell.openPath(target.filePath)
-                  if(openError)throw Error('Could not open downloaded installer: '+openError)
+                  if(openError)throw Error(openError)
                 }
-                else if(ready.response===1)shell.showItemInFolder(target.filePath)
               }catch(error){progress.close();throw error}
             }else if(answer.response===(asset?1:0))await shell.openExternal(result.url)
           }else{

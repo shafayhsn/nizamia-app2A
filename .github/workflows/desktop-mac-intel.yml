@@ -259,6 +259,9 @@ jobs:
       - name: Test external Mac update helper
         working-directory: desktop
         run: node desktopMacUpdateHelper.test.cjs
+      - name: Test updater launch bridge
+        working-directory: desktop
+        run: node desktopUpdateLaunch.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
