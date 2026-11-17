@@ -17,6 +17,8 @@ const fs=require('node:fs');const os=require('node:os');const path=require('node
  const dest=path.join(dir,'update.dmg')
  await downloadVerifiedInstaller({asset,destination:dest,requestStream:async()=>Readable.from([payload])})
  assert.equal(fs.readFileSync(dest).length,payload.length)
+ await assert.rejects(downloadVerifiedInstaller({asset,destination:dest,requestStream:async()=>Readable.from([payload])}),/EEXIST/)
+ assert.equal(fs.readFileSync(dest).length,payload.length)
  await assert.rejects(downloadVerifiedInstaller({asset:{...asset,digest:'0'.repeat(64)},destination:path.join(dir,'bad.dmg'),requestStream:async()=>Readable.from([payload])}),/SHA-256/)
  assert.equal(fs.existsSync(path.join(dir,'bad.dmg')),false)
  fs.rmSync(dir,{recursive:true,force:true})

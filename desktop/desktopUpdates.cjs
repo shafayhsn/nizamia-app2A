@@ -77,7 +77,9 @@ async function downloadVerifiedInstaller({asset,destination,requestStream=reques
   const check=new Transform({transform(chunk,enc,cb){bytes+=chunk.length;if(bytes>asset.size){cb(new Error('Installer exceeds declared size'));return}hash.update(chunk);cb(null,chunk)}})
   await pipeline(response,check,fs.createWriteStream(temp,{flags:'wx',mode:0o600}))
   if(bytes!==asset.size||hash.digest('hex')!==asset.digest){throw Error('Installer SHA-256 verification failed')}
-  fs.renameSync(temp,dest)
+  // Atomic no-clobber promotion: never replace an existing file or symlink.
+  fs.linkSync(temp,dest)
+  fs.unlinkSync(temp)
   return dest
  }catch(error){try{fs.unlinkSync(temp)}catch{};throw error}
 }
