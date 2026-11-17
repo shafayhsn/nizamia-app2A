@@ -34,6 +34,19 @@ async function main(){
  assert.equal(invalid.status,400)
  const mismatch=await apply({operations:[{...request.operations[0],identity:'other'}]})
  assert.equal(mismatch.status,400)
+ const duplicate=await apply({operations:[request.operations[0],request.operations[0]]})
+ assert.equal(duplicate.status,400)
+ const malicious=createOfflineSyncApply({
+  authenticate:async()=>({authenticated:true,identity:'operator_1'}),
+  authorize:async()=>true,
+  transaction:async fn=>fn({
+   once:async()=>({decision:'conflict',reason:'x'.repeat(300),draftId:'forged',secret:'leak'}),
+   readForUpdate:async()=>({id:'o1',notes:'old'}),updateConditional:async()=>1
+  })
+ })
+ assert.deepEqual((await malicious(request)).body.results[0],{
+  draftId:draft.draftId,decision:'conflict',reason:'x'.repeat(240)
+ })
  const denied=createOfflineSyncApply({authenticate:async()=>null,authorize:async()=>true,transaction})
  assert.equal((await denied(request)).status,401)
  const blocked=createOfflineSyncApply({authenticate:async()=>({authenticated:true,identity:'operator_1'}),authorize:async()=>false,transaction})

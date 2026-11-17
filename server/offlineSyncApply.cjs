@@ -14,15 +14,16 @@ function createOfflineSyncApply({authenticate,authorize,transaction}){
   try{session=await authenticate(request)}catch{return {status:401,body:{error:'Authentication required'}}}
   if(!session||session.authenticated!==true||typeof session.identity!=='string'||!session.identity)
    return {status:401,body:{error:'Authentication required'}}
-  const seen=new Set(),validated=[]
+  const seen=new Set(),draftIds=new Set(),validated=[]
   try{
    for(const item of request.operations){
     const draft=item?.draft
     validateDraft(draft)
     if(!TABLES.has(draft.table)||typeof item.operationId!=='string'||item.operationId!==operationId(draft)||
-       typeof item.identity!=='string'||item.identity!==session.identity||seen.has(item.operationId))
+       typeof item.identity!=='string'||item.identity!==session.identity||seen.has(item.operationId)||draftIds.has(draft.draftId))
      throw Error('Invalid sync operation')
     seen.add(item.operationId)
+    draftIds.add(draft.draftId)
     validated.push({draft,operationId:item.operationId})
    }
   }catch{return {status:400,body:{error:'Invalid sync operation'}}}
@@ -53,7 +54,7 @@ function createOfflineSyncApply({authenticate,authorize,transaction}){
     })
     if(!outcome||!['applied','conflict','already-applied'].includes(outcome.decision))
      throw Error('Invalid transaction outcome')
-    results.push({draftId:draft.draftId,...outcome})
+    results.push({draftId:draft.draftId,decision:outcome.decision,...(typeof outcome.reason==='string'?{reason:outcome.reason.slice(0,240)}:{})})
    }catch{
     results.push({draftId:draft.draftId,decision:'error',reason:'transaction-failed'})
    }

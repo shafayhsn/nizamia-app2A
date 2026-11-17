@@ -15,7 +15,7 @@ function createOfflineSyncHttpHandler({apply,maxBodyBytes=262144}){
   let parsed
   try{parsed=JSON.parse(raw)}catch{return {status:400,body:{error:'Invalid JSON'}}}
   if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||
-     !Array.isArray(parsed.operations))
+     !Array.isArray(parsed.operations)||parsed.operations.length<1||parsed.operations.length>100)
    return {status:400,body:{error:'Invalid operations'}}
   // Preserve the trusted request's authorization header for the injected
   // authenticate() callback; never trust identity inside the JSON payload.
