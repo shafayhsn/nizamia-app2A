@@ -1,0 +1,1092 @@
+{
+  "source": "nizamia-oms public schema",
+  "generated": "2026-11-17",
+  "constraints": [
+    {
+      "table_name": "app_database_sync_status",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "app_database_sync_status_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "app_settings",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "app_settings_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "app_settings",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "app_settings_key_key",
+      "columns": "key"
+    },
+    {
+      "table_name": "app_task_comments",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "app_task_comments_task_id_fkey",
+      "columns": "task_id"
+    },
+    {
+      "table_name": "app_task_comments",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "app_task_comments_user_id_fkey",
+      "columns": "user_id"
+    },
+    {
+      "table_name": "app_task_comments",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "app_task_comments_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "app_task_reads",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "app_task_reads_task_id_fkey",
+      "columns": "task_id"
+    },
+    {
+      "table_name": "app_task_reads",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "app_task_reads_user_id_fkey",
+      "columns": "user_id"
+    },
+    {
+      "table_name": "app_task_reads",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "app_task_reads_pkey",
+      "columns": "task_id,user_id"
+    },
+    {
+      "table_name": "app_tasks",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "app_tasks_assignee_id_fkey",
+      "columns": "assignee_id"
+    },
+    {
+      "table_name": "app_tasks",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "app_tasks_created_by_fkey",
+      "columns": "created_by"
+    },
+    {
+      "table_name": "app_tasks",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "app_tasks_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "bom_items",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "bom_items_library_item_id_fkey",
+      "columns": "library_item_id"
+    },
+    {
+      "table_name": "bom_items",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "bom_items_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "bom_items",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "bom_items_supplier_id_fkey",
+      "columns": "supplier_id"
+    },
+    {
+      "table_name": "bom_items",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "bom_items_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "bom_preset_items",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "bom_preset_items_library_item_id_fkey",
+      "columns": "library_item_id"
+    },
+    {
+      "table_name": "bom_preset_items",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "bom_preset_items_preset_id_fkey",
+      "columns": "preset_id"
+    },
+    {
+      "table_name": "bom_preset_items",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "bom_preset_items_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "bom_presets",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "bom_presets_buyer_id_fkey",
+      "columns": "buyer_id"
+    },
+    {
+      "table_name": "bom_presets",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "bom_presets_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "buyer_addresses",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "buyer_addresses_buyer_id_fkey",
+      "columns": "buyer_id"
+    },
+    {
+      "table_name": "buyer_addresses",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "buyer_addresses_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "buyer_contacts",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "buyer_contacts_buyer_id_fkey",
+      "columns": "buyer_id"
+    },
+    {
+      "table_name": "buyer_contacts",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "buyer_contacts_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "buyers",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "buyers_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "costing_batches",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "costing_batches_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "costing_batches",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "costing_batches_name_key",
+      "columns": "name"
+    },
+    {
+      "table_name": "costing_sheet_versions",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "costing_sheet_versions_costing_id_fkey",
+      "columns": "costing_id"
+    },
+    {
+      "table_name": "costing_sheet_versions",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "costing_sheet_versions_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "costing_sheet_versions",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "costing_sheet_versions_costing_id_version_key",
+      "columns": "costing_id,version"
+    },
+    {
+      "table_name": "costing_sheets",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "costing_sheets_batch_id_fkey",
+      "columns": "batch_id"
+    },
+    {
+      "table_name": "costing_sheets",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "costing_sheets_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "costing_sheets",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "costing_sheets_reference_key",
+      "columns": "reference"
+    },
+    {
+      "table_name": "counters",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "counters_pkey",
+      "columns": "key"
+    },
+    {
+      "table_name": "document_numbering",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "document_numbering_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "document_numbering",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "document_numbering_doc_type_key",
+      "columns": "doc_type"
+    },
+    {
+      "table_name": "embellishments",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "embellishments_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "embellishments",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "embellishments_vendor_id_fkey",
+      "columns": "vendor_id"
+    },
+    {
+      "table_name": "embellishments",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "embellishments_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "exchange_rates",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "exchange_rates_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "feature_assets",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "feature_assets_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "feature_assets",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "feature_assets_storage_path_key",
+      "columns": "storage_path"
+    },
+    {
+      "table_name": "feature_certificates",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "feature_certificates_renewed_from_fkey",
+      "columns": "renewed_from"
+    },
+    {
+      "table_name": "feature_certificates",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "feature_certificates_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "finishing",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "finishing_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "finishing",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "finishing_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "finishing",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "finishing_order_id_key",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "finishing_color_packing",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "finishing_color_packing_finishing_id_fkey",
+      "columns": "finishing_id"
+    },
+    {
+      "table_name": "finishing_color_packing",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "finishing_color_packing_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "finishing_packs",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "finishing_packs_finishing_id_fkey",
+      "columns": "finishing_id"
+    },
+    {
+      "table_name": "finishing_packs",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "finishing_packs_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "fitting",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "fitting_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "fitting",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "fitting_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "fitting",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "fitting_order_id_key",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "fitting_blocks",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "fitting_blocks_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "fitting_blocks",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "fitting_blocks_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "jobs",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "jobs_buyer_id_fkey",
+      "columns": "buyer_id"
+    },
+    {
+      "table_name": "jobs",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "jobs_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "jobs",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "jobs_job_number_key",
+      "columns": "job_number"
+    },
+    {
+      "table_name": "library_items",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "library_items_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "notification_reads",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "notification_reads_user_id_fkey",
+      "columns": "user_id"
+    },
+    {
+      "table_name": "notification_reads",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "notification_reads_pkey",
+      "columns": "user_id,event_id"
+    },
+    {
+      "table_name": "order_processes",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "order_processes_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "order_processes",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "order_processes_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "order_queues",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "order_queues_job_id_fkey",
+      "columns": "job_id"
+    },
+    {
+      "table_name": "order_queues",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "order_queues_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "order_queues",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "order_queues_size_group_id_fkey",
+      "columns": "size_group_id"
+    },
+    {
+      "table_name": "order_queues",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "order_queues_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "orders",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "orders_buyer_id_fkey",
+      "columns": "buyer_id"
+    },
+    {
+      "table_name": "orders",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "orders_job_id_fkey",
+      "columns": "job_id"
+    },
+    {
+      "table_name": "orders",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "orders_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "packing_snapshots",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "packing_snapshots_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "parcel_invoice_snapshots",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "parcel_invoice_snapshots_address_id_fkey",
+      "columns": "address_id"
+    },
+    {
+      "table_name": "parcel_invoice_snapshots",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "parcel_invoice_snapshots_buyer_id_fkey",
+      "columns": "buyer_id"
+    },
+    {
+      "table_name": "parcel_invoice_snapshots",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "parcel_invoice_snapshots_contact_id_fkey",
+      "columns": "contact_id"
+    },
+    {
+      "table_name": "parcel_invoice_snapshots",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "parcel_invoice_snapshots_parcel_id_fkey",
+      "columns": "parcel_id"
+    },
+    {
+      "table_name": "parcel_invoice_snapshots",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "parcel_invoice_snapshots_pkey",
+      "columns": "parcel_id"
+    },
+    {
+      "table_name": "parcel_status_history",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "parcel_status_history_parcel_id_fkey",
+      "columns": "parcel_id"
+    },
+    {
+      "table_name": "parcel_status_history",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "parcel_status_history_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "parcels",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "parcels_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "payment_settlements",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "payment_settlements_shipment_id_fkey",
+      "columns": "shipment_id"
+    },
+    {
+      "table_name": "payment_settlements",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "payment_settlements_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "permissions",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "permissions_role_id_fkey",
+      "columns": "role_id"
+    },
+    {
+      "table_name": "permissions",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "permissions_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "permissions",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "permissions_role_id_module_key",
+      "columns": "role_id,module"
+    },
+    {
+      "table_name": "pp_meetings",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "pp_meetings_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "pp_meetings",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "pp_meetings_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "pp_meetings",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "pp_meetings_ppm_number_key",
+      "columns": "ppm_number"
+    },
+    {
+      "table_name": "production_batch_orders",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "production_batch_orders_batch_id_fkey",
+      "columns": "batch_id"
+    },
+    {
+      "table_name": "production_batch_orders",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "production_batch_orders_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "production_batch_orders",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "production_batch_orders_pkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "production_batches",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "production_batches_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "production_batches",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "production_batches_name_key",
+      "columns": "name"
+    },
+    {
+      "table_name": "production_daily_entries",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "production_daily_entries_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "proforma_invoice_revisions",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "proforma_invoice_revisions_actor_id_fkey",
+      "columns": "actor_id"
+    },
+    {
+      "table_name": "proforma_invoice_revisions",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "proforma_invoice_revisions_invoice_id_fkey",
+      "columns": "invoice_id"
+    },
+    {
+      "table_name": "proforma_invoice_revisions",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "proforma_invoice_revisions_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "proforma_invoice_revisions",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "proforma_invoice_revisions_invoice_id_revision_key",
+      "columns": "invoice_id,revision"
+    },
+    {
+      "table_name": "proforma_invoices",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "proforma_invoices_buyer_id_fkey",
+      "columns": "buyer_id"
+    },
+    {
+      "table_name": "proforma_invoices",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "proforma_invoices_created_by_fkey",
+      "columns": "created_by"
+    },
+    {
+      "table_name": "proforma_invoices",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "proforma_invoices_updated_by_fkey",
+      "columns": "updated_by"
+    },
+    {
+      "table_name": "proforma_invoices",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "proforma_invoices_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "proforma_invoices",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "proforma_invoices_pi_number_key",
+      "columns": "pi_number"
+    },
+    {
+      "table_name": "purchase_order_changelog",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "purchase_order_changelog_po_id_fkey",
+      "columns": "po_id"
+    },
+    {
+      "table_name": "purchase_order_changelog",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "purchase_order_changelog_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "purchase_order_items",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "purchase_order_items_po_id_fkey",
+      "columns": "po_id"
+    },
+    {
+      "table_name": "purchase_order_items",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "purchase_order_items_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "purchase_orders",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "purchase_orders_job_id_fkey",
+      "columns": "job_id"
+    },
+    {
+      "table_name": "purchase_orders",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "purchase_orders_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "purchase_orders",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "purchase_orders_supplier_id_fkey",
+      "columns": "supplier_id"
+    },
+    {
+      "table_name": "purchase_orders",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "purchase_orders_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "purchase_orders",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "purchase_orders_po_number_key",
+      "columns": "po_number"
+    },
+    {
+      "table_name": "roles",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "roles_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "roles",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "roles_name_key",
+      "columns": "name"
+    },
+    {
+      "table_name": "sample_comments",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "sample_comments_root_sample_id_fkey",
+      "columns": "root_sample_id"
+    },
+    {
+      "table_name": "sample_comments",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "sample_comments_sample_id_fkey",
+      "columns": "sample_id"
+    },
+    {
+      "table_name": "sample_comments",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "sample_comments_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "sample_logs",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "sample_logs_root_sample_id_fkey",
+      "columns": "root_sample_id"
+    },
+    {
+      "table_name": "sample_logs",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "sample_logs_sample_id_fkey",
+      "columns": "sample_id"
+    },
+    {
+      "table_name": "sample_logs",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "sample_logs_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "sample_number_migration_20261016",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "sample_number_migration_20261016_pkey",
+      "columns": "sample_id"
+    },
+    {
+      "table_name": "samples",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "samples_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "samples",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "samples_parent_sample_id_fkey",
+      "columns": "parent_sample_id"
+    },
+    {
+      "table_name": "samples",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "samples_root_sample_id_fkey",
+      "columns": "root_sample_id"
+    },
+    {
+      "table_name": "samples",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "samples_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "samples",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "samples_sample_number_key",
+      "columns": "sample_number"
+    },
+    {
+      "table_name": "settings",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "settings_pkey",
+      "columns": "key"
+    },
+    {
+      "table_name": "shipment_lines",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "shipment_lines_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "shipment_lines",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "shipment_lines_queue_id_fkey",
+      "columns": "queue_id"
+    },
+    {
+      "table_name": "shipment_lines",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "shipment_lines_shipment_id_fkey",
+      "columns": "shipment_id"
+    },
+    {
+      "table_name": "shipment_lines",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "shipment_lines_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "shipments",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "shipments_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "shipments",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "shipments_shipment_no_key",
+      "columns": "shipment_no"
+    },
+    {
+      "table_name": "shipping_booking_lines",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "shipping_booking_lines_booking_id_fkey",
+      "columns": "booking_id"
+    },
+    {
+      "table_name": "shipping_booking_lines",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "shipping_booking_lines_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "shipping_booking_lines",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "shipping_booking_lines_queue_id_fkey",
+      "columns": "queue_id"
+    },
+    {
+      "table_name": "shipping_booking_lines",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "shipping_booking_lines_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "shipping_booking_shipments",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "shipping_booking_shipments_booking_line_id_fkey",
+      "columns": "booking_line_id"
+    },
+    {
+      "table_name": "shipping_booking_shipments",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "shipping_booking_shipments_shipment_id_fkey",
+      "columns": "shipment_id"
+    },
+    {
+      "table_name": "shipping_booking_shipments",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "shipping_booking_shipments_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "shipping_booking_shipments",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "shipping_booking_shipments_booking_line_id_shipment_id_key",
+      "columns": "booking_line_id,shipment_id"
+    },
+    {
+      "table_name": "shipping_bookings",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "shipping_bookings_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "shipping_bookings",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "shipping_bookings_booking_no_key",
+      "columns": "booking_no"
+    },
+    {
+      "table_name": "size_group_breakdown",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "size_group_breakdown_color_id_fkey",
+      "columns": "color_id"
+    },
+    {
+      "table_name": "size_group_breakdown",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "size_group_breakdown_size_group_id_fkey",
+      "columns": "size_group_id"
+    },
+    {
+      "table_name": "size_group_breakdown",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "size_group_breakdown_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "size_group_colors",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "size_group_colors_size_group_id_fkey",
+      "columns": "size_group_id"
+    },
+    {
+      "table_name": "size_group_colors",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "size_group_colors_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "size_group_templates",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "size_group_templates_buyer_id_fkey",
+      "columns": "buyer_id"
+    },
+    {
+      "table_name": "size_group_templates",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "size_group_templates_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "size_groups",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "size_groups_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "size_groups",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "size_groups_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "suppliers",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "suppliers_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "testing_orders",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "testing_orders_supplier_id_fkey",
+      "columns": "supplier_id"
+    },
+    {
+      "table_name": "testing_orders",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "testing_orders_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "testing_orders",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "testing_orders_order_number_key",
+      "columns": "order_number"
+    },
+    {
+      "table_name": "testing_requirements",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "testing_requirements_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "testing_requirements",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "testing_requirements_testing_order_id_fkey",
+      "columns": "testing_order_id"
+    },
+    {
+      "table_name": "testing_requirements",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "testing_requirements_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "testing_requirements",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "testing_requirements_order_id_source_type_source_id_key",
+      "columns": "order_id,source_type,source_id"
+    },
+    {
+      "table_name": "ui_status_colors",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "ui_status_colors_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "uoms",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "uoms_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "uoms",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "uoms_name_key",
+      "columns": "name"
+    },
+    {
+      "table_name": "users",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "users_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "users",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "users_email_key",
+      "columns": "email"
+    },
+    {
+      "table_name": "users",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "users_username_key",
+      "columns": "username"
+    },
+    {
+      "table_name": "washing",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "washing_color_id_fkey",
+      "columns": "color_id"
+    },
+    {
+      "table_name": "washing",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "washing_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "washing",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "washing_vendor_id_fkey",
+      "columns": "vendor_id"
+    },
+    {
+      "table_name": "washing",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "washing_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "work_order_changelog",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "work_order_changelog_wo_id_fkey",
+      "columns": "wo_id"
+    },
+    {
+      "table_name": "work_order_changelog",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "work_order_changelog_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "work_order_items",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "work_order_items_order_process_id_fkey",
+      "columns": "order_process_id"
+    },
+    {
+      "table_name": "work_order_items",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "work_order_items_wo_id_fkey",
+      "columns": "wo_id"
+    },
+    {
+      "table_name": "work_order_items",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "work_order_items_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "work_orders",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "work_orders_job_id_fkey",
+      "columns": "job_id"
+    },
+    {
+      "table_name": "work_orders",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "work_orders_order_id_fkey",
+      "columns": "order_id"
+    },
+    {
+      "table_name": "work_orders",
+      "constraint_type": "FOREIGN KEY",
+      "constraint_name": "work_orders_vendor_id_fkey",
+      "columns": "vendor_id"
+    },
+    {
+      "table_name": "work_orders",
+      "constraint_type": "PRIMARY KEY",
+      "constraint_name": "work_orders_pkey",
+      "columns": "id"
+    },
+    {
+      "table_name": "work_orders",
+      "constraint_type": "UNIQUE",
+      "constraint_name": "work_orders_wo_number_key",
+      "columns": "wo_number"
+    }
+  ]
+}
