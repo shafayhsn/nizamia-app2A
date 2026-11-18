@@ -78,6 +78,7 @@ jobs:
           node snapshotMerge.test.cjs
           node snapshotDownloadClient.test.cjs
           node cloudRefreshPlanner.test.cjs
+          node applyCloudSnapshot.test.cjs
           node --check snapshotImport.cjs
           node snapshotStartup.test.cjs
           node release-guardrails.test.cjs
