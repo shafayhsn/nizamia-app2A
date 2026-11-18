@@ -112,7 +112,7 @@ export default function Step1GeneralInfo({ orderId, orderData, onSaved, register
       style_image_base64: imgBase64Ref.current || null,
     }
     let data, err
-    if (orderId && window.location.protocol==='app2a:' && !orderId.startsWith('local-')) {
+    if (window.location.protocol==='app2a:' && !orderId?.startsWith('local-')) {
       if(payload.style_image_base64===(orderData?.style_image_base64||null))delete payload.style_image_base64
       const response=await fetch('/api/offline/order-general',{
         method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId,fields:payload}),

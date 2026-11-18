@@ -4285,7 +4285,7 @@ export default function Orders() {
     e.stopPropagation()
     if (!await confirm(`Duplicate order ${o.style_number}? Quantities will not be copied.`, { title:'Duplicate Order', confirmText:'Duplicate' })) return
     // Copy order header (no qty, no po_number, no job)
-    const { data: newOrder, error } = await supabase.from('orders').insert([{
+    const header={
       buyer_id: o.buyer_id, buyer_name: o.buyer_name,
       style_number: o.style_number + ' (Copy)',
       brand_name: o.brand_name || null, store_name: o.store_name || null,
@@ -4293,7 +4293,23 @@ export default function Orders() {
       ship_mode: o.ship_mode || null, incoterms: o.incoterms || null,
       currency: o.currency || 'USD', status: 'Draft',
       merchandiser_name: o.merchandiser_name || null, agent_name: o.agent_name || null,
-    }]).select().single()
+    }
+    if(window.location.protocol==='app2a:'){
+      try{
+        const response=await fetch('/api/offline/order-general',{
+          method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cloneOrderId:o.id,fields:header}),
+        })
+        const result=await response.json()
+        if(!response.ok)throw Error(result.error||'Could not queue duplicate order.')
+        window.dispatchEvent(new Event('app2a-offline-data-changed'))
+        markTabUpdated('ordersPage','orders')
+        setTabNotices(getPageTabNoticeMap('ordersPage',['orders','queues']))
+        loadOrders()
+        await alert(`Order duplicated as "${result.data.style_number}". Open it to fill in quantities.`,{title:'Order Duplicated'})
+      }catch(error){await alert(error.message,{title:'Duplicate Failed'})}
+      return
+    }
+    const {data:newOrder,error}=await supabase.from('orders').insert([header]).select().single()
     if (error) { await alert('Duplicate failed: ' + error.message, { title:'Duplicate Failed' }); return }
     // Copy size groups (without breakdown quantities)
     const { data: sgs } = await supabase.from('size_groups').select('*').eq('order_id', o.id).order('sort_order')

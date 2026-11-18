@@ -51,6 +51,7 @@ export default function Step10Finalize({ orderId, orderData, onSaved, setStep, r
   const [processes,  setProcesses]  = useState([])
   const [samples,    setSamples]    = useState([])
   const [confirming, setConfirming] = useState(false)
+  const [confirmError, setConfirmError] = useState('')
   const [copyOpen, setCopyOpen] = useState(false)
   const [dependencies, setDependencies] = useState([])
   const [selectedOrders, setSelectedOrders] = useState(new Set())
@@ -245,10 +246,24 @@ export default function Step10Finalize({ orderId, orderData, onSaved, setStep, r
   const handleConfirm = async () => {
     if (!requiredDone) return
     setConfirming(true)
-    await supabase.from('orders').update({ status: 'Confirmed' }).eq('id', orderId)
-    setOrder(o => ({ ...o, status: 'Confirmed' }))
-    onSaved(orderId, { status: 'Confirmed' })
-    setConfirming(false)
+    setConfirmError('')
+    try{
+      if(window.location.protocol==='app2a:'){
+        const response=await fetch('/api/offline/order-general',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({orderId,fields:{status:'Confirmed'}}),
+        })
+        const result=await response.json()
+        if(!response.ok)throw Error(result.error||'Could not queue order confirmation.')
+        window.dispatchEvent(new Event('app2a-offline-data-changed'))
+      }else{
+        const {error}=await supabase.from('orders').update({status:'Confirmed'}).eq('id',orderId)
+        if(error)throw error
+      }
+      setOrder(o=>({...o,status:'Confirmed'}))
+      onSaved(orderId,{status:'Confirmed'})
+    }catch(error){setConfirmError(error.message)}
+    finally{setConfirming(false)}
   }
 
   const row = { fontSize: 12, display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid #f5f5f3' }
@@ -425,6 +440,7 @@ export default function Step10Finalize({ orderId, orderData, onSaved, setStep, r
             </button>
           )}
 
+          {confirmError&&<div role="alert" style={{fontSize:11,color:'#b91c1c',marginTop:8}}>{confirmError}</div>}
           {!requiredDone && (
             <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 8, textAlign: 'center' }}>
               Complete required steps to confirm

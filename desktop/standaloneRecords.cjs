@@ -150,7 +150,8 @@ async function listCombinedRecords(directory,table){
   }
   const edits=new Map()
   if(db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_edits'").length){const stmt=db.prepare('SELECT record_id,fields_json FROM snapshot_edits WHERE table_name=?');try{stmt.bind([table]);while(stmt.step()){const [id,json]=stmt.get();edits.set(String(id),json===null?null:JSON.parse(json))}}finally{stmt.free()}}
-  return [...local,...snapshot.filter(row=>!edits.has(String(row.id))||edits.get(String(row.id))!==null).map(row=>edits.has(String(row.id))?{...row,...edits.get(String(row.id)),_local_only:false,_local_edited:true}:row)]
+  const localIds=new Set(local.map(row=>row.id))
+  return [...local,...snapshot.filter(row=>!localIds.has(row.id)&&(!edits.has(String(row.id))||edits.get(String(row.id))!==null)).map(row=>edits.has(String(row.id))?{...row,...edits.get(String(row.id)),_local_only:false,_local_edited:true}:row)]
 }finally{db.close()}
 }
 function serialize(directory,task){
@@ -568,19 +569,72 @@ async function queueParcelTransition(directory,{id,status,deliveryDate,receivedB
 
 const orderGeneralFields=new Set(['buyer_id', 'buyer_name', 'merchandiser_name', 'agent_name', 'factory_ref', 'product_id', 'style_number', 'store_name', 'brand_name', 'description', 'po_number', 'po_date', 'ship_date', 'planned_date', 'ship_mode', 'incoterms', 'currency', 'status', 'port_of_loading', 'port_of_discharge', 'style_image_base64'])
 
-async function queueOrderGeneral(directory,{orderId,fields,ownerId,isCurrent}){
- if(!ownerId||!cloudId.test(orderId||'')||!fields||typeof fields!=='object'||
+async function queueOrderGeneral(directory,{orderId,cloneOrderId,fields,ownerId,isCurrent}){
+ if(!ownerId||(orderId&&!cloudId.test(orderId))||!fields||typeof fields!=='object'||
     Object.entries(fields).some(([key,value])=>!orderGeneralFields.has(key)||
      value!==null&&(typeof value!=='string'||value.length>(key==='style_image_base64'?100000:4000))))
-  throw Error('A synchronized order and valid General Info are required.')
+  throw Error('Valid General Info is required.')
+ if(!orderId&&(!cloudId.test(fields.buyer_id||'')||!fields.style_number?.trim()))throw Error('Select a synchronized buyer and enter a style number.')
  return serialize(directory,async()=>{
   if(!isCurrent())throw Error('Administrator session required.')
   const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file),db=new SQL.Database(Buffer.from(before))
   try{
    schema(db)
+   if(!orderId){
+    const buyer=db.exec("SELECT 1 FROM snapshot_rows WHERE table_name='buyers' AND json_extract(row_json,'$.id')=?",[fields.buyer_id]).length
+    if(!buyer)throw Error('Select a synchronized buyer before creating this order.')
+    const id=crypto.randomUUID(),stamp=new Date().toISOString()
+    const header={...fields,status:'Draft'}
+    const copied={}
+    let document
+    if(cloneOrderId){
+     if(!cloudId.test(cloneOrderId))throw Error('Select a synchronized source order.')
+     const load=(table,key,value)=>db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=? AND json_extract(row_json,?)=?',
+      [table,'$.'+key,value])[0]?.values?.map(([row])=>JSON.parse(row))||[]
+     const source=load('orders','id',cloneOrderId)[0]
+     if(!source||source.buyer_id!==fields.buyer_id)throw Error('Refresh the source order before duplicating.')
+     const select=(row,keys)=>Object.fromEntries(keys.map(key=>[key,row[key]??null]))
+     const project=(table,row,keys,links)=>{
+      assertUnqueued(db,table,row.id)
+      if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,row.id]).length)
+       throw Error('Sync existing edits before copying this order.')
+      return {...select(row,keys),...links,id:crypto.randomUUID()}
+     }
+     assertUnqueued(db,'orders',cloneOrderId)
+     copied.size_groups=[]
+     copied.size_group_colors=[]
+     for(const row of load('size_groups','order_id',cloneOrderId)){
+      const copy=project('size_groups',row,['group_name','unit_price','currency','sizes','base_size','sort_order'],{order_id:id})
+      copied.size_groups.push(copy)
+      for(const color of load('size_group_colors','size_group_id',row.id))
+       copied.size_group_colors.push(project('size_group_colors',color,['color_name','sort_order'],{size_group_id:copy.id}))
+     }
+     copied.bom_items=load('bom_items','order_id',cloneOrderId).map(row=>project('bom_items',row,
+      ['library_item_id','name','category','detail','specification','unit','supplier_id','usage_rule','usage_data','base_qty','wastage','notes','sort_order','use_cutting_qty'],
+      {order_id:id}))
+     document={clonedRows:Object.entries(copied).flatMap(([table,rows])=>rows.map(row=>({table,id:row.id})))}
+    }
+    const intent=createMutationIntent('orders',id,cloneOrderId?{header,copied}:header,stamp,stamp,document)
+    if(Buffer.byteLength(JSON.stringify(intent))>115000)throw Error('This order image is too large for offline sync.')
+    db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,'orders',JSON.stringify({...header,created_at:stamp}),stamp,stamp])
+    for(const [table,rows] of Object.entries(copied))for(const row of rows)
+     db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[row.id,table,JSON.stringify(row),stamp,stamp])
+    if(!stageMutation(db,ownerId,intent))throw Error('Could not queue new order.')
+    const temp=file+'.'+crypto.randomUUID()+'.tmp'
+    try{
+     fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+     if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during order save.')
+     fs.renameSync(temp,file)
+    }finally{fs.rmSync(temp,{force:true})}
+    return {id,...header,created_at:stamp}
+   }
    const raw=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name='orders' AND json_extract(row_json,'$.id')=?",
     [orderId])[0]?.values?.[0]?.[0]
-   if(!raw)throw Error('Refresh this order before saving.')
+   if(!raw){
+    const local=read(db,'orders').find(row=>row.id===orderId)
+    if(local&&Object.entries(fields).every(([key,value])=>(local[key]??null)===value))return local
+    throw Error(local?'Wait for this new order to sync before editing it.':'Refresh this order before saving.')
+   }
    const base=JSON.parse(raw)
    const saved=db.exec("SELECT fields_json FROM snapshot_edits WHERE table_name='orders' AND record_id=?",[orderId])[0]?.values?.[0]
    if(saved?.[0]===null)throw Error('This order is pending deletion.')
@@ -590,6 +644,9 @@ async function queueOrderGeneral(directory,{orderId,fields,ownerId,isCurrent}){
    assertUnqueued(db,'orders',orderId)
    if(saved)throw Error('This order has a local edit awaiting synchronization or review.')
    const general=Object.fromEntries(changed)
+   if(general.status==='Confirmed'&&!(base.step_po_matrix&&base.step_bom&&base.style_number&&base.buyer_name))
+    throw Error('Sync General Info, PO Matrix and BOM before confirming the order.')
+
    const expected=Object.fromEntries(changed.map(([key])=>[key,base[key]??null]))
    const stamp=new Date().toISOString(),next={...base,...general}
    const intent=updateMutationIntent('orders',orderId,{general_info:general},{general_info:expected},stamp)

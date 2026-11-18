@@ -73,8 +73,18 @@ function assertUnqueued(db,table,id){
    AND edit.record_id=json_extract(target.value,'$.id') AND edit.updated_at=json_extract(box.intent_json,'$.editedAt')
   WHERE edit.table_name=? AND edit.record_id=?`,[table,id]).length)
   throw Error('This record has a PO Matrix edit awaiting synchronization or review.')
- if(db.exec("SELECT 1 FROM offline_mutation_outbox WHERE (table_name=? AND record_id=? AND (state<>'applied' OR json_extract(intent_json,'$.operation')='create')) OR (?='sample_comments' AND json_extract(intent_json,'$.historyRecord.id')=?) OR EXISTS(SELECT 1 FROM json_each(intent_json,'$.document.localLines') WHERE json_extract(value,'$.table')=? AND json_extract(value,'$.id')=?)",[table,id,table,id,table,id]).length)
+ if(db.exec("SELECT 1 FROM offline_mutation_outbox WHERE (table_name=? AND record_id=? AND (state<>'applied' OR (json_extract(intent_json,'$.operation')='create' AND record_id LIKE 'local-%'))) OR (?='sample_comments' AND json_extract(intent_json,'$.historyRecord.id')=?) OR EXISTS(SELECT 1 FROM json_each(intent_json,'$.document.localLines') WHERE json_extract(value,'$.table')=? AND json_extract(value,'$.id')=?)",[table,id,table,id,table,id]).length)
   throw Error('This record is awaiting cloud synchronization or review.')
+ if(table==='orders'&&db.exec(`SELECT 1 FROM offline_mutation_outbox box
+  JOIN standalone_records row ON row.id=box.record_id AND row.table_name=box.table_name
+  WHERE box.table_name='orders' AND box.record_id=? AND json_extract(box.intent_json,'$.operation')='create'`,[id]).length)
+  throw Error('This new order is awaiting synchronization or review.')
+ if(db.exec(`SELECT 1 FROM offline_mutation_outbox box
+  JOIN json_each(box.intent_json,'$.document.clonedRows') child
+  JOIN standalone_records row ON row.table_name=json_extract(child.value,'$.table')
+   AND row.id=json_extract(child.value,'$.id') AND row.updated_at=json_extract(box.intent_json,'$.editedAt')
+  WHERE row.table_name=? AND row.id=?`,[table,id]).length)
+  throw Error('This copied record is awaiting synchronization or review.')
 }
 
 function reconcileBuyers(db,tables,hold){
@@ -198,9 +208,13 @@ function reconcileUploadedCreates(db,tables){
    db.run("DELETE FROM standalone_records WHERE table_name='sample_comments' AND id=? AND updated_at=?",
     [historyId,editedAt])
   }
-  const cloudId=resourceId||operationId
+  const cloudId=resourceId||(table==='orders'&&intent.operation==='create'&&!id.startsWith('local-')?id:operationId)
   if(!tables[table]?.some(row=>row.id===cloudId))continue
   if(intent.operation!=='create'||table==='jobs'||intent.document?.buyer)continue
+  const copied=intent.document?.clonedRows||[]
+  if(!copied.every(child=>tables[child.table]?.some(row=>row.id===child.id)))continue
+  for(const child of copied)db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',
+   [child.table,child.id,intent.editedAt])
   const linked=intent.document?.localLines||[]
   if(linked.length&&!tables[linked[0].table]?.filter(row=>row[linked[0].parentField]===cloudId).length)continue
   for(const child of linked)db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',
@@ -217,7 +231,7 @@ function findQueuedRecords(db){
   return [table+':'+id,...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
    ...(intent.expected?.lines||[]).map(line=>(intent.document.childTable||intent.document.localLines[0].table)+':'+line.id),
    ...(table==='jobs'&&Array.isArray(intent.fields?.orders)?intent.fields.orders.map(order=>'orders:'+order.id):[]),
-   ...[...(intent.document?.matrix?.edits||[]),...(intent.document?.matrix?.creates||[]),...(intent.document?.buyer?.edits||[]),...(intent.document?.buyer?.creates||[])].map(item=>item.table+':'+item.id)]
+   ...[...(intent.document?.matrix?.edits||[]),...(intent.document?.matrix?.creates||[]),...(intent.document?.buyer?.edits||[]),...(intent.document?.buyer?.creates||[]),...(intent.document?.clonedRows||[])].map(item=>item.table+':'+item.id)]
  }))
 }
 

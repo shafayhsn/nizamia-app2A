@@ -454,9 +454,9 @@ app.whenReady().then(() => {
       try{
         const raw=await request.text()
         if(Buffer.byteLength(raw)>115000)return Response.json({error:'General Info is too large for offline sync'},{status:413})
-        const {orderId,fields}=JSON.parse(raw)
+        const {orderId,cloneOrderId,fields}=JSON.parse(raw)
         const {queueOrderGeneral}=require('./standaloneRecords.cjs')
-        const data=await queueOrderGeneral(directory,{orderId,fields,ownerId,
+        const data=await queueOrderGeneral(directory,{orderId,cloneOrderId,fields,ownerId,
           isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
         return Response.json({data},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:400})}
