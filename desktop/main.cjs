@@ -17,6 +17,30 @@ protocol.registerSchemesAsPrivileged([{scheme:'app2a',privileges:{standard:true,
 const APP_URL = 'https://app.nizamia.com'
 const ALLOWED_ORIGIN = new URL(APP_URL).origin
 
+// Automatically refresh the read-only cloud snapshot after a verified online
+// sign-in. A failed refresh never blocks login or removes local work.
+let refreshInFlight=false
+async function refreshCloudSnapshot(token){
+ if(refreshInFlight)return {status:'busy'}
+ refreshInFlight=true
+ try{
+  if(!desktopAuth?.isAuthenticated()||!token||token!==onlineSnapshotToken)return {status:'skipped'}
+  const directory=getDatabaseDirectory()
+  if(!directory)throw Error('Local database directory unavailable')
+  const {createSnapshotDownloadClient}=require('./snapshotDownloadClient.cjs')
+  const payload=await createSnapshotDownloadClient({origin:APP_URL,fetchImpl:fetch}).download({token})
+  if(!desktopAuth?.isAuthenticated()||token!==onlineSnapshotToken)return {status:'skipped'}
+  const excluded=new Set(['users','permissions','roles','app_database_sync_status','notification_reads','app_task_reads'])
+  const sensitive=/password|secret|token|api_key|private_key|session|credential|auth_hash/i
+  const tables=Object.fromEntries(Object.entries(payload.tables)
+   .filter(([name])=>!excluded.has(name))
+   .map(([name,rows])=>[name,rows.map(row=>Object.fromEntries(Object.entries(row).filter(([field])=>!sensitive.test(field))))]))
+  const {applyCloudSnapshot}=require('./applyCloudSnapshot.cjs')
+  const result=await applyCloudSnapshot({directory,tables})
+  return {status:'updated',tables:result.updatedTables}
+ }finally{refreshInFlight=false}
+}
+
 function allowedNavigation(url) {
   try { return new URL(url).origin === ALLOWED_ORIGIN && new URL(url).protocol === 'https:' }
   catch { return false }
@@ -172,6 +196,16 @@ app.whenReady().then(() => {
           if(!verified.ok||!verified.desktopUser)throw Error('Online enrollment response invalid')
           data=desktopAuth.enroll(input.username,input.password,verified.desktopUser)
           onlineSnapshotToken=typeof verified.desktopSnapshotToken==='string'?verified.desktopSnapshotToken:null
+          if(onlineSnapshotToken){
+            const token=onlineSnapshotToken
+            setImmediate(()=>refreshCloudSnapshot(token).then(result=>{
+              if(result.status==='updated')console.info('Cloud snapshot refreshed after online sign-in:',result.tables,'tables')
+            }).catch(error=>{
+              console.warn('Automatic cloud refresh skipped; local data preserved:',error.message)
+              const owner=BrowserWindow.getAllWindows().find(w=>!w.isDestroyed())
+              if(owner)dialog.showMessageBox(owner,{type:'warning',title:'Cloud data not refreshed',message:'Your offline work is safe, but cloud data was not updated.',detail:error.message+'\\n\\nUse Database → Refresh Snapshot from Cloud after resolving the issue.',buttons:['OK']}).catch(()=>{})
+            }))
+          }
         }catch(error){
           if(error.message==='Online credentials rejected or account unavailable'||error.message==='Online enrollment response invalid')throw error
           networkUnavailable=true
