@@ -80,7 +80,11 @@
       "offlineSchemaMigration.cjs",
       "offlineSchemaStartup.cjs",
       "schema/public-schema-inventory.json",
-      "offlinePendingStatus.cjs"
+      "offlinePendingStatus.cjs",
+      "desktopSyncLoop.cjs",
+      "snapshotDownloadClient.cjs",
+      "applyCloudSnapshot.cjs",
+      "snapshotMerge.cjs"
     ],
     "mac": {
       "category": "public.app-category.business",

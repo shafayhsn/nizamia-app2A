@@ -16,6 +16,28 @@ const { snapshotReady } = require('./snapshotStartup.cjs')
 protocol.registerSchemesAsPrivileged([{scheme:'app2a',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}])
 const APP_URL = 'https://app.nizamia.com'
 const ALLOWED_ORIGIN = new URL(APP_URL).origin
+let onlineSyncSession=null
+const {createOfflineSyncClient}=require('./offlineSyncClient.cjs')
+const {createOfflineSyncCoordinator}=require('./offlineSyncCoordinator.cjs')
+const {createDesktopSyncLoop}=require('./desktopSyncLoop.cjs')
+const syncCoordinator=createOfflineSyncCoordinator({
+ client:createOfflineSyncClient({endpoint:APP_URL+'/api/offline-sync',fetchImpl:fetch}),
+ getDirectory:getDatabaseDirectory,
+ getSession:()=>onlineSyncSession,
+ getToken:session=>session===onlineSyncSession?session.token:null,
+ authenticateSession:async session=>session===onlineSyncSession&&desktopAuth?.status().user?.id===session.identity
+})
+const syncLoop=createDesktopSyncLoop({
+ coordinator:syncCoordinator,
+ isOnline:()=>net.isOnline(),
+ refresh:session=>session===onlineSyncSession?refreshCloudSnapshot(onlineSnapshotToken):null
+})
+function clearOnlineSession(){
+ onlineSnapshotToken=null
+ onlineSyncSession=null
+ syncLoop.stop()
+}
+
 
 // Automatically refresh the read-only cloud snapshot after a verified online
 // sign-in. A failed refresh never blocks login or removes local work.
@@ -187,7 +209,7 @@ app.whenReady().then(() => {
     if(url.pathname==='/api/offline/auth'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})
       try{const raw=await request.text();if(raw.length>2048)return Response.json({error:'Request too large'},{status:413});const input=JSON.parse(raw);if(!desktopAuth)return Response.json({error:'Local account not ready'},{status:503});let data;if(input.action==='status')data=desktopAuth.status();else if(input.action==='login'){
-        onlineSnapshotToken=null
+        clearOnlineSession()
         let networkUnavailable=false
         try{
           const response=await fetch(APP_URL+'/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'login',identifier:input.username,password:input.password,desktopEnrollment:true}),signal:AbortSignal.timeout(10000)})
@@ -196,6 +218,10 @@ app.whenReady().then(() => {
           if(!verified.ok||!verified.desktopUser)throw Error('Online enrollment response invalid')
           data=desktopAuth.enroll(input.username,input.password,verified.desktopUser)
           onlineSnapshotToken=typeof verified.desktopSnapshotToken==='string'?verified.desktopSnapshotToken:null
+          if(typeof verified.desktopSyncToken==='string'&&data.user?.role==='admin'){
+           onlineSyncSession={authenticated:true,identity:data.user.id,token:verified.desktopSyncToken}
+           syncLoop.start(onlineSyncSession)
+          }
           if(onlineSnapshotToken){
             const token=onlineSnapshotToken
             setImmediate(()=>refreshCloudSnapshot(token).then(result=>{
@@ -211,7 +237,7 @@ app.whenReady().then(() => {
           networkUnavailable=true
         }
         if(networkUnavailable)data=desktopAuth.login(input.username,input.password)
-      }else if(input.action==='logout'){onlineSnapshotToken=null;data=desktopAuth.logout();}else return Response.json({error:'Unknown action'},{status:400});return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
+      }else if(input.action==='logout'){clearOnlineSession();data=desktopAuth.logout();}else return Response.json({error:'Unknown action'},{status:400});return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
     }
     if(url.pathname==='/api/offline/version')return Response.json({version:app.getVersion(),platform:process.platform,pdf:'native',updates:'manual'})
     if(url.pathname==='/api/offline/pdf'){
@@ -267,7 +293,7 @@ app.whenReady().then(() => {
         const directory=getDatabaseDirectory()
         if(!directory)return Response.json({error:'Local database unavailable'},{status:503})
         const status=await require('./offlinePendingStatus.cjs').readPendingStatus(directory)
-        return Response.json({data:status,error:null},{headers:{'Cache-Control':'no-store'}})
+        return Response.json({data:{...status,cloudSync:syncLoop.getStatus()},error:null},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:500})}
     }
     if(url.pathname==='/api/offline/records'){

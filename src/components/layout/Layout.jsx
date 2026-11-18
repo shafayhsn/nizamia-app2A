@@ -162,6 +162,15 @@ function DesktopDraftDetails({ onClose }) {
   </div>
 }
 
+const cloudSyncLabel={
+  'sign-in-required':'Cloud upload session unavailable',
+  offline:'Cloud upload waiting for network',
+  checking:'Checking cloud upload queue',
+  ready:'Cloud upload queue checked',
+  retrying:'Cloud upload will retry',
+  conflict:'Cloud upload found a conflict',
+  pending:'Cloud upload retained pending edits',
+}
 function DesktopLocalStatus({ pathname }) {
   const [status,setStatus]=useState(null)
   const [detailsOpen,setDetailsOpen]=useState(false)
@@ -185,14 +194,15 @@ function DesktopLocalStatus({ pathname }) {
       }catch(e){if(active){setStatus(null);setError(e.message)}}
     }
     read()
+    const timer=setInterval(read,5000)
     const onFocus=()=>setRefresh(v=>v+1)
     window.addEventListener('focus',onFocus)
     window.addEventListener('app2a-offline-data-changed',onFocus)
-    return ()=>{active=false;window.removeEventListener('focus',onFocus);window.removeEventListener('app2a-offline-data-changed',onFocus)}
+    return ()=>{active=false;clearInterval(timer);window.removeEventListener('focus',onFocus);window.removeEventListener('app2a-offline-data-changed',onFocus)}
   },[pathname,refresh])
   return <div style={{flexShrink:0}}><div role="status" aria-live="polite" style={{padding:'5px 14px',fontSize:11,background:'#f8fafc',borderBottom:'1px solid #e2e8f0',color:'#475569'}}>
     {error?'Offline database status unavailable: '+error:status?
-      'Desktop local database · '+status.totalUnsyncedLocalChanges+' unsynced local items ('+status.unsyncedDrafts+' drafts, '+status.draftStates.conflict+' conflicts) · '+(status.syncHistory.applied+status.syncHistory.alreadyApplied)+' previously archived draft results · Cloud sync not connected · '+(connected?'Network available':'No network')
+      'Desktop local database · '+status.totalUnsyncedLocalChanges+' unsynced local items ('+status.unsyncedDrafts+' drafts, '+status.draftStates.conflict+' conflicts) · '+(status.syncHistory.applied+status.syncHistory.alreadyApplied)+' previously archived draft results · '+(cloudSyncLabel[status.cloudSync?.state]||'Cloud sync unavailable')+' · '+(connected?'Network available':'No network')
       :'Checking desktop database…'}
     <button type="button" onClick={()=>setRefresh(v=>v+1)} style={{marginLeft:12,fontSize:11,border:'1px solid #cbd5e1',borderRadius:4,padding:'1px 7px',background:'white',cursor:'pointer'}}>Refresh</button>
     <button type="button" onClick={()=>setDetailsOpen(v=>!v)} style={{marginLeft:8,fontSize:11,border:'1px solid #cbd5e1',borderRadius:4,padding:'1px 7px',background:'white',cursor:'pointer'}}>{detailsOpen?'Hide drafts':'View drafts'}</button>

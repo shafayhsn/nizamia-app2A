@@ -45,6 +45,10 @@ jobs:
           node src/lib/offlineAdapterContract.test.cjs
           node --check desktop/snapshotReplaceGuard.cjs
           node --check desktop/standaloneRecords.cjs
+      - name: Verify packaged desktop sync and refresh modules
+        run: |
+          node --test desktop/desktopSyncLoop.test.cjs
+          node -e "const p=require('./desktop/package.json');for(const f of ['desktopSyncLoop.cjs','snapshotDownloadClient.cjs','applyCloudSnapshot.cjs','snapshotMerge.cjs'])if(!p.build.files.includes(f))throw Error('Missing packaged module '+f)"
       - name: Verify desktop order sync endpoint
         run: |
           node --check api/offline-sync.js
