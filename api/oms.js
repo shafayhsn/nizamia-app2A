@@ -42,7 +42,9 @@ export default async function handler(req,res){
    if(req.body?.desktopEnrollment===true){
      let permissions=null
      if(data.role!=='admin'&&data.role_id){const {data:rows,error:permissionError}=await db.from('permissions').select('module,can_view,can_create,can_edit,can_delete').eq('role_id',data.role_id);if(permissionError)return err(res,503,'Permissions unavailable');permissions=Object.fromEntries((rows||[]).map(row=>[row.module,{view:!!row.can_view,create:!!row.can_create,edit:!!row.can_edit,delete:!!row.can_delete}]))}
-     return res.json({ok:true,desktopUser:{id:data.id,username:data.username,email:data.email,displayName:data.username||data.email,role:data.role,role_id:data.role_id,is_active:true,permissions}})
+     const snapshotPayload=Buffer.from(JSON.stringify({id:data.id,scope:'desktop-snapshot',exp:Date.now()+60*60*1000})).toString('base64url')
+     const snapshotToken=snapshotPayload+'.'+createHmac('sha256',key).update('desktop-snapshot:'+snapshotPayload).digest('base64url')
+     return res.json({ok:true,desktopSnapshotToken:snapshotToken,desktopUser:{id:data.id,username:data.username,email:data.email,displayName:data.username||data.email,role:data.role,role_id:data.role_id,is_active:true,permissions}})
    }
    return res.json({ok:true})
  }
