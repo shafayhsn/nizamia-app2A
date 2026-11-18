@@ -46,7 +46,7 @@ function exportToCSV(suppliers) {
 }
 
 export default function Suppliers() {
-  const { confirm, Dialogs } = useAppDialogs()
+  const { alert, confirm, Dialogs } = useAppDialogs()
   const [suppliers,  setSuppliers]  = useState([])
   const [poCounts,   setPoCounts]   = useState({})
   const [woCounts,   setWoCounts]   = useState({})
@@ -108,15 +108,19 @@ export default function Suppliers() {
     const payload = { ...form }
     if (form.category !== 'Contractors') payload.process = null
     if (form.category !== 'Trims') payload.tags = []
-    if (editing) await supabase.from('suppliers').update(payload).eq('id', editing.id)
-    else await supabase.from('suppliers').insert([payload])
-    setSaving(false); setModal(false); load()
+    const { error } = editing
+      ? await supabase.from('suppliers').update(payload).eq('id', editing.id)
+      : await supabase.from('suppliers').insert([payload])
+    setSaving(false)
+    if(error){await alert(error.message,{title:'Supplier Save Failed'});return}
+    setModal(false); load()
   }
 
   const handleDelete = async (id) => {
     const ok = await confirm('Supplier records cannot be deleted. Deactivate this supplier instead?', { title:'Deactivate Supplier', confirmText:'Deactivate', tone:'danger' })
     if (!ok) return
-    await supabase.from('suppliers').update({ is_active: false }).eq('id', id)
+    const {error}=await supabase.from('suppliers').update({ is_active: false }).eq('id', id)
+    if(error){await alert(error.message,{title:'Supplier Deactivation Failed'});return}
     load()
   }
 

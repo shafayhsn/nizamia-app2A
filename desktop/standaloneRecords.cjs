@@ -17,6 +17,18 @@ function queueProductionCreate(db,ownerId,table,id,fields,stamp){
   stageMutation(db,ownerId,createMutationIntent(table,id,fields,stamp,stamp))
 }
 
+const supplierFields=new Set(['name','contact_person','email','phone','address','category','lead_time_days','notes','process','tags','is_active'])
+function prepareSupplierFields(fields){
+ const result=Object.fromEntries(Object.entries(fields||{}).filter(([key])=>supplierFields.has(key)))
+ if(result.lead_time_days==='')result.lead_time_days=null
+ if(Object.hasOwn(result,'lead_time_days')&&result.lead_time_days!==null){
+  result.lead_time_days=Number(result.lead_time_days)
+  if(!Number.isSafeInteger(result.lead_time_days)||result.lead_time_days<0)throw Error('Lead time must be a nonnegative whole number.')
+ }
+ if(Object.hasOwn(result,'name')&&(typeof result.name!=='string'||!result.name.trim()))throw Error('Enter a supplier name.')
+ return result
+}
+
 function queueOrderStatus(db,ownerId,table,id,base,fields,stamp){
  if(ownerId&&table==='orders'&&cloudId.test(id)&&Object.keys(fields).join()==='status'&&
     ['Draft','Active','Booked','Shipped','Cancelled'].includes(fields.status)&&Object.hasOwn(base,'status')&&base.status!==fields.status)
@@ -152,7 +164,11 @@ async function mutateLocalRecord(directory,{action,table,id,fields,ownerId,sampl
  return serialize(directory,async()=>{
   validateTable(table)
   if(!['create','update','delete'].includes(action))throw Error('Unsupported local record operation')
-  if(action!=='delete'){
+  if(table==='suppliers'&&ownerId&&action!=='delete'){
+   fields=prepareSupplierFields(fields)
+   validateFields(fields)
+   if(action==='create'&&!fields.name)throw Error('Enter a supplier name.')
+  }else if(action!=='delete'){
    // Imported rows use the original Supabase schema, not the simplified starter forms.
    // Preserve those fields and validate them without requiring unrelated form inputs.
    if(action==='update'&&typeof id==='string'&&!id.startsWith('local-'))validateFields(fields)
@@ -177,6 +193,15 @@ async function mutateLocalRecord(directory,{action,table,id,fields,ownerId,sampl
     if(prior.length&&prior[0].values[0][0]===null)throw Error('Imported record already deleted')
     const previous=prior.length&&prior[0].values[0][0]?JSON.parse(prior[0].values[0][0]):imported
     if(action==='update'){
+     if(table==='suppliers'&&ownerId){
+      const changed=Object.keys(fields).filter(key=>JSON.stringify(fields[key])!==JSON.stringify(previous[key]))
+      if(!changed.length)return {id,table,action,localOnly:false}
+      if(changed.some(key=>!Object.hasOwn(imported,key)||JSON.stringify(imported[key])!==JSON.stringify(previous[key])))
+       throw Error('Refresh this supplier or review its earlier changes before saving.')
+      const select=source=>Object.fromEntries(changed.map(key=>[key,source[key]]))
+      if(!stageMutation(db,ownerId,updateMutationIntent(table,id,select(fields),select(imported),stamp)))
+       throw Error('This supplier already has a queued change.')
+     }
      queueOrderDetails(db,ownerId,table,id,imported,previous,fields,stamp)
      queueOrderStatus(db,ownerId,table,id,imported,fields,stamp)
      queueShipmentStatus(db,ownerId,table,id,imported,previous,fields,stamp)
@@ -201,6 +226,9 @@ async function mutateLocalRecord(directory,{action,table,id,fields,ownerId,sampl
     id='local-'+crypto.randomUUID()
     db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(fields),stamp,stamp])
     queueProductionCreate(db,ownerId,table,id,fields,stamp)
+    if(table==='suppliers'&&ownerId&&!stageMutation(db,ownerId,createMutationIntent(table,id,fields,stamp,stamp)))
+     throw Error('Could not queue supplier.')
+
    }else{
     const existing=db.exec('SELECT 1 FROM standalone_records WHERE id=? AND table_name=?',[id,table])
     if(!existing.length)throw Error('Standalone record not found')

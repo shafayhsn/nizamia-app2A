@@ -121,6 +121,18 @@ function holdOrderDetails(db,tables,hold){
  }
 }
 
+function holdSupplierEdits(db,tables,hold){
+ if(!tables.suppliers||!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ const entries=db.exec("SELECT intent_json,state FROM offline_mutation_outbox WHERE table_name='suppliers' AND json_extract(intent_json,'$.operation')='update'")[0]?.values||[]
+ for(const [json,state] of entries){
+  const {id,changes,editedAt}=JSON.parse(json)
+  if(!db.exec("SELECT 1 FROM snapshot_edits WHERE table_name='suppliers' AND record_id=? AND updated_at=?",[id,editedAt]).length)continue
+  const cloud=tables.suppliers.find(row=>row.id===id)
+  if(state!=='applied'||!cloud||!Object.entries(changes).every(([key,value])=>JSON.stringify(cloud[key])===JSON.stringify(value)))
+   hold.add('suppliers:'+id)
+ }
+}
+
 function reconcileDocumentEdits(db,tables){
  const hold=new Set()
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return hold
@@ -178,4 +190,4 @@ function findQueuedRecords(db){
  }))
 }
 
-module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices}
+module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits}
