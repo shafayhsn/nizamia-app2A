@@ -566,6 +566,51 @@ async function queueParcelTransition(directory,{id,status,deliveryDate,receivedB
  })
 }
 
+async function queueBom(directory,{orderId,rows,ownerId,isCurrent}){
+ if(!ownerId||!cloudId.test(orderId||'')||!Array.isArray(rows)||rows.length>300)
+  throw Error('A synchronized order and a valid BOM are required.')
+ for(const row of rows){
+  validateFields(row)
+  if(row.order_id!==orderId||typeof row.name!=='string'||!row.name.trim())throw Error('Invalid BOM row.')
+ }
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file),db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   const order=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name='orders' AND json_extract(row_json,'$.id')=?",
+    [orderId])[0]?.values?.[0]?.[0]
+   if(!order)throw Error('Refresh the order before saving its BOM.')
+   const base=JSON.parse(order)
+   const original=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name='bom_items' AND json_extract(row_json,'$.order_id')=?",
+    [orderId])[0]?.values?.map(([row])=>JSON.parse(row))||[]
+   for(const [table,id] of [['orders',orderId],...original.map(row=>['bom_items',row.id])]){
+    assertUnqueued(db,table,id)
+    if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id]).length)
+     throw Error('This BOM has an earlier local change awaiting synchronization or review.')
+   }
+   const stamp=new Date().toISOString()
+   const localLines=rows.map(()=>({table:'bom_items',id:'local-'+crypto.randomUUID(),parentField:'order_id'}))
+   const expected={step_bom:base.step_bom??null,lines:original}
+   const intent=updateMutationIntent('orders',orderId,{step_bom:true},expected,stamp,null,
+    {childTable:'bom_items',lines:rows,localLines})
+   if(Buffer.byteLength(JSON.stringify(intent))>116000)throw Error('BOM is too large for offline sync.')
+   db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',['orders',orderId,JSON.stringify({...base,step_bom:true}),stamp])
+   for(const row of original)db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',['bom_items',row.id,null,stamp])
+   localLines.forEach(({id},index)=>db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',
+    [id,'bom_items',JSON.stringify(rows[index]),stamp,stamp]))
+   if(!stageMutation(db,ownerId,intent))throw Error('Could not queue BOM.')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during BOM save.')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return localLines.map(({id},index)=>({id,...rows[index]}))
+  }finally{db.close()}
+ })
+}
+
 async function queuePoMatrix(directory,{payload,ownerId,isCurrent}){
  const {p_order_id:orderId,p_groups:groups,p_total_qty:qty,p_total_value_usd:value,
   p_excess_cutting_pct:excess,p_queue_split_rule:rule}=payload||{}
@@ -812,4 +857,4 @@ async function queueParcelCreate(directory,{items,customItems,addressId,contactI
  })
 }
 
-module.exports={queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+module.exports={queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}

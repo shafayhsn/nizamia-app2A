@@ -86,6 +86,14 @@ function createDesktopMutationHttp({db,key}){
     rpc='desktop_save_supplier'
     args={target_supplier:intent.id,patch:intent.changes,expected:intent.expected}
    }else if(intent?.operation==='update'&&intent.table==='orders'&&uuid.test(intent.id||'')&&
+      Object.keys(intent.changes||{}).join()==='step_bom'&&intent.changes.step_bom===true&&
+      Array.isArray(intent.expected?.lines)&&Array.isArray(intent.document?.lines)&&
+      Array.isArray(intent.document.lineIds)&&intent.document.lines.length===intent.document.lineIds.length&&
+      intent.document.lineIds.every(id=>uuid.test(id))){
+    rpc='desktop_save_bom'
+    args={target_order:intent.id,expected:intent.expected,
+     lines:intent.document.lines.map((line,index)=>({...line,id:intent.document.lineIds[index]}))}
+   }else if(intent?.operation==='update'&&intent.table==='orders'&&uuid.test(intent.id||'')&&
       intent.changes?.po_matrix?.p_order_id===intent.id&&Array.isArray(intent.changes.po_matrix.p_groups)&&
       intent.expected&&typeof intent.expected==='object'){
     rpc='desktop_save_po_matrix'

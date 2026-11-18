@@ -671,35 +671,50 @@ export default function Step3BOM({ orderId, orderData, onSaved, registerSave }) 
     const currentOrderId = orderIdRef.current
     if (!currentOrderId) throw new Error('No order ID — save Step 1 first')
     const current = itemsRef.current.filter(it => it.name?.trim())
-    // Delete-and-reinsert prevents duplication from any prior partial saves
-    await supabase.from('bom_items').delete().eq('order_id', currentOrderId)
-    if (current.length) {
-      const rows = current.map((item, idx) => {
-        let usageDataToSave = item.usage_data || null
-        // Stringify usage_data if it's an object (for complex rules like By Batch, Configure Own)
-        if (usageDataToSave && typeof usageDataToSave === 'object') {
-          usageDataToSave = JSON.stringify(usageDataToSave)
-        }
-        return {
-          order_id:        currentOrderId,
-          library_item_id: item.library_item_id || null,
-          name:            item.name?.trim() || '',
-          category:        item.category || '',
-          detail:          item.detail || null,
-          specification:   item.specification || null,
-          unit:            item.unit || 'yards',
-          supplier_id:     item.supplier_id || null,
-          usage_rule:      item.usage_rule || 'Generic',
-          usage_data:      usageDataToSave,
-          final_qty:       (() => { const value = calcFinalQtyRef.current(item); return value == null ? null : Number(value) })(),
-          base_qty:        item.base_qty !== '' && item.base_qty != null ? Number(item.base_qty) : null,
-          wastage:         item.wastage !== '' && item.wastage != null ? Number(item.wastage) : 5,
-          custom_usage:    item.custom_usage || null,
-          notes:           item.notes || null,
-          sort_order:      idx,
-          use_cutting_qty: !!item.use_cutting_qty,
-        }
+    const rows = current.map((item, idx) => {
+      let usageDataToSave = item.usage_data || null
+      // Stringify usage_data if it's an object (for complex rules like By Batch, Configure Own)
+      if (usageDataToSave && typeof usageDataToSave === 'object') {
+        usageDataToSave = JSON.stringify(usageDataToSave)
+      }
+      return {
+        order_id:        currentOrderId,
+        library_item_id: item.library_item_id || null,
+        name:            item.name?.trim() || '',
+        category:        item.category || '',
+        detail:          item.detail || null,
+        specification:   item.specification || null,
+        unit:            item.unit || 'yards',
+        supplier_id:     item.supplier_id || null,
+        usage_rule:      item.usage_rule || 'Generic',
+        usage_data:      usageDataToSave,
+        final_qty:       (() => { const value = calcFinalQtyRef.current(item); return value == null ? null : Number(value) })(),
+        base_qty:        item.base_qty !== '' && item.base_qty != null ? Number(item.base_qty) : null,
+        wastage:         item.wastage !== '' && item.wastage != null ? Number(item.wastage) : 5,
+        custom_usage:    item.custom_usage || null,
+        notes:           item.notes || null,
+        sort_order:      idx,
+        use_cutting_qty: !!item.use_cutting_qty,
+      }
+    })
+    if (window.location.protocol==='app2a:') {
+      const response=await fetch('/api/offline/bom',{
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId:currentOrderId,rows}),
       })
+      const result=await response.json()
+      if(!response.ok)throw Error(result.error||'Could not queue BOM.')
+      setItems(its=>{
+        const named=its.filter(item=>item.name?.trim())
+        return its.map(item=>result.data[named.indexOf(item)]||item)
+      })
+      window.dispatchEvent(new Event('app2a-offline-data-changed'))
+      onSaved(currentOrderId,{step_bom:true})
+      markTabUpdated('purchasingPage','material')
+      return
+    }
+    // Delete-and-reinsert prevents duplication from any prior partial saves.
+    await supabase.from('bom_items').delete().eq('order_id', currentOrderId)
+    if (rows.length) {
       const { data: inserted, error } = await supabase.from('bom_items').insert(rows).select()
       if (error) throw new Error(`BOM save failed: ${error.message}`)
       // Update local state with new IDs

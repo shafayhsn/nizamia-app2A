@@ -5,7 +5,7 @@ const assert=require('node:assert/strict')
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const {PGlite}=require('@electric-sql/pglite')
 const sqlite=require('../desktop/node_modules/sql.js')
-const {queuePoMatrix,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
+const {queueBom,queuePoMatrix,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
 const {applyCloudSnapshot}=require('../desktop/applyCloudSnapshot.cjs')
 const {createDesktopMutationHttp}=require('./desktopMutationHttp.cjs')
 const {issueDesktopSyncToken}=require('./desktopSyncToken.cjs')
@@ -19,13 +19,16 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
    create schema desktop_private; grant usage on schema desktop_private to service_role;
    create table users(id uuid primary key,role text,is_active bool,is_restricted bool);
    create table orders(id uuid primary key,step_po_matrix boolean,total_qty integer,total_value_usd numeric,
-    excess_cutting_pct numeric,queue_split_rule text);
+    excess_cutting_pct numeric,queue_split_rule text,step_bom bool default false);
    create table size_groups(id uuid primary key default gen_random_uuid(),order_id uuid references orders(id),group_name text,
     unit_price numeric,currency text,sizes text[],base_size text,sort_order integer);
    create table size_group_colors(id uuid primary key default gen_random_uuid(),size_group_id uuid references size_groups(id),
     color_name text,sort_order integer,ratio_override jsonb,ratio_locked bool);
    create table size_group_breakdown(id uuid primary key default gen_random_uuid(),size_group_id uuid references size_groups(id),
     color_id uuid references size_group_colors(id),size text,qty int);
+   create table bom_items(id uuid primary key,order_id uuid references orders(id),library_item_id uuid,name text not null,
+    category text,detail text,specification text,unit text,supplier_id uuid,usage_rule text,usage_data jsonb,final_qty numeric,
+    base_qty numeric,wastage numeric,custom_usage jsonb,notes text,sort_order int,use_cutting_qty bool);
    create table washing(id uuid primary key,color_id uuid references size_group_colors(id));
    grant select,insert,update,delete on all tables in schema public to service_role;
    insert into users values('${id(1)}','admin',true,false);
@@ -35,18 +38,21 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
    insert into size_group_breakdown values('${id(5)}','${id(3)}','${id(4)}','M',1);
    insert into washing values('${id(6)}','${id(4)}');
   `)
-  for(const migration of ['../supabase/migrations/20261017_po_matrix_preserve_linked_ids.sql','migrations/20261118_desktop_po_matrix.sql'])
+  for(const migration of ['../supabase/migrations/20261017_po_matrix_preserve_linked_ids.sql','migrations/20261118_desktop_po_matrix.sql','migrations/20261118_desktop_bom.sql'])
    await db.exec(fs.readFileSync(path.join(__dirname,migration),'utf8'))
   await db.exec('set role service_role')
   const SQL=await sqlite(),local=new SQL.Database()
   fs.writeFileSync(path.join(directory,'nizamia-app2a.sqlite'),Buffer.from(local.export()))
   local.close()
-  const tables=['orders','size_groups','size_group_colors','size_group_breakdown','washing']
+  const tables=['orders','size_groups','size_group_colors','size_group_breakdown','washing','bom_items']
   const pull=async()=>Object.fromEntries(await Promise.all(tables.map(async table=>
    [table,(await db.query('select to_jsonb(t) as row from '+table+' t')).rows.map(row=>row.row)])))
   const refresh=async()=>applyCloudSnapshot({directory,tables:await pull()})
   const owner={ownerId:id(1),isCurrent:()=>true},key='fixture-po-matrix-signer'
   const handle=createDesktopMutationHttp({key,db:{async rpc(name,args){
+   if(name==='desktop_save_bom')return {data:(await db.query(
+    'select desktop_save_bom($1,$2,$3,$4::jsonb,$5::jsonb) as outcome',
+    [args.actor,args.operation,args.target_order,JSON.stringify(args.expected),JSON.stringify(args.lines)])).rows[0].outcome}
    assert.equal(name,'desktop_save_po_matrix')
    return {data:(await db.query('select desktop_save_po_matrix($1,$2,$3,$4::jsonb,$5::jsonb) as outcome',
     [args.actor,args.operation,args.target_order,JSON.stringify(args.payload),JSON.stringify(args.expected)])).rows[0].outcome}
@@ -77,6 +83,23 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
   const cloud=await pull()
   assert.equal(cloud.washing[0].color_id,id(4))
   assert.equal(cloud.orders[0].total_qty,9)
+  const syncBom=async()=>submitPendingMutations(directory,{...owner,async submit(operations){
+   const response=(await send(operations)).body.results
+   assert.equal(response[0].outcome,'applied')
+   assert.equal((await send(operations)).body.results[0].outcome,'already-applied')
+   return response
+  }})
+  const bomRows=[{order_id:id(2),name:'Denim',category:'Fabric',unit:'yards',usage_rule:'Generic',final_qty:9}]
+  await queueBom(directory,{...owner,orderId:id(2),rows:bomRows})
+  assert.equal((await listCombinedRecords(directory,'bom_items'))[0].name,'Denim')
+  assert.equal((await syncBom()).archived,1)
+  await refresh()
+  assert.equal((await listCombinedRecords(directory,'bom_items'))[0]._local_only,false)
+  assert.equal((await pull()).orders[0].step_bom,true)
+  await queueBom(directory,{...owner,orderId:id(2),rows:[]})
+  assert.equal((await syncBom()).archived,1)
+  await refresh()
+  assert.equal((await listCombinedRecords(directory,'bom_items')).length,0)
  }finally{
   await db.close()
   fs.rmSync(directory,{recursive:true,force:true})

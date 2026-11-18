@@ -61,6 +61,12 @@ function assertUnqueued(db,table,id){
    AND edit.updated_at=json_extract(box.intent_json,'$.editedAt')
   WHERE box.table_name='jobs' AND edit.record_id=?`,[id]).length)
   throw Error('This order has a new job awaiting cloud synchronization or review.')
+ if(table==='bom_items'&&db.exec(`SELECT 1 FROM offline_mutation_outbox box
+  JOIN json_each(box.intent_json,'$.expected.lines') target
+  JOIN snapshot_edits edit ON edit.table_name='bom_items' AND edit.record_id=json_extract(target.value,'$.id')
+   AND edit.updated_at=json_extract(box.intent_json,'$.editedAt')
+  WHERE json_extract(box.intent_json,'$.document.childTable')='bom_items' AND edit.record_id=?`,[id]).length)
+  throw Error('This line has a BOM edit awaiting synchronization or review.')
  if(db.exec(`SELECT 1 FROM offline_mutation_outbox box
   JOIN json_each(box.intent_json,'$.document.matrix.edits') target
   JOIN snapshot_edits edit ON edit.table_name=json_extract(target.value,'$.table')
@@ -140,10 +146,11 @@ function reconcileDocumentEdits(db,tables){
  for(const [json,state] of entries){
   const intent=JSON.parse(json)
   const linked=intent.document.localLines
-  const childTable=linked[0].table
+  const childTable=intent.document.childTable||linked[0].table
   const targets=[[intent.table,intent.id],...intent.expected.lines.map(line=>[childTable,line.id])]
   const current=tables[childTable]
-  if(state==='applied'&&tables[intent.table]?.some(row=>row.id===intent.id)&&
+  if(state==='applied'&&current&&tables[intent.table]?.some(row=>row.id===intent.id&&
+     (childTable!=='bom_items'||row.step_bom===true))&&
      linked.every(line=>current?.some(row=>row.id===line.id.slice(6)))&&
      intent.expected.lines.every(line=>!current?.some(row=>row.id===line.id))){
    for(const [table,id] of targets)db.run('DELETE FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[table,id,intent.editedAt])
@@ -184,7 +191,7 @@ function findQueuedRecords(db){
  return new Set((db.exec('SELECT table_name,record_id,intent_json FROM offline_mutation_outbox')[0]?.values||[]).flatMap(([table,id,json])=>{
   const intent=JSON.parse(json)
   return [table+':'+id,...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
-   ...(intent.expected?.lines||[]).map(line=>intent.document.localLines[0].table+':'+line.id),
+   ...(intent.expected?.lines||[]).map(line=>(intent.document.childTable||intent.document.localLines[0].table)+':'+line.id),
    ...(table==='jobs'&&Array.isArray(intent.fields?.orders)?intent.fields.orders.map(order=>'orders:'+order.id):[]),
    ...[...(intent.document?.matrix?.edits||[]),...(intent.document?.matrix?.creates||[])].map(item=>item.table+':'+item.id)]
  }))
