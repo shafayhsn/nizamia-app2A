@@ -29,7 +29,7 @@ async function main(){
   assert.equal(response.status,501)
   assert.match((await response.json()).error,/not yet available offline/)
   const buyer=await mutateLocalRecord(directory,{action:'create',table:'buyers',fields:{name:'Test Buyer'}})
-  const order=await mutateLocalRecord(directory,{action:'create',table:'orders',fields:{job_number:'OFFLINE-481'}})
+  const order=await mutateLocalRecord(directory,{action:'create',table:'orders',fields:{job_number:'OFFLINE-481',buyer_name:'Test Buyer'}})
   response=await invoke('testing')
   result=await response.json()
   assert.equal(result.orders.find(row=>row.id===order.id).job_number,'OFFLINE-481')
