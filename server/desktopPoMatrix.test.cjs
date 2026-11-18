@@ -5,7 +5,7 @@ const assert=require('node:assert/strict')
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const {PGlite}=require('@electric-sql/pglite')
 const sqlite=require('../desktop/node_modules/sql.js')
-const {queueBom,queuePoMatrix,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
+const {queueOrderSection,queueBom,queuePoMatrix,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
 const {applyCloudSnapshot}=require('../desktop/applyCloudSnapshot.cjs')
 const {createDesktopMutationHttp}=require('./desktopMutationHttp.cjs')
 const {issueDesktopSyncToken}=require('./desktopSyncToken.cjs')
@@ -19,7 +19,7 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
    create schema desktop_private; grant usage on schema desktop_private to service_role;
    create table users(id uuid primary key,role text,is_active bool,is_restricted bool);
    create table orders(id uuid primary key,step_po_matrix boolean,total_qty integer,total_value_usd numeric,
-    excess_cutting_pct numeric,queue_split_rule text,step_bom bool default false);
+    excess_cutting_pct numeric,queue_split_rule text,step_bom bool default false,step_washing bool,step_processes bool,step_embellishment bool,notes text);
    create table size_groups(id uuid primary key default gen_random_uuid(),order_id uuid references orders(id),group_name text,
     unit_price numeric,currency text,sizes text[],base_size text,sort_order integer);
    create table size_group_colors(id uuid primary key default gen_random_uuid(),size_group_id uuid references size_groups(id),
@@ -29,27 +29,32 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
    create table bom_items(id uuid primary key,order_id uuid references orders(id),library_item_id uuid,name text not null,
     category text,detail text,specification text,unit text,supplier_id uuid,usage_rule text,usage_data jsonb,final_qty numeric,
     base_qty numeric,wastage numeric,custom_usage jsonb,notes text,sort_order int,use_cutting_qty bool);
-   create table washing(id uuid primary key,color_id uuid references size_group_colors(id));
+   create table washing(id uuid primary key,color_id uuid references size_group_colors(id),order_id uuid references orders(id),wash_type text);
+   create table order_processes(id uuid primary key,order_id uuid references orders(id),process_name text,is_custom bool,sort_order integer);
+   create table embellishments(id uuid primary key,order_id uuid references orders(id),description text);
    grant select,insert,update,delete on all tables in schema public to service_role;
    insert into users values('${id(1)}','admin',true,false);
    insert into orders values('${id(2)}',true,1,2,0,'None');
    insert into size_groups values('${id(3)}','${id(2)}','Kids',2,'USD','{M}',null,0);
    insert into size_group_colors values('${id(4)}','${id(3)}','Blue',0,null,false);
    insert into size_group_breakdown values('${id(5)}','${id(3)}','${id(4)}','M',1);
-   insert into washing values('${id(6)}','${id(4)}');
+   insert into washing values('${id(6)}','${id(4)}','${id(2)}','Fixture Wash');
   `)
-  for(const migration of ['../supabase/migrations/20261017_po_matrix_preserve_linked_ids.sql','migrations/20261118_desktop_po_matrix.sql','migrations/20261118_desktop_bom.sql'])
+  for(const migration of ['../supabase/migrations/20261017_po_matrix_preserve_linked_ids.sql','migrations/20261118_desktop_po_matrix.sql','migrations/20261118_desktop_bom.sql','migrations/20261118_desktop_order_sections.sql'])
    await db.exec(fs.readFileSync(path.join(__dirname,migration),'utf8'))
   await db.exec('set role service_role')
   const SQL=await sqlite(),local=new SQL.Database()
   fs.writeFileSync(path.join(directory,'nizamia-app2a.sqlite'),Buffer.from(local.export()))
   local.close()
-  const tables=['orders','size_groups','size_group_colors','size_group_breakdown','washing','bom_items']
+  const tables=['orders','size_groups','size_group_colors','size_group_breakdown','washing','bom_items','order_processes','embellishments']
   const pull=async()=>Object.fromEntries(await Promise.all(tables.map(async table=>
    [table,(await db.query('select to_jsonb(t) as row from '+table+' t')).rows.map(row=>row.row)])))
   const refresh=async()=>applyCloudSnapshot({directory,tables:await pull()})
   const owner={ownerId:id(1),isCurrent:()=>true},key='fixture-po-matrix-signer'
   const handle=createDesktopMutationHttp({key,db:{async rpc(name,args){
+   if(name==='desktop_save_order_section')return {data:(await db.query(
+    'select desktop_save_order_section($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb) as outcome',
+    [args.actor,args.operation,args.target_order,args.section,JSON.stringify(args.patch),JSON.stringify(args.expected),JSON.stringify(args.lines)])).rows[0].outcome}
    if(name==='desktop_save_bom')return {data:(await db.query(
     'select desktop_save_bom($1,$2,$3,$4::jsonb,$5::jsonb) as outcome',
     [args.actor,args.operation,args.target_order,JSON.stringify(args.expected),JSON.stringify(args.lines)])).rows[0].outcome}
@@ -100,6 +105,24 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
   assert.equal((await syncBom()).archived,1)
   await refresh()
   assert.equal((await listCombinedRecords(directory,'bom_items')).length,0)
+  await queueOrderSection(directory,{...owner,table:'washing',orderId:id(2),enabled:true,
+   rows:[{order_id:id(2),color_id:id(4),wash_type:'Stone Wash'}]})
+  assert.equal((await listCombinedRecords(directory,'washing'))[0].wash_type,'Stone Wash')
+  assert.equal((await syncBom()).archived,1)
+  await refresh()
+  assert.equal((await pull()).washing[0].wash_type,'Stone Wash')
+  await queueOrderSection(directory,{...owner,table:'embellishments',orderId:id(2),enabled:true,
+   rows:[{order_id:id(2),description:'QA print'}]})
+  assert.equal((await syncBom()).archived,1)
+  await refresh()
+  assert.equal((await pull()).embellishments[0].description,'QA print')
+  await queueOrderSection(directory,{...owner,table:'order_processes',orderId:id(2),enabled:true,notes:'Offline process note',
+   rows:[{order_id:id(2),process_name:'Stitching',is_custom:false,sort_order:0}]})
+  assert.equal((await syncBom()).archived,1)
+  await refresh()
+  const sectionData=await pull()
+  assert.equal(sectionData.orders[0].notes,'Offline process note')
+  assert.equal(sectionData.order_processes[0].process_name,'Stitching')
  }finally{
   await db.close()
   fs.rmSync(directory,{recursive:true,force:true})

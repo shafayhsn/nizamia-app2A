@@ -425,7 +425,7 @@ async function submitPendingMutations(directory,{ownerId,submit,isCurrent}){
   operationId,intent:{
    operation:intent.operation,table:intent.table,id:intent.id,
    fields:intent.fields,changes:intent.changes,expected:intent.expected,
-   ...(intent.document?.lines?{document:{lines:intent.document.lines,...(intent.operation==='update'?{lineIds:intent.document.localLines.map(line=>line.id.slice(6))}:{})}}:{})
+   ...(intent.document?.lines?{document:{lines:intent.document.lines,childTable:intent.document.childTable,...(intent.operation==='update'?{lineIds:intent.document.localLines.map(line=>line.id.slice(6))}:{})}}:{})
   }
  })).filter(item=>{
   const bytes=Buffer.byteLength(JSON.stringify(item))+1
@@ -568,6 +568,40 @@ async function queueParcelTransition(directory,{id,status,deliveryDate,receivedB
 }
 
 const orderGeneralFields=new Set(['buyer_id', 'buyer_name', 'merchandiser_name', 'agent_name', 'factory_ref', 'product_id', 'style_number', 'store_name', 'brand_name', 'description', 'po_number', 'po_date', 'ship_date', 'planned_date', 'ship_mode', 'incoterms', 'currency', 'status', 'port_of_loading', 'port_of_discharge', 'style_image_base64'])
+
+async function queueOrderImport(directory,{rows,ownerId,isCurrent}){
+ if(!ownerId||!Array.isArray(rows)||!rows.length||rows.length>500)
+  throw Error('Import requires 1–500 valid order rows.')
+ const allowed=new Set([...orderGeneralFields,'notes','in_store_date'])
+ const orders=rows.map(row=>{
+  if(!row||typeof row.style_number!=='string'||!row.style_number.trim()||
+     typeof row.buyer_name!=='string'||!row.buyer_name.trim()||row.buyer_id!==null&&!cloudId.test(row.buyer_id||'')||
+     Object.entries(row).some(([key,value])=>!allowed.has(key)||value!==null&&(typeof value!=='string'||value.length>4000)))
+   throw Error('Invalid CSV order.')
+  return {...row,id:crypto.randomUUID(),status:'Draft'}
+ })
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file),db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   const stamp=new Date().toISOString(),ids=orders.map(row=>row.id)
+   const intent=createMutationIntent('orders',ids[0],{importRows:orders},stamp,stamp,
+    {clonedRows:ids.slice(1).map(id=>({table:'orders',id}))})
+   if(Buffer.byteLength(JSON.stringify(intent))>115000)throw Error('CSV import is too large for offline sync.')
+   for(const row of orders)
+    db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[row.id,'orders',JSON.stringify({...row,created_at:stamp}),stamp,stamp])
+   if(!stageMutation(db,ownerId,intent))throw Error('Could not queue CSV import.')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during CSV import.')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return orders.length
+  }finally{db.close()}
+ })
+}
 
 async function queueOrderGeneral(directory,{orderId,cloneOrderId,fields,ownerId,isCurrent}){
  if(!ownerId||(orderId&&!cloudId.test(orderId))||!fields||typeof fields!=='object'||
@@ -744,12 +778,27 @@ async function queueBuyer(directory,{buyerId,fields,addresses,contacts,ownerId,i
  })
 }
 
-async function queueBom(directory,{orderId,rows,ownerId,isCurrent}){
+const orderSections={
+ bom_items:{flag:'step_bom'},
+ washing:{flag:'step_washing'},
+ embellishments:{flag:'step_embellishment'},
+ order_processes:{flag:'step_processes',notes:true},
+}
+
+function queueBom(directory,input){
+ return queueOrderSection(directory,{...input,table:'bom_items',enabled:true})
+}
+
+async function queueOrderSection(directory,{orderId,table,enabled,notes,rows,ownerId,isCurrent}){
+ const config=Object.hasOwn(orderSections,table)?orderSections[table]:null
+ if(!config||typeof enabled!=='boolean'||(config.notes&&typeof notes!=='string'))
+  throw Error('Invalid order section.')
+ const changes={ [config.flag]:enabled,...(config.notes?{notes}:{}) }
  if(!ownerId||!cloudId.test(orderId||'')||!Array.isArray(rows)||rows.length>300)
-  throw Error('A synchronized order and a valid BOM are required.')
+  throw Error('A synchronized order and valid section rows are required.')
  for(const row of rows){
   validateFields(row)
-  if(row.order_id!==orderId||typeof row.name!=='string'||!row.name.trim())throw Error('Invalid BOM row.')
+  if(row.order_id!==orderId||table==='bom_items'&&(typeof row.name!=='string'||!row.name.trim()))throw Error('Invalid order section row.')
  }
  return serialize(directory,async()=>{
   if(!isCurrent())throw Error('Administrator session required.')
@@ -758,30 +807,30 @@ async function queueBom(directory,{orderId,rows,ownerId,isCurrent}){
    schema(db)
    const order=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name='orders' AND json_extract(row_json,'$.id')=?",
     [orderId])[0]?.values?.[0]?.[0]
-   if(!order)throw Error('Refresh the order before saving its BOM.')
+   if(!order)throw Error('Refresh the order before saving this section.')
    const base=JSON.parse(order)
-   const original=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name='bom_items' AND json_extract(row_json,'$.order_id')=?",
-    [orderId])[0]?.values?.map(([row])=>JSON.parse(row))||[]
-   for(const [table,id] of [['orders',orderId],...original.map(row=>['bom_items',row.id])]){
-    assertUnqueued(db,table,id)
-    if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id]).length)
-     throw Error('This BOM has an earlier local change awaiting synchronization or review.')
+   const original=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name=? AND json_extract(row_json,'$.order_id')=?",
+    [table,orderId])[0]?.values?.map(([row])=>JSON.parse(row))||[]
+   for(const [name,id] of [['orders',orderId],...original.map(row=>[table,row.id])]){
+    assertUnqueued(db,name,id)
+    if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=?',[name,id]).length)
+     throw Error('This order section has an earlier local change awaiting synchronization or review.')
    }
    const stamp=new Date().toISOString()
-   const localLines=rows.map(()=>({table:'bom_items',id:'local-'+crypto.randomUUID(),parentField:'order_id'}))
-   const expected={step_bom:base.step_bom??null,lines:original}
-   const intent=updateMutationIntent('orders',orderId,{step_bom:true},expected,stamp,null,
-    {childTable:'bom_items',lines:rows,localLines})
-   if(Buffer.byteLength(JSON.stringify(intent))>116000)throw Error('BOM is too large for offline sync.')
-   db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',['orders',orderId,JSON.stringify({...base,step_bom:true}),stamp])
-   for(const row of original)db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',['bom_items',row.id,null,stamp])
+   const localLines=rows.map(()=>({table,id:'local-'+crypto.randomUUID(),parentField:'order_id'}))
+   const expected={...Object.fromEntries(Object.keys(changes).map(key=>[key,base[key]??null])),lines:original}
+   const intent=updateMutationIntent('orders',orderId,changes,expected,stamp,null,
+    {childTable:table,lines:rows,localLines})
+   if(Buffer.byteLength(JSON.stringify(intent))>116000)throw Error('Order section is too large for offline sync.')
+   db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',['orders',orderId,JSON.stringify({...base,...changes}),stamp])
+   for(const row of original)db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',[table,row.id,null,stamp])
    localLines.forEach(({id},index)=>db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',
-    [id,'bom_items',JSON.stringify(rows[index]),stamp,stamp]))
-   if(!stageMutation(db,ownerId,intent))throw Error('Could not queue BOM.')
+    [id,table,JSON.stringify(rows[index]),stamp,stamp]))
+   if(!stageMutation(db,ownerId,intent))throw Error('Could not queue the order section.')
    const temp=file+'.'+crypto.randomUUID()+'.tmp'
    try{
     fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
-    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during BOM save.')
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during section save.')
     fs.renameSync(temp,file)
    }finally{fs.rmSync(temp,{force:true})}
    return localLines.map(({id},index)=>({id,...rows[index]}))
@@ -1035,4 +1084,4 @@ async function queueParcelCreate(directory,{items,customItems,addressId,contactI
  })
 }
 
-module.exports={queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+module.exports={queueOrderImport,queueOrderSection,queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}

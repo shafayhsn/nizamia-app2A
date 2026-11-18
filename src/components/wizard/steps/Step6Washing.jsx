@@ -93,9 +93,7 @@ export default function Step6Washing({ orderId, onSaved, registerSave }) {
 
   const doSave = useCallback(async () => {
     if (!orderId) return
-    { const { error } = await supabase.from('washing').delete().eq('order_id', orderId); if (error) throw error }
-    if (enabledRef.current && rowsRef.current.length) {
-      const insertRows = rowsRef.current.map(r => ({
+    const rows = enabledRef.current ? rowsRef.current.map(r => ({
         order_id:          orderId,
         color_id:          r.color_id || null,
         color_name:        r.color_name || null,
@@ -107,11 +105,18 @@ export default function Step6Washing({ orderId, onSaved, registerSave }) {
         applies_to:        r.applies_to?.length ? r.applies_to : ['All'],
         usage_rule:        r.usage_rule || 'Generic',
         usage_data:        r.usage_data || null,
-      }))
-      const { error } = await supabase.from('washing').insert(insertRows)
-      if (error) throw error
+      })) : []
+    if(window.location.protocol==='app2a:'){
+      const {error}=await supabase.rpc('save_offline_order_section',{
+        table:'washing',orderId,enabled:enabledRef.current,
+        rows:rows.map(({id,...row})=>row),
+      })
+      if(error)throw error
+    }else{
+      { const { error } = await supabase.from('washing').delete().eq('order_id', orderId); if (error) throw error }
+      if(rows.length){const {error}=await supabase.from('washing').insert(rows);if(error)throw error}
+      { const { error } = await supabase.from('orders').update({ step_washing: enabledRef.current }).eq('id', orderId); if (error) throw error }
     }
-    { const { error } = await supabase.from('orders').update({ step_washing: enabledRef.current }).eq('id', orderId); if (error) throw error }
     onSaved(orderId, { step_washing: enabledRef.current })
   }, [orderId])
 

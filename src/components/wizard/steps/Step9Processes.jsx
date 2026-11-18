@@ -63,13 +63,21 @@ export default function Step9Processes({ orderId, onSaved, registerSave }) {
 
   const doSave = useCallback(async () => {
     if (!orderId) return
-    { const { error } = await supabase.from('order_processes').delete().eq('order_id', orderId); if (error) throw error }
     const rows = [
       ...tickedRef.current.map((p, i) => ({ order_id: orderId, process_name: p, is_custom: false, sort_order: i })),
       ...customRef.current.map((p, i) => ({ order_id: orderId, process_name: p, is_custom: true, sort_order: tickedRef.current.length + i })),
     ]
-    if (rows.length) { const { error } = await supabase.from('order_processes').insert(rows); if (error) throw error }
-    { const { error } = await supabase.from('orders').update({ step_processes: true, notes: notesRef.current }).eq('id', orderId); if (error) throw error }
+    if(window.location.protocol==='app2a:'){
+      const {error}=await supabase.rpc('save_offline_order_section',{
+        table:'order_processes',orderId,enabled:true,notes:notesRef.current,
+        rows:rows.map(({id,...row})=>row),
+      })
+      if(error)throw error
+    }else{
+      { const { error } = await supabase.from('order_processes').delete().eq('order_id', orderId); if (error) throw error }
+      if(rows.length){const {error}=await supabase.from('order_processes').insert(rows);if(error)throw error}
+      { const { error } = await supabase.from('orders').update({ step_processes: true, notes: notesRef.current }).eq('id', orderId); if (error) throw error }
+    }
     onSaved(orderId, { step_processes: true, notes: notesRef.current })
     markTabUpdated('purchasingPage', 'process')
   }, [orderId])

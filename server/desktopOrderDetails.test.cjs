@@ -4,7 +4,7 @@ const assert=require('node:assert/strict')
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const {PGlite}=require('@electric-sql/pglite')
 const sqlite=require('../desktop/node_modules/sql.js')
-const {queueOrderGeneral,queueNewJob,mutateLocalRecordBatch,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
+const {queueOrderImport,queueOrderGeneral,queueNewJob,mutateLocalRecordBatch,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
 const {applyCloudSnapshot}=require('../desktop/applyCloudSnapshot.cjs')
 const {createDesktopMutationHttp}=require('./desktopMutationHttp.cjs')
 const {issueDesktopSyncToken}=require('./desktopSyncToken.cjs')
@@ -37,6 +37,8 @@ test('bulk order edits and job assignments sync with conflict protection',async(
    alter table orders add column port_of_discharge text;
    alter table orders add column style_image_base64 text;
    alter table orders add column planned_date date;
+   alter table orders add column in_store_date date;
+   alter table orders add column notes text;
    alter table orders add column step_po_matrix boolean;
    alter table orders add column step_bom boolean;
    create table size_groups(id uuid primary key default gen_random_uuid(),order_id uuid references orders(id),group_name text,
@@ -68,6 +70,7 @@ test('bulk order edits and job assignments sync with conflict protection',async(
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_order_create.sql'),'utf8'))
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_order_duplicate.sql'),'utf8'))
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_z_order_confirmation.sql'),'utf8'))
+  await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_order_import.sql'),'utf8'))
   await db.exec('set role service_role')
   const SQL=await sqlite(),local=new SQL.Database()
   fs.writeFileSync(path.join(directory,'nizamia-app2a.sqlite'),Buffer.from(local.export()))
@@ -80,6 +83,9 @@ test('bulk order edits and job assignments sync with conflict protection',async(
    if(name==='desktop_create_and_assign_job')return {data:(await db.query(
     'select desktop_create_and_assign_job($1,$2,$3,$4::jsonb) as outcome',
     [args.actor,args.operation,args.target_buyer,JSON.stringify(args.expected_orders)])).rows[0].outcome}
+   if(name==='desktop_import_orders')return {data:(await db.query(
+    'select desktop_import_orders($1,$2,$3::jsonb) as outcome',
+    [args.actor,args.operation,JSON.stringify(args.rows)])).rows[0].outcome}
    if(name==='desktop_duplicate_order')return {data:(await db.query(
     'select desktop_duplicate_order($1,$2,$3,$4::jsonb,$5::jsonb) as outcome',
     [args.actor,args.operation,args.target_order,JSON.stringify(args.header),JSON.stringify(args.copied)])).rows[0].outcome}
@@ -199,6 +205,24 @@ test('bulk order edits and job assignments sync with conflict protection',async(
   assert.equal((await flush()).archived,1)
   await refresh()
   assert.equal((await pull()).orders.find(row=>row.id===created.id).status,'Confirmed')
+  const csv=[{buyer_id:id(4),buyer_name:'Fixture',style_number:'CSV-1',in_store_date:'2027-01-02',notes:'CSV note'},
+   {buyer_id:null,buyer_name:'Unmatched fixture',style_number:'CSV-2'}]
+  assert.equal(await queueOrderImport(directory,{...owner,rows:csv}),2)
+  assert.equal((await listCombinedRecords(directory,'orders')).filter(row=>row.style_number?.startsWith('CSV-')).length,2)
+  assert.equal((await flush()).archived,1)
+  await refresh()
+  const imported=(await listCombinedRecords(directory,'orders')).filter(row=>row.style_number?.startsWith('CSV-'))
+  assert.equal(imported.length,2)
+  assert.ok(imported.every(row=>!row._local_only))
+  assert.equal(imported.find(row=>row.style_number==='CSV-1').in_store_date,'2027-01-02')
+  await queueOrderImport(directory,{...owner,rows:[
+   {...csv[0],style_number:'CSV-ROLLBACK'}, {...csv[1],in_store_date:'invalid-date'},
+  ]})
+  const rejectedImport=await submitPendingMutations(directory,{...owner,async submit(operations){
+   return (await send(operations)).body.results
+  }})
+  assert.equal(rejectedImport.conflicts,1)
+  assert.ok(!(await pull()).orders.some(row=>row.style_number==='CSV-ROLLBACK'))
  }finally{
   await db.close()
   fs.rmSync(directory,{recursive:true,force:true})

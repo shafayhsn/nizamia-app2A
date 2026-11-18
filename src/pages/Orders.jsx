@@ -4378,7 +4378,17 @@ export default function Orders() {
     const { data: buyerList } = await supabase.from('buyers').select('id,name')
     const buyerMap = Object.fromEntries((buyerList || []).map(b => [b.name.toLowerCase(), b.id]))
     const toInsert = rows.map(r => ({ ...r, buyer_id: buyerMap[r.buyer_name.toLowerCase()] || null }))
-    const { error } = await supabase.from('orders').insert(toInsert)
+    let error
+    if(window.location.protocol==='app2a:'){
+      try{
+        const response=await fetch('/api/offline/order-import',{
+          method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:toInsert}),
+        })
+        const result=await response.json()
+        if(!response.ok)throw Error(result.error||'Could not queue CSV import.')
+        window.dispatchEvent(new Event('app2a-offline-data-changed'))
+      }catch(failure){error=failure}
+    }else ({error}=await supabase.from('orders').insert(toInsert))
     if (error) { await alert('Import failed: ' + error.message, { title:'Import Failed' }); return }
     await alert(`Successfully imported ${toInsert.length} order${toInsert.length > 1 ? 's' : ''}.`, { title:'Import Complete' })
     loadOrders()

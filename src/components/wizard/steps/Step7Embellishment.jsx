@@ -295,7 +295,7 @@ export default function Step7Embellishment({ orderId, onSaved, registerSave }) {
 
   const remove = async (idx) => {
     const item = items[idx]
-    if (item.id) await supabase.from('embellishments').delete().eq('id', item.id)
+    if (item.id&&window.location.protocol!=='app2a:') await supabase.from('embellishments').delete().eq('id', item.id)
     setItems(its => its.filter((_, i) => i !== idx))
   }
 
@@ -315,10 +315,18 @@ export default function Step7Embellishment({ orderId, onSaved, registerSave }) {
 
   const doSave = useCallback(async () => {
     if (!orderId) return
-    { const { error } = await supabase.from('embellishments').delete().eq('order_id', orderId); if (error) throw error }
     const rows = enabledRef.current ? itemsRef.current.filter(i => i.description?.trim()).map(({ _new, _tempId, imagePreview, ...rest }) => ({ ...rest })) : []
-    if (rows.length) { const { error } = await supabase.from('embellishments').insert(rows); if (error) throw error }
-    { const { error } = await supabase.from('orders').update({ step_embellishment: enabledRef.current }).eq('id', orderId); if (error) throw error }
+    if(window.location.protocol==='app2a:'){
+      const {error}=await supabase.rpc('save_offline_order_section',{
+        table:'embellishments',orderId,enabled:enabledRef.current,
+        rows:rows.map(({id,...row})=>row),
+      })
+      if(error)throw error
+    }else{
+      { const { error } = await supabase.from('embellishments').delete().eq('order_id', orderId); if (error) throw error }
+      if(rows.length){const {error}=await supabase.from('embellishments').insert(rows);if(error)throw error}
+      { const { error } = await supabase.from('orders').update({ step_embellishment: enabledRef.current }).eq('id', orderId); if (error) throw error }
+    }
     onSaved(orderId, { step_embellishment: enabledRef.current })
     markTabUpdated('purchasingPage', 'process')
   }, [orderId])

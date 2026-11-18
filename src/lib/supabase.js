@@ -153,13 +153,14 @@ function offlineChannel(){
  return channel
 }
 async function offlineRpc(name,payload){
- if(name!=='save_po_matrix_atomic')return {data:null,error:{message:'This operation requires a cloud connection.'}}
+ const route=name==='save_po_matrix_atomic'?'po-matrix':name==='save_offline_order_section'?'order-section':null
+ if(!route)return {data:null,error:{message:'This operation requires a cloud connection.'}}
  try{
-  const response=await fetch('/api/offline/po-matrix',{
+  const response=await fetch('/api/offline/'+route,{
    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),
   })
   const result=await response.json()
-  if(!response.ok)throw Error(result.error||'Could not queue the PO Matrix.')
+  if(!response.ok)throw Error(result.error||'Could not queue the order changes.')
   notifyOfflineWrite()
   return {data:result.data,error:null}
  }catch(error){return {data:null,error:{message:error.message}}}

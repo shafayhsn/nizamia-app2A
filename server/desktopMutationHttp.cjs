@@ -79,6 +79,9 @@ function createDesktopMutationHttp({db,key}){
       intent.fields&&typeof intent.fields==='object'&&Array.isArray(intent.document?.lines)){
     rpc='desktop_create_purchasing_document'
     args={kind:intent.table,header:intent.fields,lines:intent.document.lines}
+   }else if(intent?.operation==='create'&&intent.table==='orders'&&Array.isArray(intent.fields?.importRows)){
+    rpc='desktop_import_orders'
+    args={rows:intent.fields.importRows}
    }else if(intent?.operation==='create'&&intent.table==='orders'&&uuid.test(intent.id||'')&&intent.fields){
     rpc=intent.fields.copied?'desktop_duplicate_order':'desktop_create_order'
     args=intent.fields.copied
@@ -99,6 +102,14 @@ function createDesktopMutationHttp({db,key}){
    }else if(intent?.table==='suppliers'&&intent.operation==='update'&&uuid.test(intent.id||'')&&intent.changes&&intent.expected){
     rpc='desktop_save_supplier'
     args={target_supplier:intent.id,patch:intent.changes,expected:intent.expected}
+   }else if(intent?.operation==='update'&&intent.table==='orders'&&uuid.test(intent.id||'')&&
+      ['washing','embellishments','order_processes'].includes(intent.document?.childTable)&&
+      Array.isArray(intent.expected?.lines)&&Array.isArray(intent.document.lines)&&
+      Array.isArray(intent.document.lineIds)&&intent.document.lines.length===intent.document.lineIds.length&&
+      intent.document.lineIds.every(id=>uuid.test(id))){
+    rpc='desktop_save_order_section'
+    args={target_order:intent.id,section:intent.document.childTable,patch:intent.changes,expected:intent.expected,
+     lines:intent.document.lines.map((line,index)=>({...line,id:intent.document.lineIds[index]}))}
    }else if(intent?.operation==='update'&&intent.table==='orders'&&uuid.test(intent.id||'')&&
       Object.keys(intent.changes||{}).join()==='step_bom'&&intent.changes.step_bom===true&&
       Array.isArray(intent.expected?.lines)&&Array.isArray(intent.document?.lines)&&
