@@ -3,12 +3,16 @@
 // Call only with a fully validated, authenticated snapshot and a verified backup.
 function mergeSnapshotRows(db,tables,{excludedTables=[]}={}){
  if(!db||typeof db.run!=='function'||!tables||typeof tables!=='object'||Array.isArray(tables))throw Error('Validated snapshot required')
+ if(!Array.isArray(excludedTables)||excludedTables.some(name=>typeof name!=='string'))throw Error('Invalid exclusions')
  const excluded=new Set(excludedTables)
  const names=Object.keys(tables)
  if(!names.length)throw Error('Empty snapshot refused')
  for(const name of names){
   if(!/^[a-z][a-z0-9_]*$/.test(name)||!Array.isArray(tables[name]))throw Error('Invalid snapshot table')
-  for(const row of tables[name])if(!row||typeof row!=='object'||Array.isArray(row))throw Error('Invalid snapshot row')
+  for(const row of tables[name]){
+   if(!row||typeof row!=='object'||Array.isArray(row))throw Error('Invalid snapshot row')
+   if(JSON.stringify(row)===undefined)throw Error('Unserializable snapshot row')
+  }
  }
  // Only snapshot_rows and snapshot_manifest are modified. Preserve standalone_records,
  // snapshot_edits, and offline_draft_journal unchanged, including pending/conflicts.
@@ -27,8 +31,10 @@ function mergeSnapshotRows(db,tables,{excludedTables=[]}={}){
     manifest.run([name,tables[name].length])
    }
   }finally{insert.free();manifest.free()}
+  const integrity=db.exec('PRAGMA quick_check')
+  if(integrity[0]?.values?.[0]?.[0]!=='ok')throw Error('Snapshot refresh failed SQLite integrity check')
   db.run('COMMIT')
- }catch(error){db.run('ROLLBACK');throw error}
+ }catch(error){try{db.run('ROLLBACK')}catch{};throw error}
  return {updatedTables:names.filter(name=>!excluded.has(name)).length}
 }
 module.exports={mergeSnapshotRows}
