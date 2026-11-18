@@ -33,4 +33,21 @@ function isShipmentStatusChange(before,after){
   Number.isFinite(Date.parse(event.at))
 }
 
-module.exports={isShipmentStatusChange}
+function rebaseShipmentStatus(before,after){
+ if(isShipmentStatusChange(before,after))return after
+ const cloud=split(before),local=split(after)
+ if(!cloud||!local||cloud.text!==local.text)return null
+ const {display_status:cloudStatus,status_history:cloudHistory,...cloudFields}=cloud.meta
+ const {display_status:localStatus,status_history:localHistory,...localFields}=local.meta
+ if(!Array.isArray(cloudHistory)||!Array.isArray(localHistory)||
+    !isDeepStrictEqual(cloudFields,localFields)||!statuses.has(localStatus)||cloudStatus===localStatus)return null
+ const older=cloudHistory.findLast(event=>event?.to===cloudStatus)
+ const newer=localHistory.findLast(event=>event?.to===localStatus)
+ if(!older||!newer||!(Date.parse(newer.at)>Date.parse(older.at)))return null
+ const event={from:cloudStatus,to:localStatus,at:newer.at}
+ const notes=cloud.text+marker+Buffer.from(JSON.stringify({...cloud.meta,display_status:localStatus,
+  status_history:[...cloudHistory,event]}),'latin1').toString('base64')+']]'
+ return isShipmentStatusChange(before,notes)?notes:null
+}
+
+module.exports={isShipmentStatusChange,rebaseShipmentStatus}

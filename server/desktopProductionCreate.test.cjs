@@ -27,7 +27,7 @@ test('production entry and retry receipt commit together for a valid order varia
    insert into size_groups values ('${id(4)}','${id(3)}','Sizes');
    insert into size_group_colors values ('${id(5)}','${id(4)}','Indigo');
    create table samples(id uuid primary key,root_sample_id uuid,sample_number text,version_label text,stage text);
-   create table sample_comments(sample_id uuid,root_sample_id uuid,sam_number text,version_label text,comment_type text,
+   create table sample_comments(id uuid primary key,sample_id uuid,root_sample_id uuid,sam_number text,version_label text,comment_type text,
     comment_text text check (comment_text not like '% → Ready'),comment_date timestamptz,is_internal boolean);
    insert into samples values ('${id(8)}',null,'SAM-1','V1',null);
    grant insert on sample_comments to service_role;

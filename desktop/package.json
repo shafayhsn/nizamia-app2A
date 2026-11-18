@@ -67,6 +67,7 @@
       "standaloneRecords.cjs",
       "offlineMutationOutbox.cjs",
       "offlineMutationPlan.cjs",
+      "legacyMutationReview.cjs",
       "shipmentStatusMutation.cjs",
       "standaloneForms.cjs",
       "localDesktopAuth.cjs",

@@ -521,6 +521,28 @@ app.whenReady().then(() => {
           if(answer.response===0)shell.showItemInFolder(result.file)
         }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Backup recovery failed',message:error.message})}
       } },
+      { label: 'Review Saved Offline Changes…', click: async () => {
+        const parent=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows()[0]
+        try{
+          const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
+          if(!ownerId||!directory)throw Error('Sign in as an administrator to review saved changes.')
+          const {reviewSavedChanges}=require('./standaloneRecords.cjs')
+          const preview=await reviewSavedChanges(directory)
+          if(!preview.operations){
+            await dialog.showMessageBox(parent,{type:'info',message:'No saved changes eligible for upload',
+              detail:preview.skipped+' items stayed local for review.'})
+            return
+          }
+          const answer=await dialog.showMessageBox(parent,{type:'question',message:'Queue saved changes for Supabase?',
+            detail:preview.operations+' operations and '+preview.linked+' linked history entries will be queued. '+preview.skipped+' items will stay local.',
+            buttons:['Cancel','Queue Changes'],defaultId:0,cancelId:0})
+          if(answer.response!==1)return
+          await reviewSavedChanges(directory,{ownerId,approval:preview.approval,
+            isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
+          await dialog.showMessageBox(parent,{type:'info',message:'Saved changes queued',
+            detail:'App-2A will upload them when the cloud connection is available.'})
+        }catch(error){await dialog.showMessageBox(parent,{type:'warning',message:'Saved changes could not be queued',detail:error.message})}
+      } },
       { label: 'Refresh Snapshot from Cloud…', click: async () => {
         const owner=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows()[0]
         try{

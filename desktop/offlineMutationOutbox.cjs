@@ -53,7 +53,7 @@ function recordMutationOutcome(db,ownerId,operationId,outcome){
 
 function assertUnqueued(db,table,id){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
- if(db.exec("SELECT 1 FROM offline_mutation_outbox WHERE table_name=? AND record_id=? AND (state<>'applied' OR json_extract(intent_json,'$.operation')='create')",[table,id]).length)
+ if(db.exec("SELECT 1 FROM offline_mutation_outbox WHERE (table_name=? AND record_id=? AND (state<>'applied' OR json_extract(intent_json,'$.operation')='create')) OR (?='sample_comments' AND json_extract(intent_json,'$.historyRecord.id')=?)",[table,id,table,id]).length)
   throw Error('This record is awaiting cloud synchronization or review.')
 }
 
@@ -61,12 +61,25 @@ function reconcileUploadedCreates(db,tables){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
  const entries=db.exec("SELECT operation_id,table_name,record_id,intent_json FROM offline_mutation_outbox WHERE state='applied'")[0]?.values||[]
  for(const [operationId,table,id,json] of entries){
-  if(!tables[table]?.some(row=>row.id===operationId))continue
   const intent=JSON.parse(json)
+  if(intent.historyRecord&&tables.sample_comments?.some(row=>row.id===operationId)){
+   const {id:historyId,editedAt}=intent.historyRecord
+   db.run("DELETE FROM standalone_records WHERE table_name='sample_comments' AND id=? AND updated_at=?",
+    [historyId,editedAt])
+  }
+  if(!tables[table]?.some(row=>row.id===operationId))continue
   if(intent.operation!=='create')continue
   db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',
    [table,id,intent.editedAt])
  }
 }
 
-module.exports={stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates}
+function findQueuedRecords(db){
+ if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return new Set()
+ return new Set((db.exec('SELECT table_name,record_id,intent_json FROM offline_mutation_outbox')[0]?.values||[]).flatMap(([table,id,json])=>{
+  const intent=JSON.parse(json)
+  return [table+':'+id,...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[])]
+ }))
+}
+
+module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates}

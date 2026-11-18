@@ -34,9 +34,9 @@ BEGIN
  WHERE s.id=target_sample AND s.stage IS NOT DISTINCT FROM previous_stage
  RETURNING s.* INTO changed;
  IF NOT FOUND THEN RETURN 'conflict'; END IF;
- INSERT INTO public.sample_comments(sample_id,root_sample_id,sam_number,version_label,comment_type,
+ INSERT INTO public.sample_comments(id,sample_id,root_sample_id,sam_number,version_label,comment_type,
      comment_text,comment_date,is_internal)
- VALUES(changed.id,coalesce(changed.root_sample_id,changed.id),changed.sample_number,
+ VALUES(operation,changed.id,coalesce(changed.root_sample_id,changed.id),changed.sample_number,
      coalesce(changed.version_label,'V1'),'Stage',coalesce(previous_stage,'Not Started')||' → '||new_stage,now(),true);
  INSERT INTO desktop_private.sample_stage_receipts VALUES(operation,actor,target_sample,previous_stage,new_stage);
  RETURN 'applied';

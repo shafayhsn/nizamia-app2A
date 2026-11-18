@@ -392,4 +392,36 @@ async function submitPendingMutations(directory,{ownerId,submit,isCurrent}){
  })
 }
 
-module.exports={submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+async function reviewSavedChanges(directory,{ownerId,approval,isCurrent=()=>true}={}){
+ const SQL=await sql()
+ return serialize(directory,async()=>{
+  const file=assertFile(directory),before=fs.readFileSync(file)
+  const db=new SQL.Database(Buffer.from(before))
+  try{
+   if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
+   const {reviewLegacyMutations}=require('./legacyMutationReview.cjs')
+   const plan=reviewLegacyMutations(db)
+   const summary={approval:plan.approval,operations:plan.staged.length,linked:plan.linked,skipped:plan.skipped.length}
+   if(!approval)return summary
+   if(!ownerId||!isCurrent())throw Error('Administrator session required')
+   if(approval!==plan.approval)throw Error('Local changes have changed. Open the review again.')
+   if(!plan.staged.length)return summary
+   for(const intent of plan.staged){
+    if(!stageMutation(db,ownerId,intent))throw Error('A record is already queued. Open the review again.')
+    if(intent.table==='shipments'){
+     db.run("UPDATE snapshot_edits SET fields_json=json_set(fields_json,'$.notes',?) WHERE table_name=? AND record_id=?",
+      [intent.changes.notes,intent.table,intent.id])
+    }
+   }
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or session changed during staging')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return summary
+  }finally{db.close()}
+ })
+}
+
+module.exports={reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
