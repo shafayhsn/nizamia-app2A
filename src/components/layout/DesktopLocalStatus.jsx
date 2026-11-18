@@ -68,6 +68,8 @@ export default function DesktopLocalStatus() {
       {error?'Local database status unavailable: '+error:status?<>
         <div>{status.totalUnsyncedLocalChanges} unsynced local items</div>
         <div>{status.unsyncedDrafts} drafts · {status.draftStates.conflict} upload conflicts</div>
+        {status.mutationStates?.pending>0&&<div>{status.mutationStates.pending} operations waiting to upload</div>}
+        {status.mutationStates?.conflict>0&&<div>{status.mutationStates.conflict} upload operations need review</div>}
         {status.refreshConflicts>0&&<div>{status.refreshConflicts} records need refresh review</div>}
         <div>{status.syncHistory.applied+status.syncHistory.alreadyApplied} archived draft results</div>
         <div>{cloudSyncLabel[status.cloudSync?.state]||'Cloud sync unavailable'}</div>

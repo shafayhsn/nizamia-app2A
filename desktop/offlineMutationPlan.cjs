@@ -24,8 +24,8 @@ function readBase(db,table,id){
  return JSON.parse(rows[0][0])
 }
 
-function createMutationIntent(table,id,fields,createdAt,editedAt){
- const intent={operation:'create',table,id,fields,createdAt,editedAt}
+function createMutationIntent(table,id,fields,createdAt,editedAt,document){
+ const intent={operation:'create',table,id,fields,createdAt,editedAt,...(document?{document}:{})}
  return {...intent,fingerprint:fingerprint(intent)}
 }
 

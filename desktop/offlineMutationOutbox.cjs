@@ -53,7 +53,7 @@ function recordMutationOutcome(db,ownerId,operationId,outcome){
 
 function assertUnqueued(db,table,id){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
- if(db.exec("SELECT 1 FROM offline_mutation_outbox WHERE (table_name=? AND record_id=? AND (state<>'applied' OR json_extract(intent_json,'$.operation')='create')) OR (?='sample_comments' AND json_extract(intent_json,'$.historyRecord.id')=?)",[table,id,table,id]).length)
+ if(db.exec("SELECT 1 FROM offline_mutation_outbox WHERE (table_name=? AND record_id=? AND (state<>'applied' OR json_extract(intent_json,'$.operation')='create')) OR (?='sample_comments' AND json_extract(intent_json,'$.historyRecord.id')=?) OR EXISTS(SELECT 1 FROM json_each(intent_json,'$.document.localLines') WHERE json_extract(value,'$.table')=? AND json_extract(value,'$.id')=?)",[table,id,table,id,table,id]).length)
   throw Error('This record is awaiting cloud synchronization or review.')
 }
 
@@ -69,6 +69,10 @@ function reconcileUploadedCreates(db,tables){
   }
   if(!tables[table]?.some(row=>row.id===operationId))continue
   if(intent.operation!=='create')continue
+  const linked=intent.document?.localLines||[]
+  if(linked.length&&!tables[linked[0].table]?.filter(row=>row[linked[0].parentField]===operationId).length)continue
+  for(const child of linked)db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',
+   [child.table,child.id,intent.editedAt])
   db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',
    [table,id,intent.editedAt])
  }
@@ -78,7 +82,7 @@ function findQueuedRecords(db){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return new Set()
  return new Set((db.exec('SELECT table_name,record_id,intent_json FROM offline_mutation_outbox')[0]?.values||[]).flatMap(([table,id,json])=>{
   const intent=JSON.parse(json)
-  return [table+':'+id,...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[])]
+  return [table+':'+id,...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id)]
  }))
 }
 

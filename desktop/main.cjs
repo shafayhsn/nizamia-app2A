@@ -392,7 +392,7 @@ app.whenReady().then(() => {
       try{
         const directory=getDatabaseDirectory()
         if(!directory)return Response.json({error:'Local database unavailable'},{status:503})
-        const status=await require('./offlinePendingStatus.cjs').readPendingStatus(directory)
+        const status=await require('./offlinePendingStatus.cjs').readPendingStatus(directory,desktopAuth.status().user?.id)
         return Response.json({data:{...status,refreshConflicts:lastSnapshot?.directory===directory?lastSnapshot.unresolved.length:0,cloudSync:onlineSyncSession&&onlineSyncSession.expiresAt<=Date.now()?{state:'sign-in-required'}:syncLoop.getStatus()},error:null},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:500})}
     }
@@ -446,6 +446,34 @@ app.whenReady().then(() => {
         const result=await mutateLocalRecordBatch(directory,{...input,ownerId:productionSyncOwner()})
         return Response.json({data:result,error:null},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({data:null,error:error.message},{status:400})}
+    }
+    if(url.pathname==='/api/offline/purchasing-create'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
+      if(!ownerId||!directory)return Response.json({error:'Administrator access required for offline purchasing sync'},{status:403})
+      try{
+        const raw=await request.text()
+        if(Buffer.byteLength(raw)>110000)return Response.json({error:'Document too large for offline sync'},{status:413})
+        const {table,fields,lines}=JSON.parse(raw)
+        const {queuePurchasingDocument}=require('./standaloneRecords.cjs')
+        const data=await queuePurchasingDocument(directory,{table,fields,lines,ownerId,
+          isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
+        return Response.json({data},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:400})}
+    }
+    if(url.pathname==='/api/offline/parcel-transition'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
+      if(!ownerId||!directory)return Response.json({error:'Administrator access required for offline parcel sync'},{status:403})
+      try{
+        const raw=await request.text()
+        if(Buffer.byteLength(raw)>4096)return Response.json({error:'Request too large'},{status:413})
+        const {id,status,deliveryDate,receivedBy}=JSON.parse(raw)
+        const {queueParcelTransition}=require('./standaloneRecords.cjs')
+        const data=await queueParcelTransition(directory,{id,status,deliveryDate,receivedBy,ownerId,
+         isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
+        return Response.json({data},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:400})}
     }
     if(url.pathname==='/api/offline/sample-stage'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})

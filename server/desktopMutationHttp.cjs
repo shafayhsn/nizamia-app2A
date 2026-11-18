@@ -42,6 +42,21 @@ function createDesktopMutationHttp({db,key}){
       isShipmentStatusChange(intent.expected.notes,intent.changes.notes)){
     rpc='desktop_update_shipment_status'
     args={target_shipment:intent.id,previous_notes:intent.expected.notes,next_notes:intent.changes.notes}
+   }else if(intent?.operation==='update'&&intent.table==='parcels'&&/^[a-z0-9_-]{1,128}$/i.test(intent.id||'')&&
+      ['Dispatched','Delivered'].includes(intent.changes?.status)&&
+      typeof intent.expected?.status==='string'&&Object.hasOwn(intent.expected,'updated_at')){
+    rpc='desktop_transition_parcel'
+    args={target_parcel:intent.id,payload:{
+     status:intent.changes.status,expected_status:intent.expected.status,
+     expected_updated_at:intent.expected.updated_at,
+     ...(intent.changes.status==='Delivered'?{
+      delivery_date:intent.changes.delivery_date,received_by:intent.changes.received_by
+     }:{})
+    }}
+   }else if(intent?.operation==='create'&&['purchase_orders','work_orders'].includes(intent.table)&&
+      intent.fields&&typeof intent.fields==='object'&&Array.isArray(intent.document?.lines)){
+    rpc='desktop_create_purchasing_document'
+    args={kind:intent.table,header:intent.fields,lines:intent.document.lines}
    }else{
     results.push({operationId,outcome:'unsupported'})
     continue

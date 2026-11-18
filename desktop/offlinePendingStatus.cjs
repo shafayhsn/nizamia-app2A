@@ -3,7 +3,7 @@
 const fs=require('node:fs'),path=require('node:path')
 const init=require('sql.js')
 const DB='nizamia-app2a.sqlite'
-async function readPendingStatus(directory){
+async function readPendingStatus(directory,ownerId){
  if(typeof directory!=='string'||!path.isAbsolute(directory))throw Error('Absolute database directory required')
  const stat=fs.lstatSync(directory),file=path.join(directory,DB)
  if(!stat.isDirectory()||stat.isSymbolicLink())throw Error('Invalid local database directory')
@@ -21,6 +21,11 @@ async function readPendingStatus(directory){
   if(tables.has('offline_draft_journal')){
    const result=db.exec("SELECT state,COUNT(*) FROM offline_draft_journal WHERE state IN ('pending','conflict') GROUP BY state")
    for(const [state,total] of result[0]?.values||[])draftStates[state]=total
+  }
+  const mutationStates={pending:0,conflict:0,applied:0}
+  if(ownerId&&tables.has('offline_mutation_outbox')){
+   const result=db.exec('SELECT state,COUNT(*) FROM offline_mutation_outbox WHERE owner_id=? GROUP BY state',[ownerId])
+   for(const [state,total] of result[0]?.values||[])mutationStates[state]=total
   }
   const unsyncedDrafts=draftStates.pending+draftStates.conflict
   const syncHistory={applied:0,alreadyApplied:0,other:0}
@@ -42,7 +47,7 @@ async function readPendingStatus(directory){
    const result=db.exec('SELECT table_name,COUNT(*) FROM standalone_records GROUP BY table_name ORDER BY table_name')
    for(const [table,rows] of result[0]?.values||[])grouped.push({table,rows})
   }
-  return {localRecords,editedSnapshots,unsyncedDrafts,draftStates,syncHistory,editedByTable,totalUnsyncedLocalChanges:localRecords+editedSnapshots+unsyncedDrafts,byTable:grouped,syncConfigured:false,syncState:'not-connected',message:'Local changes and pending drafts are saved on this device; automatic cloud synchronization is not connected.'}
+  return {localRecords,editedSnapshots,unsyncedDrafts,draftStates,mutationStates,syncHistory,editedByTable,totalUnsyncedLocalChanges:localRecords+editedSnapshots+unsyncedDrafts,byTable:grouped,syncConfigured:false,syncState:'not-connected',message:'Local changes and pending drafts are saved on this device; automatic cloud synchronization is not connected.'}
  }finally{db.close()}
 }
 module.exports={readPendingStatus}

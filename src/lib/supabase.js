@@ -1,3 +1,4 @@
+import { projectOfflineRows } from './offlineProjection'
 import { trackedFetch } from './syncTracker'
 import { createClient } from '@supabase/supabase-js'
 
@@ -6,17 +7,18 @@ import { createClient } from '@supabase/supabase-js'
 const isMacOffline = typeof location !== 'undefined' && location.protocol === 'app2a:'
 const offlineTables = new Set(['orders','tasks','buyers','suppliers','purchase_orders','purchase_order_items','samples','parcels','shipments','shipment_lines','production_daily_entries','costing','pp_meetings','production_plans','jobs','order_queues','bom_items','washing','embellishments','finishing','work_orders','buyer_addresses','buyer_contacts','supplier_contacts','size_groups','size_group_colors','size_group_breakdown','order_processes','work_order_items','payment_settlements','production_batches','production_batch_orders','sample_comments','finishing_packs','fitting_blocks','library_items','sample_logs','fitting','work_order_changelog','shipping_bookings','shipping_booking_lines','shipping_booking_shipments','parcel_invoice_snapshots','testing_requirements','testing_orders','feature_assets','feature_certificates','parcel_status_history'])
 const notifyOfflineWrite=()=>{if(typeof window!=='undefined')window.dispatchEvent(new Event('app2a-offline-data-changed'))}
+async function readOfflineRows(table){
+ if(!/^[a-z][a-z0-9_]{0,63}$/.test(table))throw Error('Invalid offline table')
+ const response=await fetch('/api/offline/records?table='+encodeURIComponent(table))
+ const body=await response.json()
+ if(!response.ok)throw Error(body.error||'Offline database read failed')
+ if(!Array.isArray(body.data))throw Error('Invalid offline database response')
+ return body.data
+}
 function offlineQuery(table) {
   let filters=[],sort=null,limit=null,offset=0,single=false,strictSingle=false,headOnly=false,operation=null,payload=null,upsert=false,conflictKeys=[],returnRows=false,countRequested=false,orGroups=[],columns='*'
   const load=async()=>{
-    if(!/^[a-z][a-z0-9_]{0,63}$/.test(table))throw Error('Invalid offline table')
-    const response=await fetch('/api/offline/records?table='+encodeURIComponent(table))
-    const body=await response.json()
-    if(!response.ok)throw Error(body.error||'Offline database read failed')
-    if(!Array.isArray(body.data))throw Error('Invalid offline database response')
-    let rows=body.data
-    // Relational selects require joins; returning unjoined rows would silently corrupt screens.
-    if(typeof columns==='string' && columns.includes('('))throw Error('Relational queries are not yet available offline')
+    let rows=await readOfflineRows(table)
     const matches=(r,field,op,value)=>{
       const actual=r[field]
       if(op==='eq')return actual!=null&&value!=null&&(actual===value||String(actual)===String(value))
@@ -35,7 +37,7 @@ function offlineQuery(table) {
     if(sort)rows=[...rows].sort((a,b)=>{const x=a[sort.field],y=b[sort.field];const comparison=typeof x==='number'&&typeof y==='number'?x-y:String(x??'').localeCompare(String(y??''));return comparison*(sort.ascending?1:-1)})
     const total=rows.length
     if(offset||limit!==null)rows=rows.slice(offset,limit===null?undefined:offset+limit)
-    if(columns!=='*'&&typeof columns==='string'&&!columns.includes('(')){const keys=columns.split(',').map(x=>x.trim()).filter(x=>/^[a-z][a-z0-9_]*$/i.test(x));if(keys.length)rows=rows.map(r=>Object.fromEntries(keys.map(k=>[k,r[k]])))}
+    if(!headOnly)rows=await projectOfflineRows(table,rows,columns,readOfflineRows)
     return {rows,total}
   }
   const run=async()=>{

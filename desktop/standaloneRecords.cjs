@@ -361,6 +361,19 @@ async function submitPendingMutations(directory,{ownerId,submit,isCurrent}){
  let db=new SQL.Database(fs.readFileSync(file))
  let operations
  try{operations=pendingMutations(db,ownerId)}finally{db.close()}
+ let size=32
+ operations=operations.map(({operationId,intent})=>({
+  operationId,intent:{
+   operation:intent.operation,table:intent.table,id:intent.id,
+   fields:intent.fields,changes:intent.changes,expected:intent.expected,
+   ...(intent.document?{document:{lines:intent.document.lines}}:{})
+  }
+ })).filter(item=>{
+  const bytes=Buffer.byteLength(JSON.stringify(item))+1
+  if(size+bytes>128*1024)return false
+  size+=bytes
+  return true
+ })
  if(!operations.length||!isCurrent())return {archived:0,conflicts:0,retained:0}
  const results=await submit(operations)
  const expected=new Set(operations.map(item=>item.operationId))
@@ -424,4 +437,121 @@ async function reviewSavedChanges(directory,{ownerId,approval,isCurrent=()=>true
  })
 }
 
-module.exports={reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+async function queueParcelTransition(directory,{id,status,deliveryDate,receivedBy,ownerId,isCurrent}){
+ if(!ownerId||typeof id!=='string'||id.startsWith('local-')||!/^[a-z0-9_-]{1,128}$/i.test(id)||
+    !['Dispatched','Delivered'].includes(status))throw Error('A synchronized parcel is required.')
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file)
+  const db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   const getBase=(table,id)=>{
+    const rows=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name=? AND json_extract(row_json,'$.id')=?",[table,id])[0]?.values||[]
+    if(rows.length!==1)throw Error('A linked record is missing from the cloud snapshot.')
+    return JSON.parse(rows[0][0])
+   }
+   const getRecord=(table,id)=>{
+    assertUnqueued(db,table,id)
+    const row=getBase(table,id)
+    const saved=db.exec('SELECT fields_json FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id])[0]?.values?.[0]
+    if(saved?.[0]===null)throw Error('A linked record was deleted locally.')
+    return {row,local:saved?JSON.parse(saved[0]):row}
+   }
+   const {row,local}=getRecord('parcels',id)
+   const sameCloudFields=['status','dispatch_date','courier','tracking_no','updated_at'].every(field=>local[field]===row[field])
+   if(!sameCloudFields||JSON.stringify(local.items)!==JSON.stringify(row.items)||
+      !Object.hasOwn(row,'updated_at')||!Array.isArray(row.items)||row.items.length>500||
+      ['Delivered','Cancelled'].includes(row.status)||row.status===status)
+    throw Error('This parcel has changes awaiting review.')
+   const stamp=new Date().toISOString()
+   const changes={status}
+   const overlay={...local,status}
+   if(status==='Dispatched'){
+    if(row.status!=='Draft'||!row.courier?.trim()||!row.tracking_no?.trim()||!row.dispatch_date)
+     throw Error('Courier, tracking number and dispatch date are required.')
+    overlay.dispatched_at=stamp
+   }else{
+    const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Karachi',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())
+    if(row.status==='Draft'||typeof deliveryDate!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(deliveryDate)||
+       !Number.isFinite(Date.parse(deliveryDate))||new Date(deliveryDate).toISOString().slice(0,10)!==deliveryDate||
+       deliveryDate>today||(row.dispatch_date&&deliveryDate<row.dispatch_date)||
+       (receivedBy!=null&&(typeof receivedBy!=='string'||receivedBy.length>200)))
+     throw Error('Enter a valid delivery date and recipient.')
+    changes.delivery_date=deliveryDate
+    changes.received_by=receivedBy?.trim()||null
+    overlay.delivered_at=deliveryDate+'T12:00:00Z'
+    overlay.received_by=changes.received_by
+   }
+   const writeOverlay=(table,id,record)=>db.run(
+    'INSERT OR REPLACE INTO snapshot_edits (table_name,record_id,fields_json,updated_at) VALUES (?,?,?,?)',
+    [table,id,JSON.stringify(record),stamp])
+   for(const sampleId of new Set(row.items.map(item=>item.sampleId))){
+    if(!cloudId.test(sampleId||''))throw Error('This parcel contains an unsynchronized sample.')
+    const sample=getRecord('samples',sampleId)
+    if(sample.local.dispatch_status!==sample.row.dispatch_status||
+       (status==='Dispatched'&&sample.local.dispatch_status==='Delivered'))
+     throw Error('A linked sample has a newer dispatch status.')
+    writeOverlay('samples',sampleId,{...sample.local,dispatch_status:status})
+   }
+   const intent=updateMutationIntent('parcels',id,changes,{status:row.status,updated_at:row.updated_at},stamp)
+   if(!stageMutation(db,ownerId,intent))throw Error('Parcel already has a queued change.')
+   writeOverlay('parcels',id,overlay)
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during parcel save')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return overlay
+  }finally{db.close()}
+ })
+}
+
+async function queuePurchasingDocument(directory,{table,fields,lines,ownerId,isCurrent}){
+ if(!ownerId||!['purchase_orders','work_orders'].includes(table)||
+    !Array.isArray(lines)||!lines.length||lines.length>200)throw Error('Supplier and valid document lines are required.')
+ const purchase=table==='purchase_orders'
+ const childTable=purchase?'purchase_order_items':'work_order_items'
+ const parentField=purchase?'po_id':'wo_id'
+ const numberField=purchase?'po_number':'wo_number'
+ const nameField=purchase?'description':'process_name'
+ const vendor=fields?.[purchase?'supplier_id':'vendor_id']
+ if(!cloudId.test(vendor||'')||fields.order_id&&!cloudId.test(fields.order_id)||
+    fields.status!=='Draft'||lines.some(line=>typeof line?.[nameField]!=='string'||!line[nameField].trim()))
+  throw Error('Use a synchronized supplier, order and valid line descriptions.')
+ const header={...fields}
+ delete header[numberField]
+ for(const field of ['order_id','delivery_date','po_date','issue_date','start_date','complete_by'])
+  if(header[field]==='')header[field]=null
+ validateFields(header)
+ lines.forEach(validateFields)
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file)
+  const db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   const stamp=new Date().toISOString(),id='local-'+crypto.randomUUID()
+   const localHeader={...header,[numberField]:'OFFLINE-'+id.slice(6)}
+   db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(localHeader),stamp,stamp])
+   const localLines=lines.map(line=>{
+    const lineId='local-'+crypto.randomUUID()
+    db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',
+     [lineId,childTable,JSON.stringify({...line,[parentField]:id}),stamp,stamp])
+    return {id:lineId,table:childTable,parentField}
+   })
+   if(!stageMutation(db,ownerId,createMutationIntent(table,id,header,stamp,stamp,{lines,localLines})))
+    throw Error('Could not queue purchasing document.')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during purchasing save')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return {id,...localHeader}
+  }finally{db.close()}
+ })
+}
+
+module.exports={queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}

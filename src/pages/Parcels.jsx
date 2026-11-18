@@ -374,9 +374,23 @@ export default function Parcels() {
     }
     setBusy(false)
   }
+  async function queueParcelStatus(id,status,details={}){
+    const response=await fetch('/api/offline/parcel-transition',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id,status,...details})})
+    const result=await response.json()
+    if(!response.ok)throw Error(result.error||'Could not queue parcel status')
+    window.dispatchEvent(new Event('app2a-offline-data-changed'))
+  }
   async function doDispatch(parcel){
     if(!parcel.courier||!parcel.trackingNo||!parcel.dispatchDate){
       alert('Courier, tracking number and dispatch date are required.',{title:'Missing Dispatch Details'});return
+    }
+    if(window.location.protocol==='app2a:'){
+      setBusy(true)
+      try{await queueParcelStatus(parcel.id,'Dispatched');await load()}
+      catch(error){alert(error.message,{title:'Dispatch Failed'})}
+      finally{setBusy(false)}
+      return
     }
     const ok=await patchParcel(parcel.id,{status:'Dispatched'})
     if(ok){
@@ -412,6 +426,11 @@ export default function Parcels() {
     setBusy(true)
     let succeeded=0
     for(const p of targets){
+      if(window.location.protocol==='app2a:'){
+        try{await queueParcelStatus(p.id,'Delivered',{deliveryDate,receivedBy});succeeded++}
+        catch(error){alert(error.message,{title:'Delivery Update Failed'})}
+        continue
+      }
       const {error}=await supabase.from('parcels').update({status:'Delivered',delivered_at:deliveryDate+'T12:00:00Z',received_by:receivedBy.trim()||null,updated_at:new Date().toISOString()}).eq('id',p.id)
       if(error){alert(error.message,{title:'Delivery Update Failed'});continue}
       succeeded++

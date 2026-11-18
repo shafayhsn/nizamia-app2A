@@ -210,6 +210,15 @@ function writeWOTax(notes,enabled,rate) {
   return `${String(notes||'').replace(WO_TAX_RE,'').trim()}\n[WO_TAX:${JSON.stringify({enabled:!!enabled,rate:Number(rate)||0})}]`.trim()
 }
 
+async function saveOfflinePurchasingDocument(table,fields,lines){
+ const response=await fetch('/api/offline/purchasing-create',{
+  method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table,fields,lines})
+ })
+ const result=await response.json()
+ if(!response.ok)throw Error(result.error||'Could not save offline document')
+ window.dispatchEvent(new Event('app2a-offline-data-changed'))
+}
+
 function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
   const isNew = !po
   const decodedPO = decodeNotes(po?.notes || '')
@@ -268,6 +277,19 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
     if (!form.supplier_id) { setError('Select a supplier'); return }
     setSaving(true)
     try {
+      if(window.location.protocol==='app2a:'&&!po?.id){
+        const notes=encodeNotes(form.notes,taxEnabled,taxRate,1)
+        const lines=items.filter(i=>i.description).map((i,sort_order)=>({
+         description:i.description,specification:encodeSpec(i.specification,i.breakdown)||null,
+         qty:parseFloat(i.qty)||null,unit:i.unit||null,unit_rate:parseFloat(i.unit_rate)||null,
+         amount:parseFloat(i.amount)||null,source_type:i.source_type||null,source_id:i.source_id||null,sort_order
+        }))
+        await saveOfflinePurchasingDocument('purchase_orders',{...form,notes},lines)
+        markTabUpdated('purchasingPage','pos')
+        onSaved()
+        setSaving(false)
+        return
+      }
       const poNum = form.po_number || await generatePONumber()
       const nextVersion = po?.id ? Math.max(1, poVersion + 1) : 1
       const payload = { ...form, po_number:poNum, notes: encodeNotes(form.notes, taxEnabled, taxRate, nextVersion) }
@@ -465,6 +487,21 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, prefillItems, onClo
     if (!form.vendor_id) { setError('Select a vendor'); return }
     setSaving(true)
     try {
+      if(window.location.protocol==='app2a:'&&!wo?.id){
+        const notes=writeWOTax(form.notes,taxEnabled,taxRate)
+        const lines=items.filter(i=>i.process_name).map((i,sort_order)=>({
+         order_process_id:i.order_process_id||null,process_name:i.process_name,dept_info:i.dept_info||null,
+         qty:parseFloat(i.qty)||null,unit:i.unit||null,rate:parseFloat(i.rate)||null,
+         amount:parseFloat(i.amount)||null,sort_order
+        }))
+        await saveOfflinePurchasingDocument('work_orders',{
+         ...form,notes,qty:parseInt(form.qty)||null,daily_output:parseInt(form.daily_output)||null
+        },lines)
+        markTabUpdated('purchasingPage','wos')
+        onSaved()
+        setSaving(false)
+        return
+      }
       const woNum = form.wo_number || await generateWONumber()
       const payload = { ...form, notes:writeWOTax(form.notes,taxEnabled,taxRate), wo_number:woNum, qty:parseInt(form.qty)||null, daily_output:parseInt(form.daily_output)||null }
       let woId
