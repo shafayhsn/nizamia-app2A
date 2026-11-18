@@ -105,7 +105,7 @@ async function until(check,message){
  }
  throw Error(message)
 }
-const findWindow=()=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().startsWith('app2a://local/')&&!w.webContents.isLoadingMainFrame())
+const findWindow=()=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().startsWith('app2a://local/'))
 const request=(win,route,body)=>win.webContents.executeJavaScript(
  `(async()=>{const response=await fetch(${JSON.stringify(route)},${JSON.stringify(body===undefined?{}:{
   method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
