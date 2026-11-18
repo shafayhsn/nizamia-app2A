@@ -163,13 +163,20 @@ app.whenReady().then(() => {
     if(url.pathname==='/api/offline/auth'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})
       try{const raw=await request.text();if(raw.length>2048)return Response.json({error:'Request too large'},{status:413});const input=JSON.parse(raw);if(!desktopAuth)return Response.json({error:'Local account not ready'},{status:503});let data;if(input.action==='status')data=desktopAuth.status();else if(input.action==='login'){
-        try{data=desktopAuth.login(input.username,input.password)}catch(localError){
-          if(!String(localError.message).includes('First sign in online'))throw localError
+        onlineSnapshotToken=null
+        let networkUnavailable=false
+        try{
           const response=await fetch(APP_URL+'/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'login',identifier:input.username,password:input.password,desktopEnrollment:true}),signal:AbortSignal.timeout(10000)})
-          const verified=await response.json();if(!response.ok||!verified.ok||!verified.desktopUser)throw Error('Online sign-in required before offline access; check your connection or contact admin')
+          if(!response.ok)throw Error('Online credentials rejected or account unavailable')
+          const verified=await response.json()
+          if(!verified.ok||!verified.desktopUser)throw Error('Online enrollment response invalid')
           data=desktopAuth.enroll(input.username,input.password,verified.desktopUser)
           onlineSnapshotToken=typeof verified.desktopSnapshotToken==='string'?verified.desktopSnapshotToken:null
+        }catch(error){
+          if(error.message==='Online credentials rejected or account unavailable'||error.message==='Online enrollment response invalid')throw error
+          networkUnavailable=true
         }
+        if(networkUnavailable)data=desktopAuth.login(input.username,input.password)
       }else if(input.action==='logout'){onlineSnapshotToken=null;data=desktopAuth.logout();}else return Response.json({error:'Unknown action'},{status:400});return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
     }
     if(url.pathname==='/api/offline/version')return Response.json({version:app.getVersion(),platform:process.platform,pdf:'native',updates:'manual'})
