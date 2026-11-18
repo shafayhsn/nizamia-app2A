@@ -12,7 +12,6 @@ export const BACKUP_TABLES = [
   'suppliers',
   'roles',
   'permissions',
-  'users',
   'jobs',
 
   // Orders ecosystem
@@ -247,7 +246,7 @@ export async function restoreAppData(payload, { onProgress } = {}) {
   const { tableNames } = validateBackupPayload(payload)
 
   const knownTables = BACKUP_TABLES.filter(t => tableNames.includes(t))
-  const extraTables = tableNames.filter(t => !BACKUP_TABLES.includes(t))
+  const extraTables = tableNames.filter(t => t !== 'users' && !BACKUP_TABLES.includes(t))
   const restoreTables = [...knownTables, ...extraTables]
   const deleteTables = [...restoreTables].reverse()
 

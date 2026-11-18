@@ -4,10 +4,10 @@ import { formatDate as appFormatDate } from '../lib/utils'
 
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { accountRequest } from '../lib/accounts'
 import { useAuth } from '../lib/authContext'
 import { Plus, KeyRound, Ban } from 'lucide-react'
 
-const USER_COLUMNS = 'id, email, username, role, role_id, is_active, is_restricted, restricted_reason, restricted_at, created_at'
 
 function getRole(value) {
   if (!value) return null
@@ -66,8 +66,7 @@ function UsersAndRights() {
     setLoading(true)
     try {
       await fetchRoles()
-      const { data, error } = await supabase.from('users').select(USER_COLUMNS).order('created_at', { ascending: false })
-      if (error) throw error
+      const { data } = await accountRequest('accountList')
       setUsers((data || []).map(u => ({ ...u, username: u.username || '', roleName: u.role || 'merchandiser' })))
     } catch (err) {
       console.error('Fetch users error:', err)
@@ -89,15 +88,7 @@ function UsersAndRights() {
 
     setSaving(true)
     try {
-      const { error } = await supabase.from('users').insert({
-        email,
-        username,
-        password_hash: password,
-        role: selectedRole.name,
-        role_id: selectedRole.id,
-        is_active: true,
-      })
-      if (error) throw error
+      await accountRequest('accountCreate',{email,username,password,roleId:selectedRole.id})
       alert(`User created: ${username}\nRole: ${selectedRole.name}`)
       setNewUserEmail(''); setNewUsername(''); setNewPassword(''); setNewRoleId(merchRole?.id || '')
       setShowCreateForm(false)
@@ -111,7 +102,7 @@ function UsersAndRights() {
 
   const handleToggleActive = async (userId, currentActive) => {
     if (userId === user?.id && currentActive) return alert('You cannot deactivate your own admin user while logged in.')
-    const { error } = await supabase.from('users').update({ is_active: !currentActive }).eq('id', userId)
+    const { error } = await accountRequest('accountActive',{id:userId,active:!currentActive}).catch(error=>({error}))
     if (error) return alert(`Error updating user: ${error.message}`)
     fetchUsers()
   }
@@ -124,7 +115,7 @@ function UsersAndRights() {
     const pw2 = window.prompt('Confirm new password:')
     if (pw2 === null) return
     if (pw1 !== pw2) return alert('Passwords do not match.')
-    const { error } = await supabase.from('users').update({ password_hash: pw1 }).eq('id', targetUser.id)
+    const { error } = await accountRequest('accountPassword',{id:targetUser.id,password:pw1}).catch(error=>({error}))
     if (error) return alert(`Error changing password: ${error.message}`)
     alert('Password updated successfully.')
   }
@@ -134,12 +125,12 @@ function UsersAndRights() {
     if (targetUser.id === user?.id) return alert('You cannot restrict your own logged-in admin user.')
     if (targetUser.is_restricted) {
       if (!window.confirm(`Unrestrict ${targetUser.username || targetUser.email}?`)) return
-      const { error } = await supabase.from('users').update({ is_restricted: false, restricted_reason: null, restricted_at: null }).eq('id', targetUser.id)
+      const { error } = await accountRequest('accountRestriction',{id:targetUser.id,restricted:false}).catch(error=>({error}))
       if (error) return alert(`Error unrestricting user: ${error.message}`)
       fetchUsers(); return
     }
     const reason = window.prompt(`Reason for temporarily restricting ${targetUser.username || targetUser.email}:`) || 'Restricted by admin'
-    const { error } = await supabase.from('users').update({ is_restricted: true, restricted_reason: reason, restricted_at: new Date().toISOString() }).eq('id', targetUser.id)
+    const { error } = await accountRequest('accountRestriction',{id:targetUser.id,restricted:true,reason}).catch(error=>({error}))
     if (error) return alert(`Error restricting user: ${error.message}`)
     fetchUsers()
   }
@@ -148,7 +139,7 @@ function UsersAndRights() {
     const role = roles.find(r => r.id === roleId)
     if (!role) return
     if (targetUser.id === user?.id && role.name !== 'admin') return alert('You cannot remove admin role from your own logged-in user.')
-    const { error } = await supabase.from('users').update({ role: role.name, role_id: role.id }).eq('id', targetUser.id)
+    const { error } = await accountRequest('accountRole',{id:targetUser.id,roleId}).catch(error=>({error}))
     if (error) return alert(`Error updating role: ${error.message}`)
     if (targetUser.id === user?.id) await refreshUser()
     fetchUsers()

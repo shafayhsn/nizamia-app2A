@@ -3,9 +3,12 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { supabase } from './supabase'
+import { accountRequest } from './accounts'
 import { MODULES } from './permissions'
 
 const AuthContext = createContext(null)
+const IS_DESKTOP = typeof location !== 'undefined' && location.protocol === 'app2a:'
+const desktopRequest=async(action,fields={})=>{const response=await fetch('/api/offline/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...fields})});const result=await response.json();if(!response.ok)throw Error(result.error||'Local authentication failed');return result.data}
 const AUTH_TIMEOUT_MS = 5000
 const APP_USER_KEY = 'nizamia_app2a_user'
 
@@ -83,44 +86,11 @@ function safeSaveSession(appUser) {
   else localStorage.setItem(APP_USER_KEY, JSON.stringify(appUser))
 }
 
-function safeReadSession() {
-  try {
-    const raw = localStorage.getItem(APP_USER_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch (_) {
-    localStorage.removeItem(APP_USER_KEY)
-    return null
-  }
-}
-
-async function fetchUserById(id) {
-  if (!id) return { data: null, error: null }
-  const columns = 'id, email, username, role, role_id, is_active, is_restricted, restricted_reason'
-  return withTimeout(supabase.from('users').select(columns).eq('id', id).maybeSingle()).catch(error => ({ data: null, error }))
-}
-
-async function findUserByIdentifier(identifier) {
-  const clean = String(identifier || '').trim()
-  if (!clean) return { data: null, error: null }
-
-  const hasAt = clean.includes('@')
-  const emailValue = clean.toLowerCase()
-  const loginColumns = 'id, email, username, role, role_id, is_active, is_restricted, restricted_reason, password_hash'
-
-  const run = async (field, value) => {
-    return withTimeout(supabase.from('users').select(loginColumns).eq(field, value).maybeSingle()).catch(error => ({ data: null, error }))
-  }
-
-  if (hasAt) return run('email', emailValue)
-  const byUsername = await run('username', clean)
-  if (!byUsername.error && byUsername.data) return byUsername
-  return { data: null, error: byUsername.error || null }
-}
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [userRole, setUserRole] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [offlineSetupRequired,setOfflineSetupRequired]=useState(false)
 
   const setAppUser = useCallback((appUser) => {
     setUser(appUser)
@@ -129,14 +99,9 @@ export function AuthProvider({ children }) {
   }, [])
 
   const refreshUser = useCallback(async () => {
-    const saved = safeReadSession()
-    if (!saved?.id) return null
-    const { data, error } = await fetchUserById(saved.id)
-    if (error || !data || data.is_active === false || data.is_restricted === true) {
-      setAppUser(null)
-      return null
-    }
-    const appUser = await normalizeAppUser(data)
+    if(IS_DESKTOP){const result=await desktopRequest('status');setOfflineSetupRequired(result.setupRequired);setUser(result.user);setUserRole(result.user);return result.user}
+    const profile = await accountRequest('accountProfile').catch(()=>null)
+    const appUser = await normalizeAppUser(profile?.user)
     setAppUser(appUser)
     return appUser
   }, [setAppUser])
@@ -145,14 +110,7 @@ export function AuthProvider({ children }) {
     let cancelled = false
     const init = async () => {
       try {
-        const saved = safeReadSession()
-        if (!cancelled && saved?.id) {
-          setUser(saved)
-          setUserRole(saved)
-          const bridge=await fetch('/api/oms?action=session',{credentials:'same-origin'}).then(r=>r.ok).catch(()=>false)
-          if(bridge)await refreshUser()
-          else setAppUser(null)
-        }
+        if(!cancelled)await refreshUser()
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -162,31 +120,27 @@ export function AuthProvider({ children }) {
   }, [refreshUser])
 
   const login = async (identifier, password) => {
+    if(IS_DESKTOP){try{const result=await desktopRequest('login',{username:identifier,password});setUser(result.user);setUserRole(result.user);setOfflineSetupRequired(false);return {user:result.user,error:null}}catch(error){return {user:null,error}}}
     const cleanIdentifier = String(identifier || '').trim()
     const cleanPassword = String(password || '')
     if (!cleanIdentifier || !cleanPassword) return { user: null, error: new Error('Username/email and password are required.') }
 
-    const bridge = await fetch('/api/oms', {method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({action:'login',identifier:cleanIdentifier,password:cleanPassword})}).then(async r=>({ok:r.ok,message:(await r.json()).error})).catch(()=>({ok:false,message:'Server login unavailable'}))
-    if(!bridge.ok)return {user:null,error:new Error(bridge.message||'Invalid username/email or password.')}
-    const { data, error } = await findUserByIdentifier(cleanIdentifier)
-    if (error || !data) return { user: null, error: new Error('Invalid username/email or password.') }
-    if (data.is_active === false) return { user: null, error: new Error('This user is inactive.') }
-    if (data.is_restricted === true) return { user: null, error: new Error(data.restricted_reason ? `This user is restricted: ${data.restricted_reason}` : 'This user is temporarily restricted.') }
-    const storedPassword = data.password_hash ?? ''
-    if (String(storedPassword || '') !== cleanPassword) return { user: null, error: new Error('Invalid username/email or password.') }
-
-    const appUser = await normalizeAppUser(data)
-    setAppUser(appUser)
-    return { user: appUser, error: null }
+    try {
+      await accountRequest('login',{identifier:cleanIdentifier,password:cleanPassword})
+      const appUser=await refreshUser()
+      if(!appUser)throw Error('Could not load your account.')
+      return {user:appUser,error:null}
+    }catch(error){return {user:null,error}}
   }
 
   const logout = async () => {
+    if(IS_DESKTOP){await desktopRequest('logout');setUser(null);setUserRole(null);return}
     await fetch('/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})}).catch(()=>{})
     setAppUser(null)
   }
 
   return (
-    <AuthContext.Provider value={{ user, userRole, loading, login, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, userRole, loading, login, logout, refreshUser, offlineSetupRequired }}>
       {children}
     </AuthContext.Provider>
   )

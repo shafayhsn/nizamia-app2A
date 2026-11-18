@@ -1,5 +1,8 @@
+import {accountAction,accountColumns} from '../server/accountActions.js'
+import passwordTools from '../server/accountPassword.cjs'
 import { createClient } from '@supabase/supabase-js'
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import desktopSyncToken from '../server/desktopSyncToken.cjs'
 
 const key=process.env.SUPABASE_SERVICE_ROLE_KEY
 const url=process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
@@ -15,7 +18,7 @@ const session=async req=>{
  const expected=sign(payload)
  if(mac.length!==expected.length||!timingSafeEqual(Buffer.from(mac),Buffer.from(expected)))return null
  let info;try{info=JSON.parse(Buffer.from(payload,'base64url').toString())}catch{return null}
- if(!info.id||!info.exp||Date.now()>info.exp)return null
+ if(typeof info?.id!=='string'||!info.id||!Number.isSafeInteger(info.exp)||Date.now()>=info.exp)return null
  const {data,error}=await db.from('users').select('id,role,role_id,is_active,is_restricted').eq('id',info.id).maybeSingle()
  if(error||!data||data.is_active===false||data.is_restricted===true)return null
  return data
@@ -32,17 +35,23 @@ export default async function handler(req,res){
    const password=String(req.body?.password||'')
    if(!identifier||!password)return err(res,400,'Credentials required')
    const field=identifier.includes('@')?'email':'username'
-   const {data,error}=await db.from('users').select('id,username,email,role,role_id,password_hash,is_active,is_restricted').eq(field,identifier).maybeSingle()
+   const {data,error}=await db.from('users').select('id,username,email,role,role_id,password_hash,is_active,is_restricted').eq(field,field==='email'?identifier.toLowerCase():identifier).maybeSingle()
    if(error||!data||data.is_active===false||data.is_restricted===true)return err(res,401,'Invalid credentials')
-   const stored=Buffer.from(String(data.password_hash||''))
-   const supplied=Buffer.from(password)
-   if(stored.length!==supplied.length||!timingSafeEqual(stored,supplied))return err(res,401,'Invalid credentials')
+   if(!await passwordTools.verifyPassword(password,data.password_hash))return err(res,401,'Invalid credentials')
+   if(!/^scrypt:[a-f0-9]{32}:[a-f0-9]{128}$/.test(data.password_hash)){
+     const hash=await passwordTools.hashPassword(password)
+     const {error:upgradeError}=await db.from('users').update({password_hash:hash}).eq('id',data.id).eq('password_hash',data.password_hash)
+     if(upgradeError)return err(res,503,'Login temporarily unavailable')
+   }
    const payload=Buffer.from(JSON.stringify({id:data.id,exp:Date.now()+8*60*60*1000})).toString('base64url')
    res.setHeader('Set-Cookie',cookieName+'='+payload+'.'+sign(payload)+'; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=28800')
    if(req.body?.desktopEnrollment===true){
      let permissions=null
      if(data.role!=='admin'&&data.role_id){const {data:rows,error:permissionError}=await db.from('permissions').select('module,can_view,can_create,can_edit,can_delete').eq('role_id',data.role_id);if(permissionError)return err(res,503,'Permissions unavailable');permissions=Object.fromEntries((rows||[]).map(row=>[row.module,{view:!!row.can_view,create:!!row.can_create,edit:!!row.can_edit,delete:!!row.can_delete}]))}
-     return res.json({ok:true,desktopUser:{id:data.id,username:data.username,email:data.email,displayName:data.username||data.email,role:data.role,role_id:data.role_id,is_active:true,permissions}})
+     const snapshotPayload=Buffer.from(JSON.stringify({id:data.id,scope:'desktop-snapshot',exp:Date.now()+8*60*60*1000})).toString('base64url')
+     const snapshotToken=snapshotPayload+'.'+createHmac('sha256',key).update('desktop-snapshot:'+snapshotPayload).digest('base64url')
+     return res.json({ok:true,desktopSnapshotToken:snapshotToken,
+       ...(process.env.DESKTOP_OFFLINE_SYNC_ENABLED==='true'?{desktopSyncToken:desktopSyncToken.issueDesktopSyncToken(key,data.id)}:{}),desktopUser:{id:data.id,username:data.username,email:data.email,displayName:data.username||data.email,role:data.role,role_id:data.role_id,is_active:true,permissions}})
    }
    return res.json({ok:true})
  }
@@ -52,7 +61,12 @@ export default async function handler(req,res){
  }
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
- if(action==='session')return res.json({ok:true})
+ if(action==='session'||action==='accountProfile'){
+   const {data,error}=await db.from('users').select(accountColumns).eq('id',user.id).maybeSingle()
+   return error||!data?err(res,503,'Account unavailable'):res.json({ok:true,user:data})
+ }
+ if(['accountDirectory','accountList','accountCreate','accountPassword','accountActive','accountRestriction','accountRole'].includes(action))
+   return accountAction(req,res,db,user,action)
  if(['listCostings','saveCosting','costingHistory','listCostingBatches','saveCostingBatch','assignCostingBatch'].includes(action)){
    const admin=String(user.role||'').toLowerCase()==='admin'
    let canView=admin,canEdit=admin
