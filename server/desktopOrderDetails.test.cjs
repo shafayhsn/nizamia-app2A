@@ -4,12 +4,12 @@ const assert=require('node:assert/strict')
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const {PGlite}=require('@electric-sql/pglite')
 const sqlite=require('../desktop/node_modules/sql.js')
-const {mutateLocalRecordBatch,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
+const {queueNewJob,mutateLocalRecordBatch,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
 const {applyCloudSnapshot}=require('../desktop/applyCloudSnapshot.cjs')
 const {createDesktopMutationHttp}=require('./desktopMutationHttp.cjs')
 const {issueDesktopSyncToken}=require('./desktopSyncToken.cjs')
 
-test('existing bulk order edits upload changed fields without replacing concurrent cloud edits',async()=>{
+test('bulk order edits and job assignments sync with conflict protection',async()=>{
  const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`
  const db=new PGlite(),directory=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-order-details-'))
  try{
@@ -19,16 +19,20 @@ test('existing bulk order edits upload changed fields without replacing concurre
    create table users(id uuid primary key,role text,is_active bool,is_restricted bool);
    create table orders(id uuid primary key,ship_date date,po_date date,merchandiser_name text,
     store_name text,status text,updated_at timestamptz default now(),buyer_id uuid,job_id uuid,job_number text);
-   create table jobs(id uuid primary key,buyer_id uuid,job_number text);
+   create table jobs(id uuid primary key,buyer_id uuid,job_number text unique);
+   create table document_numbering(doc_type text primary key,label text,prefix text,pattern text,format text,seq_pad int,next_number int,current_number int,enabled bool,updated_at timestamptz);
+   grant insert on jobs,document_numbering to service_role;
+   grant select,update on document_numbering to service_role;
    grant select,update on users,orders,jobs to service_role;
    insert into users values('${id(1)}','admin',true,false);
    insert into orders(id,ship_date,store_name,status) values
-    ('${id(2)}','2026-12-01','Original','Draft'),('${id(3)}','2026-12-01','Original','Draft');
+    ('${id(2)}','2026-12-01','Original','Draft'),('${id(3)}','2026-12-01','Original','Draft'),('${id(8)}',null,null,'Draft');
    update orders set buyer_id='${id(4)}';
    insert into jobs values ('${id(5)}','${id(4)}','NZ-101'),('${id(6)}','${id(7)}','NZ-102');
   `)
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_order_details.sql'),'utf8'))
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_order_job.sql'),'utf8'))
+  await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_job_create.sql'),'utf8'))
   await db.exec('set role service_role')
   const SQL=await sqlite(),local=new SQL.Database()
   fs.writeFileSync(path.join(directory,'nizamia-app2a.sqlite'),Buffer.from(local.export()))
@@ -37,6 +41,9 @@ test('existing bulk order edits upload changed fields without replacing concurre
   const refresh=async()=>applyCloudSnapshot({directory,tables:await pull()})
   const owner={ownerId:id(1),isCurrent:()=>true},key='fixture-order-details-signer'
   const handle=createDesktopMutationHttp({key,db:{async rpc(name,args){
+   if(name==='desktop_create_and_assign_job')return {data:(await db.query(
+    'select desktop_create_and_assign_job($1,$2,$3,$4::jsonb) as outcome',
+    [args.actor,args.operation,args.target_buyer,JSON.stringify(args.expected_orders)])).rows[0].outcome}
    assert.ok(['desktop_update_order_details','desktop_update_order_job'].includes(name))
    return {data:(await db.query('select '+name+'($1,$2,$3,$4::jsonb,$5::jsonb) as outcome',
     [args.actor,args.operation,args.target_order,JSON.stringify(args.previous_fields),JSON.stringify(args.new_fields)])).rows[0].outcome}
@@ -81,6 +88,30 @@ test('existing bulk order edits upload changed fields without replacing concurre
   assert.equal((await flush()).archived,1)
   await refresh()
   assert.equal((await pull()).orders.find(row=>row.id===id(2)).job_number,null)
+  const queued=await queueNewJob(directory,{...owner,orderIds:[id(2),id(8)]})
+  assert.match(queued.job_number,/^OFFLINE-/)
+  const offlineOrders=await listCombinedRecords(directory,'orders')
+  assert.equal(offlineOrders.filter(order=>order.job_id===queued.id).length,2)
+  await assert.rejects(link({job_id:id(5),job_number:'NZ-101'}),/new job awaiting/)
+  await refresh()
+  assert.equal((await flush()).archived,1)
+  await refresh()
+  const synced=(await pull()).jobs.find(job=>job.job_number==='NZ-2601')
+  assert.ok(synced)
+  assert.ok(!(await listCombinedRecords(directory,'jobs')).some(job=>job.id===queued.id))
+  assert.equal((await listCombinedRecords(directory,'orders')).filter(order=>order.job_id===synced.id).length,2)
+
+  const conflictDraft=await queueNewJob(directory,{...owner,orderIds:[id(2),id(8)]})
+  await db.query("update orders set job_number='NZ-101',job_id=$1 where id=$2",[id(5),id(8)])
+  const rejected=await submitPendingMutations(directory,{...owner,async submit(operations){
+   return (await send(operations)).body.results
+  }})
+  assert.equal(rejected.conflicts,1)
+  const current=await pull()
+  assert.equal(current.jobs.length,3)
+  assert.equal(current.orders.find(order=>order.id===id(2)).job_id,synced.id)
+  await refresh()
+  assert.ok((await listCombinedRecords(directory,'jobs')).some(job=>job.id===conflictDraft.id))
  }finally{
   await db.close()
   fs.rmSync(directory,{recursive:true,force:true})

@@ -55,8 +55,33 @@ function recordMutationOutcome(db,ownerId,operationId,outcome,resourceId){
 
 function assertUnqueued(db,table,id){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ if(table==='orders'&&db.exec(`SELECT 1 FROM offline_mutation_outbox box
+  JOIN json_each(box.intent_json,'$.fields.orders') AS target
+  JOIN snapshot_edits edit ON edit.table_name='orders' AND edit.record_id=json_extract(target.value,'$.id')
+   AND edit.updated_at=json_extract(box.intent_json,'$.editedAt')
+  WHERE box.table_name='jobs' AND edit.record_id=?`,[id]).length)
+  throw Error('This order has a new job awaiting cloud synchronization or review.')
  if(db.exec("SELECT 1 FROM offline_mutation_outbox WHERE (table_name=? AND record_id=? AND (state<>'applied' OR json_extract(intent_json,'$.operation')='create')) OR (?='sample_comments' AND json_extract(intent_json,'$.historyRecord.id')=?) OR EXISTS(SELECT 1 FROM json_each(intent_json,'$.document.localLines') WHERE json_extract(value,'$.table')=? AND json_extract(value,'$.id')=?)",[table,id,table,id,table,id]).length)
   throw Error('This record is awaiting cloud synchronization or review.')
+}
+
+function reconcileNewJobs(db,tables,hold){
+ if(!tables.orders||!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ const rows=db.exec("SELECT operation_id,record_id,intent_json,state FROM offline_mutation_outbox WHERE table_name='jobs'")[0]?.values||[]
+ for(const [operationId,localId,json,state] of rows){
+  const {fields,editedAt}=JSON.parse(json)
+  if(!Array.isArray(fields?.orders))continue
+  const ids=fields.orders.map(order=>order.id)
+  const job=state==='applied'&&tables.jobs?.find(row=>row.id===operationId)
+  const linked=job&&ids.every(id=>tables.orders.some(row=>row.id===id&&row.job_id===job.id&&row.job_number===job.job_number))
+  if(linked){
+   for(const id of ids)db.run("DELETE FROM snapshot_edits WHERE table_name='orders' AND record_id=? AND updated_at=?",[id,editedAt])
+   db.run("DELETE FROM standalone_records WHERE table_name='jobs' AND id=? AND updated_at=?",[localId,editedAt])
+  }else for(const id of ids){
+   if(db.exec("SELECT 1 FROM snapshot_edits WHERE table_name='orders' AND record_id=? AND updated_at=?",[id,editedAt]).length)
+    hold.add('orders:'+id)
+  }
+ }
 }
 
 function holdOrderDetails(db,tables,hold){
@@ -109,7 +134,7 @@ function reconcileUploadedCreates(db,tables){
   }
   const cloudId=resourceId||operationId
   if(!tables[table]?.some(row=>row.id===cloudId))continue
-  if(intent.operation!=='create')continue
+  if(intent.operation!=='create'||table==='jobs')continue
   const linked=intent.document?.localLines||[]
   if(linked.length&&!tables[linked[0].table]?.filter(row=>row[linked[0].parentField]===cloudId).length)continue
   for(const child of linked)db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',
@@ -124,8 +149,9 @@ function findQueuedRecords(db){
  return new Set((db.exec('SELECT table_name,record_id,intent_json FROM offline_mutation_outbox')[0]?.values||[]).flatMap(([table,id,json])=>{
   const intent=JSON.parse(json)
   return [table+':'+id,...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
-   ...(intent.expected?.lines||[]).map(line=>intent.document.localLines[0].table+':'+line.id)]
+   ...(intent.expected?.lines||[]).map(line=>intent.document.localLines[0].table+':'+line.id),
+   ...(table==='jobs'&&Array.isArray(intent.fields?.orders)?intent.fields.orders.map(order=>'orders:'+order.id):[])]
  }))
 }
 
-module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails}
+module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs}

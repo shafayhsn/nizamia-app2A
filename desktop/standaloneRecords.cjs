@@ -538,6 +538,50 @@ async function queueParcelTransition(directory,{id,status,deliveryDate,receivedB
  })
 }
 
+async function queueNewJob(directory,{orderIds,ownerId,isCurrent}){
+ if(!ownerId||!Array.isArray(orderIds)||orderIds.length<1||orderIds.length>500||
+    new Set(orderIds).size!==orderIds.length||orderIds.some(id=>!cloudId.test(id||'')))
+  throw Error('Select synchronized orders for the new job.')
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file),db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   const stamp=new Date().toISOString(),id='local-'+crypto.randomUUID()
+   const jobNumber='OFFLINE-'+id.slice(6,14)
+   const orders=orderIds.map(orderId=>{
+    assertUnqueued(db,'orders',orderId)
+    if(db.exec("SELECT 1 FROM snapshot_edits WHERE table_name='orders' AND record_id=?",[orderId]).length)
+     throw Error('An order already has a saved local edit awaiting review.')
+    const row=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name='orders' AND json_extract(row_json,'$.id')=?",
+     [orderId])[0]?.values?.[0]?.[0]
+    if(!row)throw Error('Refresh the selected orders before creating a job.')
+    return JSON.parse(row)
+   })
+   const buyerId=orders[0].buyer_id
+   if(!cloudId.test(buyerId||'')||orders.some(order=>order.buyer_id!==buyerId||
+      !Object.hasOwn(order,'job_id')||!Object.hasOwn(order,'job_number')))
+    throw Error('All selected orders must have the same synchronized buyer.')
+   const fields={buyer_id:buyerId,orders:orders.map(({id,job_id,job_number})=>({id,job_id,job_number}))}
+   if(Buffer.byteLength(JSON.stringify(fields))>120000)throw Error('Too many order links for offline job sync.')
+   const local={buyer_id:buyerId,job_number:jobNumber,created_at:stamp}
+   db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,'jobs',JSON.stringify(local),stamp,stamp])
+   for(const order of orders)
+    db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',
+     ['orders',order.id,JSON.stringify({...order,job_id:id,job_number:jobNumber}),stamp])
+   if(!stageMutation(db,ownerId,createMutationIntent('jobs',id,fields,stamp,stamp)))
+    throw Error('Could not queue the new job.')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during job save')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return {id,...local}
+  }finally{db.close()}
+ })
+}
+
 async function queuePurchasingDocument(directory,{table,fields,lines,ownerId,isCurrent,documentId}){
  if(!ownerId||!['purchase_orders','work_orders'].includes(table)||
     !Array.isArray(lines)||!lines.length||lines.length>200)throw Error('Supplier and valid document lines are required.')
@@ -658,4 +702,4 @@ async function queueParcelCreate(directory,{items,customItems,addressId,contactI
  })
 }
 
-module.exports={queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+module.exports={queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}

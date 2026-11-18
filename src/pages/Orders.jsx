@@ -113,6 +113,17 @@ function AssignJobModal({ selectedOrders, onClose, onDone }) {
     if (dateWarning && !warning) { setWarning(dateWarning); return }
     setSaving(true)
     try {
+      if (window.location.protocol==='app2a:'&&(creating||!chosen)) {
+        const response=await fetch('/api/offline/job-create',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({orderIds:selectedOrders.map(order=>order.id)})
+        })
+        const result=await response.json()
+        if(!response.ok)throw Error(result.error||'Could not save the job offline.')
+        window.dispatchEvent(new Event('app2a-offline-data-changed'))
+        onDone()
+        return
+      }
       let jobId = chosen
       let jobNumber
       if (creating || !jobId) {
@@ -136,8 +147,9 @@ function AssignJobModal({ selectedOrders, onClose, onDone }) {
       onDone()
     } catch (e) {
       setError(e.message)
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
   }
 
   return (
