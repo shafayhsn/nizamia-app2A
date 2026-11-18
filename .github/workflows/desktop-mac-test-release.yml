@@ -76,6 +76,7 @@ jobs:
           node desktopDmgPreflight.test.cjs
           node snapshotReplaceGuard.test.cjs
           node snapshotMerge.test.cjs
+          node snapshotDownloadClient.test.cjs
           node --check snapshotImport.cjs
           node snapshotStartup.test.cjs
           node release-guardrails.test.cjs
