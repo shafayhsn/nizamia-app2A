@@ -33,7 +33,7 @@ async function main(){
   response=await invoke('testing')
   result=await response.json()
   assert.equal(result.orders.find(row=>row.id===order.id).job_number,'OFFLINE-481')
-  response=await invoke('createParcel','POST',{parcel:{items:[],custom_items:[],buyer_id:buyer.id}})
+  response=await invoke('createParcel','POST',{parcel:{items:[],custom_items:[],buyer_id:buyer.id,tracking_number:'OFFLINE-TEST-481'}})
   assert.equal(response.status,200)
   const created=await response.json()
   assert.equal(created.offline,true)
