@@ -303,21 +303,45 @@ jobs:
           node --check desktopUpdateLaunch.cjs
           node --check main.cjs
           bash -n desktopMacUpdateHelper.sh
-      - name: Test local SQLite backup
+      - name: Test local SQLite backup, snapshot merge and offline reopen
         working-directory: desktop
-        run: node desktopLocalBackup.test.cjs
+        run: node --test desktopLocalBackup.test.cjs snapshotMerge.test.cjs localDesktopAuth.test.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run dist:mac
-      - name: Verify DMG artifact exists and is nonempty
+      - name: Inspect the packaged Intel DMG
         run: |
-          test -n "$(find desktop/release -maxdepth 1 -name '*.dmg' -size +1M -print -quit)"
+          set -euo pipefail
+          dmg="$(find desktop/release -maxdepth 1 -name '*.dmg' -size +1M -print -quit)"
+          test -n "$dmg"
+          hdiutil verify "$dmg"
+          mount_path="$(mktemp -d)"
+          trap 'hdiutil detach "$mount_path" -quiet || true; rmdir "$mount_path" || true' EXIT
+          hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mount_path" "$dmg"
+          bundle="$mount_path/Nizamia App-2A.app/Contents"
+          test "$(lipo -archs "$bundle/MacOS/Nizamia App-2A")" = x86_64
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$bundle/Info.plist")" = com.nizamia.app2a.desktop
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$bundle/Info.plist")" = "$(node -p "require('./desktop/package.json').version")"
+          test -s "$bundle/Resources/web/index.html"
+          test -s "$bundle/Resources/app.asar"
+          node - "$bundle/Resources/app.asar" <<'NODE'
+          const asar = require('./desktop/node_modules/@electron/asar')
+          const archive = process.argv[2]
+          const expected = ['main.cjs', 'snapshotDownloadClient.cjs', 'applyCloudSnapshot.cjs', 'snapshotMerge.cjs', 'offlineDraftJournal.cjs', 'offlineSyncCoordinator.cjs', 'desktopLocalBackup.cjs', 'desktopMacUpdateHelper.sh']
+          for (const file of expected) {
+            if (!asar.statFile(archive, file)) throw Error('Missing packaged file ' + file)
+          }
+          NODE
+
+          (cd desktop/release && shasum -a 256 "$(basename "$dmg")" > "$(basename "$dmg").sha256")
       - name: Upload unsigned Intel Mac DMG
         uses: actions/upload-artifact@v7
         with:
           name: app2a-mac-intel-unsigned
-          path: desktop/release/*.dmg
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.dmg.sha256
           if-no-files-found: error
           retention-days: 14

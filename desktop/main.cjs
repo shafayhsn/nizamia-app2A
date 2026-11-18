@@ -426,9 +426,28 @@ app.whenReady().then(() => {
           const selection=await dialog.showSaveDialog(owner,{title:'Back Up Local SQLite Database',defaultPath:path.join(app.getPath('documents'),filename),buttonLabel:'Save Verified Backup',filters:[{name:'SQLite Database',extensions:['sqlite']}]})
           if(selection.canceled||!selection.filePath)return
           const {backupDatabaseToFile}=require('./desktopLocalBackup.cjs')
-          const result=backupDatabaseToFile({directory,destination:selection.filePath})
+          const result=await backupDatabaseToFile({directory,destination:selection.filePath})
           await dialog.showMessageBox(owner,{type:'info',title:'Local backup complete',message:'SQLite backup saved and verified',detail:'File: '+result.file+'\\nSHA-256: '+result.sha256+'\\n\\nThis backs up the Mac SQLite snapshot, not the Supabase cloud database.',buttons:['OK']})
         }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Local backup failed',message:'The local backup was not completed',detail:error.message,buttons:['OK']})}
+      } },
+      { label: 'Restore Backup to a New Folder…', click: async () => {
+        const owner=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows()[0]
+        try {
+          const selection=await dialog.showOpenDialog(owner,{
+            title:'Select an App-2A SQLite backup',properties:['openFile'],
+            filters:[{name:'SQLite database',extensions:['sqlite']}]
+          })
+          if(selection.canceled||!selection.filePaths[0])return
+          const directory=fs.mkdtempSync(path.join(app.getPath('userData'),'Recovered Database-'))
+          const {restoreDatabaseFromFile}=require('./desktopLocalBackup.cjs')
+          const result=await restoreDatabaseFromFile({directory,source:selection.filePaths[0],separate:true})
+          const answer=await dialog.showMessageBox(owner,{
+            type:'info',title:'Verified database recovery',message:'The backup was restored to a separate folder.',
+            detail:'The active database and its pending edits are still in their original folder. Recovered copy: '+result.file,
+            buttons:['Show in Finder','Done']
+          })
+          if(answer.response===0)shell.showItemInFolder(result.file)
+        }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Backup recovery failed',message:error.message})}
       } },
       { label: 'Refresh Snapshot from Cloud…', click: async () => {
         const owner=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows()[0]
@@ -476,7 +495,7 @@ app.whenReady().then(() => {
                   const {stageMacUpdate}=require('./desktopUpdateLaunch.cjs')
                   const directory=getDatabaseDirectory()
                   if(!directory)throw Error('No local database folder configured')
-                  const backup=backupDatabaseBeforeUpdate({directory,backupRoot:path.join(app.getPath('userData'),'Pre-Update Backups')})
+                  const backup=await backupDatabaseBeforeUpdate({directory,backupRoot:path.join(app.getPath('userData'),'Pre-Update Backups')})
                   await stageMacUpdate({appPath:path.resolve(process.resourcesPath,'..','..'),resourcesPath:process.resourcesPath,dmgPath:target.filePath,version:result.version,asset,userData:app.getPath('userData'),pid:process.pid})
                   await dialog.showMessageBox(owner,{type:'info',title:'Update started',message:'Verified backup saved; installation will begin when App-2A closes',detail:'Backup: '+backup.file+'\\n\\nThe previous application will be kept for rollback.',buttons:['Close App and Install']})
                   app.quit()

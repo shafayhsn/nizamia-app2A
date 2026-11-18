@@ -8,11 +8,11 @@ async function main(){
  try{
   db.run('CREATE TABLE standalone_records(id TEXT PRIMARY KEY,table_name TEXT,fields_json TEXT,created_at TEXT,updated_at TEXT)')
   db.run("INSERT INTO standalone_records VALUES ('local-1','production_daily_entries','{\"quantity\":1194}','now','now')")
+  mergeSnapshotRows(db,{orders:[{id:'cloud-1',status:'Remote'},{id:'cloud-2',status:'New'}],buyers:[{id:'b1'}]})
   db.run('CREATE TABLE snapshot_edits(table_name TEXT,record_id TEXT,fields_json TEXT,updated_at TEXT)')
   db.run("INSERT INTO snapshot_edits VALUES ('orders','cloud-1','{\"status\":\"Local\"}','now')")
   db.run('CREATE TABLE offline_draft_journal(draft_id TEXT,state TEXT)')
   db.run("INSERT INTO offline_draft_journal VALUES ('draft-1','pending')")
-  mergeSnapshotRows(db,{orders:[{id:'cloud-1',status:'Remote'},{id:'cloud-2',status:'New'}],buyers:[{id:'b1'}]})
   assert.throws(()=>mergeSnapshotRows(db,{orders:[{id:'cloud-1',status:'Updated'}]}),/conflict review/)
   assert.equal(JSON.parse(db.exec("SELECT row_json FROM snapshot_rows WHERE table_name='orders' AND row_index=0")[0].values[0][0]).status,'Remote')
   mergeSnapshotRows(db,{orders:[{id:'cloud-1',status:'Remote'}]})
