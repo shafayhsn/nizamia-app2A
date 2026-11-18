@@ -6,7 +6,7 @@ const path=require('node:path')
 const {PGlite}=require('@electric-sql/pglite')
 const initSqlJs=require('../desktop/node_modules/sql.js')
 const os=require('node:os')
-const {createLocalRecordBatch,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
+const {createLocalRecordBatch,mutateLocalRecordBatch,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
 const {applyCloudSnapshot}=require('../desktop/applyCloudSnapshot.cjs')
 const {createDesktopMutationHttp}=require('./desktopMutationHttp.cjs')
 const {issueDesktopSyncToken}=require('./desktopSyncToken.cjs')
@@ -19,7 +19,7 @@ test('production entry and retry receipt commit together for a valid order varia
    create role anon;create role authenticated;create role service_role bypassrls;
    create schema auth;create function auth.uid() returns uuid language sql as 'select null::uuid';
    create table users(id uuid primary key,role text,is_active boolean,is_restricted boolean);
-   create table orders(id uuid primary key,job_number text,buyer_name text,style_number text,po_number text,store_name text,status text);
+   create table orders(id uuid primary key,job_number text,buyer_name text,style_number text,po_number text,store_name text,status text,updated_at timestamptz default now());
    create table size_groups(id uuid primary key,order_id uuid,group_name text);
    create table size_group_colors(id uuid primary key,size_group_id uuid,color_name text);
    insert into users values ('${id(1)}','admin',true,false),('${id(2)}','operator',true,false);
@@ -32,6 +32,7 @@ test('production entry and retry receipt commit together for a valid order varia
   await db.exec(read('../migrations/20261020_production_daily_entries.sql'))
   await db.exec('grant insert,select on public.production_daily_entries to service_role')
   await db.exec(read('migrations/20261118_desktop_production_create.sql'))
+  await db.exec(read('migrations/20261118_desktop_order_status.sql'))
   const payload={order_id:id(3),size_group_id:id(4),color_id:id(5),department:'Cutting',movement:'completed',production_date:'2026-11-18',quantity:15}
   const run=async(actor,operation,data)=>(await db.query('select desktop_create_production_entry($1,$2,$3::jsonb) as result',[actor,operation,JSON.stringify(data)])).rows[0].result
   await db.exec('set role anon')
@@ -42,7 +43,10 @@ test('production entry and retry receipt commit together for a valid order varia
   assert.equal(await run(id(1),id(6),{...payload,quantity:0}),'invalid')
   assert.equal(await run(id(1),id(6),{...payload,color_id:id(7)}),'conflict')
   const key='test-desktop-sync-key'
-  const submit=createDesktopMutationHttp({key,db:{rpc:async(_name,args)=>({data:await run(args.actor,args.operation,args.payload)})}})
+  const submit=createDesktopMutationHttp({key,db:{rpc:async(name,args)=>({data:name==='desktop_create_production_entry'
+    ?await run(args.actor,args.operation,args.payload)
+    :(await db.query('select desktop_update_order_status($1,$2,$3,$4,$5) as result',
+      [args.actor,args.operation,args.target_order,args.previous_status,args.new_status])).rows[0].result})}})
   const SQLite=await initSqlJs()
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-production-sync-'))
   const offline=new SQLite.Database()
@@ -76,6 +80,26 @@ test('production entry and retry receipt commit together for a valid order varia
    assert.equal(combined.length,1)
    assert.equal(combined[0].id,operationId)
    assert.equal(combined[0]._local_only,false)
+   const cloudOrders=async()=>(await db.query('select id,status,updated_at::text from orders')).rows
+   await applyCloudSnapshot({directory,tables:{orders:await cloudOrders()}})
+   await mutateLocalRecordBatch(directory,{action:'update',table:'orders',ids:[id(3)],fields:{status:'Booked'},ownerId:id(1)})
+   assert.equal((await listCombinedRecords(directory,'orders'))[0].status,'Booked')
+   const orderUpload=await submitPendingMutations(directory,{...identity,async submit(operations){
+    assert.deepEqual(operations[0].intent.expected,{status:'Active'})
+    return (await invoke(operations)).body.results
+   }})
+   assert.equal(orderUpload.archived,1)
+   await applyCloudSnapshot({directory,tables:{orders:await cloudOrders()}})
+   assert.equal((await listCombinedRecords(directory,'orders'))[0]._local_edited,undefined)
+   await mutateLocalRecordBatch(directory,{action:'update',table:'orders',ids:[id(3)],fields:{status:'Shipped'},ownerId:id(1)})
+   await db.query('update orders set status=$1,updated_at=now() where id=$2',['Cancelled',id(3)])
+   const conflict=await submitPendingMutations(directory,{...identity,async submit(operations){
+    return (await invoke(operations)).body.results
+   }})
+   assert.equal(conflict.conflicts,1)
+   assert.equal((await cloudOrders())[0].status,'Cancelled')
+   assert.equal((await listCombinedRecords(directory,'orders'))[0].status,'Shipped')
+
   }finally{
    offline.close()
    fs.rmSync(directory,{recursive:true,force:true})

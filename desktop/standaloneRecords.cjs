@@ -7,7 +7,7 @@ const TABLES=new Set(['orders','tasks','buyers','suppliers','purchase_orders','p
 const DB_NAME='nizamia-app2a.sqlite'
 const {normalizeForm,FORMS}=require('./standaloneForms.cjs')
 const queues=new Map()
-const {createMutationIntent}=require('./offlineMutationPlan.cjs')
+const {createMutationIntent,updateMutationIntent}=require('./offlineMutationPlan.cjs')
 const {stageMutation,assertUnqueued,pendingMutations,recordMutationOutcome}=require('./offlineMutationOutbox.cjs')
 const cloudId=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i
 function queueProductionCreate(db,ownerId,table,id,fields,stamp){
@@ -15,6 +15,11 @@ function queueProductionCreate(db,ownerId,table,id,fields,stamp){
   stageMutation(db,ownerId,createMutationIntent(table,id,fields,stamp,stamp))
 }
 
+function queueOrderStatus(db,ownerId,table,id,base,fields,stamp){
+ if(ownerId&&table==='orders'&&cloudId.test(id)&&Object.keys(fields).join()==='status'&&
+    ['Draft','Active','Booked','Shipped','Cancelled'].includes(fields.status)&&Object.hasOwn(base,'status')&&base.status!==fields.status)
+  stageMutation(db,ownerId,updateMutationIntent(table,id,{status:fields.status},{status:base.status},stamp))
+}
 function validateTable(table){if(!TABLES.has(table))throw Error('Unsupported standalone record table')}
 function validateFields(fields){
  if(!fields||typeof fields!=='object'||Array.isArray(fields))throw Error('Invalid record fields')
@@ -144,6 +149,7 @@ async function mutateLocalRecord(directory,{action,table,id,fields,ownerId}){
     const prior=db.exec('SELECT fields_json FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id])
     if(prior.length&&prior[0].values[0][0]===null)throw Error('Imported record already deleted')
     const previous=prior.length&&prior[0].values[0][0]?JSON.parse(prior[0].values[0][0]):imported
+    if(action==='update')queueOrderStatus(db,ownerId,table,id,imported,fields,stamp)
     db.run('INSERT OR REPLACE INTO snapshot_edits (table_name,record_id,fields_json,updated_at) VALUES (?,?,?,?)',[table,id,action==='delete'?null:JSON.stringify({...previous,...fields,id}),stamp])
    }else if(action==='create'){
     id='local-'+crypto.randomUUID()
@@ -201,7 +207,7 @@ async function createLocalRecordBatch(directory,{table,rows,ownerId}){
  })
 }
 
-async function mutateLocalRecordBatch(directory,{action,table,ids,fields}){
+async function mutateLocalRecordBatch(directory,{action,table,ids,fields,ownerId}){
  return serialize(directory,async()=>{
   validateTable(table)
   if(!['update','delete'].includes(action))throw Error('Unsupported batch action')
@@ -246,6 +252,7 @@ async function mutateLocalRecordBatch(directory,{action,table,ids,fields}){
       const previous=prior.length&&prior[0].values[0][0]?JSON.parse(prior[0].values[0][0]):source
       const next=action==='delete'?null:{...previous,...fields,id}
       if(next){const clean={...next};delete clean.id;validateFields(clean);assertOrderReference(db,table,clean);assertParentReference(db,table,clean)}
+      if(action==='update')queueOrderStatus(db,ownerId,table,id,source,fields,stamp)
       db.run('INSERT OR REPLACE INTO snapshot_edits (table_name,record_id,fields_json,updated_at) VALUES (?,?,?,?)',[table,id,next===null?null:JSON.stringify(next),stamp])
      }
      results.push({id,table,action,localOnly:id.startsWith('local-')})

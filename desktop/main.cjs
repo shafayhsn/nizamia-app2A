@@ -443,7 +443,7 @@ app.whenReady().then(() => {
         if(Buffer.byteLength(raw)>1048576)return Response.json({error:'Batch too large'},{status:413})
         const input=JSON.parse(raw),directory=getDatabaseDirectory()
         if(!directory)return Response.json({error:'Local database unavailable'},{status:503})
-        const result=await mutateLocalRecordBatch(directory,input)
+        const result=await mutateLocalRecordBatch(directory,{...input,ownerId:productionSyncOwner()})
         return Response.json({data:result,error:null},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({data:null,error:error.message},{status:400})}
     }

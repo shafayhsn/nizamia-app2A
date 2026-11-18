@@ -29,6 +29,11 @@ function createMutationIntent(table,id,fields,createdAt,editedAt){
  return {...intent,fingerprint:fingerprint(intent)}
 }
 
+function updateMutationIntent(table,id,changes,expected,editedAt){
+ const intent={operation:'update',table,id,changes,expected,editedAt}
+ return {...intent,fingerprint:fingerprint(intent)}
+}
+
 function inspectPendingMutations(db){
  const mutations=[],blocked=[]
  if(tableExists(db,'standalone_records')){
@@ -53,12 +58,11 @@ function inspectPendingMutations(db){
    if(!changed.length)continue
    const missing=changed.filter(([key])=>!Object.hasOwn(base,key)).map(([key])=>key)
    if(missing.length){blocked.push({table,id,reason:'missing-base-fields',fields:missing});continue}
-   const intent={operation:'update',table,id,changes:Object.fromEntries(changed),
-    expected:Object.fromEntries(changed.map(([key])=>[key,base[key]])),editedAt}
-   mutations.push({...intent,fingerprint:fingerprint(intent)})
+   mutations.push(updateMutationIntent(table,id,Object.fromEntries(changed),
+    Object.fromEntries(changed.map(([key])=>[key,base[key]])),editedAt))
   }
  }
  return {mutations,blocked}
 }
 
-module.exports={inspectPendingMutations,createMutationIntent}
+module.exports={inspectPendingMutations,createMutationIntent,updateMutationIntent}

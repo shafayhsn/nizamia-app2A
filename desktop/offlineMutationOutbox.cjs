@@ -53,7 +53,7 @@ function recordMutationOutcome(db,ownerId,operationId,outcome){
 
 function assertUnqueued(db,table,id){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
- if(db.exec('SELECT 1 FROM offline_mutation_outbox WHERE table_name=? AND record_id=?',[table,id]).length)
+ if(db.exec("SELECT 1 FROM offline_mutation_outbox WHERE table_name=? AND record_id=? AND (state<>'applied' OR json_extract(intent_json,'$.operation')='create')",[table,id]).length)
   throw Error('This record is awaiting cloud synchronization or review.')
 }
 

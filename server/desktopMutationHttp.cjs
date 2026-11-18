@@ -21,14 +21,22 @@ function createDesktopMutationHttp({db,key}){
    return {status:400,body:{error:'Invalid sync batch'}}
   const results=[]
   for(const {operationId,intent} of operations){
-   if(intent?.operation!=='create'||intent?.table!=='production_daily_entries'||
-      !intent.fields||typeof intent.fields!=='object'||Array.isArray(intent.fields)){
+   let rpc,args
+   if(intent?.operation==='create'&&intent.table==='production_daily_entries'&&
+      intent.fields&&typeof intent.fields==='object'&&!Array.isArray(intent.fields)){
+    rpc='desktop_create_production_entry'
+    args={payload:Object.fromEntries(productionFields.filter(key=>Object.hasOwn(intent.fields,key)).map(key=>[key,intent.fields[key]]))}
+   }else if(intent?.operation==='update'&&intent.table==='orders'&&uuid.test(intent.id||'')&&
+      Object.keys(intent.changes||{}).join()==='status'&&Object.keys(intent.expected||{}).join()==='status'&&
+      typeof intent.changes.status==='string'&&(intent.expected.status===null||typeof intent.expected.status==='string')){
+    rpc='desktop_update_order_status'
+    args={target_order:intent.id,previous_status:intent.expected.status,new_status:intent.changes.status}
+   }else{
     results.push({operationId,outcome:'unsupported'})
     continue
    }
-   const payload=Object.fromEntries(productionFields.filter(key=>Object.hasOwn(intent.fields,key)).map(key=>[key,intent.fields[key]]))
    try{
-    const {data,error}=await db.rpc('desktop_create_production_entry',{actor:claim.userId,operation:operationId,payload})
+    const {data,error}=await db.rpc(rpc,{actor:claim.userId,operation:operationId,...args})
     results.push({operationId,outcome:!error&&['applied','already-applied','conflict','unauthorized','invalid'].includes(data)?data:'retry'})
    }catch{results.push({operationId,outcome:'retry'})}
   }
