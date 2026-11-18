@@ -63,8 +63,18 @@ async function synchronizeDesktopChanges(){
 const syncLoop=createDesktopSyncLoop({
  coordinator:{synchronize:synchronizeDesktopChanges},
  isOnline:()=>net.isOnline(),
- refresh:session=>session===onlineSyncSession?refreshCloudSnapshot(onlineSnapshotToken):null
+ refresh:refreshAfterUploads
 })
+async function refreshAfterUploads(session){
+ const token=onlineSnapshotToken
+ const {setTimeout}=require('node:timers/promises')
+ // The login refresh can have read cloud data before an upload committed.
+ // Let it finish, then request a fresh snapshot for the acknowledged writes.
+ while(refreshInFlight&&session===onlineSyncSession&&token===onlineSnapshotToken)
+  await setTimeout(100)
+ if(session===onlineSyncSession&&token===onlineSnapshotToken)return refreshCloudSnapshot(token)
+ return null
+}
 function activateOnlineSession(user,tokens){
  onlineSnapshotToken=tokens?.snapshot?.token||null
  if(tokens?.sync){

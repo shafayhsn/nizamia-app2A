@@ -7,7 +7,7 @@ const fs=require('node:fs')
 const os=require('node:os')
 const path=require('node:path')
 const {setTimeout:delay}=require('node:timers/promises')
-const {app,BrowserWindow,dialog,safeStorage}=require('electron')
+const {app,BrowserWindow,dialog,safeStorage,net}=require('electron')
 const {PGlite}=require('@electric-sql/pglite')
 const {createDesktopMutationHttp}=require('../server/desktopMutationHttp.cjs')
 const {issueDesktopSyncToken}=require('../server/desktopSyncToken.cjs')
@@ -30,6 +30,7 @@ let uploads=0
 let failure
 // The hosted runner has no unlocked user keychain. Encrypted tokens have separate tests.
 safeStorage.isEncryptionAvailable=()=>false
+net.isOnline=()=>online
 dialog.showErrorBox=(title,message)=>{failure=Error(title+' '+message)}
 dialog.showMessageBox=async(...args)=>{
  const details=args.at(-1)
@@ -86,6 +87,7 @@ global.fetch=async(url,options)=>{
   case '/api/desktop/mutations': {
    const result=await mutations({method:'POST',headers:{authorization:options.headers.Authorization},body:options.body})
    uploads++
+   console.log('QA upload acknowledgement',result.body.results?.map(row=>row.outcome).join(',')||result.status)
    return Response.json(result.body,{status:result.status})
   }
   default: throw Error('Unexpected cloud request to '+route.pathname)
@@ -130,8 +132,14 @@ async function check(){
  assert.equal(uploads,0)
  online=true
  assert.equal((await login(win)).data.authenticated,true)
- await until(async()=> (await records(win,'bom_items')).some(row=>row.id===cached.id&&row._local_only===false),
-  'Reconnect did not upload and refresh the linked order section')
+ try{
+  await until(async()=> (await records(win,'bom_items')).some(row=>row.id===cached.id&&row._local_only===false),
+   'Reconnect did not upload and refresh the linked order section')
+ }catch(error){
+  const {data}=await request(win,'/api/offline/pending-status')
+  console.error('QA reconnect diagnostics',JSON.stringify({uploads,state:data.cloudSync,mutations:data.mutationStates}))
+  throw error
+ }
  assert.ok(uploads>0)
  assert.equal((await db.query('select count(*)::int as count from bom_items where order_id=$1',[target])).rows[0].count,1)
  console.log('Intel Electron acceptance passed: online enrollment, offline reopen and write, reconnect, PostgreSQL readback and snapshot reconciliation.')
