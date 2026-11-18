@@ -31,6 +31,8 @@ test('production entry and retry receipt commit together for a valid order varia
     comment_text text check (comment_text not like '% → Ready'),comment_date timestamptz,is_internal boolean);
    insert into samples values ('${id(8)}',null,'SAM-1','V1',null);
    grant insert on sample_comments to service_role;
+   create table shipments(id uuid primary key,notes text);
+   insert into shipments values ('${id(9)}','Shipment note');
    grant select,update on all tables in schema public to service_role;
   `)
   const read=file=>fs.readFileSync(path.join(__dirname,file),'utf8')
@@ -39,6 +41,7 @@ test('production entry and retry receipt commit together for a valid order varia
   await db.exec(read('migrations/20261118_desktop_production_create.sql'))
   await db.exec(read('migrations/20261118_desktop_order_status.sql'))
   await db.exec(read('migrations/20261118_desktop_sample_stage.sql'))
+  await db.exec(read('migrations/20261118_desktop_shipment_status.sql'))
   const payload={order_id:id(3),size_group_id:id(4),color_id:id(5),department:'Cutting',movement:'completed',production_date:'2026-11-18',quantity:15}
   const run=async(actor,operation,data)=>(await db.query('select desktop_create_production_entry($1,$2,$3::jsonb) as result',[actor,operation,JSON.stringify(data)])).rows[0].result
   await db.exec('set role anon')
@@ -54,6 +57,9 @@ test('production entry and retry receipt commit together for a valid order varia
     :name==='desktop_update_sample_stage'
     ?(await db.query('select desktop_update_sample_stage($1,$2,$3,$4,$5) as result',
       [args.actor,args.operation,args.target_sample,args.previous_stage,args.new_stage])).rows[0].result
+    :name==='desktop_update_shipment_status'
+    ?(await db.query('select desktop_update_shipment_status($1,$2,$3,$4,$5) as result',
+      [args.actor,args.operation,args.target_shipment,args.previous_notes,args.next_notes])).rows[0].result
     :(await db.query('select desktop_update_order_status($1,$2,$3,$4,$5) as result',
       [args.actor,args.operation,args.target_order,args.previous_status,args.new_status])).rows[0].result})}})
   const SQLite=await initSqlJs()
@@ -108,6 +114,26 @@ test('production entry and retry receipt commit together for a valid order varia
    assert.equal(conflict.conflicts,1)
    assert.equal((await cloudOrders())[0].status,'Cancelled')
    assert.equal((await listCombinedRecords(directory,'orders'))[0].status,'Shipped')
+   const cloudShipments=async()=>(await db.query('select * from shipments')).rows
+   await applyCloudSnapshot({directory,tables:{shipments:await cloudShipments()}})
+   const notes='Shipment note\n\n[[APP2A_SHIPPING_META:'+Buffer.from(JSON.stringify({
+    display_status:'Discharged',status_history:[{from:'In-Transit',to:'Discharged',at:'2026-11-18T08:00:00Z'}]
+   })).toString('base64')+']]'
+   await mutateLocalRecord(directory,{action:'update',table:'shipments',id:id(9),fields:{notes},ownerId:id(1)})
+   const shipmentUpload=await submitPendingMutations(directory,{...identity,async submit(operations){
+    const rejected=structuredClone(operations)
+    rejected[0].intent.changes.notes=rejected[0].intent.changes.notes.replace('Shipment note','Unexpected rewrite')
+    assert.equal((await invoke(rejected)).body.results[0].outcome,'unsupported')
+    const reply=(await invoke(operations)).body.results
+    assert.equal(reply[0].outcome,'applied')
+    assert.equal((await invoke(operations)).body.results[0].outcome,'already-applied')
+    return reply
+   }})
+   assert.equal(shipmentUpload.archived,1)
+   assert.equal((await cloudShipments())[0].notes,notes)
+   await applyCloudSnapshot({directory,tables:{shipments:await cloudShipments()}})
+   assert.equal((await listCombinedRecords(directory,'shipments'))[0]._local_edited,undefined)
+
    const cloudSamples=async()=>(await db.query('select * from samples')).rows
    await applyCloudSnapshot({directory,tables:{samples:await cloudSamples()}})
    const saveStage=stage=>mutateLocalRecord(directory,{

@@ -9,6 +9,7 @@ const {normalizeForm,FORMS}=require('./standaloneForms.cjs')
 const queues=new Map()
 const {createMutationIntent,updateMutationIntent}=require('./offlineMutationPlan.cjs')
 const {stageMutation,assertUnqueued,pendingMutations,recordMutationOutcome}=require('./offlineMutationOutbox.cjs')
+const {isShipmentStatusChange}=require('./shipmentStatusMutation.cjs')
 const cloudId=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i
 function queueProductionCreate(db,ownerId,table,id,fields,stamp){
  if(ownerId&&table==='production_daily_entries'&&[fields.order_id,fields.size_group_id,fields.color_id].every(id=>cloudId.test(id||'')))
@@ -19,6 +20,11 @@ function queueOrderStatus(db,ownerId,table,id,base,fields,stamp){
  if(ownerId&&table==='orders'&&cloudId.test(id)&&Object.keys(fields).join()==='status'&&
     ['Draft','Active','Booked','Shipped','Cancelled'].includes(fields.status)&&Object.hasOwn(base,'status')&&base.status!==fields.status)
   stageMutation(db,ownerId,updateMutationIntent(table,id,{status:fields.status},{status:base.status},stamp))
+}
+function queueShipmentStatus(db,ownerId,table,id,base,previous,fields,stamp){
+ if(ownerId&&table==='shipments'&&cloudId.test(id)&&Object.keys(fields).join()==='notes'&&
+    base.notes===previous.notes&&isShipmentStatusChange(base.notes,fields.notes))
+  stageMutation(db,ownerId,updateMutationIntent(table,id,{notes:fields.notes},{notes:base.notes},stamp))
 }
 function validateTable(table){if(!TABLES.has(table))throw Error('Unsupported standalone record table')}
 function validateFields(fields){
@@ -149,7 +155,10 @@ async function mutateLocalRecord(directory,{action,table,id,fields,ownerId,sampl
     const prior=db.exec('SELECT fields_json FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id])
     if(prior.length&&prior[0].values[0][0]===null)throw Error('Imported record already deleted')
     const previous=prior.length&&prior[0].values[0][0]?JSON.parse(prior[0].values[0][0]):imported
-    if(action==='update')queueOrderStatus(db,ownerId,table,id,imported,fields,stamp)
+    if(action==='update'){
+     queueOrderStatus(db,ownerId,table,id,imported,fields,stamp)
+     queueShipmentStatus(db,ownerId,table,id,imported,previous,fields,stamp)
+    }
     if(sampleStage){
      if(!ownerId||action!=='update'||table!=='samples'||!cloudId.test(id)||
         Object.keys(fields).join()!=='stage'||!['Not Started','Pattern','Cutting','Stitching','Washing','Finishing','Ready'].includes(fields.stage)||
@@ -260,7 +269,10 @@ async function mutateLocalRecordBatch(directory,{action,table,ids,fields,ownerId
       const previous=prior.length&&prior[0].values[0][0]?JSON.parse(prior[0].values[0][0]):source
       const next=action==='delete'?null:{...previous,...fields,id}
       if(next){const clean={...next};delete clean.id;validateFields(clean);assertOrderReference(db,table,clean);assertParentReference(db,table,clean)}
-      if(action==='update')queueOrderStatus(db,ownerId,table,id,source,fields,stamp)
+      if(action==='update'){
+       queueOrderStatus(db,ownerId,table,id,source,fields,stamp)
+       queueShipmentStatus(db,ownerId,table,id,source,previous,fields,stamp)
+      }
       db.run('INSERT OR REPLACE INTO snapshot_edits (table_name,record_id,fields_json,updated_at) VALUES (?,?,?,?)',[table,id,next===null?null:JSON.stringify(next),stamp])
      }
      results.push({id,table,action,localOnly:id.startsWith('local-')})

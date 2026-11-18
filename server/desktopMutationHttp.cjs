@@ -1,5 +1,6 @@
 'use strict'
 const {verifyDesktopSyncToken}=require('./desktopSyncToken.cjs')
+const {isShipmentStatusChange}=require('../desktop/shipmentStatusMutation.cjs')
 const uuid=/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i
 const productionFields=['order_id','size_group_id','color_id','department','movement','production_date','production_at','quantity']
 
@@ -36,6 +37,11 @@ function createDesktopMutationHttp({db,key}){
       typeof intent.changes.stage==='string'&&(intent.expected.stage===null||typeof intent.expected.stage==='string')){
     rpc='desktop_update_sample_stage'
     args={target_sample:intent.id,previous_stage:intent.expected.stage,new_stage:intent.changes.stage}
+   }else if(intent?.operation==='update'&&intent.table==='shipments'&&uuid.test(intent.id||'')&&
+      Object.keys(intent.changes||{}).join()==='notes'&&Object.keys(intent.expected||{}).join()==='notes'&&
+      isShipmentStatusChange(intent.expected.notes,intent.changes.notes)){
+    rpc='desktop_update_shipment_status'
+    args={target_shipment:intent.id,previous_notes:intent.expected.notes,next_notes:intent.changes.notes}
    }else{
     results.push({operationId,outcome:'unsupported'})
     continue
