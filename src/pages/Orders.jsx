@@ -4360,6 +4360,13 @@ export default function Orders() {
   function editFromMetadata(o, step=1) { setMetadataOrder(null); openEdit(o,step) }
   function closeWizard(){ markTabUpdated('ordersPage', 'orders'); setTabNotices(getPageTabNoticeMap('ordersPage', ['orders','queues'])); setWizardOpen(false); setEditOrder(null); loadOrders() }
   useEffect(()=>{const handler=()=>{markTabUpdated('ordersPage','orders');loadOrders()};window.addEventListener('app2a-order-window-closed',handler);return()=>window.removeEventListener('app2a-order-window-closed',handler)},[])
+  useEffect(()=>{
+    if(window.location.protocol!=='app2a:')return
+    const reload=()=>loadOrders()
+    window.addEventListener('app2a-cloud-snapshot-updated',reload)
+    return ()=>window.removeEventListener('app2a-cloud-snapshot-updated',reload)
+  },[])
+
 
   function visibleJobNumber(o) {
     // Job counter resets can leave old job_number text on orders after job_id is cleared.

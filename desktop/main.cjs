@@ -42,6 +42,15 @@ function clearOnlineSession(){
 // Automatically refresh the read-only cloud snapshot after a verified online
 // sign-in. A failed refresh never blocks login or removes local work.
 let refreshInFlight=false
+let lastSnapshot=null
+function announceCloudRefresh(){
+ for(const window of BrowserWindow.getAllWindows()){
+  if(!window.isDestroyed()&&window.webContents.getURL().startsWith('app2a://local/')){
+   window.webContents.executeJavaScript("window.dispatchEvent(new Event('app2a-cloud-snapshot-updated'))").catch(()=>{})
+  }
+ }
+}
+
 async function refreshCloudSnapshot(token){
  if(refreshInFlight)return {status:'busy'}
  refreshInFlight=true
@@ -57,8 +66,16 @@ async function refreshCloudSnapshot(token){
   const tables=Object.fromEntries(Object.entries(payload.tables)
    .filter(([name])=>!excluded.has(name))
    .map(([name,rows])=>[name,rows.map(row=>Object.fromEntries(Object.entries(row).filter(([field])=>!sensitive.test(field))))]))
+  if(getDatabaseDirectory()!==directory)return {status:'skipped'}
+  const digest=require('node:crypto').createHash('sha256').update(JSON.stringify(tables)).digest('hex')
+  if(lastSnapshot?.directory===directory&&lastSnapshot.digest===digest){
+   const file=path.join(directory,'nizamia-app2a.sqlite')
+   if(fs.statSync(file).mtimeMs===lastSnapshot.mtime)return {status:'current'}
+  }
   const {applyCloudSnapshot}=require('./applyCloudSnapshot.cjs')
   const result=await applyCloudSnapshot({directory,tables})
+  lastSnapshot={directory,digest,mtime:fs.statSync(path.join(directory,'nizamia-app2a.sqlite')).mtimeMs}
+  announceCloudRefresh()
   return {status:'updated',tables:result.updatedTables}
  }finally{refreshInFlight=false}
 }
@@ -203,6 +220,11 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  const refreshInterval=setInterval(()=>{
+   if(net.isOnline()&&onlineSnapshotToken)
+    refreshCloudSnapshot(onlineSnapshotToken).catch(()=>{})
+  },5*60*1000)
+  refreshInterval.unref?.()
   protocol.handle('app2a',async request=>{
     const url=new URL(request.url)
     if(url.hostname!=='local')return new Response('Not found',{status:404})
@@ -394,19 +416,10 @@ app.whenReady().then(() => {
         try{
           if(!desktopAuth?.isAuthenticated())throw Error('Sign in to the desktop app first')
           if(!onlineSnapshotToken)throw Error('Online enrollment required. Sign out, then sign in while connected to the internet to obtain a fresh cloud session.')
-          const directory=getDatabaseDirectory()
-          if(!directory)throw Error('Local database folder unavailable')
-          const {createSnapshotDownloadClient}=require('./snapshotDownloadClient.cjs')
-          const client=createSnapshotDownloadClient({origin:APP_URL,fetchImpl:fetch})
-          const payload=await client.download({token:onlineSnapshotToken})
-          const answer=await dialog.showMessageBox(owner,{type:'warning',title:'Refresh local cloud snapshot',message:'Refresh cloud data while keeping offline changes?',detail:'A unique rollback backup will be saved. If cloud data conflicts with a local edit, the refresh will stop without replacing your database. This does not upload offline changes.',buttons:['Cancel','Refresh safely'],defaultId:0,cancelId:0})
-          if(answer.response!==1)return
-          const {applyCloudSnapshot}=require('./applyCloudSnapshot.cjs')
-          const excluded=new Set(['users','permissions','roles','app_database_sync_status','notification_reads','app_task_reads'])
-          const sensitive=/password|secret|token|api_key|private_key|session|credential|auth_hash/i
-          const tables=Object.fromEntries(Object.entries(payload.tables).filter(([name])=>!excluded.has(name)).map(([name,rows])=>[name,rows.map(row=>Object.fromEntries(Object.entries(row).filter(([key])=>!sensitive.test(key))))]))
-          const result=await applyCloudSnapshot({directory,tables})
-          await dialog.showMessageBox(owner,{type:'info',title:'Cloud snapshot refreshed',message:result.updatedTables+' tables refreshed',detail:'Local work preserved. Restart the desktop interface to view updated data. Rollback backup: '+result.backup})
+          const result=await refreshCloudSnapshot(onlineSnapshotToken)
+          const message=result.status==='updated'?result.tables+' tables refreshed':
+           result.status==='current'?'Local cloud data is up to date':'A cloud refresh is already running or the session has ended'
+          await dialog.showMessageBox(owner,{type:'info',title:'Cloud snapshot',message})
         }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Cloud refresh not completed',message:'Your local database was not intentionally replaced',detail:error.message})}
       } },
       { label: 'Import Read-Only Snapshot…', click: () => importBackup(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },

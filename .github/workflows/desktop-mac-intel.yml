@@ -52,7 +52,7 @@ jobs:
       - name: Verify desktop order sync endpoint
         run: |
           node --check api/offline-sync.js
-          node --test server/desktopOrderSync.test.cjs
+          node --test server/desktopOrderSync.test.cjs server/snapshotTableReader.test.cjs
       - name: Validate production web application build
         run: npm run build
       - name: Build packaged React assets with relative URLs
