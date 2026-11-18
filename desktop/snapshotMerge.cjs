@@ -14,6 +14,20 @@ function mergeSnapshotRows(db,tables,{excludedTables=[]}={}){
    if(JSON.stringify(row)===undefined)throw Error('Unserializable snapshot row')
   }
  }
+ // Detect cloud changes underneath local overlays before replacing the base.
+ // A local overlay may otherwise mask newer cloud data without warning.
+ const overlays=db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_edits'")
+ if(overlays.length){
+  const edits=db.exec('SELECT table_name,record_id FROM snapshot_edits')[0]?.values||[]
+  for(const [table,id] of edits){
+   if(!Object.hasOwn(tables,table)||excluded.has(table))continue
+   const oldRows=db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=? ORDER BY row_index',[table])[0]?.values||[]
+   const old=oldRows.map(([json])=>JSON.parse(json)).find(row=>String(row.id)===String(id))
+   const fresh=tables[table].find(row=>String(row.id)===String(id))
+   if(JSON.stringify(old??null)!==JSON.stringify(fresh??null))
+    throw Error('Snapshot refresh requires conflict review: cloud record '+table+'/'+String(id).slice(0,80)+' changed underneath a local edit. No data replaced.')
+  }
+ }
  // Only snapshot_rows and snapshot_manifest are modified. Preserve standalone_records,
  // snapshot_edits, and offline_draft_journal unchanged, including pending/conflicts.
  db.run('CREATE TABLE IF NOT EXISTS snapshot_rows (table_name TEXT NOT NULL,row_index INTEGER NOT NULL,row_json TEXT NOT NULL,PRIMARY KEY(table_name,row_index))')
