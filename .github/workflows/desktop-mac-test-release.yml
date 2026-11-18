@@ -5,7 +5,7 @@ on:
     branches:
       - feature/CP-18-sqlite-foundation
     paths:
-      - 'desktop/release-v0.1.5.request'
+      - 'desktop/release-v0.1.6.request'
   workflow_dispatch:
     inputs:
       version:
@@ -34,7 +34,7 @@ jobs:
           persist-credentials: false
       - name: Validate release version and ensure no tag collision
         env:
-          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.5' || inputs.version }}
+          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.6' || inputs.version }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -85,7 +85,7 @@ jobs:
       - name: Mount and verify packaged Intel Mac application
         working-directory: desktop
         env:
-          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.5' || inputs.version }}
+          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.6' || inputs.version }}
         run: |
           set -euo pipefail
           dmg="$(find release -maxdepth 1 -type f -name '*.dmg' -print -quit)"
@@ -93,7 +93,7 @@ jobs:
           DMG_PATH="$PWD/$dmg" node -e "const {inspectVerifiedDmg}=require('./desktopDmgPreflight.cjs');inspectVerifiedDmg({dmgPath:process.env.DMG_PATH,version:process.env.RELEASE_VERSION}).then(x=>console.log('Verified packaged DMG:',x)).catch(e=>{console.error(e);process.exitCode=1})"
       - name: Rename and checksum release installer
         env:
-          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.5' || inputs.version }}
+          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.6' || inputs.version }}
         run: |
           set -euo pipefail
           file="$(find desktop/release -maxdepth 1 -type f -name '*.dmg' -print -quit)"
@@ -104,7 +104,7 @@ jobs:
       - name: Publish explicitly marked unsigned prerelease
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.5' || inputs.version }}
+          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.6' || inputs.version }}
         run: |
           set -euo pipefail
           gh release create "v$RELEASE_VERSION" \
