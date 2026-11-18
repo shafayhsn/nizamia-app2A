@@ -5,7 +5,7 @@ on:
     branches:
       - feature/CP-18-sqlite-foundation
     paths:
-      - 'desktop/release-v0.1.6.request'
+      - 'desktop/release-v0.1.9.request'
       - 'api/desktop/**'
       - '.github/workflows/desktop-mac-test-release.yml'
   workflow_dispatch:
@@ -37,7 +37,7 @@ jobs:
           node --check api/desktop/snapshot.js
           node -e "const fs=require('fs');const s=fs.readFileSync('api/desktop/snapshot.js','utf8');for(const name of ['orders','buyers','suppliers','production_daily_entries','costing_sheets','shipping_bookings'])if(!s.includes('\\\"'+name+'\\\"'))throw Error('Missing snapshot table '+name);console.log('Desktop snapshot endpoint syntax and business table coverage verified')"
   publish:
-    if: github.ref == 'refs/heads/feature/CP-18-sqlite-foundation' && ((github.event_name == 'push' && contains(github.event.head_commit.modified, 'desktop/release-v0.1.6.request')) || inputs.confirmation == 'PUBLISH-UNSIGNED-TEST')
+    if: github.ref == 'refs/heads/feature/CP-18-sqlite-foundation' && ((github.event_name == 'push' && (contains(github.event.head_commit.added, 'desktop/release-v0.1.9.request') || contains(github.event.head_commit.modified, 'desktop/release-v0.1.9.request'))) || inputs.confirmation == 'PUBLISH-UNSIGNED-TEST')
     runs-on: macos-15-intel
     timeout-minutes: 40
     permissions:
@@ -49,7 +49,7 @@ jobs:
           persist-credentials: false
       - name: Validate release version and ensure no tag collision
         env:
-          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.6' || inputs.version }}
+          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.9' || inputs.version }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -97,6 +97,7 @@ jobs:
           node --check snapshotImport.cjs
           node snapshotStartup.test.cjs
           node release-guardrails.test.cjs
+          node --test offlineMutationPlan.test.cjs offlineMutationOutbox.test.cjs ../server/desktopProductionCreate.test.cjs
       - name: Build unsigned Intel DMG
         working-directory: desktop
         env:
@@ -105,7 +106,7 @@ jobs:
       - name: Mount and verify packaged Intel Mac application
         working-directory: desktop
         env:
-          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.6' || inputs.version }}
+          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.9' || inputs.version }}
         run: |
           set -euo pipefail
           dmg="$(find release -maxdepth 1 -type f -name '*.dmg' -print -quit)"
@@ -113,7 +114,7 @@ jobs:
           DMG_PATH="$PWD/$dmg" node -e "const {inspectVerifiedDmg}=require('./desktopDmgPreflight.cjs');inspectVerifiedDmg({dmgPath:process.env.DMG_PATH,version:process.env.RELEASE_VERSION}).then(x=>console.log('Verified packaged DMG:',x)).catch(e=>{console.error(e);process.exitCode=1})"
       - name: Rename and checksum release installer
         env:
-          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.6' || inputs.version }}
+          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.9' || inputs.version }}
         run: |
           set -euo pipefail
           file="$(find desktop/release -maxdepth 1 -type f -name '*.dmg' -print -quit)"
@@ -124,7 +125,7 @@ jobs:
       - name: Publish explicitly marked unsigned prerelease
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.6' || inputs.version }}
+          RELEASE_VERSION: ${{ github.event_name == 'push' && '0.1.9' || inputs.version }}
         run: |
           set -euo pipefail
           gh release create "v$RELEASE_VERSION" \
@@ -132,5 +133,5 @@ jobs:
             "desktop/release/Nizamia-App-2A-$RELEASE_VERSION.dmg.sha256" \
             --target "$GITHUB_SHA" \
             --title "Nizamia App-2A v$RELEASE_VERSION (Unsigned Mac Test)" \
-            --notes "Unsigned internal macOS Intel test build. Includes the desktop local SQLite backup command and experimental one-click updater. Back up local data before attempting an update." \
+            --notes "Unsigned internal macOS Intel test build. Includes offline upload for new Production Register entries created by an administrator. Existing local entries and other module changes remain on the Mac. The in-app updater backs up the local database." \
             --prerelease

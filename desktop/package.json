@@ -1,6 +1,6 @@
 {
   "name": "nizamia-app2a-desktop",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "description": "Nizamia App-2A desktop CP-18 SQLite foundation (online app with local metadata database)",
   "main": "main.cjs",
