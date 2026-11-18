@@ -37,7 +37,7 @@ async function main(){
   assert.equal(response.status,200)
   const created=await response.json()
   assert.equal(created.offline,true)
-  assert.match(created.id,/^PAR-\\d{2}-\\d{3}$/)
+  assert.match(created.id,new RegExp('^PAR-[0-9]{2}-[0-9]{3}$'))
   const parcels=await listCombinedRecords(directory,'parcels')
   assert.equal(parcels.length,1)
   assert.equal(parcels[0].status,'Draft')
