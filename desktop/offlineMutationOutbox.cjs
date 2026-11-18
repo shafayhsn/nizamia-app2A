@@ -86,6 +86,11 @@ function assertUnqueued(db,table,id){
    AND edit.updated_at=json_extract(box.intent_json,'$.editedAt')
   WHERE box.table_name='jobs' AND edit.record_id=?`,[id]).length)
   throw Error('This order has a new job awaiting cloud synchronization or review.')
+ if(table==='finishing'&&db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_order_section_overlays'").length&&db.exec(`SELECT 1 FROM offline_mutation_outbox box
+  JOIN offline_order_section_overlays preview ON preview.order_id=json_extract(box.intent_json,'$.id')
+   AND preview.section='finishing_packs' AND preview.updated_at=json_extract(box.intent_json,'$.editedAt')
+  WHERE json_extract(box.intent_json,'$.document.finishingHeader.id')=?`,[id]).length)
+  throw Error('This Finishing record has packing edits awaiting synchronization or review.')
  if(db.exec(`SELECT 1 FROM offline_mutation_outbox box
   JOIN json_each(box.intent_json,'$.expected.lines') target
   JOIN snapshot_edits edit ON edit.table_name=json_extract(box.intent_json,'$.document.childTable') AND edit.record_id=json_extract(target.value,'$.id')
@@ -213,9 +218,11 @@ function reconcileDocumentEdits(db,tables){
   const intent=JSON.parse(json)
   const linked=intent.document.localLines
   const childTable=intent.document.childTable||linked[0].table
-  const targets=[[intent.table,intent.id],...intent.expected.lines.map(line=>[childTable,line.id])]
+  const header=intent.document.finishingHeader
+  const targets=[[intent.table,intent.id],...(header?[['finishing',header.id]]:[]),...intent.expected.lines.map(line=>[childTable,line.id])]
   const current=tables[childTable]
-  if(state==='applied'&&current&&tables[intent.table]?.some(row=>row.id===intent.id&&
+  if(state==='applied'&&(!header||tables.finishing?.some(row=>row.id===header.id&&
+     Object.entries(header).every(([key,value])=>row[key]===value)))&&current&&tables[intent.table]?.some(row=>row.id===intent.id&&
      (intent.table!=='orders'||Object.entries(intent.changes).every(([key,value])=>row[key]===value)))&&
      linked.every((line,index)=>current.some(row=>row.id===line.id.replace(/^local-/,'')&&
       (childTable!=='fitting_blocks'||Object.entries(intent.document.lines[index]).every(([key,value])=>
@@ -225,6 +232,7 @@ function reconcileDocumentEdits(db,tables){
     db.run('DELETE FROM offline_order_section_overlays WHERE order_id=? AND section=? AND updated_at=?',
      [intent.id,childTable,intent.editedAt])
    for(const [table,id] of targets)db.run('DELETE FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[table,id,intent.editedAt])
+   if(header)db.run("DELETE FROM standalone_records WHERE table_name='finishing' AND id=? AND updated_at=?",[header.id,intent.editedAt])
    for(const {id,table} of linked)db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',[table,id,intent.editedAt])
   }else for(const [table,id] of targets){
    if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[table,id,intent.editedAt]).length)
@@ -265,7 +273,7 @@ function findQueuedRecords(db){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return new Set()
  return new Set((db.exec('SELECT table_name,record_id,intent_json FROM offline_mutation_outbox')[0]?.values||[]).flatMap(([table,id,json])=>{
   const intent=JSON.parse(json)
-  return [table+':'+(intent.document?.independentOrderSection?intent.id:id),...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
+  return [table+':'+(intent.document?.independentOrderSection?intent.id:id),...(intent.document?.finishingHeader?['finishing:'+intent.document.finishingHeader.id]:[]),...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
    ...(intent.expected?.lines||[]).map(line=>(intent.document.childTable||intent.document.localLines[0].table)+':'+line.id),
    ...(table==='jobs'&&Array.isArray(intent.fields?.orders)?intent.fields.orders.map(order=>'orders:'+order.id):[]),
    ...[...(intent.document?.matrix?.edits||[]),...(intent.document?.matrix?.creates||[]),...(intent.document?.buyer?.edits||[]),...(intent.document?.buyer?.creates||[]),...(intent.document?.clonedRows||[])].map(item=>item.table+':'+item.id)]

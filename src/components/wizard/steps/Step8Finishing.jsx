@@ -841,16 +841,7 @@ export default function Step8Finishing({ orderId, orderData, onSaved, registerSa
     if (!orderId) return
     let fid = finishingIdRef.current
     const payload = { order_id: orderId, use_cutting_qty: useCuttingQtyRef.current, total_qty: orderQty }
-    if (fid) {
-      { const { error } = await supabase.from('finishing').update(payload).eq('id', fid); if (error) throw error }
-    } else {
-      const { data: newFin, error: finError } = await supabase.from('finishing').insert([payload]).select().single()
-      if (finError) throw finError
-      if (newFin) { fid = newFin.id; setFinishingId(fid) }
-    }
-    if (fid) {
-      { const { error } = await supabase.from('finishing_packs').delete().eq('finishing_id', fid); if (error) throw error }
-      const packRows = packsRef.current.map((p, idx) => {
+    const buildPackRows = fid => packsRef.current.map((p, idx) => {
         const nextConfig = {
           ...(p.config || {}),
           __packMeta: {
@@ -879,6 +870,24 @@ export default function Step8Finishing({ orderId, orderData, onSaved, registerSa
           assigned_qty: assigned, total_cartons: cartons, total_cbm: cbm && cartons ? Number(cbm) * cartons : null,
         }
       })
+    if(window.location.protocol==='app2a:'){
+      const {error}=await supabase.rpc('save_offline_order_section',{
+        table:'finishing_packs',orderId,enabled:enabledRef.current,finishing:payload,rows:buildPackRows(null),
+      })
+      if(error)throw error
+      onSaved(orderId,{step_finishing:enabledRef.current})
+      return
+    }
+    if (fid) {
+      { const { error } = await supabase.from('finishing').update(payload).eq('id', fid); if (error) throw error }
+    } else {
+      const { data: newFin, error: finError } = await supabase.from('finishing').insert([payload]).select().single()
+      if (finError) throw finError
+      if (newFin) { fid = newFin.id; setFinishingId(fid) }
+    }
+    if (fid) {
+      { const { error } = await supabase.from('finishing_packs').delete().eq('finishing_id', fid); if (error) throw error }
+      const packRows=buildPackRows(fid)
       if (packRows.length) {
         const { error: packInsertError } = await supabase.from('finishing_packs').insert(packRows)
         if (packInsertError) throw packInsertError

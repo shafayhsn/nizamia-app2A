@@ -19,7 +19,7 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
    create schema desktop_private; grant usage on schema desktop_private to service_role;
    create table users(id uuid primary key,role text,is_active bool,is_restricted bool);
    create table orders(id uuid primary key,step_po_matrix boolean,total_qty integer,total_value_usd numeric,
-    excess_cutting_pct numeric,queue_split_rule text,step_bom bool default false,step_washing bool,step_processes bool,step_embellishment bool,step_fitting bool,notes text);
+    excess_cutting_pct numeric,queue_split_rule text,step_bom bool default false,step_washing bool,step_processes bool,step_embellishment bool,step_fitting bool,step_finishing bool,notes text);
    create table size_groups(id uuid primary key default gen_random_uuid(),order_id uuid references orders(id),group_name text,
     unit_price numeric,currency text,sizes text[],base_size text,sort_order integer);
    create table size_group_colors(id uuid primary key default gen_random_uuid(),size_group_id uuid references size_groups(id),
@@ -34,6 +34,10 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
    create table fitting_blocks(id uuid primary key,order_id uuid references orders(id),block_name text,spec_code text,usage_rule text,usage_data jsonb,dxf_filename text,dxf_base64 text,sort_order int);
    create table order_queues(id uuid primary key,order_id uuid,job_id uuid,size_group_id uuid,qty int,split_rule text,label text);
    create table purchase_order_items(id uuid primary key,source_id uuid,source_type text);
+   create table finishing(id uuid primary key,order_id uuid,use_cutting_qty bool,total_qty int);
+   create table finishing_packs(id uuid primary key,finishing_id uuid references finishing(id),order_id uuid,pack_name text,pack_type text,
+    packing_basis text,config jsonb,inner_pack_type text,carton_style text,
+    carton_l numeric,carton_w numeric,carton_h numeric,carton_weight_kg numeric,units_per_carton numeric,qty_assigned numeric,sort_order numeric,pieces_per_pack numeric,pieces_per_carton numeric,length_cm numeric,width_cm numeric,height_cm numeric,weight_kg numeric,assigned_qty numeric,total_cartons numeric,total_cbm numeric);
    create table embellishments(id uuid primary key,order_id uuid references orders(id),description text);
    grant select,insert,update,delete on all tables in schema public to service_role;
    insert into users values('${id(1)}','admin',true,false);
@@ -43,18 +47,21 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
    insert into size_group_breakdown values('${id(5)}','${id(3)}','${id(4)}','M',1);
    insert into washing values('${id(6)}','${id(4)}','${id(2)}','Fixture Wash');
   `)
-  for(const migration of ['../supabase/migrations/20261017_po_matrix_preserve_linked_ids.sql','migrations/20261118_desktop_po_matrix.sql','migrations/20261118_desktop_bom.sql','migrations/20261118_desktop_order_sections.sql','migrations/20261118_desktop_z_order_fitting.sql','migrations/20261118_desktop_z_po_matrix_ids.sql','migrations/20261118_desktop_zz_order_queues.sql'])
+  for(const migration of ['../supabase/migrations/20261017_po_matrix_preserve_linked_ids.sql','migrations/20261118_desktop_po_matrix.sql','migrations/20261118_desktop_bom.sql','migrations/20261118_desktop_order_sections.sql','migrations/20261118_desktop_z_order_fitting.sql','migrations/20261118_desktop_z_po_matrix_ids.sql','migrations/20261118_desktop_zz_order_queues.sql','migrations/20261118_desktop_finishing.sql'])
    await db.exec(fs.readFileSync(path.join(__dirname,migration),'utf8'))
   await db.exec('set role service_role')
   const SQL=await sqlite(),local=new SQL.Database()
   fs.writeFileSync(path.join(directory,'nizamia-app2a.sqlite'),Buffer.from(local.export()))
   local.close()
-  const tables=['orders','size_groups','size_group_colors','size_group_breakdown','washing','bom_items','order_processes','embellishments','fitting_blocks','order_queues']
+  const tables=['orders','size_groups','size_group_colors','size_group_breakdown','washing','bom_items','order_processes','embellishments','fitting_blocks','order_queues','finishing','finishing_packs']
   const pull=async()=>Object.fromEntries(await Promise.all(tables.map(async table=>
    [table,(await db.query('select to_jsonb(t) as row from '+table+' t')).rows.map(row=>row.row)])))
   const refresh=async()=>applyCloudSnapshot({directory,tables:await pull()})
   const owner={ownerId:id(1),isCurrent:()=>true},key='fixture-po-matrix-signer'
   const handle=createDesktopMutationHttp({key,db:{async rpc(name,args){
+   if(name==='desktop_save_finishing')return {data:(await db.query(
+    'select desktop_save_finishing($1,$2,$3,$4::jsonb,$5,$6::jsonb,$7::jsonb) as outcome',
+    [args.actor,args.operation,args.target_order,JSON.stringify(args.header),args.enabled,JSON.stringify(args.expected),JSON.stringify(args.packs)])).rows[0].outcome}
    if(name==='desktop_save_order_section')return {data:(await db.query(
     'select desktop_save_order_section($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb) as outcome',
     [args.actor,args.operation,args.target_order,args.section,JSON.stringify(args.patch),JSON.stringify(args.expected),JSON.stringify(args.lines)])).rows[0].outcome}
@@ -155,6 +162,16 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
   assert.equal(sectionData.fitting_blocks[0].id,id(7))
   assert.equal(sectionData.fitting_blocks[0].dxf_filename,'fixture.dxf')
   assert.equal((await listCombinedRecords(directory,'orders'))[0]._local_edited,undefined)
+  await queueOrderSection(directory,{...owner,table:'finishing_packs',orderId:id(2),enabled:true,
+   finishing:{use_cutting_qty:false,total_qty:9},rows:[{order_id:id(2),pack_name:'QA pack',assigned_qty:9}]})
+  const pendingPack=(await listCombinedRecords(directory,'finishing_packs'))[0]
+  assert.equal(pendingPack.finishing_id,(await listCombinedRecords(directory,'finishing'))[0].id)
+  assert.equal((await syncBom()).archived,1)
+  await refresh()
+  const packed=await pull()
+  assert.equal(packed.finishing_packs[0].assigned_qty,9)
+  assert.equal(packed.finishing[0].id,pendingPack.finishing_id)
+  assert.equal(packed.orders[0].step_finishing,true)
  }finally{
   await db.close()
   fs.rmSync(directory,{recursive:true,force:true})

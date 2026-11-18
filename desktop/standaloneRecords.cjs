@@ -433,7 +433,7 @@ async function submitPendingMutations(directory,{ownerId,submit,isCurrent}){
   operationId,intent:{
    operation:intent.operation,table:intent.table,id:intent.id,
    fields:intent.fields,changes:intent.changes,expected:intent.expected,
-   ...(intent.document?.lines?{document:{lines:intent.document.lines,childTable:intent.document.childTable,...(intent.operation==='update'?{lineIds:intent.document.localLines.map(line=>line.id.replace(/^local-/,''))}:{})}}:{})
+   ...(intent.document?.lines?{document:{lines:intent.document.lines,childTable:intent.document.childTable,finishingHeader:intent.document.finishingHeader,...(intent.operation==='update'?{lineIds:intent.document.localLines.map(line=>line.id.replace(/^local-/,''))}:{})}}:{})
   }
  })).filter(item=>{
   const bytes=Buffer.byteLength(JSON.stringify(item))+1
@@ -804,13 +804,14 @@ const orderSections={
  order_processes:{flag:'step_processes',notes:true},
  fitting_blocks:{flag:'step_fitting',stable:true},
  order_queues:{flag:'queue_split_rule',rule:true},
+ finishing_packs:{flag:'step_finishing',finishing:true},
 }
 
 function queueBom(directory,input){
  return queueOrderSection(directory,{...input,table:'bom_items',enabled:true})
 }
 
-async function queueOrderSection(directory,{orderId,table,enabled,notes,rule,rows,ownerId,isCurrent}){
+async function queueOrderSection(directory,{orderId,table,enabled,notes,rule,rows,finishing,ownerId,isCurrent}){
  const config=Object.hasOwn(orderSections,table)?orderSections[table]:null
  if(!config||typeof enabled!=='boolean'||(config.notes&&typeof notes!=='string')||(config.rule&&(typeof rule!=='string'||!rule.trim())))
   throw Error('Invalid order section.')
@@ -836,8 +837,26 @@ async function queueOrderSection(directory,{orderId,table,enabled,notes,rule,row
    const creation=order?null:pendingOrderCreation(db,ownerId,orderId)
    if(!order&&!creation)throw Error('Refresh the order before saving this section.')
    const base=order?JSON.parse(order):{[config.flag]:false,notes:null}
-   const original=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name=? AND json_extract(row_json,'$.order_id')=?",
-    [table,orderId])[0]?.values?.map(([row])=>JSON.parse(row))||[]
+   let finishingHeader,previousFinishing
+   if(config.finishing){
+    if(!finishing||typeof finishing.use_cutting_qty!=='boolean'||!Number.isSafeInteger(finishing.total_qty)||finishing.total_qty<0)
+     throw Error('Invalid Finishing settings.')
+    const heads=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name='finishing' AND json_extract(row_json,'$.order_id')=?",
+     [orderId])[0]?.values||[]
+    if(heads.length>1)throw Error('More than one Finishing record exists for this order.')
+    previousFinishing=heads.length?JSON.parse(heads[0][0]):null
+    if(previousFinishing){
+     assertUnqueued(db,'finishing',previousFinishing.id)
+     if(db.exec("SELECT 1 FROM snapshot_edits WHERE table_name='finishing' AND record_id=?",[previousFinishing.id]).length)
+      throw Error('Review the earlier Finishing edit before saving packing.')
+    }
+    finishingHeader={id:previousFinishing?.id||crypto.randomUUID(),order_id:orderId,
+     use_cutting_qty:finishing.use_cutting_qty,total_qty:finishing.total_qty}
+    rows=rows.map(row=>({...row,finishing_id:finishingHeader.id}))
+   }
+   const original=db.exec(`SELECT row_json FROM snapshot_rows WHERE table_name=? AND
+    (json_extract(row_json,'$.order_id')=? OR json_extract(row_json,'$.finishing_id')=?)`,
+    [table,orderId,previousFinishing?.id||null])[0]?.values?.map(([row])=>JSON.parse(row))||[]
    initializeOrderSectionOverlays(db)
    assertOrderSectionAvailable(db,orderId,table,creation)
    if(db.exec('SELECT 1 FROM offline_order_section_overlays WHERE order_id=? AND section=?',[orderId,table]).length)
@@ -856,6 +875,8 @@ async function queueOrderSection(directory,{orderId,table,enabled,notes,rule,row
     ?db.exec(`SELECT operation_id,state,intent_json FROM offline_mutation_outbox WHERE owner_id=? AND record_id=?
        AND state IN ('pending','conflict')`,[ownerId,orderId+':po_matrix'])[0]?.values?.[0]:null
    if(matrix?.[1]==='conflict')throw Error('Resolve the PO Matrix conflict before saving Washing.')
+   if(config.finishing&&db.exec("SELECT 1 FROM offline_order_section_overlays WHERE order_id=? AND section IN ('po_matrix','order_queues')",[orderId]).length)
+    throw Error('Sync PO Matrix and queues before changing their packing allocations.')
    const dependency=matrix?.[0]||creation
    const matrixRule=matrix?JSON.parse(matrix[2]).document.matrix.summary.queue_split_rule:null
    const expected={...Object.fromEntries(Object.keys(changes).map(key=>[key,base[key]??null])),lines:original}
@@ -864,10 +885,17 @@ async function queueOrderSection(directory,{orderId,table,enabled,notes,rule,row
     if(currentRule!==rule)throw Error('Save the selected split rule in PO Matrix first.')
     expected.queue_split_rule=currentRule
    }
+   if(finishingHeader)expected.finishing=previousFinishing
    const intent=updateMutationIntent('orders',orderId,changes,expected,stamp,null,
-    {childTable:table,lines:rows,localLines,independentOrderSection:true,...(dependency?{afterOperation:dependency}:{})})
+    {childTable:table,lines:rows,localLines,independentOrderSection:true,...(finishingHeader?{finishingHeader}:{}),...(dependency?{afterOperation:dependency}:{})})
    if(Buffer.byteLength(JSON.stringify(intent))>116000)throw Error('Order section is too large for offline sync.')
    db.run('INSERT INTO offline_order_section_overlays VALUES (?,?,?,?)',[orderId,table,JSON.stringify(changes),stamp])
+   if(finishingHeader){
+    if(previousFinishing)db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',
+     ['finishing',finishingHeader.id,JSON.stringify({...previousFinishing,...finishingHeader}),stamp])
+    else db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',
+     [finishingHeader.id,'finishing',JSON.stringify(finishingHeader),stamp,stamp])
+   }
    for(const row of original){
     const index=retainedIds.indexOf(row.id)
     const next=index<0?null:JSON.stringify({...row,...rows[index]})
