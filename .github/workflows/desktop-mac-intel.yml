@@ -47,7 +47,7 @@ jobs:
           node --check desktop/standaloneRecords.cjs
       - name: Verify packaged desktop sync and refresh modules
         run: |
-          node --test desktop/desktopSyncLoop.test.cjs
+          node --test desktop/desktopSyncLoop.test.cjs desktop/desktopCloudSession.test.cjs
           node -e "const p=require('./desktop/package.json');for(const f of ['desktopSyncLoop.cjs','snapshotDownloadClient.cjs','applyCloudSnapshot.cjs','snapshotMerge.cjs'])if(!p.build.files.includes(f))throw Error('Missing packaged module '+f)"
       - name: Verify desktop order sync endpoint
         run: |
@@ -329,7 +329,7 @@ jobs:
           node - "$bundle/Resources/app.asar" <<'NODE'
           const asar = require('./desktop/node_modules/@electron/asar')
           const archive = process.argv[2]
-          const expected = ['main.cjs', 'snapshotDownloadClient.cjs', 'applyCloudSnapshot.cjs', 'snapshotMerge.cjs', 'offlineDraftJournal.cjs', 'offlineSyncCoordinator.cjs', 'desktopLocalBackup.cjs', 'desktopMacUpdateHelper.sh']
+          const expected = ['main.cjs', 'snapshotDownloadClient.cjs', 'applyCloudSnapshot.cjs', 'snapshotMerge.cjs', 'offlineDraftJournal.cjs', 'offlineSyncCoordinator.cjs', 'desktopCloudSession.cjs', 'desktopLocalBackup.cjs', 'desktopMacUpdateHelper.sh']
           for (const file of expected) {
             if (!asar.statFile(archive, file)) throw Error('Missing packaged file ' + file)
           }

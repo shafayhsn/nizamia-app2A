@@ -1,6 +1,6 @@
 {
   "name": "nizamia-app2a-desktop",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "description": "Nizamia App-2A desktop CP-18 SQLite foundation (online app with local metadata database)",
   "main": "main.cjs",
@@ -82,6 +82,7 @@
       "schema/public-schema-inventory.json",
       "offlinePendingStatus.cjs",
       "desktopSyncLoop.cjs",
+      "desktopCloudSession.cjs",
       "snapshotDownloadClient.cjs",
       "applyCloudSnapshot.cjs",
       "snapshotMerge.cjs"

@@ -328,11 +328,13 @@ async function querySnapshot(directory, action, args) {
   } finally { db.close() }
 }
 
-function showLocalSnapshot(parent, getDirectory) {
+let authorizeViewer
+function showLocalSnapshot(parent, getDirectory, authorize) {
   const directory = getDirectory()
   if (!directory) throw new Error('Choose a database folder first.')
   if (viewer && !viewer.isDestroyed()) { viewer.focus(); return }
   selectedDirectory = directory
+  authorizeViewer=authorize
   viewer = new BrowserWindow({
     ...(parent && !parent.isDestroyed() ? { parent } : {}), width: 1360, height: 900, minWidth: 960, minHeight: 650,
     title: 'Nizamia — Local SQLite Viewer',
@@ -364,6 +366,7 @@ function showLocalSnapshot(parent, getDirectory) {
       const senderURL = new URL(event.sender.getURL())
       if (senderURL.protocol !== 'file:' || decodeURIComponent(senderURL.pathname) !== activeViewerFile)
         throw new Error('Unexpected viewer origin')
+      await authorizeViewer?.(selectedDirectory)
       if (typeof action === 'string' && action.startsWith('note:')) {
         const notes = createLocalAnnotations(app.getPath('userData'))
         const command = action.slice('note:'.length)

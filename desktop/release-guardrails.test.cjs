@@ -8,7 +8,8 @@ const main = read('main.cjs')
 const viewer = read('snapshotViewer.cjs')
 const preload = read('snapshotViewerPreload.cjs')
 const importer = read('snapshotImport.cjs')
-assert.match(main, /showLocalSnapshot\(null,getDatabaseDirectory\)/, 'Standalone offline app must be the startup default')
+assert.match(main, /openBundledWebApp\(\)[\s\S]*?else await openLocalData\(\)/, 'Packaged offline app must be the startup default')
+assert.match(viewer, /await authorizeViewer\?\.\(selectedDirectory\)/, 'Viewer must check current cloud snapshot scope')
 // Restrict the cloud-fallback guard to the startup function itself. The cloud window
 // function is defined immediately afterward and must not trigger a false positive.
 const standaloneStartup = main.match(/async function startDesktop\(\)\s*\{[\s\S]*?(?=\nfunction createWindow\(\))/)

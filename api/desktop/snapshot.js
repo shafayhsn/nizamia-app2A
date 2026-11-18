@@ -35,12 +35,18 @@ export default async function handler(req,res){
  // and row-scoping rules are implemented. Service-role access must not bypass authorization.
  if(String(user.role).toLowerCase()!=='admin')return res.status(403).json({error:'Administrator authorization required'})
  try{
-  const tables={},counts={}
-  for(const name of TABLES){
-   const source=await snapshotReader.readSnapshotTable(db,name)
-   const rows=source.map(row=>Object.fromEntries(Object.entries(row).filter(([field])=>!sensitive.test(field))))
-   tables[name]=rows;counts[name]=rows.length
+  const entries=[]
+  const concurrency=8
+  for(let offset=0;offset<TABLES.length;offset+=concurrency){
+   const batch=await Promise.all(TABLES.slice(offset,offset+concurrency).map(async name=>{
+    const source=await snapshotReader.readSnapshotTable(db,name)
+    const rows=source.map(row=>Object.fromEntries(Object.entries(row).filter(([field])=>!sensitive.test(field))))
+    return [name,rows]
+   }))
+   entries.push(...batch)
   }
+  const tables=Object.fromEntries(entries)
+  const counts=Object.fromEntries(entries.map(([name,rows])=>[name,rows.length]))
   return res.status(200).json({backup_metadata:{table_count:TABLES.length,table_row_counts:counts,exported_at:new Date().toISOString()},tables})
  }catch(error){return res.status(503).json({error:'Cloud snapshot could not be prepared'})}
 }

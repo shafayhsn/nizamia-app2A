@@ -4,8 +4,20 @@ const initSqlJs=require('sql.js')
 const {mergeSnapshotRows}=require('./snapshotMerge.cjs')
 const {isDesktopOrderNote}=require('./offlineSyncPlanner.cjs')
 const DB='nizamia-app2a.sqlite'
-let busy=false
-async function applyCloudSnapshot({directory,tables}){
+let busy=false,sqlite
+function getSqlEngine(){
+ const wasm=require.resolve('sql.js/dist/sql-wasm.wasm').replace('app.asar'+path.sep,'app.asar.unpacked'+path.sep)
+ return sqlite||=(initSqlJs({locateFile:()=>wasm}))
+}
+async function hasAdminCloudSnapshot(directory){
+ const SQL=await getSqlEngine()
+ const db=new SQL.Database(fs.readFileSync(path.join(directory,DB)))
+ try{
+  if(!db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='app_metadata'").length)return false
+  return db.exec("SELECT value FROM app_metadata WHERE key='cloud_snapshot_scope'")[0]?.values?.[0]?.[0]==='admin'
+ }finally{db.close()}
+}
+async function applyCloudSnapshot({directory,tables,adminScope=false}){
  if(busy)throw Error('Refresh already in progress')
  busy=true
  try{
@@ -13,7 +25,7 @@ async function applyCloudSnapshot({directory,tables}){
   const file=path.join(directory,DB),stat=fs.lstatSync(file)
   if(!stat.isFile()||stat.isSymbolicLink()||stat.size>1024*1024*1024)throw Error('Unsafe local database')
   const original=fs.readFileSync(file),before=crypto.createHash('sha256').update(original).digest('hex')
-  const SQL=await initSqlJs({locateFile:()=>require.resolve('sql.js/dist/sql-wasm.wasm').replace('app.asar'+path.sep,'app.asar.unpacked'+path.sep)})
+  const SQL=await getSqlEngine()
   const db=new SQL.Database(original)
   let updated
   try{
@@ -38,6 +50,10 @@ async function applyCloudSnapshot({directory,tables}){
     }
    }
    updated=mergeSnapshotRows(db,tables)
+   if(adminScope){
+    db.run('CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY NOT NULL,value TEXT NOT NULL)')
+    db.run("INSERT OR REPLACE INTO app_metadata VALUES ('cloud_snapshot_scope','admin')")
+   }
    if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Merged database integrity failure')
    const bytes=Buffer.from(db.export())
    const current=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
@@ -52,4 +68,4 @@ async function applyCloudSnapshot({directory,tables}){
   }finally{db.close()}
  }finally{busy=false}
 }
-module.exports={applyCloudSnapshot}
+module.exports={applyCloudSnapshot,hasAdminCloudSnapshot}

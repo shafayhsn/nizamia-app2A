@@ -1,13 +1,13 @@
 'use strict'
 const path = require('node:path')
-const { app, BrowserWindow, shell, dialog, Menu, protocol, net } = require('electron')
+const { app, BrowserWindow, shell, dialog, Menu, protocol, net, safeStorage } = require('electron')
 const { chooseDatabaseFolder, showDatabaseLocation, getDatabaseDirectory, initializeDatabase } = require('./localDatabase.cjs')
 const { importBackup } = require('./snapshotImport.cjs')
 const { inspectSnapshot } = require('./snapshotInspect.cjs')
 const { showLocalSnapshot } = require('./snapshotViewer.cjs')
 const fs = require('node:fs')
 const {createLocalAuth}=require('./localDesktopAuth.cjs')
-let desktopAuth
+let desktopAuth,cloudSessionStore
 let onlineSnapshotToken=null
 const { snapshotReady } = require('./snapshotStartup.cjs')
 
@@ -25,7 +25,7 @@ const syncCoordinator=createOfflineSyncCoordinator({
  getDirectory:getDatabaseDirectory,
  orderNotesOnly:true,
  getSession:()=>onlineSyncSession,
- getToken:session=>session===onlineSyncSession?session.token:null,
+ getToken:session=>session===onlineSyncSession&&Date.now()<session.expiresAt?session.token:null,
  authenticateSession:async session=>session===onlineSyncSession&&desktopAuth?.status().user?.id===session.identity
 })
 const syncLoop=createDesktopSyncLoop({
@@ -33,6 +33,13 @@ const syncLoop=createDesktopSyncLoop({
  isOnline:()=>net.isOnline(),
  refresh:session=>session===onlineSyncSession?refreshCloudSnapshot(onlineSnapshotToken):null
 })
+function activateOnlineSession(user,tokens){
+ onlineSnapshotToken=tokens?.snapshot?.token||null
+ if(tokens?.sync){
+  onlineSyncSession={authenticated:true,identity:user.id,...tokens.sync}
+  syncLoop.start(onlineSyncSession)
+ }
+}
 function clearOnlineSession(){
  onlineSnapshotToken=null
  onlineSyncSession=null
@@ -74,7 +81,7 @@ async function refreshCloudSnapshot(token){
    if(fs.statSync(file).mtimeMs===lastSnapshot.mtime)return {status:'current'}
   }
   const {applyCloudSnapshot}=require('./applyCloudSnapshot.cjs')
-  const result=await applyCloudSnapshot({directory,tables})
+  const result=await applyCloudSnapshot({directory,tables,adminScope:true})
   lastSnapshot={directory,digest,mtime:fs.statSync(path.join(directory,'nizamia-app2a.sqlite')).mtimeMs}
   announceCloudRefresh()
   return {status:'updated',tables:result.updatedTables}
@@ -86,12 +93,20 @@ function allowedNavigation(url) {
   catch { return false }
 }
 
-function openLocalData() {
+async function enforceLocalDataScope(directory=getDatabaseDirectory()){
+ if(desktopAuth?.status().user?.role==='admin')return
+ if(!directory||!fs.existsSync(path.join(directory,'nizamia-app2a.sqlite')))return
+ const {hasAdminCloudSnapshot}=require('./applyCloudSnapshot.cjs')
+ if(await hasAdminCloudSnapshot(directory))
+  throw Error('This Mac contains an administrator-only cloud snapshot. Sign in as an administrator or use the web app.')
+}
+async function openLocalData() {
   try {
     const directory = getDatabaseDirectory()
     if (!directory || !fs.existsSync(path.join(directory, 'nizamia-app2a.sqlite')))
       throw new Error('Choose a database folder to initialize your standalone database.')
-    showLocalSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null, getDatabaseDirectory)
+    await enforceLocalDataScope()
+    showLocalSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null, getDatabaseDirectory,enforceLocalDataScope)
   } catch (error) { dialog.showErrorBox('Local SQLite viewer', error.message) }
 }
 async function startDesktop() {
@@ -116,8 +131,12 @@ async function startDesktop() {
       throw new Error('Migrated local SQLite database failed startup verification; pre-change backup retained')
     }
     desktopAuth=createLocalAuth(app.getPath('userData'))
+    if(process.platform==='darwin'){
+      const {createDesktopCloudSessionStore}=require('./desktopCloudSession.cjs')
+      cloudSessionStore=createDesktopCloudSessionStore({directory:app.getPath('userData'),safeStorage})
+    }
     if(fs.existsSync(path.join(process.resourcesPath,'web','index.html')))openBundledWebApp()
-    else showLocalSnapshot(null,getDatabaseDirectory)
+    else await openLocalData()
     // Confirm only after the local database passed startup verification.
     try{require('./desktopUpdateLaunch.cjs').confirmSuccessfulStartup({userData:app.getPath('userData'),version:app.getVersion()})}catch(error){console.error('Update startup confirmation failed:',error)}
   } catch(error) {
@@ -208,10 +227,10 @@ function createWindow() {
         detail: 'Your previously imported SQLite snapshot can still be viewed locally. It is read-only and may be out of date.\\n\\n' + description,
         buttons: ['Open Local Data', 'Retry Connection', 'Cancel'],
         defaultId: 0, cancelId: 2
-      }).then(({ response }) => {
+      }).then(async ({ response }) => {
         if (win.isDestroyed()) return
         if (response === 0) {
-          try { showLocalSnapshot(win, getDatabaseDirectory) }
+          try { await enforceLocalDataScope();showLocalSnapshot(win,getDatabaseDirectory,enforceLocalDataScope) }
           catch (error) { dialog.showErrorBox('Local data unavailable', error.message) }
         } else if (response === 1) { fallbackActive = false; win.loadURL(APP_URL) }
       }).catch(error => dialog.showErrorBox('Connection dialog error', error.message))
@@ -240,10 +259,11 @@ app.whenReady().then(() => {
           const verified=await response.json()
           if(!verified.ok||!verified.desktopUser)throw Error('Online enrollment response invalid')
           data=desktopAuth.enroll(input.username,input.password,verified.desktopUser)
-          onlineSnapshotToken=typeof verified.desktopSnapshotToken==='string'?verified.desktopSnapshotToken:null
-          if(typeof verified.desktopSyncToken==='string'&&data.user?.role==='admin'){
-           onlineSyncSession={authenticated:true,identity:data.user.id,token:verified.desktopSyncToken}
-           syncLoop.start(onlineSyncSession)
+          const tokens={snapshotToken:verified.desktopSnapshotToken,syncToken:verified.desktopSyncToken}
+          if(data.user?.role==='admin'){
+           const fallback={snapshot:tokens.snapshotToken?{token:tokens.snapshotToken}:null,
+            sync:tokens.syncToken?{token:tokens.syncToken,expiresAt:Date.now()+8*60*60*1000}:null}
+           activateOnlineSession(data.user,cloudSessionStore?.save(data.user.id,tokens)||fallback)
           }
           if(onlineSnapshotToken){
             const token=onlineSnapshotToken
@@ -259,8 +279,15 @@ app.whenReady().then(() => {
           if(error.message==='Online credentials rejected or account unavailable'||error.message==='Online enrollment response invalid')throw error
           networkUnavailable=true
         }
-        if(networkUnavailable)data=desktopAuth.login(input.username,input.password)
-      }else if(input.action==='logout'){clearOnlineSession();data=desktopAuth.logout();}else return Response.json({error:'Unknown action'},{status:400});return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
+        if(networkUnavailable){
+          data=desktopAuth.login(input.username,input.password)
+          if(data.user?.role==='admin')activateOnlineSession(data.user,cloudSessionStore?.read(data.user.id))
+        }
+      }else if(input.action==='logout'){const user=desktopAuth.status().user;if(user)cloudSessionStore?.clear(user.id);clearOnlineSession();data=desktopAuth.logout();}else return Response.json({error:'Unknown action'},{status:400});return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
+    }
+    if(url.pathname.startsWith('/api/')&&desktopAuth?.isAuthenticated()){
+      try{await enforceLocalDataScope()}
+      catch(error){return Response.json({error:error.message},{status:403})}
     }
     if(url.pathname==='/api/offline/version')return Response.json({version:app.getVersion(),platform:process.platform,pdf:'native',updates:'manual'})
     if(url.pathname==='/api/offline/pdf'){
@@ -334,7 +361,7 @@ app.whenReady().then(() => {
         const directory=getDatabaseDirectory()
         if(!directory)return Response.json({error:'Local database unavailable'},{status:503})
         const status=await require('./offlinePendingStatus.cjs').readPendingStatus(directory)
-        return Response.json({data:{...status,cloudSync:syncLoop.getStatus()},error:null},{headers:{'Cache-Control':'no-store'}})
+        return Response.json({data:{...status,cloudSync:onlineSyncSession&&onlineSyncSession.expiresAt<=Date.now()?{state:'sign-in-required'}:syncLoop.getStatus()},error:null},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:500})}
     }
     if(url.pathname==='/api/offline/records'){
