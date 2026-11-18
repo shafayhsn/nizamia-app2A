@@ -3,21 +3,49 @@ name: Publish desktop Mac test release
 on:
   workflow_dispatch:
     inputs:
+      validation_only:
+        description: 'Validate Build 510 without publishing a DMG'
+        required: false
+        type: boolean
+        default: true
       version:
         description: 'Desktop version to publish (must match desktop/package.json)'
-        required: true
+        required: false
         type: string
       confirmation:
         description: 'Type PUBLISH-UNSIGNED-TEST to confirm this is an unsigned test release'
-        required: true
+        required: false
         type: string
 
 permissions:
   contents: read
 
 jobs:
+  validate-build-510:
+    if: inputs.validation_only == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout App-2A development branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/CP-18-sqlite-foundation
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate snapshot API syntax and table coverage
+        run: |
+          node --check api/desktop/snapshot.js
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const source = fs.readFileSync('api/desktop/snapshot.js','utf8');
+          for (const table of ['orders','buyers','suppliers','production_daily_entries','costing_sheets','shipping_bookings']) {
+            if (!source.includes('"'+table+'"')) throw Error('Missing business table: '+table);
+          }
+          console.log('Build 510 snapshot API validation passed');
+          NODE
   publish:
-    if: github.ref == 'refs/heads/feature/CP-18-sqlite-foundation' && inputs.confirmation == 'PUBLISH-UNSIGNED-TEST'
+    if: github.ref == 'refs/heads/feature/CP-18-sqlite-foundation' && inputs.validation_only != true && inputs.confirmation == 'PUBLISH-UNSIGNED-TEST'
     runs-on: macos-15-intel
     timeout-minutes: 40
     permissions:
