@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabase'
 import { NotificationCenter, useDeadlineEvents } from '../ui/DeadlinesTracker'
 import { dueWithin24h, overdueEvents } from '../../lib/deadlineEvents'
 import QuickCalculator from '../ui/QuickCalculator'
+import DesktopLocalStatus from './DesktopLocalStatus'
 import {TimeConverter,CurrencyConverter} from './TopbarConverters'
 import {SHORTCUT_CATALOG,DEFAULT_SHORTCUTS,TOPBAR_SHORTCUTS_KEY} from '../../lib/topbarShortcuts'
 import {loadSetting} from '../../lib/settingsStore'
@@ -267,7 +268,7 @@ export default function Topbar({onOpenDeadlines}) {
         </button>
         {syncOpen&&<>
           <div onClick={()=>setSyncOpen(false)} style={{position:'fixed',inset:0,zIndex:90}}/>
-          <div role="dialog" aria-label="Database Sync Status" style={{position:'absolute',top:35,right:0,zIndex:91,width:275,padding:15,background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,boxShadow:'0 12px 35px #0002',fontSize:12}}>
+          <div role="dialog" aria-label="Database Sync Status" style={{position:'absolute',top:35,right:0,zIndex:91,width:275,maxHeight:'calc(100vh - 75px)',overflowY:'auto',padding:15,background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,boxShadow:'0 12px 35px #0002',fontSize:12}}>
             <div style={{fontWeight:750,marginBottom:12}}>Database Sync Status</div>
             <div style={{display:'flex',alignItems:'center',gap:7,color:syncConfig.color,fontWeight:700,marginBottom:12}}><syncConfig.icon size={15}/>{syncConfig.label}</div>
             <div style={{background:'#f8fafc',padding:10,borderRadius:7}}>
@@ -298,6 +299,7 @@ export default function Topbar({onOpenDeadlines}) {
                 <div style={{color:'#64748b',marginTop:5}}>Dismiss clears the alert, but does not retry or verify the save.</div>
               </div>}
             </div>}
+            {window.location.protocol === 'app2a:' && <DesktopLocalStatus />}
             <div style={{color:'#94a3b8',fontSize:10,marginTop:10}}>Browser time shows local confirmed writes. Database time shows the latest tracked write from any user; refreshed every 30 seconds.</div>
           </div>
         </>}
