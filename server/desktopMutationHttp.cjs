@@ -57,13 +57,23 @@ function createDesktopMutationHttp({db,key}){
       intent.fields&&typeof intent.fields==='object'&&Array.isArray(intent.document?.lines)){
     rpc='desktop_create_purchasing_document'
     args={kind:intent.table,header:intent.fields,lines:intent.document.lines}
+   }else if(intent?.operation==='create'&&intent.table==='parcels'&&intent.fields&&
+      Array.isArray(intent.fields.items)&&Array.isArray(intent.fields.custom_items)){
+    rpc='desktop_create_parcel'
+    args={payload:intent.fields}
    }else{
     results.push({operationId,outcome:'unsupported'})
     continue
    }
    try{
     const {data,error}=await db.rpc(rpc,{actor:claim.userId,operation:operationId,...args})
-    results.push({operationId,outcome:!error&&['applied','already-applied','conflict','unauthorized','invalid'].includes(data)?data:'retry'})
+    const outcome=typeof data==='object'&&data!==null?data.outcome:data
+    const resourceId=rpc==='desktop_create_parcel'&&typeof data?.resourceId==='string'&&
+     /^[a-z0-9_-]{1,128}$/i.test(data.resourceId)?data.resourceId:null
+    const accepted=['applied','already-applied'].includes(outcome)
+    const valid=!error&&['applied','already-applied','conflict','unauthorized','invalid'].includes(outcome)&&
+     (rpc!=='desktop_create_parcel'||!accepted||resourceId)
+    results.push({operationId,outcome:valid?outcome:'retry',...(valid&&accepted&&resourceId?{resourceId}:{})})
    }catch{results.push({operationId,outcome:'retry'})}
   }
   return {status:200,body:{results}}

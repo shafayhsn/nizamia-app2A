@@ -13,6 +13,8 @@ function initialize(db){
   state TEXT NOT NULL CHECK(state IN ('pending','conflict','applied')),
   UNIQUE(owner_id,fingerprint)
  )`)
+ if(!db.exec('PRAGMA table_info(offline_mutation_outbox)')[0].values.some(column=>column[1]==='resource_id'))
+  db.run('ALTER TABLE offline_mutation_outbox ADD COLUMN resource_id TEXT')
  db.run(`CREATE UNIQUE INDEX IF NOT EXISTS offline_mutation_active_record
   ON offline_mutation_outbox(table_name,record_id)
   WHERE state IN ('pending','conflict')`)
@@ -30,7 +32,7 @@ function stageMutation(db,ownerId,intent){
   [intent.table,intent.id])[0]?.values?.[0]
  if(active)return null
  const operationId=randomUUID()
- db.run("INSERT INTO offline_mutation_outbox VALUES (?,?,?,?,?,?,'pending')",
+ db.run("INSERT INTO offline_mutation_outbox(operation_id,owner_id,table_name,record_id,fingerprint,intent_json,state) VALUES (?,?,?,?,?,?,'pending')",
   [operationId,ownerId,intent.table,intent.id,intent.fingerprint,JSON.stringify(intent)])
  return operationId
 }
@@ -42,12 +44,12 @@ function pendingMutations(db,ownerId){
  return rows.map(([operationId,intent])=>({operationId,intent:JSON.parse(intent)}))
 }
 
-function recordMutationOutcome(db,ownerId,operationId,outcome){
+function recordMutationOutcome(db,ownerId,operationId,outcome,resourceId){
  if(!['applied','already-applied','conflict','retry','invalid','unauthorized','unsupported'].includes(outcome))throw Error('Invalid sync acknowledgement')
  initialize(db)
  const state=['applied','already-applied'].includes(outcome)?'applied':outcome==='retry'?'pending':'conflict'
- db.run("UPDATE offline_mutation_outbox SET state=? WHERE operation_id=? AND owner_id=? AND state='pending'",
-  [state,operationId,ownerId])
+ db.run("UPDATE offline_mutation_outbox SET state=?,resource_id=? WHERE operation_id=? AND owner_id=? AND state='pending'",
+  [state,resourceId||null,operationId,ownerId])
  return db.getRowsModified()===1
 }
 
@@ -59,18 +61,20 @@ function assertUnqueued(db,table,id){
 
 function reconcileUploadedCreates(db,tables){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
- const entries=db.exec("SELECT operation_id,table_name,record_id,intent_json FROM offline_mutation_outbox WHERE state='applied'")[0]?.values||[]
- for(const [operationId,table,id,json] of entries){
+ initialize(db)
+ const entries=db.exec("SELECT operation_id,table_name,record_id,intent_json,resource_id FROM offline_mutation_outbox WHERE state='applied'")[0]?.values||[]
+ for(const [operationId,table,id,json,resourceId] of entries){
   const intent=JSON.parse(json)
   if(intent.historyRecord&&tables.sample_comments?.some(row=>row.id===operationId)){
    const {id:historyId,editedAt}=intent.historyRecord
    db.run("DELETE FROM standalone_records WHERE table_name='sample_comments' AND id=? AND updated_at=?",
     [historyId,editedAt])
   }
-  if(!tables[table]?.some(row=>row.id===operationId))continue
+  const cloudId=resourceId||operationId
+  if(!tables[table]?.some(row=>row.id===cloudId))continue
   if(intent.operation!=='create')continue
   const linked=intent.document?.localLines||[]
-  if(linked.length&&!tables[linked[0].table]?.filter(row=>row[linked[0].parentField]===operationId).length)continue
+  if(linked.length&&!tables[linked[0].table]?.filter(row=>row[linked[0].parentField]===cloudId).length)continue
   for(const child of linked)db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',
    [child.table,child.id,intent.editedAt])
   db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',

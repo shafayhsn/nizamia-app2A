@@ -362,6 +362,18 @@ export default function Parcels() {
   }
   async function createNewParcel(payload){
     setBusy(true)
+    if(window.location.protocol==='app2a:'){
+      try{
+        const response=await fetch('/api/offline/parcel-create',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(payload)})
+        const result=await response.json()
+        if(!response.ok)throw Error(result.error||'Could not create parcel')
+        window.dispatchEvent(new Event('app2a-offline-data-changed'))
+        setCreating(false);await load()
+      }catch(error){alert(error.message,{title:'Create Parcel Failed'})}
+      finally{setBusy(false)}
+      return
+    }
     const created=await fetch('/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'createParcel',parcel:toDb({...payload,status:'Draft'})})}).then(async r=>({ok:r.ok,...await r.json()})).catch(e=>({ok:false,error:e.message}))
     const id=created.id
     const error=created.ok?null:{message:created.error||'Parcel creation failed'}

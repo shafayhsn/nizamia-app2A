@@ -378,7 +378,7 @@ async function submitPendingMutations(directory,{ownerId,submit,isCurrent}){
  const results=await submit(operations)
  const expected=new Set(operations.map(item=>item.operationId))
  if(!Array.isArray(results)||results.length!==expected.size||
-    results.some(item=>!expected.delete(item?.operationId)||
+    results.some(item=>!expected.delete(item?.operationId)||(item.resourceId!=null&&!/^[a-z0-9_-]{1,128}$/i.test(item.resourceId))||
       !['applied','already-applied','conflict','retry','invalid','unauthorized','unsupported'].includes(item.outcome)))
   throw Error('Invalid desktop mutation acknowledgement')
 
@@ -388,8 +388,8 @@ async function submitPendingMutations(directory,{ownerId,submit,isCurrent}){
   db=new SQL.Database(Buffer.from(before))
   const summary={archived:0,conflicts:0,retained:0}
   try{
-   for(const {operationId,outcome} of results){
-    if(!recordMutationOutcome(db,ownerId,operationId,outcome))continue
+   for(const {operationId,outcome,resourceId} of results){
+    if(!recordMutationOutcome(db,ownerId,operationId,outcome,resourceId))continue
     if(['applied','already-applied'].includes(outcome))summary.archived++
     else if(outcome==='retry')summary.retained++
     else summary.conflicts++
@@ -554,4 +554,54 @@ async function queuePurchasingDocument(directory,{table,fields,lines,ownerId,isC
  })
 }
 
-module.exports={queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+async function queueParcelCreate(directory,{items,customItems,addressId,contactId,ownerId,isCurrent}){
+ if(!ownerId||!cloudId.test(addressId||'')||contactId&&!cloudId.test(contactId)||
+    !Array.isArray(items)||!Array.isArray(customItems)||items.length+customItems.length<1||items.length+customItems.length>500||
+    items.some(item=>!cloudId.test(item?.sampleId||''))||
+    new Set(items.map(item=>item.sampleId)).size!==items.length)
+  throw Error('Select a synchronized address and valid parcel items.')
+ validateFields({items,custom_items:customItems})
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file)
+  const db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   const readCloud=(table,id)=>db.exec("SELECT row_json FROM snapshot_rows WHERE table_name=? AND json_extract(row_json,'$.id')=?",
+    [table,id])[0]?.values?.map(([json])=>JSON.parse(json))?.[0]
+   const address=readCloud('buyer_addresses',addressId)
+   const contact=contactId?readCloud('buyer_contacts',contactId):null
+   const buyer=address&&readCloud('buyers',address.buyer_id)
+   if(!buyer||contactId&&contact?.buyer_id!==buyer.id)throw Error('Address or contact could not be verified.')
+   for(const {sampleId} of items){
+    const sample=readCloud('samples',sampleId)
+    const order=sample&&readCloud('orders',sample.order_id)
+    if(String(sample?.stage).toLowerCase()!=='ready'||order?.buyer_id!==buyer.id)
+     throw Error('Every sample must be synchronized, ready, and assigned to this buyer.')
+   }
+   const stamp=new Date().toISOString(),id='local-'+crypto.randomUUID(),snapshotId='local-'+crypto.randomUUID()
+   const fields={items,custom_items:customItems,address_id:addressId,contact_id:contactId||null}
+   const localFields={items,custom_items:customItems,status:'Draft',created_at:stamp}
+   const consignee={name:address.recipient||buyer.name||'',label:address.label||'',
+    address_line1:address.address_line1||'',address_line2:address.address_line2||'',
+    city:address.city||'',region:address.region||'',postal_code:address.postal_code||'',country:address.country||'',
+    contact_name:contact?.name||buyer.contact_person||'',phone:contact?.phone||address.phone||'',email:contact?.email||''}
+   const snapshot={parcel_id:id,buyer_id:buyer.id,address_id:addressId,contact_id:contactId||null,consignee,updated_at:stamp}
+   db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?),(?,?,?,?,?)',
+    [id,'parcels',JSON.stringify(localFields),stamp,stamp,
+     snapshotId,'parcel_invoice_snapshots',JSON.stringify(snapshot),stamp,stamp])
+   const document={localLines:[{id:snapshotId,table:'parcel_invoice_snapshots',parentField:'parcel_id'}]}
+   if(!stageMutation(db,ownerId,createMutationIntent('parcels',id,fields,stamp,stamp,document)))
+    throw Error('Could not queue parcel.')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during parcel save')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return {id,...localFields}
+  }finally{db.close()}
+ })
+}
+
+module.exports={queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}

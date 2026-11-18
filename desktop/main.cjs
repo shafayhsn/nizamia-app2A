@@ -461,6 +461,20 @@ app.whenReady().then(() => {
         return Response.json({data},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:400})}
     }
+    if(url.pathname==='/api/offline/parcel-create'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
+      if(!ownerId||!directory)return Response.json({error:'Administrator access required for offline parcel sync'},{status:403})
+      try{
+        const raw=await request.text()
+        if(Buffer.byteLength(raw)>110000)return Response.json({error:'Parcel too large for offline sync'},{status:413})
+        const {items,customItems,addressId,contactId}=JSON.parse(raw)
+        const {queueParcelCreate}=require('./standaloneRecords.cjs')
+        const data=await queueParcelCreate(directory,{items,customItems,addressId,contactId,ownerId,
+          isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
+        return Response.json({data},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:400})}
+    }
     if(url.pathname==='/api/offline/parcel-transition'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})
       const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
