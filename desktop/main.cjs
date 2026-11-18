@@ -8,6 +8,7 @@ const { showLocalSnapshot } = require('./snapshotViewer.cjs')
 const fs = require('node:fs')
 const {createLocalAuth}=require('./localDesktopAuth.cjs')
 let desktopAuth
+let onlineSnapshotToken=null
 const { snapshotReady } = require('./snapshotStartup.cjs')
 
 // Serve the bundled web SPA under a proper origin so BrowserRouter routes and
@@ -167,8 +168,9 @@ app.whenReady().then(() => {
           const response=await fetch(APP_URL+'/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'login',identifier:input.username,password:input.password,desktopEnrollment:true}),signal:AbortSignal.timeout(10000)})
           const verified=await response.json();if(!response.ok||!verified.ok||!verified.desktopUser)throw Error('Online sign-in required before offline access; check your connection or contact admin')
           data=desktopAuth.enroll(input.username,input.password,verified.desktopUser)
+          onlineSnapshotToken=typeof verified.desktopSnapshotToken==='string'?verified.desktopSnapshotToken:null
         }
-      }else if(input.action==='logout')data=desktopAuth.logout();else return Response.json({error:'Unknown action'},{status:400});return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
+      }else if(input.action==='logout'){onlineSnapshotToken=null;data=desktopAuth.logout();}else return Response.json({error:'Unknown action'},{status:400});return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
     }
     if(url.pathname==='/api/offline/version')return Response.json({version:app.getVersion(),platform:process.platform,pdf:'native',updates:'manual'})
     if(url.pathname==='/api/offline/pdf'){
@@ -319,6 +321,26 @@ app.whenReady().then(() => {
           const result=backupDatabaseToFile({directory,destination:selection.filePath})
           await dialog.showMessageBox(owner,{type:'info',title:'Local backup complete',message:'SQLite backup saved and verified',detail:'File: '+result.file+'\\nSHA-256: '+result.sha256+'\\n\\nThis backs up the Mac SQLite snapshot, not the Supabase cloud database.',buttons:['OK']})
         }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Local backup failed',message:'The local backup was not completed',detail:error.message,buttons:['OK']})}
+      } },
+      { label: 'Refresh Snapshot from Cloud…', click: async () => {
+        const owner=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows()[0]
+        try{
+          if(!desktopAuth?.isAuthenticated())throw Error('Sign in to the desktop app first')
+          if(!onlineSnapshotToken)throw Error('Online enrollment required. Sign out, then sign in while connected to the internet to obtain a fresh cloud session.')
+          const directory=getDatabaseDirectory()
+          if(!directory)throw Error('Local database folder unavailable')
+          const {createSnapshotDownloadClient}=require('./snapshotDownloadClient.cjs')
+          const client=createSnapshotDownloadClient({origin:APP_URL,fetchImpl:fetch})
+          const payload=await client.download({token:onlineSnapshotToken})
+          const answer=await dialog.showMessageBox(owner,{type:'warning',title:'Refresh local cloud snapshot',message:'Refresh cloud data while keeping offline changes?',detail:'A unique rollback backup will be saved. If cloud data conflicts with a local edit, the refresh will stop without replacing your database. This does not upload offline changes.',buttons:['Cancel','Refresh safely'],defaultId:0,cancelId:0})
+          if(answer.response!==1)return
+          const {applyCloudSnapshot}=require('./applyCloudSnapshot.cjs')
+          const excluded=new Set(['users','permissions','roles','app_database_sync_status','notification_reads','app_task_reads'])
+          const sensitive=/password|secret|token|api_key|private_key|session|credential|auth_hash/i
+          const tables=Object.fromEntries(Object.entries(payload.tables).filter(([name])=>!excluded.has(name)).map(([name,rows])=>[name,rows.map(row=>Object.fromEntries(Object.entries(row).filter(([key])=>!sensitive.test(key))))]))
+          const result=await applyCloudSnapshot({directory,tables})
+          await dialog.showMessageBox(owner,{type:'info',title:'Cloud snapshot refreshed',message:result.updatedTables+' tables refreshed',detail:'Local work preserved. Restart the desktop interface to view updated data. Rollback backup: '+result.backup})
+        }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Cloud refresh not completed',message:'Your local database was not intentionally replaced',detail:error.message})}
       } },
       { label: 'Import Read-Only Snapshot…', click: () => importBackup(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },
       { label: 'Verify Local Snapshot…', click: () => inspectSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },
