@@ -601,6 +601,20 @@ app.whenReady().then(() => {
         return Response.json({data},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:400})}
     }
+    if(url.pathname==='/api/offline/tasks-library'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
+      if(!ownerId||!directory)return Response.json({error:'Administrator access required for Tasks and Library sync'},{status:403})
+      try{
+        const raw=await request.text()
+        if(Buffer.byteLength(raw)>110000)return Response.json({error:'Tasks or Library record is too large'},{status:413})
+        const {table,action,id,fields}=JSON.parse(raw)
+        const {queueTasksLibrary}=require('./standaloneRecords.cjs')
+        const data=await queueTasksLibrary(directory,{table,action,id,fields,ownerId,
+          isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
+        return Response.json({data},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:400})}
+    }
     if(url.pathname==='/api/offline/sampling-parcels'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})
       const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()

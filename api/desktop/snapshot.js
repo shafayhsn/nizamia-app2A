@@ -45,8 +45,11 @@ export default async function handler(req,res){
    }))
    entries.push(...batch)
   }
+  const users=await snapshotReader.readSnapshotTable(db,'users',{columns:'id,username,is_active,is_restricted'})
+  entries.push(['task_people',users.filter(row=>row.is_active===true&&row.is_restricted!==true)
+   .map(({id,username})=>({id,username,is_active:true}))])
   const tables=Object.fromEntries(entries)
   const counts=Object.fromEntries(entries.map(([name,rows])=>[name,rows.length]))
-  return res.status(200).json({backup_metadata:{table_count:TABLES.length,table_row_counts:counts,exported_at:new Date().toISOString()},tables})
+  return res.status(200).json({backup_metadata:{table_count:entries.length,table_row_counts:counts,exported_at:new Date().toISOString()},tables})
  }catch(error){return res.status(503).json({error:'Cloud snapshot could not be prepared'})}
 }

@@ -6,6 +6,16 @@ import { createClient } from '@supabase/supabase-js'
 // The online web app keeps its original Supabase client unchanged.
 const isMacOffline = typeof location !== 'undefined' && location.protocol === 'app2a:'
 const offlineTables = new Set(['orders','tasks','buyers','suppliers','purchase_orders','purchase_order_items','samples','parcels','shipments','shipment_lines','production_daily_entries','costing','pp_meetings','production_plans','jobs','order_queues','bom_items','washing','embellishments','finishing','work_orders','buyer_addresses','buyer_contacts','supplier_contacts','size_groups','size_group_colors','size_group_breakdown','order_processes','work_order_items','payment_settlements','production_batches','production_batch_orders','sample_comments','finishing_packs','fitting_blocks','library_items','sample_logs','fitting','work_order_changelog','shipping_bookings','shipping_booking_lines','shipping_booking_shipments','parcel_invoice_snapshots','testing_requirements','testing_orders','feature_assets','feature_certificates','parcel_status_history'])
+const tasksLibraryTables = new Set(['app_tasks','app_task_comments','library_items','size_group_templates'])
+export async function saveOfflineTrimPackage({action,id,fields}) {
+ const response=await fetch('/api/offline/tasks-library',{
+  method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table:'bom_presets',action,id,fields}),
+ })
+ const {data,error}=await response.json()
+ if(!response.ok)throw Error(error||'Could not save the trim package')
+ notifyOfflineWrite()
+ return data
+}
 const notifyOfflineWrite=()=>{if(typeof window!=='undefined')window.dispatchEvent(new Event('app2a-offline-data-changed'))}
 async function readOfflineRows(table){
  if(!/^[a-z][a-z0-9_]{0,63}$/.test(table))throw Error('Invalid offline table')
@@ -43,12 +53,24 @@ function offlineQuery(table) {
   const run=async()=>{
     try{
       if(!operation){const {rows,total}=await load();if(strictSingle&&rows.length!==1)return {data:null,error:new Error('Expected exactly one record; found '+rows.length),count:countRequested?total:null};return {data:headOnly?null:single?(rows[0]||null):rows,error:null,count:countRequested?total:null}}
-      if(!offlineTables.has(table))throw Error('This table is not available offline')
+      if(!offlineTables.has(table)&&!tasksLibraryTables.has(table))throw Error('This table is not available offline')
       const previousColumns=columns,previousOffset=offset,previousLimit=limit
       columns='*';offset=0;limit=null
       let existing
       try{existing=operation==='create'?[]:(await load()).rows}finally{columns=previousColumns;offset=previousOffset;limit=previousLimit}
       if(operation!=='create' && existing.length===0)return {data:returnRows?(single?null:[]):null,error:null,count:countRequested?0:null}
+      if(tasksLibraryTables.has(table)){
+        const values=operation==='create'?(Array.isArray(payload)?payload:[payload]):[payload]
+        if(upsert||values.length!==1||existing.length>1)throw Error('Save one Tasks or Library record at a time')
+        const response=await fetch('/api/offline/tasks-library',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:operation,table,id:existing[0]?.id,fields:values[0]}),
+        })
+        const {data,error}=await response.json()
+        if(!response.ok)throw Error(error||'Could not save Tasks or Library changes')
+        notifyOfflineWrite()
+        return {data:returnRows?(single?data:[data]):null,error:null}
+      }
       if(operation==='create'&&upsert){
         const values=Array.isArray(payload)?payload:[payload]
         if(!values.length||values.length>500)throw Error('Upsert requires 1–500 records')

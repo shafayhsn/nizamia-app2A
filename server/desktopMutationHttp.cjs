@@ -33,6 +33,12 @@ function createDesktopMutationHttp({db,key}){
       typeof intent.changes.status==='string'&&(intent.expected.status===null||typeof intent.expected.status==='string')){
     rpc='desktop_update_order_status'
     args={target_order:intent.id,previous_status:intent.expected.status,new_status:intent.changes.status}
+   }else if(['app_tasks','app_task_comments','library_items','size_group_templates','bom_presets'].includes(intent?.table)&&
+      ['create','update','delete'].includes(intent.operation)&&uuid.test(intent.id||'')&&
+      (intent.fields?.area4||intent.changes?.area4||intent.expected?.area4)){
+    rpc='desktop_change_tasks_library'
+    args={kind:intent.table,verb:intent.operation,target:intent.id,patch:intent.fields?.area4||intent.changes?.area4||null,
+     expected:intent.expected?.area4||null}
    }else if(['samples','sample_comments','parcels','parcel_invoice_snapshots'].includes(intent?.table)&&['create','update','delete'].includes(intent.operation)&&
       /^[a-z0-9_-]{1,128}$/i.test(intent.id||'')&&(intent.fields?.area3||intent.changes?.area3||intent.expected?.area3)){
     rpc='desktop_change_sampling_parcel'

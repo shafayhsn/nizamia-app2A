@@ -7,13 +7,13 @@ const primaryKeys=Object.freeze({
  production_batch_orders:'order_id'
 })
 
-async function readSnapshotTable(db,table,{pageSize=1000,maxRows=100000}={}){
+async function readSnapshotTable(db,table,{pageSize=1000,maxRows=100000,columns='*'}={}){
  const key=primaryKeys[table]||'id'
  const rows=[]
  const seen=new Set()
  let cursor,total
  do{
-  let query=db.from(table).select('*',{count:'exact'}).order(key,{ascending:true}).limit(pageSize)
+  let query=db.from(table).select(columns,{count:'exact'}).order(key,{ascending:true}).limit(pageSize)
   if(cursor!==undefined)query=query.gt(key,cursor)
   const {data,count,error}=await query
   if(error||!Array.isArray(data)||!Number.isSafeInteger(count)||count<0||

@@ -1,9 +1,11 @@
 import MinimizableModal from '../components/ui/MinimizableModal'
 import React, { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, saveOfflineTrimPackage } from '../lib/supabase'
 import { Plus, Edit2, Trash2, BookOpen, X, Layers, Star, Search } from 'lucide-react'
 import { BOM_CATEGORIES } from '../lib/utils'
 import { useAppDialogs } from '../components/ui/AppDialogs'
+
+const snapshotEvent='app2a-cloud-snapshot-updated'
 
 const FABRIC_UNITS = ['yards', 'meters', 'cm', 'inch', 'ft']
 const TRIM_UNITS   = ['pcs', 'kg', 'gram', 'cone', 'set', 'sht', 'ctn', 'roll', 'ltr', 'meters', 'yards', 'cm', 'inch', 'ft']
@@ -115,12 +117,14 @@ function SizeGroupsTab() {
   useEffect(() => {
     loadGroups()
     supabase.from('buyers').select('id,name').order('name').then(({ data }) => setBuyers(data || []))
+    window.addEventListener(snapshotEvent,loadGroups)
+    return ()=>window.removeEventListener(snapshotEvent,loadGroups)
   }, [])
 
   async function loadGroups() {
     const { data, error: err } = await supabase.from('size_group_templates').select('*').order('name')
     if (err) {
-      setError('Table not set up yet — please run the migration SQL in your Supabase SQL Editor. See supabase/migration_run_in_supabase.sql.')
+      setError(err.message)
     } else {
       setError('')
       setGroups(data || [])
@@ -191,7 +195,7 @@ function SizeGroupsTab() {
     }
     setSaving(false)
     if (err) {
-      alert(`Save failed: ${err.message}\n\nMake sure the size_group_templates table exists in Supabase. Run the SQL in supabase/migration_run_in_supabase.sql.`)
+      alert(err.message,{title:'Size Group Save Failed'})
       return
     }
     setModal(false)
@@ -200,7 +204,8 @@ function SizeGroupsTab() {
 
   const handleDelete = async (id) => {
     if (!await confirm('Size groups cannot be deleted. Deactivate this size group instead?', { title:'Remove Size Group', confirmText:'Deactivate', tone:'danger' })) return
-    await supabase.from('size_group_templates').update({ is_active: false }).eq('id', id)
+    const {error}=await supabase.from('size_group_templates').update({is_active:false}).eq('id',id)
+    if(error){await alert(error.message,{title:'Size Group Deactivation Failed'});return}
     loadGroups()
   }
 
@@ -208,7 +213,7 @@ function SizeGroupsTab() {
     const q = search.trim().toLowerCase()
     const matchesBuyer = !buyerFilter || g.buyer_id === buyerFilter
     const haystack = `${g.buyer_name || ''} ${g.name || ''} ${(g.sizes || []).join(' ')} ${g.base_size || ''}`.toLowerCase()
-    return matchesBuyer && (!q || haystack.includes(q))
+    return g.is_active!==false && matchesBuyer && (!q || haystack.includes(q))
   })
 
   return (
@@ -360,22 +365,78 @@ function TrimPackagesTab({ libraryItems }) {
   const [modal,setModal]=useState(false), [editing,setEditing]=useState(null), [name,setName]=useState(''), [buyerId,setBuyerId]=useState(''), [selected,setSelected]=useState(new Set()), [saving,setSaving]=useState(false)
   const [trimSearch,setTrimSearch]=useState({ 'Stitching Trim':'', 'Packing Trim':'' })
   const trims=(libraryItems||[]).filter(i=>i.category==='Stitching Trim'||i.category==='Packing Trim')
-  useEffect(()=>{ load(); supabase.from('buyers').select('id,name').order('name').then(({data})=>setBuyers(data||[])) },[])
-  async function load(){ const {data}=await supabase.from('bom_presets').select('*, bom_preset_items(id,library_item_id)').order('name'); setPackages(data||[]) }
+  useEffect(()=>{
+    load()
+    supabase.from('buyers').select('id,name').order('name').then(({data})=>setBuyers(data||[]))
+    window.addEventListener(snapshotEvent,load)
+    return ()=>window.removeEventListener(snapshotEvent,load)
+  },[])
+  async function load(){
+    const {data,error}=await supabase.from('bom_presets').select('*, bom_preset_items(id,library_item_id)').order('name')
+    if(error){await alert(error.message,{title:'Could Not Load Trim Packages'});return}
+    setPackages(data||[])
+  }
   const openNew=()=>{setEditing(null);setName('');setBuyerId('');setSelected(new Set());setTrimSearch({'Stitching Trim':'','Packing Trim':''});setModal(true)}
   const openEdit=(p)=>{setEditing(p);setName(p.name||'');setBuyerId(p.buyer_id||'');setSelected(new Set((p.bom_preset_items||[]).map(x=>x.library_item_id)));setTrimSearch({'Stitching Trim':'','Packing Trim':''});setModal(true)}
-  async function save(){ if(!name.trim()||!buyerId||!selected.size) return; setSaving(true); let presetId=editing?.id; if(editing){await supabase.from('bom_presets').update({name:name.trim(),buyer_id:buyerId}).eq('id',presetId);await supabase.from('bom_preset_items').delete().eq('preset_id',presetId)}else{const {data,error}=await supabase.from('bom_presets').insert([{name:name.trim(),buyer_id:buyerId}]).select().single();if(error){setSaving(false);await alert(error.message,{title:'Save Failed'});return}presetId=data.id} const rows=[...selected].map(id=>({preset_id:presetId,library_item_id:id})); const {error}=await supabase.from('bom_preset_items').insert(rows);setSaving(false);if(error){await alert(error.message,{title:'Save Failed'});return}setModal(false);load() }
-  const duplicate=(p)=>{setEditing(null);setName(`${p.name} Copy`);setBuyerId(p.buyer_id||'');setSelected(new Set((p.bom_preset_items||[]).map(x=>x.library_item_id)));setTrimSearch({'Stitching Trim':'','Packing Trim':''});setModal(true)}
-  async function remove(p){if(!await confirm(`Delete trim package “${p.name}”?`,{title:'Delete Trim Package',confirmText:'Delete',tone:'danger'}))return;await supabase.from('bom_preset_items').delete().eq('preset_id',p.id);await supabase.from('bom_presets').delete().eq('id',p.id);load()}
+  async function save(){
+    if(!name.trim()||!buyerId||!selected.size||saving)return
+    setSaving(true)
+    const fields={name:name.trim(),buyer_id:buyerId}
+    try{
+      if(location.protocol==='app2a:'){
+        await saveOfflineTrimPackage({action:editing?'update':'create',id:editing?.id,fields:{...fields,members:[...selected]}})
+      }else{
+        let presetId=editing?.id
+        if(editing){
+          const {error}=await supabase.from('bom_presets').update(fields).eq('id',presetId)
+          if(error)throw error
+          const {error:removeError}=await supabase.from('bom_preset_items').delete().eq('preset_id',presetId)
+          if(removeError)throw removeError
+        }else{
+          const {data,error}=await supabase.from('bom_presets').insert([fields]).select().single()
+          if(error)throw error
+          presetId=data.id
+        }
+        const {error}=await supabase.from('bom_preset_items').insert([...selected].map(id=>({preset_id:presetId,library_item_id:id})))
+        if(error)throw error
+      }
+      setModal(false)
+      await load()
+    }catch(error){await alert(error.message,{title:'Save Failed'})}
+    finally{setSaving(false)}
+  }
+  const duplicate=p=>{
+    setEditing(null);setName(`${p.name} Copy`);setBuyerId(p.buyer_id||'')
+    setSelected(new Set((p.bom_preset_items||[]).map(x=>x.library_item_id).filter(id=>trims.some(item=>item.id===id&&item.is_active!==false))))
+    setTrimSearch({'Stitching Trim':'','Packing Trim':''});setModal(true)
+  }
+  async function remove(p){
+    if(!await confirm(`Delete trim package “${p.name}”?`,{title:'Delete Trim Package',confirmText:'Delete',tone:'danger'}))return
+    try{
+      if(location.protocol==='app2a:')await saveOfflineTrimPackage({action:'delete',id:p.id})
+      else{
+        const {error}=await supabase.from('bom_preset_items').delete().eq('preset_id',p.id)
+        if(error)throw error
+        const {error:removeError}=await supabase.from('bom_presets').delete().eq('id',p.id)
+        if(removeError)throw removeError
+      }
+      await load()
+    }catch(error){await alert(error.message,{title:'Delete Failed'})}
+  }
   const buyerName=id=>buyers.find(b=>b.id===id)?.name||'—'
   const toggle=id=>setSelected(x=>{const n=new Set(x);n.has(id)?n.delete(id):n.add(id);return n})
+  const missing=[...selected].filter(id=>!trims.some(item=>item.id===id))
   return <><div className="section-header"><div style={{fontSize:13,color:'var(--text-mid)'}}>{packages.length} packages</div><button className="btn btn-primary" onClick={openNew}><Plus size={14}/> Add Trim Package</button></div><div className="card"><div className="table-wrap"><table><thead><tr><th>Package Name</th><th>Buyer</th><th>Stitching Trims</th><th>Packing Trims</th><th style={{textAlign:'right'}}>Actions</th></tr></thead><tbody>{packages.map(p=>{const ids=new Set((p.bom_preset_items||[]).map(x=>x.library_item_id));const st=trims.filter(x=>ids.has(x.id)&&x.category==='Stitching Trim').length,pk=trims.filter(x=>ids.has(x.id)&&x.category==='Packing Trim').length;return <tr key={p.id}><td style={{fontWeight:600}}>{p.name}</td><td>{buyerName(p.buyer_id)}</td><td>{st}</td><td>{pk}</td><td style={{textAlign:'right',whiteSpace:'nowrap'}}><button className="btn btn-ghost btn-sm" onClick={()=>openEdit(p)}><Edit2 size={13}/></button><button className="btn btn-ghost btn-sm" onClick={()=>duplicate(p)} title="Duplicate"><Layers size={13}/></button><button className="btn btn-ghost btn-sm" onClick={()=>remove(p)}><Trash2 size={13}/></button></td></tr>})}</tbody></table>{!packages.length&&<div className="empty-state"><BookOpen size={32}/><p>No trim packages yet.</p></div>}</div></div>
   {modal&&<MinimizableModal title={editing ? 'Edit Trim Package' : 'New Trim Package'} onClose={()=>setModal(false)}>
     <div style={{width:760,maxWidth:'94vw',height:'min(720px,88vh)',display:'flex',flexDirection:'column',background:'#fff',borderRadius:14,boxShadow:'0 24px 70px rgba(0,0,0,.25)',overflow:'hidden'}}>
       <div style={{height:62,padding:'0 22px',borderBottom:'1px solid #e5e7eb',display:'flex',alignItems:'center',flexShrink:0}}><div><div style={{fontSize:16,fontWeight:700,color:'#111827'}}>{editing?'Edit':'Create'} Trim Package</div><div style={{fontSize:11,color:'#9ca3af',marginTop:2}}>Build a reusable trim set for a buyer.</div></div><button onClick={()=>setModal(false)} style={{marginLeft:'auto',width:32,height:32,border:0,borderRadius:7,background:'transparent',cursor:'pointer',display:'grid',placeItems:'center'}}><X size={17}/></button></div>
       <div style={{padding:'18px 22px',overflowY:'auto',flex:1,minHeight:0}}>
         <div style={{display:'grid',gridTemplateColumns:'1.35fr 1fr',gap:14,marginBottom:20}}><div><label style={{display:'block',fontSize:10,fontWeight:700,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.45px',marginBottom:5}}>Package Name</label><input style={{width:'100%',height:36,border:'1px solid #dfe3e8',borderRadius:7,padding:'0 10px',fontSize:12,boxSizing:'border-box'}} value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Minoti Standard Kids"/></div><div><label style={{display:'block',fontSize:10,fontWeight:700,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.45px',marginBottom:5}}>Buyer</label><select style={{width:'100%',height:36,border:'1px solid #dfe3e8',borderRadius:7,padding:'0 10px',fontSize:12,background:'#fff'}} value={buyerId} onChange={e=>setBuyerId(e.target.value)}><option value="">Select buyer…</option>{buyers.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></div></div>
-        {['Stitching Trim','Packing Trim'].map(cat=>{const all=trims.filter(x=>x.category===cat);const q=trimSearch[cat].toLowerCase();const visible=all.filter(x=>`${x.name||''} ${x.description||''}`.toLowerCase().includes(q));const count=all.filter(x=>selected.has(x.id)).length;return <div key={cat} style={{marginBottom:20}}><div style={{display:'flex',alignItems:'center',marginBottom:8}}><div style={{fontSize:12,fontWeight:700}}>{cat==='Stitching Trim'?'Stitching Trims':'Packing Trims'}</div><div style={{marginLeft:7,fontSize:10,color:'#6b7280',background:'#f3f4f6',borderRadius:10,padding:'2px 7px'}}>{count} selected</div></div><div style={{position:'relative',marginBottom:8}}><Search size={13} style={{position:'absolute',left:10,top:10,color:'#9ca3af'}}/><input value={trimSearch[cat]} onChange={e=>setTrimSearch(v=>({...v,[cat]:e.target.value}))} placeholder={`Search ${cat==='Stitching Trim'?'stitching':'packing'} trims...`} style={{width:'100%',height:34,padding:'0 10px 0 30px',border:'1px solid #e5e7eb',borderRadius:7,fontSize:12,boxSizing:'border-box',background:'#fafafa'}}/></div><div style={{border:'1px solid #e5e7eb',borderRadius:8,maxHeight:180,overflowY:'auto',background:'#fff'}}>{visible.map(x=><label key={x.id} style={{display:'grid',gridTemplateColumns:'22px minmax(150px,1fr) 1fr',gap:8,alignItems:'center',padding:'9px 11px',borderBottom:'1px solid #f3f4f6',fontSize:12,cursor:'pointer'}}><input type="checkbox" checked={selected.has(x.id)} onChange={()=>toggle(x.id)}/><span style={{fontWeight:600,color:'#374151'}}>{x.name}</span><span style={{color:'#9ca3af'}}>{x.description||'—'}</span></label>)}{!visible.length&&<div style={{padding:18,textAlign:'center',fontSize:11,color:'#9ca3af'}}>No matching trims.</div>}</div></div>})}
+        {['Stitching Trim','Packing Trim'].map(cat=>{const all=trims.filter(x=>x.category===cat&&(x.is_active!==false||selected.has(x.id)));const q=trimSearch[cat].toLowerCase();const visible=all.filter(x=>`${x.name||''} ${x.description||''}`.toLowerCase().includes(q));const count=all.filter(x=>selected.has(x.id)).length;return <div key={cat} style={{marginBottom:20}}><div style={{display:'flex',alignItems:'center',marginBottom:8}}><div style={{fontSize:12,fontWeight:700}}>{cat==='Stitching Trim'?'Stitching Trims':'Packing Trims'}</div><div style={{marginLeft:7,fontSize:10,color:'#6b7280',background:'#f3f4f6',borderRadius:10,padding:'2px 7px'}}>{count} selected</div></div><div style={{position:'relative',marginBottom:8}}><Search size={13} style={{position:'absolute',left:10,top:10,color:'#9ca3af'}}/><input value={trimSearch[cat]} onChange={e=>setTrimSearch(v=>({...v,[cat]:e.target.value}))} placeholder={`Search ${cat==='Stitching Trim'?'stitching':'packing'} trims...`} style={{width:'100%',height:34,padding:'0 10px 0 30px',border:'1px solid #e5e7eb',borderRadius:7,fontSize:12,boxSizing:'border-box',background:'#fafafa'}}/></div><div style={{border:'1px solid #e5e7eb',borderRadius:8,maxHeight:180,overflowY:'auto',background:'#fff'}}>{visible.map(x=><label key={x.id} style={{display:'grid',gridTemplateColumns:'22px minmax(150px,1fr) 1fr',gap:8,alignItems:'center',padding:'9px 11px',borderBottom:'1px solid #f3f4f6',fontSize:12,cursor:'pointer'}}><input type="checkbox" checked={selected.has(x.id)} onChange={()=>toggle(x.id)}/><span style={{fontWeight:600,color:'#374151'}}>{x.name}</span><span style={{color:'#9ca3af'}}>{x.description||'—'}</span></label>)}{!visible.length&&<div style={{padding:18,textAlign:'center',fontSize:11,color:'#9ca3af'}}>No matching trims.</div>}</div></div>})}
+        {missing.length>0&&<button className="btn btn-secondary btn-sm"
+          onClick={()=>setSelected(new Set([...selected].filter(id=>!missing.includes(id))))}>
+          Remove {missing.length} unavailable trim {missing.length===1?'reference':'references'}
+        </button>}
       </div>
       <div style={{height:62,padding:'0 22px',borderTop:'1px solid #e5e7eb',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0,background:'#fff'}}><div style={{fontSize:11,color:'#6b7280'}}>{selected.size} trim{selected.size===1?'':'s'} selected</div><div style={{display:'flex',gap:8}}><button className="btn btn-secondary" onClick={()=>setModal(false)}>Cancel</button><button className="btn btn-primary" disabled={saving||!name.trim()||!buyerId||!selected.size} onClick={save}>{saving?'Saving…':editing?'Save Changes':'Create Package'}</button></div></div>
     </div>
@@ -391,11 +452,16 @@ export default function Library() {
   const [form,      setForm]    = useState({})
   const [saving,    setSaving]  = useState(false)
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    window.addEventListener(snapshotEvent,load)
+    return ()=>window.removeEventListener(snapshotEvent,load)
+  }, [])
 
   async function load() {
-    const { data } = await supabase.from('library_items').select('*').order('name')
-    setItems(data || [])
+    const {data,error}=await supabase.from('library_items').select('*').order('name')
+    if(error){await alert(error.message,{title:'Could Not Load Library'});return}
+    setItems(data||[])
   }
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -415,19 +481,25 @@ export default function Library() {
   const handleSave = async () => {
     if (!form.name?.trim()) return
     setSaving(true)
-    const payload = { ...form, category: form.category || activeTab }
-    if (editing) await supabase.from('library_items').update(payload).eq('id', editing.id)
-    else          await supabase.from('library_items').insert([payload])
-    setSaving(false); setModal(false); load()
+    const {id,created_at,updated_at,_local_only,_local_updated_at,_local_edited,...fields}=form
+    const payload={...fields,name:form.name.trim(),category:form.category||activeTab}
+    const {error}=editing?await supabase.from('library_items').update(payload).eq('id',editing.id):
+      await supabase.from('library_items').insert([payload])
+    setSaving(false)
+    if(error){await alert(error.message,{title:'Library Save Failed'});return}
+    setModal(false)
+    load()
   }
 
   const handleDelete = async (id) => {
     if (!await confirm('Library items cannot be deleted. Deactivate this item instead?', { title:'Remove Library Item', confirmText:'Deactivate', tone:'danger' })) return
-    await supabase.from('library_items').update({ is_active: false }).eq('id', id); load()
+    const {error}=await supabase.from('library_items').update({is_active:false}).eq('id',id)
+    if(error){await alert(error.message,{title:'Library Deactivation Failed'});return}
+    load()
   }
 
   const ALL_TABS = [...BOM_CATEGORIES, 'Size Groups', 'Trim Packages']
-  const tabItems = items.filter(i => i.category === activeTab)
+  const tabItems = items.filter(i => i.category === activeTab && i.is_active!==false)
   const inp = { height: 32, padding: '0 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, fontFamily: 'Inter,sans-serif', outline: 'none' }
 
   const tabLabel = (cat) => {
@@ -450,7 +522,7 @@ export default function Library() {
           }}>
             {tabLabel(cat)}
             {cat !== 'Size Groups' && cat !== 'Trim Packages' && (
-              <span style={{ fontSize: 10, color: 'var(--text-light)', marginLeft: 6 }}>({items.filter(i => i.category === cat).length})</span>
+              <span style={{ fontSize: 10, color: 'var(--text-light)', marginLeft: 6 }}>({items.filter(i => i.category === cat && i.is_active!==false).length})</span>
             )}
           </button>
         ))}

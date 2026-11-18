@@ -221,7 +221,7 @@ export default function Step2POMatrix({ orderId, orderData, onSaved, registerSav
   useEffect(() => { if (orderId) loadGroups() }, [orderId])
 
   useEffect(() => {
-    supabase.from('size_group_templates').select('*').order('name').then(({ data }) => setLibGroups(data || []))
+    supabase.from('size_group_templates').select('*').order('name').then(({ data }) => setLibGroups((data||[]).filter(row=>row.is_active!==false)))
   }, [])
 
   // Load excess cutting % and split rule from order
@@ -260,7 +260,7 @@ export default function Step2POMatrix({ orderId, orderData, onSaved, registerSav
   }
 
   async function hydrateLegacyMatrix(orderRow) {
-    const templates = libGroups.length ? libGroups : (await supabase.from('size_group_templates').select('*').order('name')).data || []
+    const templates = libGroups.length ? libGroups : ((await supabase.from('size_group_templates').select('*').order('name')).data||[]).filter(row=>row.is_active!==false)
     const legacyRows = parseLegacyPoMatrix(orderRow || orderData)
     if (!legacyRows.length) return false
     const built = normalizeUniqueGroups(buildGroupsFromLegacyMatrix(legacyRows, templates))

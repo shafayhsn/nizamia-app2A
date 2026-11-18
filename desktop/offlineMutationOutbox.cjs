@@ -26,7 +26,7 @@ function stageMutation(db,ownerId,intent){
   throw Error('Authorized mutation intent required')
  initialize(db)
  const recordId=intent.document?.independentOrderSection
-  ?intent.id+':'+intent.document.childTable:intent.id
+  ?intent.id+':'+intent.document.childTable:intent.document?.area4RecordKey||intent.id
  const saved=db.exec('SELECT operation_id FROM offline_mutation_outbox WHERE owner_id=? AND fingerprint=?',
   [ownerId,intent.fingerprint])[0]?.values?.[0]
  if(saved)return saved[0]
@@ -41,8 +41,15 @@ function stageMutation(db,ownerId,intent){
 
 function pendingMutations(db,ownerId){
  initialize(db)
- const rows=db.exec("SELECT operation_id,intent_json FROM offline_mutation_outbox WHERE owner_id=? AND state='pending' AND (  json_extract(intent_json,'$.document.afterOperation') IS NULL OR EXISTS(  SELECT 1 FROM offline_mutation_outbox AS parent WHERE parent.operation_id=json_extract(offline_mutation_outbox.intent_json,'$.document.afterOperation')  AND parent.owner_id=offline_mutation_outbox.owner_id AND parent.state='applied'))  ORDER BY rowid LIMIT 20",
-  [ownerId])[0]?.values||[]
+ const rows=db.exec(`SELECT operation_id,intent_json FROM offline_mutation_outbox item
+  WHERE owner_id=? AND state='pending' AND NOT EXISTS(
+   SELECT 1 FROM json_each(COALESCE(
+    json_extract(item.intent_json,'$.document.afterOperations'),
+    json_array(json_extract(item.intent_json,'$.document.afterOperation')))) dependency
+   WHERE dependency.value IS NOT NULL AND NOT EXISTS(
+    SELECT 1 FROM offline_mutation_outbox parent WHERE parent.operation_id=dependency.value
+     AND parent.owner_id=item.owner_id AND parent.state='applied'))
+  ORDER BY rowid LIMIT 20`,[ownerId])[0]?.values||[]
  return rows.map(([operationId,intent])=>({operationId,intent:JSON.parse(intent)}))
 }
 
@@ -57,7 +64,9 @@ function recordMutationOutcome(db,ownerId,operationId,outcome,resourceId){
   SELECT operation_id FROM offline_mutation_outbox WHERE owner_id=? AND operation_id=?
   UNION
   SELECT item.operation_id FROM offline_mutation_outbox item JOIN blocked
-   ON json_extract(item.intent_json,'$.document.afterOperation')=blocked.id WHERE item.owner_id=?
+   ON (json_extract(item.intent_json,'$.document.afterOperation')=blocked.id OR EXISTS(
+    SELECT 1 FROM json_each(item.intent_json,'$.document.afterOperations') dependency WHERE dependency.value=blocked.id))
+  WHERE item.owner_id=?
  ) UPDATE offline_mutation_outbox SET state='conflict' WHERE state='pending' AND operation_id IN (SELECT id FROM blocked)`,
  [ownerId,operationId,ownerId])
  return updated
@@ -123,6 +132,42 @@ function assertUnqueued(db,table,id){
    AND row.id=json_extract(child.value,'$.id') AND row.updated_at=json_extract(box.intent_json,'$.editedAt')
   WHERE row.table_name=? AND row.id=?`,[table,id]).length)
   throw Error('This copied record is awaiting synchronization or review.')
+}
+
+function reconcileTasksLibrary(db,tables,hold){
+ if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ const entries=db.exec(`SELECT intent_json,state FROM offline_mutation_outbox
+  WHERE json_type(intent_json,'$.document.area4RecordKey')='text' ORDER BY rowid`)[0]?.values||[]
+ const equal=require('node:util').isDeepStrictEqual
+ const remove=(table,id,stamp)=>db.run('DELETE FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[table,id,stamp])
+ for(const [json,state] of entries){
+  const {id,table,operation,editedAt,changes,document}=JSON.parse(json)
+  if(!tables[table])continue
+  const cloud=tables[table].find(row=>row.id===id)
+  const matches=operation==='create'?!!cloud:operation==='delete'?!cloud:cloud&&Object.entries(changes.area4).every(([key,value])=>{
+   if(key==='members')return true
+   return equal(cloud[key],value)||key==='completed_at'&&value&&cloud[key]&&Date.parse(value)===Date.parse(cloud[key])
+  })
+  const linked=document.packageChanges
+  const children=tables.bom_preset_items
+  const linkedMatch=!linked||children&&linked.added.every(id=>children.some(row=>row.id===id))&&
+   linked.removed.every(id=>!children.some(row=>row.id===id))
+  if(state==='applied'&&matches&&linkedMatch){
+   remove(table,id,editedAt)
+   if(operation==='create'||operation==='delete')db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at<=?',[table,id,editedAt])
+   for(const id of linked?.added||[])db.run("DELETE FROM standalone_records WHERE table_name='bom_preset_items' AND id=? AND updated_at=?",[id,editedAt])
+   for(const id of linked?.removed||[]){
+    remove('bom_preset_items',id,editedAt)
+    db.run("DELETE FROM standalone_records WHERE table_name='bom_preset_items' AND id=? AND updated_at<=?",[id,editedAt])
+   }
+  }else if(state==='conflict'&&operation==='delete'){
+   remove(table,id,editedAt)
+   for(const id of linked?.removed||[])remove('bom_preset_items',id,editedAt)
+  }else{
+   if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[table,id,editedAt]).length)hold.add(table+':'+id)
+   for(const id of linked?.removed||[])hold.add('bom_preset_items:'+id)
+  }
+ }
 }
 
 function reconcileArea3Records(db,tables,hold){
@@ -300,7 +345,7 @@ function reconcileUploadedCreates(db,tables){
   }
   const cloudId=resourceId||(intent.fields?.area3?id:table==='orders'&&intent.operation==='create'&&!id.startsWith('local-')?id:operationId)
   if(!tables[table]?.some(row=>(table==='parcel_invoice_snapshots'?row.parcel_id:row.id)===cloudId))continue
-  if(intent.operation!=='create'||table==='jobs'||intent.document?.buyer)continue
+  if(intent.operation!=='create'||table==='jobs'||intent.document?.buyer||intent.document?.area4RecordKey)continue
   const copied=intent.document?.clonedRows||[]
   if(!copied.every(child=>tables[child.table]?.some(row=>row.id===child.id)))continue
   for(const child of copied)db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',
@@ -318,11 +363,12 @@ function findQueuedRecords(db){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return new Set()
  return new Set((db.exec('SELECT table_name,record_id,intent_json FROM offline_mutation_outbox')[0]?.values||[]).flatMap(([table,id,json])=>{
   const intent=JSON.parse(json)
-  return [table+':'+(intent.document?.independentOrderSection?intent.id:id),...(intent.document?.finishingHeader?['finishing:'+intent.document.finishingHeader.id]:[]),...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
+  return [table+':'+(intent.document?.independentOrderSection||intent.document?.area4RecordKey?intent.id:id),...(intent.document?.finishingHeader?['finishing:'+intent.document.finishingHeader.id]:[]),...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
+   ...[...(intent.document?.packageChanges?.added||[]),...(intent.document?.packageChanges?.removed||[])].map(id=>'bom_preset_items:'+id),
    ...(intent.expected?.lines||[]).map(line=>(intent.document.childTable||intent.document.localLines[0].table)+':'+line.id),
    ...(table==='jobs'&&Array.isArray(intent.fields?.orders)?intent.fields.orders.map(order=>'orders:'+order.id):[]),
    ...[...(intent.document?.matrix?.edits||[]),...(intent.document?.matrix?.creates||[]),...(intent.document?.buyer?.edits||[]),...(intent.document?.buyer?.creates||[]),...(intent.document?.clonedRows||[]),...(intent.document?.removal?.targets||[]),...(intent.document?.copyRows||[])].map(item=>item.table+':'+item.id)]
  }))
 }
 
-module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,assertOrderSectionAvailable,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers,reconcileOrderRemovals,reconcileOrderCopies,reconcileArea3Records}
+module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,assertOrderSectionAvailable,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers,reconcileOrderRemovals,reconcileOrderCopies,reconcileArea3Records,reconcileTasksLibrary}

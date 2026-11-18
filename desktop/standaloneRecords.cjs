@@ -3,7 +3,7 @@
 // rows and never implies these records have been synchronized.
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto')
 const initSqlJs=require('sql.js')
-const TABLES=new Set(['orders','tasks','buyers','suppliers','purchase_orders','purchase_order_items','samples','parcels','shipments','shipment_lines','production_daily_entries','costing','pp_meetings','production_plans','jobs','order_queues','bom_items','washing','embellishments','finishing','work_orders','buyer_addresses','buyer_contacts','supplier_contacts','size_groups','size_group_colors','size_group_breakdown','order_processes','work_order_items','payment_settlements','production_batches','production_batch_orders','sample_comments','finishing_packs','fitting_blocks','library_items','sample_logs','fitting','work_order_changelog','shipping_bookings','shipping_booking_lines','shipping_booking_shipments','parcel_invoice_snapshots','testing_requirements','testing_orders','feature_assets','feature_certificates','parcel_status_history'])
+const TABLES=new Set(['orders','tasks','buyers','suppliers','purchase_orders','purchase_order_items','samples','parcels','shipments','shipment_lines','production_daily_entries','costing','pp_meetings','production_plans','jobs','order_queues','bom_items','washing','embellishments','finishing','work_orders','buyer_addresses','buyer_contacts','supplier_contacts','size_groups','size_group_colors','size_group_breakdown','order_processes','work_order_items','payment_settlements','production_batches','production_batch_orders','sample_comments','finishing_packs','fitting_blocks','library_items','sample_logs','fitting','work_order_changelog','shipping_bookings','shipping_booking_lines','shipping_booking_shipments','parcel_invoice_snapshots','testing_requirements','testing_orders','feature_assets','feature_certificates','parcel_status_history','app_tasks','app_task_comments','size_group_templates','bom_presets','bom_preset_items'])
 const DB_NAME='nizamia-app2a.sqlite'
 const {normalizeForm,FORMS}=require('./standaloneForms.cjs')
 const queues=new Map()
@@ -162,7 +162,7 @@ async function listCombinedRecords(directory,table){
    }
   }
   const localIds=new Set(local.map(row=>row.id))
-  return [...local.map(row=>edits.get(row.id)||row),...snapshot.filter(row=>!localIds.has(row.id)&&(!edits.has(String(row.id))||edits.get(String(row.id))!==null)).map(row=>edits.has(String(row.id))?{...row,...edits.get(String(row.id)),_local_only:false,_local_edited:true}:row)]
+  return [...local.filter(row=>edits.get(row.id)!==null).map(row=>edits.get(row.id)||row),...snapshot.filter(row=>!localIds.has(row.id)&&(!edits.has(String(row.id))||edits.get(String(row.id))!==null)).map(row=>edits.has(String(row.id))?{...row,...edits.get(String(row.id)),_local_only:false,_local_edited:true}:row)]
 }finally{db.close()}
 }
 function serialize(directory,task){
@@ -550,6 +550,142 @@ async function queueParcelInvoice(directory,{parcelId,addressId,contactId,ownerI
     fs.renameSync(temp,file)
    }finally{fs.rmSync(temp,{force:true})}
    return snapshot
+  }finally{db.close()}
+ })
+}
+
+// Task and Library targets use stable IDs so related local writes can wait
+// for the right acknowledged operation without reassigning foreign keys.
+function area4Dependency(db,ownerId,table,id){
+ if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return null
+ const latest=db.exec(`SELECT operation_id,state FROM offline_mutation_outbox
+  WHERE owner_id=? AND table_name=? AND json_extract(intent_json,'$.id')=?
+   AND json_type(intent_json,'$.document.area4RecordKey')='text' ORDER BY rowid DESC LIMIT 1`,[ownerId,table,id])[0]?.values?.[0]
+ if(latest?.[1]==='conflict')throw Error('Review the previous sync conflict for this record first.')
+ return latest?.[1]==='pending'?latest[0]:null
+}
+
+async function queueTasksLibrary(directory,{table,action,id,fields,ownerId,isCurrent}){
+ const {tables,shape}=require('./tasksLibraryMutation.cjs')
+ if(!ownerId||!tables.has(table)||!['create','update','delete'].includes(action)||
+  action!=='create'&&!cloudId.test(id||'')||action==='delete'&&table!=='bom_presets'||
+  table==='app_task_comments'&&action!=='create')throw Error('Unsupported Tasks or Library action.')
+ const patch=action==='delete'?{}:shape(table,fields)
+ if(action!=='delete')validateFields(patch)
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file)
+  const db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   db.run('CREATE TABLE IF NOT EXISTS snapshot_rows (table_name TEXT NOT NULL,row_index INTEGER NOT NULL,row_json TEXT NOT NULL,PRIMARY KEY(table_name,row_index))')
+   const target=action==='create'?crypto.randomUUID():id
+   const cloudRows=name=>(db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=?',[name])[0]?.values||[]).map(([row])=>JSON.parse(row))
+   const lookup=(name,key)=>cloudRows(name).find(row=>row.id===key)
+   const previous=(name,key)=>{
+    const overlay=db.exec('SELECT fields_json,updated_at FROM snapshot_edits WHERE table_name=? AND record_id=?',[name,key])[0]?.values?.[0]
+    if(overlay)return {row:overlay[0]===null?null:JSON.parse(overlay[0]),editedAt:overlay[1]}
+    const local=read(db,name).find(row=>row.id===key)
+    if(local){
+     const { _local_only,_local_updated_at,...row }=local
+     return {row,editedAt:_local_updated_at}
+    }
+    return {row:lookup(name,key)}
+   }
+   const {row:current,editedAt}=previous(table,target)
+   const stamp=new Date(Math.max(Date.now(),(Date.parse(editedAt)||0)+1)).toISOString()
+   if(action!=='create'&&!current)throw Error('This record is unavailable offline.')
+   const dependencies=new Set()
+   const depend=(name,key)=>{
+    const parent=area4Dependency(db,ownerId,name,key)
+    if(parent)dependencies.add(parent)
+   }
+   depend(table,target)
+   if(table==='app_tasks'&&Object.hasOwn(patch,'assignee_id')){
+    if(!cloudId.test(patch.assignee_id||'')||patch.assignee_id!==ownerId&&!lookup('task_people',patch.assignee_id))
+     throw Error('Choose an active synchronized assignee.')
+   }
+   if(table==='app_task_comments'){
+    if(!cloudId.test(patch.task_id||'')||!previous('app_tasks',patch.task_id).row||
+     typeof patch.body!=='string'||!patch.body.trim()||patch.body.length>12000)throw Error('Choose an available task and enter an update.')
+    depend('app_tasks',patch.task_id)
+   }
+   const localDefaults=table==='app_tasks'?{created_by:ownerId,status:'Pending',priority:'Normal',description:'',related_record:'',completed_at:null}:
+    table==='app_task_comments'?{user_id:ownerId}:['library_items','size_group_templates'].includes(table)?{is_active:true}:{}
+   const equal=require('node:util').isDeepStrictEqual
+   const expected={}
+   let packageChanges,next
+   const overlay=(name,key,value)=>db.run('INSERT OR REPLACE INTO snapshot_edits VALUES(?,?,?,?)',
+    [name,key,value===null?null:JSON.stringify(value),stamp])
+   if(table==='bom_presets'){
+    const byId=new Map(cloudRows('bom_preset_items').filter(row=>row.preset_id===target).map(row=>[row.id,row]))
+    for(const {_local_only,_local_updated_at,...row} of read(db,'bom_preset_items')){
+     if(row.preset_id===target)byId.set(row.id,row)
+    }
+    for(const [key] of db.exec("SELECT record_id FROM snapshot_edits WHERE table_name='bom_preset_items' AND fields_json IS NULL")[0]?.values||[])
+     byId.delete(key)
+    const prior=[...byId.values()].sort((a,b)=>a.id.localeCompare(b.id))
+    if(action!=='create')Object.assign(expected,{name:current.name,buyer_id:current.buyer_id,members:prior})
+    if(action==='delete')expected.description=current.description??null
+    if(action!=='delete'){
+     const ids=patch.members
+     if(!Array.isArray(ids)||ids.length<1||ids.length>500||new Set(ids).size!==ids.length||
+      !lookup('buyers',patch.buyer_id)||!String(patch.name||'').trim())throw Error('Choose a synchronized buyer and package trims.')
+     patch.members=ids.map(libraryId=>{
+      const old=prior.find(row=>row.library_item_id===libraryId)
+      const item=cloudId.test(libraryId||'')&&previous('library_items',libraryId).row
+      if(!item||!['Stitching Trim','Packing Trim'].includes(item.category)||item.is_active===false&&!old)
+       throw Error('A selected trim is missing or inactive.')
+      depend('library_items',libraryId)
+      return {id:old?.id||crypto.randomUUID(),library_item_id:libraryId}
+     })
+    }
+    const members=patch.members||[]
+    const retained=new Set(members.map(item=>item.id))
+    const added=members.filter(member=>!prior.some(row=>row.id===member.id))
+    const removed=prior.filter(row=>!retained.has(row.id))
+    for(const {id,...fields} of added)db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',
+     [id,'bom_preset_items',JSON.stringify({preset_id:target,notes:null,wastage:null,...fields}),stamp,stamp])
+    for(const {id} of removed)overlay('bom_preset_items',id,null)
+    packageChanges={added:added.map(row=>row.id),removed:removed.map(row=>row.id)}
+    const {members:unused,...header}=patch
+    next=action==='delete'?null:{...localDefaults,...current,...header,id:target}
+   }else if(action==='update'){
+    const changed=Object.keys(patch).filter(key=>!equal(current[key]??(key==='is_active'?true:null),patch[key]))
+    if(!changed.length)return current
+    if(table==='app_tasks'&&(changed.includes('status')||changed.includes('completed_at'))){
+     for(const field of ['status','completed_at'])if(!changed.includes(field))changed.push(field)
+    }
+    for(const key of Object.keys(patch))if(!changed.includes(key))delete patch[key]
+    for(const key of changed)expected[key]=current[key]??(key==='is_active'?true:null)
+    next={...current,...patch}
+   }else{
+    next={...localDefaults,...patch,id:target}
+   }
+   const document={area4RecordKey:target+':'+crypto.randomUUID(),afterOperations:[...dependencies],
+    ...(packageChanges?{packageChanges}:{})}
+   let intent
+   if(action==='create'){
+    next.created_at=stamp
+    intent=createMutationIntent(table,target,{area4:patch},stamp,stamp,document)
+    const {id:rowId,...data}=next
+    db.run('INSERT INTO standalone_records VALUES(?,?,?,?,?)',[rowId,table,JSON.stringify(data),stamp,stamp])
+   }else{
+    if(action==='delete'){
+     const raw={operation:'delete',table,id:target,expected:{area4:expected},editedAt:stamp,document}
+     intent={...raw,fingerprint:require('./offlineMutationPlan.cjs').fingerprint(raw)}
+    }else intent=updateMutationIntent(table,target,{area4:patch},{area4:expected},stamp,null,document)
+    overlay(table,target,next)
+   }
+   if(Buffer.byteLength(JSON.stringify(intent))>115000||!stageMutation(db,ownerId,intent))
+    throw Error('Could not queue this Tasks or Library change.')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during save.')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return next
   }finally{db.close()}
  })
 }
@@ -1158,8 +1294,11 @@ async function queueOrderSection(directory,{orderId,table,enabled,notes,rule,row
      })
     }
    }
+   const libraryDependencies=table==='bom_items'?rows.map(row=>row.library_item_id).filter(Boolean)
+    .map(id=>area4Dependency(db,ownerId,'library_items',id)).filter(Boolean):[]
+   const dependencies=[...new Set([dependency,...libraryDependencies].filter(Boolean))]
    const intent=updateMutationIntent('orders',orderId,changes,expected,stamp,null,
-    {childTable:table,lines:rows,localLines,independentOrderSection:true,...(finishingHeader?{finishingHeader}:{}),...(dependency?{afterOperation:dependency}:{})})
+    {childTable:table,lines:rows,localLines,independentOrderSection:true,...(finishingHeader?{finishingHeader}:{}),...(dependencies.length?{afterOperations:dependencies}:{})})
    if(Buffer.byteLength(JSON.stringify(intent))>116000)throw Error('Order section is too large for offline sync.')
    db.run('INSERT INTO offline_order_section_overlays VALUES (?,?,?,?)',[orderId,table,JSON.stringify(changes),stamp])
    if(finishingHeader){
@@ -1447,4 +1586,4 @@ async function queueParcelCreate(directory,{items,customItems,addressId,contactI
  })
 }
 
-module.exports={queueParcelInvoice,queueArea3Records,queueOrderCopy,queueOrderRemoval,queueOrderImport,queueOrderSection,queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+module.exports={queueTasksLibrary,queueParcelInvoice,queueArea3Records,queueOrderCopy,queueOrderRemoval,queueOrderImport,queueOrderSection,queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}

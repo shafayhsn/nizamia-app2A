@@ -7,13 +7,24 @@ import {can} from '../lib/permissions'
 import {Plus,Search,X} from 'lucide-react'
 
 const base={title:'',assignee_id:'',due_date:'',priority:'Normal',description:'',related_record:''}
+const snapshotEvent='app2a-cloud-snapshot-updated'
 const cell={padding:'9px 12px',borderBottom:'1px solid #eceef1',fontSize:12,textAlign:'left'}
 export default function Tasks(){
  const {user,userRole}=useAuth();const [rows,setRows]=useState([]),[people,setPeople]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true)
  const [tab,setTab]=useState('mine'),[search,setSearch]=useState(''),[form,setForm]=useState(null),[busy,setBusy]=useState(false),[detail,setDetail]=useState(null),[comment,setComment]=useState(''),[comments,setComments]=useState([])
  const id=user?.id;const setupRequired=/Tasks setup is incomplete/.test(error)
- async function load(){setLoading(true);const [tasks,users]=await Promise.all([supabase.from('app_tasks').select('*').order('created_at',{ascending:false}),supabase.from('users').select('id,username').eq('is_active',true)]);if(tasks.error)setError(tasks.error.code==='PGRST205'||/schema cache|does not exist/i.test(tasks.error.message)?'Tasks setup is incomplete. An administrator must install the secured Tasks backend before tasks can be saved.':tasks.error.message);else{setRows(tasks.data||[]);setError('')}if(!users.error)setPeople(users.data||[]);setLoading(false)}
- useEffect(()=>{load()},[])
+ async function load(){setLoading(true);const [tasks,users]=await Promise.all([supabase.from('app_tasks').select('*').order('created_at',{ascending:false}),supabase.from(location.protocol==='app2a:'?'task_people':'users').select('id,username').eq('is_active',true)]);if(tasks.error)setError(tasks.error.code==='PGRST205'||/schema cache|does not exist/i.test(tasks.error.message)?'Tasks setup is incomplete. An administrator must install the secured Tasks backend before tasks can be saved.':tasks.error.message);else{setRows(tasks.data||[]);setError('')}if(!users.error){const next=users.data||[];setPeople(id&&!next.some(p=>p.id===id)?[{id,username:user.username},...next]:next)};setLoading(false)}
+ useEffect(()=>{
+  load()
+  window.addEventListener(snapshotEvent,load)
+  return ()=>window.removeEventListener(snapshotEvent,load)
+ },[id])
+ useEffect(()=>{
+  if(!detail?.id)return
+  const refresh=()=>openDetail(rows.find(row=>row.id===detail.id)||detail)
+  window.addEventListener(snapshotEvent,refresh)
+  return ()=>window.removeEventListener(snapshotEvent,refresh)
+ },[detail?.id,rows])
  const displayName=id=>people.find(p=>p.id===id)?.username||'Unknown'
  const visible=useMemo(()=>rows.filter(r=>{if(tab==='mine'&&r.assignee_id!==id)return false;if(tab==='assigned'&&r.created_by!==id)return false;if(tab==='completed'&&r.status!=='Completed')return false;if(tab==='all'&&!can(userRole,'tasks','delete'))return false;if(tab!=='completed'&&r.status==='Completed')return false;return [r.title,r.description,displayName(r.assignee_id)].join(' ').toLowerCase().includes(search.toLowerCase())}),[rows,tab,search,id,people,userRole])
  const overdue=r=>r.status!=='Completed'&&r.due_date&&r.due_date<new Date().toISOString().slice(0,10)
@@ -29,7 +40,7 @@ export default function Tasks(){
    handledSearch.current=globalLocation.key
    setTab('all');setSearch('');openDetail(match)
  },[globalLocation.key,rows])
- async function openDetail(r){setDetail(r);const {data}=await supabase.from('app_task_comments').select('*').eq('task_id',r.id).order('created_at');setComments(data||[])}
+ async function openDetail(r){setDetail(r);const {data,error}=await supabase.from('app_task_comments').select('*').eq('task_id',r.id).order('created_at');if(error)setError(error.message);else setComments(data||[])}
  async function addComment(){if(!comment.trim())return;const {error}=await supabase.from('app_task_comments').insert({task_id:detail.id,user_id:id,body:comment.trim()});if(error){setError(error.message);return}setComment('');openDetail(detail)}
  const kpis=[['OPEN TASKS',rows.filter(r=>r.assignee_id===id&&r.status!=='Completed').length],['DUE TODAY',rows.filter(r=>r.assignee_id===id&&r.status!=='Completed'&&r.due_date===new Date().toISOString().slice(0,10)).length],['OVERDUE',rows.filter(r=>r.assignee_id===id&&overdue(r)).length]]
  return <div style={{padding:24,overflowY:'auto',height:'100%',background:'#fafafa',color:'#111827'}}>

@@ -24,7 +24,8 @@ const token=issueDesktopSyncToken(key,actor)
 const snapshotToken=Buffer.from(JSON.stringify({
  id:actor,scope:'desktop-snapshot',exp:Date.now()+60*60*1000,
 })).toString('base64url')+'.fixture'
-const names=['orders','buyers','suppliers','size_groups','size_group_colors','order_queues','bom_items','samples','sample_comments','parcels','parcel_status_history']
+const names=['orders','buyers','suppliers','size_groups','size_group_colors','order_queues','bom_items','samples','sample_comments','parcels','parcel_status_history',
+ 'app_tasks','app_task_comments','task_people','library_items','size_group_templates','bom_presets','bom_preset_items']
 let online=true
 let uploads=0
 let failure
@@ -44,7 +45,7 @@ const fixture=(async()=>{
  await db.exec(`
   create role anon; create role authenticated; create role service_role;
   create schema desktop_private; grant usage on schema desktop_private to service_role;
-  create table users(id uuid primary key,role text,is_active bool,is_restricted bool);
+  create table users(id uuid primary key,role text,is_active bool,is_restricted bool,username text);
   create table orders(id uuid primary key,buyer_id uuid,style_number text,step_bom boolean,step_sampling boolean);
   create table buyers(id uuid primary key,name text);
    create table buyer_addresses(id uuid primary key,buyer_id uuid,recipient text,label text,address_line1 text,address_line2 text,city text,region text,postal_code text,country text,phone text,email text);
@@ -65,13 +66,25 @@ const fixture=(async()=>{
    custom_items jsonb,tracking_url text,updated_at timestamptz,dispatched_at timestamptz,delivered_at timestamptz,received_by text);
   create table parcel_status_history(id uuid default gen_random_uuid(),parcel_id text,old_status text,new_status text,note text);
   create table counters(key text primary key,value int);
+   create table app_tasks(id uuid primary key,title text not null,assignee_id uuid references users,created_by uuid not null references users,
+    due_date date not null,priority text default 'Normal',status text default 'Pending',description text default '',
+    related_record text default '',completed_at timestamptz,created_at timestamptz default now());
+   create table app_task_comments(id uuid primary key,task_id uuid references app_tasks,user_id uuid references users,
+    body text,created_at timestamptz default now());
+   create table library_items(id uuid primary key,name text,category text,unit text,notes text,default_wastage numeric,
+    updated_at timestamptz default now(),created_at timestamptz default now());
+   create table size_group_templates(id uuid primary key,name text,sizes text[],buyer_id uuid references buyers,
+    buyer_name text,base_size text,created_at timestamptz default now());
+   create table bom_presets(id uuid primary key,name text,buyer_id uuid references buyers,description text,created_at timestamptz default now());
+   create table bom_preset_items(id uuid primary key,preset_id uuid references bom_presets on delete cascade,
+    library_item_id uuid references library_items,notes text,wastage numeric);
   grant select,insert,update,delete on all tables in schema public to service_role;
  `)
  await db.exec(fs.readFileSync(path.join(__dirname,'../server/migrations/20261118_desktop_order_section_copy.sql'),'utf8'))
- for(const name of ['parcel_transition','sampling_parcels'])
+ for(const name of ['parcel_transition','sampling_parcels','tasks_library'])
   await db.exec(fs.readFileSync(path.join(__dirname,'../server/migrations/20261118_desktop_'+name+'.sql'),'utf8'))
  await db.exec('set role service_role')
- await db.query("insert into users values($1,'admin',true,false)",[actor])
+ await db.query("insert into users values($1,'admin',true,false,'box2-fixture')",[actor])
  await db.query("insert into buyers values($1,'Intel QA buyer')",[buyer])
  await db.query("insert into orders(id,buyer_id,style_number,step_bom) values($1,$3,'Intel QA style',true),($2,$3,'Intel QA style',false)",[source,target,buyer])
  await db.query("insert into bom_items values($1,$2,'Intel QA denim')",[material,source])
@@ -87,6 +100,11 @@ const mutations=createDesktopMutationHttp({key,db:{async rpc(name,args){
  if(name==='desktop_transition_parcel'){
   const {rows}=await db.query('select desktop_transition_parcel($1,$2,$3,$4::jsonb) as outcome',
    [args.actor,args.operation,args.target_parcel,JSON.stringify(args.payload)])
+  return {data:rows[0].outcome}
+ }
+ if(name==='desktop_change_tasks_library'){
+  const {rows}=await db.query('select desktop_change_tasks_library($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb) as outcome',
+   [args.actor,args.operation,args.kind,args.target,args.verb,JSON.stringify(args.patch),JSON.stringify(args.expected)])
   return {data:rows[0].outcome}
  }
  assert.equal(name,'desktop_copy_order_sections')
@@ -110,7 +128,8 @@ global.fetch=async(url,options)=>{
   case '/api/desktop/snapshot': {
    assert.equal(options.headers.authorization,'Bearer '+snapshotToken)
    const tables=Object.fromEntries(await Promise.all(names.map(async name=>
-    [name,(await db.query('select to_jsonb(t) as row from '+name+' t order by id')).rows.map(row=>row.row)])))
+    [name,name==='task_people'?(await db.query('select id,username,is_active from users where is_active')).rows:
+     (await db.query('select to_jsonb(t) as row from '+name+' t order by id')).rows.map(row=>row.row)])))
    return Response.json({backup_metadata:{table_count:names.length,table_row_counts:
     Object.fromEntries(names.map(name=>[name,tables[name].length]))},tables})
   }
@@ -192,7 +211,35 @@ async function check(){
  await until(async()=> (await records(win,'parcel_status_history')).some(row=>row.new_status==='Dispatched'),
   'Reconnect did not publish linked parcel dispatch history')
  assert.equal((await db.query("select tracking_no from parcels where id='intel-area3-parcel'")).rows[0].tracking_no,'Intel-123')
- console.log('Intel Electron acceptance passed: offline reopen, section copy, sample and approval, parcel dispatch, reconnect and cloud readback.')
+ online=false
+ assert.equal((await records(win,'task_people'))[0].username,'box2-fixture')
+ const tasksLibrary=body=>request(win,'/api/offline/tasks-library',body)
+ const {data:task}=await tasksLibrary({table:'app_tasks',action:'create',fields:{
+  title:'Intel offline task',assignee_id:actor,due_date:'2026-11-23',related_record:'Intel QA style'}})
+ await tasksLibrary({table:'app_task_comments',action:'create',fields:{task_id:task.id,body:'Intel offline task update'}})
+ const {data:trim}=await tasksLibrary({table:'library_items',action:'create',fields:{
+  name:'Intel stitching trim',category:'Stitching Trim',unit:'pcs'}})
+ await tasksLibrary({table:'bom_presets',action:'create',fields:{name:'Intel offline package',buyer_id:buyer,members:[trim.id]}})
+ const {data:template}=await tasksLibrary({table:'size_group_templates',action:'create',fields:{
+  name:'Intel youth sizes',sizes:['S','M'],base_size:'S'}})
+ assert.equal((await records(win,'app_tasks')).find(row=>row.id===task.id)._local_only,true)
+ assert.equal((await records(win,'bom_preset_items')).find(row=>row.library_item_id===trim.id)._local_only,true)
+ online=true
+ await login(win)
+ await until(async()=> (await records(win,'app_tasks')).some(row=>row.id===task.id&&row._local_only===false),
+  'Tasks upload did not reconcile in SQLite')
+ await login(win)
+ await until(async()=> (await records(win,'app_task_comments')).some(row=>row.task_id===task.id&&row._local_only===false),
+  'Task updates did not upload after their parent task')
+ await until(async()=> (await records(win,'bom_preset_items')).some(row=>row.library_item_id===trim.id&&row._local_only===false),
+  'Trim package links did not upload after the library item')
+ await until(async()=> (await records(win,'size_group_templates')).some(row=>row.id===template.id&&row._local_only===false),
+  'Size group template did not sync')
+ await db.query("update app_tasks set title='Intel web-edited task' where id=$1",[task.id])
+ await login(win)
+ await until(async()=> (await records(win,'app_tasks')).some(row=>row.id===task.id&&row.title==='Intel web-edited task'),
+  'Cloud task change did not refresh into SQLite')
+ console.log('Intel Electron acceptance passed for Area 2, Area 3 and Tasks and Library: offline save, reconnect and cloud readback.')
 }
 check().then(async()=>{
  await db.close()
