@@ -85,9 +85,25 @@ function ensureSchema(db) {
   )`)
 }
 async function stageDraft(args) {
-  return serializedMutation(args.directory, () => stageDraftInternal(args))
+  return serializedMutation(args.directory, () => stageDraftInternal({
+    ...args, authorize: (draft,now) => authorizedDraft(draft,args.grant,args.session,now)
+  }))
 }
-async function stageDraftInternal({ directory, table, recordId, changes, grant, session, authenticateEvidence, now = Date.now() }) {
+async function stageOrderNote({directory,recordId,notes,expectedNotes,session,authenticateSession}){
+  if(typeof recordId!=='string'||!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(recordId)||
+     (expectedNotes!==null&&typeof expectedNotes!=='string'))
+    throw Error('A synchronized order and its original note are required')
+  return serializedMutation(directory,()=>stageDraftInternal({
+    directory,table:'orders',recordId,changes:{notes},session,
+    authenticateEvidence:()=>authenticateSession(session),
+    authorize(draft){
+      if(draft.before.notes!==expectedNotes)throw Error('The saved order note changed. Reopen the order before queuing this edit.')
+      return true
+    }
+  }))
+}
+
+async function stageDraftInternal({ directory, table, recordId, changes, grant, session, authenticateEvidence, authorize, now = Date.now() }) {
   if (!APPROVED.has(table)) throw new Error('Offline edits are not enabled for this table')
   if (typeof authenticateEvidence !== 'function' || await authenticateEvidence({ grant, session }) !== true)
     throw new Error('Trusted authorization evidence required')
@@ -103,11 +119,11 @@ async function stageDraftInternal({ directory, table, recordId, changes, grant, 
     const record = findRecord(db, table, recordId)
     if (!record) throw new Error('Snapshot record missing')
     const draft = makeDraft({ table, record, changes, snapshotHash })
-    if (!authorizedDraft(draft, grant, session, now)) throw new Error('Draft permission denied')
+    if (!authorize(draft, now)) throw new Error('Draft permission denied')
     if (!checkDraftConflict(draft, record, snapshotHash).safe) throw new Error('Draft conflict')
     ensureSchema(db)
     // Prevent ambiguous edits: one pending change per field and record.
-    const pending = db.prepare("SELECT draft_json FROM offline_draft_journal WHERE table_name = ? AND record_id = ? AND state = 'pending'")
+    const pending = db.prepare("SELECT draft_json FROM offline_draft_journal WHERE table_name = ? AND record_id = ? AND state IN ('pending','conflict')")
     try {
       pending.bind([table, draft.recordId])
       while (pending.step()) {
@@ -122,12 +138,13 @@ async function stageDraftInternal({ directory, table, recordId, changes, grant, 
       JSON.stringify(draft), 'pending', draft.createdAt
     ])
     // Reject concurrent snapshot replacement before atomic journal persistence.
+    if(await authenticateEvidence({grant,session})!==true)throw Error('Session ended before saving the draft')
     if (fingerprint(file) !== fileHash) throw new Error('Database changed during staging')
     persist(file, db)
     return { draftId: draft.draftId, state: 'pending', table, recordId: draft.recordId }
   } finally { db.close() }
 }
-async function listDrafts({ directory, session, authenticateSession }) {
+async function listDrafts({ directory, session, authenticateSession, includeChanges=false }) {
   if (typeof authenticateSession !== 'function' || await authenticateSession(session) !== true ||
       !session || typeof session.identity !== 'string' || !session.identity)
     throw new Error('Authenticated session required')
@@ -138,8 +155,11 @@ async function listDrafts({ directory, session, authenticateSession }) {
   try {
     const tables = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='offline_draft_journal'")
     if (!tables.length) return []
-    const rows = db.exec('SELECT draft_id, table_name, record_id, state, created_at FROM offline_draft_journal WHERE identity = ? ORDER BY created_at', [session.identity])
-    return (rows[0]?.values || []).map(([draftId, table, recordId, state, createdAt]) => ({ draftId, table, recordId, state, createdAt }))
+    const rows = db.exec('SELECT draft_id, table_name, record_id, state, created_at, draft_json FROM offline_draft_journal WHERE identity = ? ORDER BY created_at', [session.identity])
+    return (rows[0]?.values || []).map(([draftId, table, recordId, state, createdAt, json]) => ({
+      draftId, table, recordId, state, createdAt,
+      ...(includeChanges?{changes:JSON.parse(json).changes}:{})
+    }))
   } finally { db.close() }
 }
 // Builds a bounded, read-only preview against caller-supplied cloud records.
@@ -161,7 +181,7 @@ async function previewSync({ directory, session, authenticateSession, cloudRecor
     const exists = db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_draft_journal'")
     if (!exists.length) return []
     const { planBatch } = require('./offlineSyncPlanner.cjs')
-    const stmt = db.prepare("SELECT identity, draft_json FROM offline_draft_journal WHERE identity = ? AND state = 'pending' ORDER BY created_at LIMIT 101")
+    const stmt = db.prepare("SELECT identity, draft_json FROM offline_draft_journal WHERE identity = ? AND state = 'pending' ORDER BY created_at,draft_id LIMIT 20")
     const items = []
     try {
       stmt.bind([session.identity])
@@ -216,13 +236,12 @@ async function pendingSyncDrafts({directory,session,authenticateSession}){
  try{
   if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
   if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_draft_journal'").length)return []
-  const stmt=db.prepare("SELECT draft_json FROM offline_draft_journal WHERE identity = ? AND state = 'pending' ORDER BY created_at LIMIT 101")
+  const stmt=db.prepare("SELECT draft_json FROM offline_draft_journal WHERE identity = ? AND state = 'pending' ORDER BY created_at,draft_id LIMIT 20")
   const drafts=[]
   try{
    stmt.bind([session.identity])
    while(stmt.step())drafts.push(JSON.parse(stmt.get()[0]))
   }finally{stmt.free()}
-  if(drafts.length>100)throw Error('Sync batch limit exceeded')
   const {validateDraft}=require('./offlineSyncPlanner.cjs')
   drafts.forEach(validateDraft)
   return drafts
@@ -340,4 +359,4 @@ async function rebaseConflictInternal({directory,draftId,session,authenticateSes
  }finally{db.close()}
 }
 
-module.exports = { stageDraft, listDrafts, previewSync, cancelDraft, snapshotFingerprint, pendingSyncDrafts, commitSyncResults, listSyncHistory, rebaseConflict }
+module.exports = { stageDraft, stageOrderNote, listDrafts, previewSync, cancelDraft, snapshotFingerprint, pendingSyncDrafts, commitSyncResults, listSyncHistory, rebaseConflict }

@@ -11,6 +11,23 @@ export default function Step9Processes({ orderId, onSaved, registerSave }) {
   const [notes,     setNotes]     = useState('')
   const [saving,    setSaving]    = useState(false)
   const [saved,     setSaved]     = useState(false)
+  const [originalNote,setOriginalNote]=useState(undefined)
+  const [queueStatus,setQueueStatus]=useState('')
+  const desktop=typeof window!=='undefined'&&window.location.protocol==='app2a:'
+
+  async function queueNote(){
+    setQueueStatus('Saving order note…')
+    try{
+      const response=await fetch('/api/offline/order-note',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({orderId,notes,expectedNotes:originalNote})
+      })
+      const body=await response.json()
+      if(!response.ok)throw Error(body.error||'Could not queue the order note')
+      setQueueStatus('Order note saved in the sync queue.')
+      window.dispatchEvent(new Event('app2a-offline-data-changed'))
+    }catch(error){setQueueStatus(error.message)}
+  }
 
   useEffect(() => { if (orderId) load() }, [orderId])
 
@@ -22,7 +39,9 @@ export default function Step9Processes({ orderId, onSaved, registerSave }) {
     }
     // Load notes from order
     const { data: ord } = await supabase.from('orders').select('notes').eq('id', orderId).single()
-    if (ord?.notes) setNotes(ord.notes)
+    setOriginalNote(ord?ord.notes??null:undefined)
+    setNotes(ord?.notes??'')
+    setQueueStatus('')
   }
 
   const toggle = (p) => setTicked(t => t.includes(p) ? t.filter(x => x !== p) : [...t, p])
@@ -140,6 +159,13 @@ export default function Step9Processes({ orderId, onSaved, registerSave }) {
           onChange={e => setNotes(e.target.value)}
           placeholder="Any process-specific instructions or notes..."
         />
+        {desktop&&<div>
+          <button type="button" className="btn btn-secondary" onClick={queueNote}
+            disabled={originalNote===undefined||notes===(originalNote??'')||queueStatus==='Saving order note…'}>
+            Queue order note for cloud sync
+          </button>
+          {queueStatus&&<p role="status">{queueStatus}</p>}
+        </div>}
       </div>
 
       <div style={{ fontSize: 11, color: '#9ca3af' }}>

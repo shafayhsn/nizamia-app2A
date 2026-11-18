@@ -293,6 +293,24 @@ app.whenReady().then(() => {
     // Read-only local edit inventory. These edits are NOT marked as cloud-synced.
     // Authenticated read-only draft queue. Identity is derived exclusively from
     // the locally authenticated user, never from a renderer-supplied query.
+    if(url.pathname==='/api/offline/order-note'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      const user=desktopAuth?.status().user
+      if(user?.role!=='admin')return Response.json({error:'Administrator access is required for order note syncing'},{status:403})
+      try{
+        const raw=await request.text()
+        if(Buffer.byteLength(raw)>65536)return Response.json({error:'Order note is too large'},{status:413})
+        const input=JSON.parse(raw)
+        const directory=getDatabaseDirectory()
+        if(!directory)return Response.json({error:'Local database unavailable'},{status:503})
+        const {stageOrderNote}=require('./offlineDraftJournal.cjs')
+        const data=await stageOrderNote({
+          directory,recordId:input.orderId,notes:input.notes,expectedNotes:input.expectedNotes,
+          session:{identity:user.id},authenticateSession:()=>desktopAuth.status().user===user
+        })
+        return Response.json({data},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:409})}
+    }
     if(url.pathname==='/api/offline/drafts'){
       if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
       if(request.method!=='GET')return new Response('Method not allowed',{status:405})
@@ -302,7 +320,7 @@ app.whenReady().then(() => {
         if(!directory||!user?.id)return Response.json({error:'Local session unavailable'},{status:503})
         const session={authenticated:true,identity:user.id}
         const drafts=await require('./offlineDraftJournal.cjs').listDrafts({
-          directory,session,
+          directory,session,includeChanges:true,
           authenticateSession:async candidate=>desktopAuth.isAuthenticated()&&desktopAuth.status().user?.id===candidate.identity
         })
         return Response.json({data:drafts,error:null},{headers:{'Cache-Control':'no-store'}})

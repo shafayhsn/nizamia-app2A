@@ -156,9 +156,9 @@ function DesktopDraftDetails({ onClose }) {
     <button type="button" onClick={onClose} style={{float:'right'}}>Close</button>
     {error?<p>{error}</p>:drafts===null?<p>Loading local drafts…</p>:drafts.length===0?<p>No pending or conflicting drafts for this account.</p>:
       <ul style={{margin:'8px 0',paddingLeft:20,maxHeight:180,overflow:'auto'}}>
-        {drafts.map(d=><li key={d.draftId}>{d.table} · {d.recordId} · {d.state} · {d.createdAt}</li>)}
+        {drafts.map(d=><li key={d.draftId}>{d.table} · {d.recordId} · {d.state} · {d.createdAt}{typeof d.changes?.notes==='string'&&<div style={{whiteSpace:'pre-wrap'}}>{d.changes.notes||'(empty note)'}</div>}</li>)}
       </ul>}
-    <small>No drafts are uploaded or modified from this panel.</small>
+    <small>The desktop app checks queued edits when a cloud session is available.</small>
   </div>
 }
 

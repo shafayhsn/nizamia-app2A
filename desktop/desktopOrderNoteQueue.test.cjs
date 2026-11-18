@@ -1,0 +1,35 @@
+'use strict'
+const {test}=require('node:test')
+const assert=require('node:assert/strict')
+const fs=require('node:fs')
+const os=require('node:os')
+const path=require('node:path')
+const initSqlJs=require('sql.js')
+const {stageOrderNote,listDrafts,pendingSyncDrafts,commitSyncResults}=require('./offlineDraftJournal.cjs')
+
+test('desktop order notes survive reopen and conflicts remain visible to the owner',async t=>{
+ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-notes-'))
+ t.after(()=>fs.rmSync(directory,{recursive:true,force:true}))
+ const SQL=await initSqlJs()
+ const db=new SQL.Database()
+ const recordId='ce26cc69-47fe-4dfd-bc5b-7b91cba60b6a'
+ db.run('CREATE TABLE snapshot_manifest (table_name TEXT, row_count INTEGER)')
+ db.run("INSERT INTO snapshot_manifest VALUES ('orders',1)")
+ db.run('CREATE TABLE snapshot_rows (table_name TEXT,row_index INTEGER,row_json TEXT)')
+ db.run("INSERT INTO snapshot_rows VALUES ('orders',0,?)",[JSON.stringify({id:recordId,notes:'original'})])
+ fs.writeFileSync(path.join(directory,'nizamia-app2a.sqlite'),Buffer.from(db.export()))
+ db.close()
+ const session={identity:'admin1'}
+ const options={directory,recordId,session,notes:'new note',expectedNotes:'original',authenticateSession:async()=>true}
+ await assert.rejects(stageOrderNote({...options,authenticateSession:async()=>false}),/Trusted authorization/)
+ await assert.rejects(stageOrderNote({...options,expectedNotes:'old'}),/saved order note changed/)
+ const staged=await stageOrderNote(options)
+ assert.equal((await pendingSyncDrafts(options))[0].changes.notes,'new note')
+ await commitSyncResults({...options,results:[{draftId:staged.draftId,decision:'conflict'}]})
+ assert.deepEqual(await pendingSyncDrafts(options),[])
+ const [retained]=await listDrafts({...options,includeChanges:true})
+ assert.equal(retained.state,'conflict')
+ assert.equal(retained.changes.notes,'new note')
+ assert.deepEqual(await listDrafts({...options,session:{identity:'admin2'},includeChanges:true}),[])
+ await assert.rejects(stageOrderNote(options),/already changes this field/)
+})
