@@ -7,6 +7,7 @@ const crypto = require('node:crypto')
 const initSqlJs = require('sql.js')
 const { makeDraft, checkDraftConflict } = require('./offlineDraft.cjs')
 const { authorizedDraft } = require('./offlineDraftAuthorization.cjs')
+const { isDesktopOrderNote,validateDraft } = require('./offlineSyncPlanner.cjs')
 const DB_NAME = 'nizamia-app2a.sqlite'
 const MAX_BYTES = 50 * 1024 * 1024
 const APPROVED = new Set(['orders', 'production_daily_entries'])
@@ -181,7 +182,7 @@ async function previewSync({ directory, session, authenticateSession, cloudRecor
     const exists = db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_draft_journal'")
     if (!exists.length) return []
     const { planBatch } = require('./offlineSyncPlanner.cjs')
-    const stmt = db.prepare("SELECT identity, draft_json FROM offline_draft_journal WHERE identity = ? AND state = 'pending' ORDER BY created_at,draft_id LIMIT 20")
+    const stmt = db.prepare("SELECT identity, draft_json FROM offline_draft_journal WHERE identity = ? AND state = 'pending' ORDER BY created_at,draft_id")
     const items = []
     try {
       stmt.bind([session.identity])
@@ -225,7 +226,7 @@ async function cancelDraftInternal({ directory, draftId, session, authenticateSe
 
 // Owner-scoped pending drafts for a trusted main-process sync coordinator.
 // No renderer-facing IPC should expose draft payloads or session credentials.
-async function pendingSyncDrafts({directory,session,authenticateSession}){
+async function pendingSyncDrafts({directory,session,authenticateSession,orderNotesOnly=false}){
  if(typeof authenticateSession!=='function'||await authenticateSession(session)!==true||
     !session||typeof session.identity!=='string'||!session.identity)
   throw Error('Authenticated session required')
@@ -236,19 +237,34 @@ async function pendingSyncDrafts({directory,session,authenticateSession}){
  try{
   if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
   if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_draft_journal'").length)return []
-  const stmt=db.prepare("SELECT draft_json FROM offline_draft_journal WHERE identity = ? AND state = 'pending' ORDER BY created_at,draft_id LIMIT 20")
+  const stmt=db.prepare("SELECT draft_json FROM offline_draft_journal WHERE identity = ? AND state = 'pending' ORDER BY created_at,draft_id")
   const drafts=[]
   try{
    stmt.bind([session.identity])
-   while(stmt.step())drafts.push(JSON.parse(stmt.get()[0]))
+   while(drafts.length<20&&stmt.step()){
+    const draft=JSON.parse(stmt.get()[0])
+    if(!orderNotesOnly||isDesktopOrderNote(draft))drafts.push(draft)
+   }
   }finally{stmt.free()}
-  const {validateDraft}=require('./offlineSyncPlanner.cjs')
   drafts.forEach(validateDraft)
   return drafts
  }finally{db.close()}
 }
 // Persist server outcomes only after a trusted, authenticated main-process
 // coordinator has verified the response. Archive applied drafts in place.
+function reflectAppliedOrderNote(db,draft){
+ if(!isDesktopOrderNote(draft))return
+ const rows=db.exec("SELECT row_index,row_json FROM snapshot_rows WHERE table_name='orders'")[0]?.values||[]
+ for(const [index,json] of rows){
+  const row=JSON.parse(json)
+  if(String(row.id)!==draft.recordId)continue
+  if((row.notes??null)===draft.before.notes){
+   row.notes=draft.changes.notes
+   db.run("UPDATE snapshot_rows SET row_json=? WHERE table_name='orders' AND row_index=?",[JSON.stringify(row),index])
+  }
+  return
+ }
+}
 async function commitSyncResults(args){
  return serializedMutation(args.directory,()=>commitSyncResultsInternal(args))
 }
@@ -273,8 +289,10 @@ async function commitSyncResultsInternal({directory,session,authenticateSession,
   const {reconcileSyncResults}=require('./offlineSyncReconciliation.cjs')
   const actions=reconcileSyncResults(drafts,results)
   const stamp=new Date().toISOString()
+  const byId=new Map(drafts.map(draft=>[draft.draftId,draft]))
   for(const action of actions){
    if(action.action==='archive-applied'){
+    reflectAppliedOrderNote(db,byId.get(action.draftId))
     db.run("INSERT INTO offline_sync_history (draft_id,identity,decision,updated_at) VALUES (?,?,?,?)",[action.draftId,session.identity,'applied',stamp])
     db.run("DELETE FROM offline_draft_journal WHERE draft_id = ? AND identity = ? AND state = 'pending'",[action.draftId,session.identity])
    }else if(action.action==='mark-conflict'){

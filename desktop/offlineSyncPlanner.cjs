@@ -59,4 +59,12 @@ function operationId(draft) {
   validateDraft(draft)
   return crypto.createHash('sha256').update('app2a-offline-draft-v1:' + draft.draftId).digest('hex')
 }
-module.exports = { planDraft, planBatch, operationId, validateDraft }
+function isDesktopOrderNote(draft) {
+  try {
+    return draft.table==='orders'&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(draft.recordId)&&
+      validateDraft(draft).join()==='notes'&&Object.keys(draft.before).join()==='notes'
+  } catch {
+    return false
+  }
+}
+module.exports = { planDraft, planBatch, operationId, validateDraft, isDesktopOrderNote }

@@ -23,6 +23,7 @@ const {createDesktopSyncLoop}=require('./desktopSyncLoop.cjs')
 const syncCoordinator=createOfflineSyncCoordinator({
  client:createOfflineSyncClient({endpoint:APP_URL+'/api/offline-sync',fetchImpl:fetch}),
  getDirectory:getDatabaseDirectory,
+ orderNotesOnly:true,
  getSession:()=>onlineSyncSession,
  getToken:session=>session===onlineSyncSession?session.token:null,
  authenticateSession:async session=>session===onlineSyncSession&&desktopAuth?.status().user?.id===session.identity

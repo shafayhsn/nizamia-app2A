@@ -173,7 +173,7 @@ jobs:
         working-directory: desktop
         run: |
           node ../server/offlineSyncEndToEnd.test.cjs
-          node --test desktopOrderNoteQueue.test.cjs
+          node --test desktopOrderNoteQueue.test.cjs desktopOrderNoteRoundTrip.test.cjs
       - name: Test PostgreSQL sync transactions and rollback
         working-directory: desktop
         run: node ../server/offlinePostgresSyncTransaction.test.cjs
