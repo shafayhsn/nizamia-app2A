@@ -6,7 +6,7 @@ const path=require('node:path')
 const {PGlite}=require('@electric-sql/pglite')
 const initSqlJs=require('../desktop/node_modules/sql.js')
 const os=require('node:os')
-const {createLocalRecordBatch,mutateLocalRecordBatch,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
+const {createLocalRecordBatch,mutateLocalRecord,mutateLocalRecordBatch,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
 const {applyCloudSnapshot}=require('../desktop/applyCloudSnapshot.cjs')
 const {createDesktopMutationHttp}=require('./desktopMutationHttp.cjs')
 const {issueDesktopSyncToken}=require('./desktopSyncToken.cjs')
@@ -26,6 +26,11 @@ test('production entry and retry receipt commit together for a valid order varia
    insert into orders values ('${id(3)}','J1','Buyer','Style','PO','Store','Active');
    insert into size_groups values ('${id(4)}','${id(3)}','Sizes');
    insert into size_group_colors values ('${id(5)}','${id(4)}','Indigo');
+   create table samples(id uuid primary key,root_sample_id uuid,sample_number text,version_label text,stage text);
+   create table sample_comments(sample_id uuid,root_sample_id uuid,sam_number text,version_label text,comment_type text,
+    comment_text text check (comment_text not like '% → Ready'),comment_date timestamptz,is_internal boolean);
+   insert into samples values ('${id(8)}',null,'SAM-1','V1',null);
+   grant insert on sample_comments to service_role;
    grant select,update on all tables in schema public to service_role;
   `)
   const read=file=>fs.readFileSync(path.join(__dirname,file),'utf8')
@@ -33,6 +38,7 @@ test('production entry and retry receipt commit together for a valid order varia
   await db.exec('grant insert,select on public.production_daily_entries to service_role')
   await db.exec(read('migrations/20261118_desktop_production_create.sql'))
   await db.exec(read('migrations/20261118_desktop_order_status.sql'))
+  await db.exec(read('migrations/20261118_desktop_sample_stage.sql'))
   const payload={order_id:id(3),size_group_id:id(4),color_id:id(5),department:'Cutting',movement:'completed',production_date:'2026-11-18',quantity:15}
   const run=async(actor,operation,data)=>(await db.query('select desktop_create_production_entry($1,$2,$3::jsonb) as result',[actor,operation,JSON.stringify(data)])).rows[0].result
   await db.exec('set role anon')
@@ -45,6 +51,9 @@ test('production entry and retry receipt commit together for a valid order varia
   const key='test-desktop-sync-key'
   const submit=createDesktopMutationHttp({key,db:{rpc:async(name,args)=>({data:name==='desktop_create_production_entry'
     ?await run(args.actor,args.operation,args.payload)
+    :name==='desktop_update_sample_stage'
+    ?(await db.query('select desktop_update_sample_stage($1,$2,$3,$4,$5) as result',
+      [args.actor,args.operation,args.target_sample,args.previous_stage,args.new_stage])).rows[0].result
     :(await db.query('select desktop_update_order_status($1,$2,$3,$4,$5) as result',
       [args.actor,args.operation,args.target_order,args.previous_status,args.new_status])).rows[0].result})}})
   const SQLite=await initSqlJs()
@@ -99,6 +108,28 @@ test('production entry and retry receipt commit together for a valid order varia
    assert.equal(conflict.conflicts,1)
    assert.equal((await cloudOrders())[0].status,'Cancelled')
    assert.equal((await listCombinedRecords(directory,'orders'))[0].status,'Shipped')
+   const cloudSamples=async()=>(await db.query('select * from samples')).rows
+   await applyCloudSnapshot({directory,tables:{samples:await cloudSamples()}})
+   const saveStage=stage=>mutateLocalRecord(directory,{
+    action:'update',table:'samples',id:id(8),fields:{stage},ownerId:id(1),sampleStage:true
+   })
+   await saveStage('Pattern')
+   const send=async operations=>(await invoke(operations)).body.results
+   const sampleUpload=await submitPendingMutations(directory,{...identity,async submit(operations){
+    const reply=await send(operations)
+    assert.equal(reply[0].outcome,'applied')
+    assert.equal((await send(operations))[0].outcome,'already-applied')
+    return reply
+   }})
+   assert.equal(sampleUpload.archived,1)
+   assert.deepEqual((await db.query('select comment_text from sample_comments')).rows,[{comment_text:'Not Started → Pattern'}])
+   await applyCloudSnapshot({directory,tables:{samples:await cloudSamples()}})
+   await saveStage('Ready')
+   const failedStage=await submitPendingMutations(directory,{...identity,submit:send})
+   assert.equal(failedStage.retained,1)
+   assert.equal((await cloudSamples())[0].stage,'Pattern')
+   assert.equal((await listCombinedRecords(directory,'samples'))[0].stage,'Ready')
+
 
   }finally{
    offline.close()

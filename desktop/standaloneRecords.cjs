@@ -121,7 +121,7 @@ function serialize(directory,task){
  settled.finally(()=>{if(queues.get(key)===settled)queues.delete(key)})
  return next
 }
-async function mutateLocalRecord(directory,{action,table,id,fields,ownerId}){
+async function mutateLocalRecord(directory,{action,table,id,fields,ownerId,sampleStage=false}){
  return serialize(directory,async()=>{
   validateTable(table)
   if(!['create','update','delete'].includes(action))throw Error('Unsupported local record operation')
@@ -150,6 +150,14 @@ async function mutateLocalRecord(directory,{action,table,id,fields,ownerId}){
     if(prior.length&&prior[0].values[0][0]===null)throw Error('Imported record already deleted')
     const previous=prior.length&&prior[0].values[0][0]?JSON.parse(prior[0].values[0][0]):imported
     if(action==='update')queueOrderStatus(db,ownerId,table,id,imported,fields,stamp)
+    if(sampleStage){
+     if(!ownerId||action!=='update'||table!=='samples'||!cloudId.test(id)||
+        Object.keys(fields).join()!=='stage'||!['Not Started','Pattern','Cutting','Stitching','Washing','Finishing','Ready'].includes(fields.stage)||
+        !Object.hasOwn(imported,'stage'))throw Error('A synchronized sample and a valid stage are required')
+     if(previous.stage!==imported.stage)throw Error('This sample has a prior local stage edit awaiting review.')
+     if(imported.stage!==fields.stage)stageMutation(db,ownerId,updateMutationIntent(table,id,{stage:fields.stage},{stage:imported.stage},stamp))
+    }
+
     db.run('INSERT OR REPLACE INTO snapshot_edits (table_name,record_id,fields_json,updated_at) VALUES (?,?,?,?)',[table,id,action==='delete'?null:JSON.stringify({...previous,...fields,id}),stamp])
    }else if(action==='create'){
     id='local-'+crypto.randomUUID()

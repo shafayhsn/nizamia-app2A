@@ -487,10 +487,19 @@ export default function SamplingApprovals() {
     const sample=samples.find(x=>x.id===sampleId)
     if(!sample)return
     const previous=sample.stage||'Not Started'
+    if(window.location.protocol==='app2a:'&&!String(sampleId).startsWith('local-')){
+      try {
+        const response=await fetch('/api/offline/sample-stage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:sampleId,stage})})
+        const result=await response.json()
+        if(!response.ok)throw Error(result.error||'Stage save failed')
+        window.dispatchEvent(new Event('app2a-offline-data-changed'))
+      }catch(error){alert(error.message,{title:'Stage Save Failed'});return}
+    }else{
     const {error:stageError}=await supabase.from('samples').update({stage}).eq('id',sampleId)
     if(stageError){alert(stageError.message,{title:'Stage Save Failed'});return}
     const {error:logError}=await supabase.from('sample_comments').insert({sample_id:sampleId,root_sample_id:sample.root_sample_id||sampleId,sam_number:sample.sample_number,version_label:sample.version_label||'V1',comment_type:'Stage',comment_text:previous+' → '+stage,comment_date:new Date().toISOString(),is_internal:true})
     if(logError)alert('Stage saved, but history log failed: '+logError.message,{title:'History Warning'})
+    }
     setSamples(v=>v.map(x=>x.id===sampleId?{...x,stage}:x))
     const meta = loadSamplingStore().sampleMeta[sampleId] || {}
     const stageDates = { ...(meta.stageDates || {}) }

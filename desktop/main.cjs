@@ -447,6 +447,19 @@ app.whenReady().then(() => {
         return Response.json({data:result,error:null},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({data:null,error:error.message},{status:400})}
     }
+    if(url.pathname==='/api/offline/sample-stage'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      const ownerId=productionSyncOwner()
+      if(!ownerId)return Response.json({error:'Administrator access required for offline sample stage sync'},{status:403})
+      try{
+        const raw=await request.text()
+        if(Buffer.byteLength(raw)>4096)return Response.json({error:'Request too large'},{status:413})
+        const {id,stage}=JSON.parse(raw),directory=getDatabaseDirectory()
+        const {mutateLocalRecord}=require('./standaloneRecords.cjs')
+        const data=await mutateLocalRecord(directory,{action:'update',table:'samples',id,fields:{stage},ownerId,sampleStage:true})
+        return Response.json({data},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:400})}
+    }
     if(url.pathname==='/api/offline/mutate'){
       if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})

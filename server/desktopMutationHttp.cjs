@@ -31,6 +31,11 @@ function createDesktopMutationHttp({db,key}){
       typeof intent.changes.status==='string'&&(intent.expected.status===null||typeof intent.expected.status==='string')){
     rpc='desktop_update_order_status'
     args={target_order:intent.id,previous_status:intent.expected.status,new_status:intent.changes.status}
+   }else if(intent?.operation==='update'&&intent.table==='samples'&&uuid.test(intent.id||'')&&
+      Object.keys(intent.changes||{}).join()==='stage'&&Object.keys(intent.expected||{}).join()==='stage'&&
+      typeof intent.changes.stage==='string'&&(intent.expected.stage===null||typeof intent.expected.stage==='string')){
+    rpc='desktop_update_sample_stage'
+    args={target_sample:intent.id,previous_stage:intent.expected.stage,new_stage:intent.changes.stage}
    }else{
     results.push({operationId,outcome:'unsupported'})
     continue
