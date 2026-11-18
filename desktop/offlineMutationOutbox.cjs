@@ -65,6 +65,8 @@ function recordMutationOutcome(db,ownerId,operationId,outcome,resourceId){
 
 function assertOrderSectionAvailable(db,orderId,section,creation){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ if(db.exec("SELECT 1 FROM offline_order_section_overlays WHERE order_id=? AND section='order_copy'",[orderId]).length)
+  throw Error('Sync copied order sections before changing them.')
  if(db.exec(`SELECT 1 FROM offline_mutation_outbox
   WHERE table_name='orders' AND (record_id=? AND state<>'applied' AND operation_id IS DISTINCT FROM ?
    OR record_id=? AND json_extract(intent_json,'$.document.independentOrderSection')=1
@@ -121,6 +123,19 @@ function assertUnqueued(db,table,id){
    AND row.id=json_extract(child.value,'$.id') AND row.updated_at=json_extract(box.intent_json,'$.editedAt')
   WHERE row.table_name=? AND row.id=?`,[table,id]).length)
   throw Error('This copied record is awaiting synchronization or review.')
+}
+
+function reconcileOrderCopies(db,tables){
+ if(!tables.orders||!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ const entries=db.exec("SELECT intent_json FROM offline_mutation_outbox WHERE state='applied' AND json_type(intent_json,'$.document.copyRows')='array'")[0]?.values||[]
+ for(const [raw] of entries){
+  const {id,editedAt,changes,document:{copyRows}}=JSON.parse(raw)
+  if(!tables.orders.some(row=>row.id===id&&Object.entries(changes).every(([key,value])=>row[key]===value))||
+     !copyRows.every(({table,id})=>tables[table]?.some(row=>row.id===id)))continue
+  db.run("DELETE FROM offline_order_section_overlays WHERE order_id=? AND section='order_copy' AND updated_at=?",[id,editedAt])
+  for(const {table,id} of copyRows)
+   db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',[table,id,editedAt])
+ }
 }
 
 function reconcileOrderRemovals(db,tables,hold){
@@ -290,8 +305,8 @@ function findQueuedRecords(db){
   return [table+':'+(intent.document?.independentOrderSection?intent.id:id),...(intent.document?.finishingHeader?['finishing:'+intent.document.finishingHeader.id]:[]),...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
    ...(intent.expected?.lines||[]).map(line=>(intent.document.childTable||intent.document.localLines[0].table)+':'+line.id),
    ...(table==='jobs'&&Array.isArray(intent.fields?.orders)?intent.fields.orders.map(order=>'orders:'+order.id):[]),
-   ...[...(intent.document?.matrix?.edits||[]),...(intent.document?.matrix?.creates||[]),...(intent.document?.buyer?.edits||[]),...(intent.document?.buyer?.creates||[]),...(intent.document?.clonedRows||[]),...(intent.document?.removal?.targets||[])].map(item=>item.table+':'+item.id)]
+   ...[...(intent.document?.matrix?.edits||[]),...(intent.document?.matrix?.creates||[]),...(intent.document?.buyer?.edits||[]),...(intent.document?.buyer?.creates||[]),...(intent.document?.clonedRows||[]),...(intent.document?.removal?.targets||[]),...(intent.document?.copyRows||[])].map(item=>item.table+':'+item.id)]
  }))
 }
 
-module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,assertOrderSectionAvailable,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers,reconcileOrderRemovals}
+module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,assertOrderSectionAvailable,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers,reconcileOrderRemovals,reconcileOrderCopies}

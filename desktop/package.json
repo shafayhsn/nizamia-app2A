@@ -71,6 +71,7 @@
       "shipmentStatusMutation.cjs",
       "orderDetailsMutation.cjs",
       "orderRemoval.cjs",
+      "orderSectionCopy.cjs",
       "poMatrixSync.cjs",
       "standaloneForms.cjs",
       "localDesktopAuth.cjs",

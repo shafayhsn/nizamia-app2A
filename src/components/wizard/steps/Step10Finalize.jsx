@@ -155,6 +155,24 @@ export default function Step10Finalize({ orderId, orderData, onSaved, setStep, r
     setCopyProgress({done:0,total:targets.length * selectedSections.length,current:'Preparing source data…'})
     const results = []
     try {
+      if(window.location.protocol==='app2a:'){
+        const response=await fetch('/api/offline/order-copy',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({sourceId:orderId,targetIds:targets,sections:selectedSections.map(([, ,table])=>table)}),
+        })
+        const result=await response.json()
+        if(!response.ok)throw Error(result.error||'Could not queue copied sections.')
+        const labels=Object.fromEntries(SECTION_META.map(([,label,table])=>[table,label]))
+        setCopyMessage(result.data.map(({id,copied,skipped})=>{
+          const target=dependencies.find(row=>row.id===id)
+          const included=copied.map(table=>labels[table]).join(', ')||'none'
+          const excluded=skipped.map(table=>labels[table]).join(', ')||'none'
+          return `${target?.store_name||'Order'} (PO ${target?.po_number||'—'}) — Queued: ${included}. Skipped: ${excluded}.`
+        }).join('\n'))
+        setCopyProgress(p=>({...p,done:p.total,current:'Finished'}))
+        window.dispatchEvent(new Event('app2a-offline-data-changed'))
+        return
+      }
       // Read source once and validate every section before touching any target.
       const sources = {}
       for (const [key, label, table] of SECTION_META) {

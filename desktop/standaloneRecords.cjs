@@ -580,6 +580,71 @@ async function queueParcelTransition(directory,{id,status,deliveryDate,receivedB
 
 const orderGeneralFields=new Set(['buyer_id', 'buyer_name', 'merchandiser_name', 'agent_name', 'factory_ref', 'product_id', 'style_number', 'store_name', 'brand_name', 'description', 'po_number', 'po_date', 'ship_date', 'planned_date', 'ship_mode', 'incoterms', 'currency', 'status', 'port_of_loading', 'port_of_discharge', 'style_image_base64'])
 
+async function queueOrderCopy(directory,{sourceId,targetIds,sections,ownerId,isCurrent}){
+ const {flags,planCopy}=require('./orderSectionCopy.cjs')
+ if(!ownerId||!cloudId.test(sourceId||'')||!Array.isArray(targetIds)||!targetIds.length||targetIds.length>50||
+    new Set(targetIds).size!==targetIds.length||targetIds.some(id=>id===sourceId||!cloudId.test(id||''))||
+    !Array.isArray(sections)||!sections.length||new Set(sections).size!==sections.length||sections.some(table=>!Object.hasOwn(flags,table)))
+  throw Error('Select destination orders and sections to copy.')
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file),db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   initializeOrderSectionOverlays(db)
+   const cache=new Map()
+   const load=table=>{
+    if(!cache.has(table))cache.set(table,db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=?',[table])[0]?.values?.map(([raw])=>JSON.parse(raw))||[])
+    return cache.get(table)
+   }
+   const required=new Set(['orders','size_groups',...sections])
+   if(sections.includes('washing'))required.add('size_group_colors')
+   if(sections.includes('finishing')){required.add('finishing_packs');required.add('order_queues')}
+   const manifest=new Set(db.exec('SELECT table_name FROM snapshot_manifest')[0]?.values?.map(([table])=>table)||[])
+   if([...required].some(table=>!manifest.has(table)))throw Error('Refresh the required order sections before copying.')
+   const source=load('orders').find(row=>row.id===sourceId)
+   if(!source?.buyer_id||!source.style_number)throw Error('Refresh the synchronized source order.')
+   assertUnqueued(db,'orders',sourceId)
+   const stamp=new Date().toISOString(),results=[]
+   for(const id of targetIds){
+    const target=load('orders').find(row=>row.id===id)
+    if(!target||target.buyer_id!==source.buyer_id||target.style_number!==source.style_number)
+     throw Error('Destination orders must match the buyer and style.')
+    assertUnqueued(db,'orders',id)
+    if(db.exec("SELECT 1 FROM snapshot_edits WHERE table_name='orders' AND record_id IN (?,?)",[sourceId,id]).length)
+     throw Error('Sync or review existing order edits before copying.')
+    const {children,changes,skipped}=planCopy(load,sourceId,id,sections,crypto.randomUUID)
+    const copied=Object.keys(children).filter(table=>table!=='finishing_packs')
+    results.push({id,copied,skipped})
+    if(!copied.length)continue
+    for(const table of Object.keys(children)){
+     if(read(db,table).some(row=>[id,sourceId].includes(row.order_id))||
+       load(table).filter(row=>row.order_id===sourceId).some(row=>db.exec(
+         'SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,row.id]).length))
+      throw Error('Sync the earlier section edits before copying.')
+    }
+    const rows=Object.entries(children).flatMap(([table,list])=>list.map(row=>({table,id:row.id,row})))
+    const expected={copy:{sourceId,children}}
+    const intent=updateMutationIntent('orders',id,changes,expected,stamp,null,{
+     childTable:'order_copy',independentOrderSection:true,copyRows:rows.map(({table,id})=>({table,id})),
+    })
+    if(Buffer.byteLength(JSON.stringify(intent))>115000)throw Error('Copied sections exceed the offline sync size limit.')
+    db.run('INSERT INTO offline_order_section_overlays VALUES (?,?,?,?)',[id,'order_copy',JSON.stringify(changes),stamp])
+    for(const item of rows)db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',
+     [item.id,item.table,JSON.stringify(item.row),stamp,stamp])
+    if(!stageMutation(db,ownerId,intent))throw Error('Could not queue the copied sections.')
+   }
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed while copying.')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return results
+  }finally{db.close()}
+ })
+}
+
 async function queueOrderRemoval(directory,{orderIds,ownerId,isCurrent}){
  if(!ownerId||!Array.isArray(orderIds)||orderIds.length<1||orderIds.length>50||
     new Set(orderIds).size!==orderIds.length||orderIds.some(id=>!cloudId.test(id||'')))
@@ -1251,4 +1316,4 @@ async function queueParcelCreate(directory,{items,customItems,addressId,contactI
  })
 }
 
-module.exports={queueOrderRemoval,queueOrderImport,queueOrderSection,queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+module.exports={queueOrderCopy,queueOrderRemoval,queueOrderImport,queueOrderSection,queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
