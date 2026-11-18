@@ -103,7 +103,7 @@ function createDesktopMutationHttp({db,key}){
     rpc='desktop_save_supplier'
     args={target_supplier:intent.id,patch:intent.changes,expected:intent.expected}
    }else if(intent?.operation==='update'&&intent.table==='orders'&&uuid.test(intent.id||'')&&
-      ['washing','embellishments','order_processes'].includes(intent.document?.childTable)&&
+      ['washing','embellishments','order_processes','fitting_blocks','order_queues'].includes(intent.document?.childTable)&&
       Array.isArray(intent.expected?.lines)&&Array.isArray(intent.document.lines)&&
       Array.isArray(intent.document.lineIds)&&intent.document.lines.length===intent.document.lineIds.length&&
       intent.document.lineIds.every(id=>uuid.test(id))){

@@ -8,7 +8,7 @@ const DB_NAME='nizamia-app2a.sqlite'
 const {normalizeForm,FORMS}=require('./standaloneForms.cjs')
 const queues=new Map()
 const {createMutationIntent,updateMutationIntent}=require('./offlineMutationPlan.cjs')
-const {stageMutation,assertUnqueued,pendingMutations,recordMutationOutcome}=require('./offlineMutationOutbox.cjs')
+const {stageMutation,assertUnqueued,assertOrderSectionAvailable,pendingMutations,recordMutationOutcome}=require('./offlineMutationOutbox.cjs')
 const {isShipmentStatusChange}=require('./shipmentStatusMutation.cjs')
 const {isOrderDetailsPatch,isOrderJobPatch}=require('./orderDetailsMutation.cjs')
 const cloudId=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i
@@ -150,8 +150,16 @@ async function listCombinedRecords(directory,table){
   }
   const edits=new Map()
   if(db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_edits'").length){const stmt=db.prepare('SELECT record_id,fields_json FROM snapshot_edits WHERE table_name=?');try{stmt.bind([table]);while(stmt.step()){const [id,json]=stmt.get();edits.set(String(id),json===null?null:JSON.parse(json))}}finally{stmt.free()}}
+  if(table==='orders'&&db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_order_section_overlays'").length){
+   const byOrder=new Map([...snapshot,...local].map(row=>[row.id,row]))
+   const overlays=db.exec('SELECT order_id,changes FROM offline_order_section_overlays ORDER BY updated_at,section')[0]?.values||[]
+   for(const [id,json] of overlays){
+    if(!byOrder.has(id)||edits.get(id)===null)continue
+    edits.set(id,{...byOrder.get(id),...edits.get(id),...JSON.parse(json)})
+   }
+  }
   const localIds=new Set(local.map(row=>row.id))
-  return [...local,...snapshot.filter(row=>!localIds.has(row.id)&&(!edits.has(String(row.id))||edits.get(String(row.id))!==null)).map(row=>edits.has(String(row.id))?{...row,...edits.get(String(row.id)),_local_only:false,_local_edited:true}:row)]
+  return [...local.map(row=>edits.get(row.id)||row),...snapshot.filter(row=>!localIds.has(row.id)&&(!edits.has(String(row.id))||edits.get(String(row.id))!==null)).map(row=>edits.has(String(row.id))?{...row,...edits.get(String(row.id)),_local_only:false,_local_edited:true}:row)]
 }finally{db.close()}
 }
 function serialize(directory,task){
@@ -425,7 +433,7 @@ async function submitPendingMutations(directory,{ownerId,submit,isCurrent}){
   operationId,intent:{
    operation:intent.operation,table:intent.table,id:intent.id,
    fields:intent.fields,changes:intent.changes,expected:intent.expected,
-   ...(intent.document?.lines?{document:{lines:intent.document.lines,childTable:intent.document.childTable,...(intent.operation==='update'?{lineIds:intent.document.localLines.map(line=>line.id.slice(6))}:{})}}:{})
+   ...(intent.document?.lines?{document:{lines:intent.document.lines,childTable:intent.document.childTable,...(intent.operation==='update'?{lineIds:intent.document.localLines.map(line=>line.id.replace(/^local-/,''))}:{})}}:{})
   }
  })).filter(item=>{
   const bytes=Buffer.byteLength(JSON.stringify(item))+1
@@ -778,28 +786,46 @@ async function queueBuyer(directory,{buyerId,fields,addresses,contacts,ownerId,i
  })
 }
 
+function pendingOrderCreation(db,ownerId,orderId){
+ if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return null
+ return db.exec(`SELECT operation_id FROM offline_mutation_outbox WHERE owner_id=? AND table_name='orders' AND record_id=?
+  AND json_extract(intent_json,'$.operation')='create' AND json_type(intent_json,'$.fields.buyer_id')='text'
+  AND state IN ('pending','applied')`,[ownerId,orderId])[0]?.values?.[0]?.[0]||null
+}
+function initializeOrderSectionOverlays(db){
+ db.run(`CREATE TABLE IF NOT EXISTS offline_order_section_overlays (
+  order_id TEXT NOT NULL,section TEXT NOT NULL,changes TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(order_id,section))`)
+}
+
 const orderSections={
  bom_items:{flag:'step_bom'},
  washing:{flag:'step_washing'},
  embellishments:{flag:'step_embellishment'},
  order_processes:{flag:'step_processes',notes:true},
+ fitting_blocks:{flag:'step_fitting',stable:true},
+ order_queues:{flag:'queue_split_rule',rule:true},
 }
 
 function queueBom(directory,input){
  return queueOrderSection(directory,{...input,table:'bom_items',enabled:true})
 }
 
-async function queueOrderSection(directory,{orderId,table,enabled,notes,rows,ownerId,isCurrent}){
+async function queueOrderSection(directory,{orderId,table,enabled,notes,rule,rows,ownerId,isCurrent}){
  const config=Object.hasOwn(orderSections,table)?orderSections[table]:null
- if(!config||typeof enabled!=='boolean'||(config.notes&&typeof notes!=='string'))
+ if(!config||typeof enabled!=='boolean'||(config.notes&&typeof notes!=='string')||(config.rule&&(typeof rule!=='string'||!rule.trim())))
   throw Error('Invalid order section.')
- const changes={ [config.flag]:enabled,...(config.notes?{notes}:{}) }
+ const changes={ [config.flag]:config.rule?rule:enabled,...(config.notes?{notes}:{}) }
  if(!ownerId||!cloudId.test(orderId||'')||!Array.isArray(rows)||rows.length>300)
   throw Error('A synchronized order and valid section rows are required.')
- for(const row of rows){
+ const retainedIds=[]
+ rows=rows.map(input=>{
+  const {id,...row}=input||{}
+  if(id&&!config.stable)throw Error('Unexpected order section row ID.')
+  retainedIds.push(id||null)
   validateFields(row)
   if(row.order_id!==orderId||table==='bom_items'&&(typeof row.name!=='string'||!row.name.trim()))throw Error('Invalid order section row.')
- }
+  return row
+ })
  return serialize(directory,async()=>{
   if(!isCurrent())throw Error('Administrator session required.')
   const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file),db=new SQL.Database(Buffer.from(before))
@@ -807,25 +833,50 @@ async function queueOrderSection(directory,{orderId,table,enabled,notes,rows,own
    schema(db)
    const order=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name='orders' AND json_extract(row_json,'$.id')=?",
     [orderId])[0]?.values?.[0]?.[0]
-   if(!order)throw Error('Refresh the order before saving this section.')
-   const base=JSON.parse(order)
+   const creation=order?null:pendingOrderCreation(db,ownerId,orderId)
+   if(!order&&!creation)throw Error('Refresh the order before saving this section.')
+   const base=order?JSON.parse(order):{[config.flag]:false,notes:null}
    const original=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name=? AND json_extract(row_json,'$.order_id')=?",
     [table,orderId])[0]?.values?.map(([row])=>JSON.parse(row))||[]
-   for(const [name,id] of [['orders',orderId],...original.map(row=>[table,row.id])]){
+   initializeOrderSectionOverlays(db)
+   assertOrderSectionAvailable(db,orderId,table,creation)
+   if(db.exec('SELECT 1 FROM offline_order_section_overlays WHERE order_id=? AND section=?',[orderId,table]).length)
+    throw Error('This section is waiting for a cloud refresh.')
+   for(const [name,id] of original.map(row=>[table,row.id])){
     assertUnqueued(db,name,id)
     if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=?',[name,id]).length)
      throw Error('This order section has an earlier local change awaiting synchronization or review.')
    }
    const stamp=new Date().toISOString()
-   const localLines=rows.map(()=>({table,id:'local-'+crypto.randomUUID(),parentField:'order_id'}))
+   const chosen=retainedIds.filter(Boolean)
+   if(new Set(chosen).size!==chosen.length||chosen.some(id=>!original.some(row=>row.id===id)))
+    throw Error('Refresh the existing fitting blocks before saving.')
+   const localLines=rows.map((_,index)=>({table,id:retainedIds[index]||'local-'+crypto.randomUUID(),parentField:'order_id'}))
+   const matrix=['washing','order_queues'].includes(table)&&db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length
+    ?db.exec(`SELECT operation_id,state,intent_json FROM offline_mutation_outbox WHERE owner_id=? AND record_id=?
+       AND state IN ('pending','conflict')`,[ownerId,orderId+':po_matrix'])[0]?.values?.[0]:null
+   if(matrix?.[1]==='conflict')throw Error('Resolve the PO Matrix conflict before saving Washing.')
+   const dependency=matrix?.[0]||creation
+   const matrixRule=matrix?JSON.parse(matrix[2]).document.matrix.summary.queue_split_rule:null
    const expected={...Object.fromEntries(Object.keys(changes).map(key=>[key,base[key]??null])),lines:original}
+   if(config.rule){
+    const currentRule=matrixRule??base.queue_split_rule
+    if(currentRule!==rule)throw Error('Save the selected split rule in PO Matrix first.')
+    expected.queue_split_rule=currentRule
+   }
    const intent=updateMutationIntent('orders',orderId,changes,expected,stamp,null,
-    {childTable:table,lines:rows,localLines})
+    {childTable:table,lines:rows,localLines,independentOrderSection:true,...(dependency?{afterOperation:dependency}:{})})
    if(Buffer.byteLength(JSON.stringify(intent))>116000)throw Error('Order section is too large for offline sync.')
-   db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',['orders',orderId,JSON.stringify({...base,...changes}),stamp])
-   for(const row of original)db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',[table,row.id,null,stamp])
-   localLines.forEach(({id},index)=>db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',
-    [id,table,JSON.stringify(rows[index]),stamp,stamp]))
+   db.run('INSERT INTO offline_order_section_overlays VALUES (?,?,?,?)',[orderId,table,JSON.stringify(changes),stamp])
+   for(const row of original){
+    const index=retainedIds.indexOf(row.id)
+    const next=index<0?null:JSON.stringify({...row,...rows[index]})
+    db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',[table,row.id,next,stamp])
+   }
+   localLines.forEach(({id},index)=>{
+    if(id.startsWith('local-'))db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',
+     [id,table,JSON.stringify(rows[index]),stamp,stamp])
+   })
    if(!stageMutation(db,ownerId,intent))throw Error('Could not queue the order section.')
    const temp=file+'.'+crypto.randomUUID()+'.tmp'
    try{
@@ -852,9 +903,23 @@ async function queuePoMatrix(directory,{payload,ownerId,isCurrent}){
    schema(db)
    const load=table=>db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=?',[table])[0]?.values?.map(([row])=>JSON.parse(row))||[]
    const order=load('orders').find(row=>row.id===orderId)
-   if(!order)throw Error('Refresh this order before saving its PO Matrix.')
+   const creation=order?null:pendingOrderCreation(db,ownerId,orderId)
+   if(!order&&!creation)throw Error('Refresh this order before saving its PO Matrix.')
+   const base=order||{step_po_matrix:false,excess_cutting_pct:0}
+   initializeOrderSectionOverlays(db)
+   const staged=db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length?
+    db.exec(`SELECT intent_json,state FROM offline_mutation_outbox WHERE owner_id=? AND record_id=?
+      ORDER BY rowid DESC LIMIT 1`,[ownerId,orderId+':po_matrix'])[0]?.values?.[0]:null
+   if(staged?.[1]==='pending'){
+    const prior=JSON.parse(staged[0]).changes.po_matrix
+    const comparable=value=>JSON.stringify(value,(key,part)=>key==='desktop_id'?undefined:part)
+    if(comparable(prior)===comparable(payload))return
+   }
+   assertOrderSectionAvailable(db,orderId,'po_matrix',creation)
+   if(db.exec("SELECT 1 FROM offline_order_section_overlays WHERE order_id=? AND section IN ('washing','order_queues')",[orderId]).length)
+    throw Error('Sync the earlier Washing or Queue edit before changing this PO Matrix.')
    const expected=matrixRows(Object.fromEntries(matrixTables.map(table=>[table,load(table)])),orderId)
-   const previous=Object.fromEntries(summaryFields.map(key=>[key,order[key]??null]))
+   const previous=Object.fromEntries(summaryFields.map(key=>[key,base[key]??null]))
    const summary={step_po_matrix:true,total_qty:qty,total_value_usd:value,excess_cutting_pct:excess,queue_split_rule:rule}
    const rows={size_groups:[],size_group_colors:[],size_group_breakdown:[]}
    const creates=[],edits=[],stamp=new Date().toISOString()
@@ -863,23 +928,22 @@ async function queuePoMatrix(directory,{payload,ownerId,isCurrent}){
     if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id]).length)
      throw Error('A record in this PO Matrix already has a local edit awaiting review.')
    }
-   assertReady('orders',orderId)
    for(const table of matrixTables)for(const row of expected[table])assertReady(table,row.id)
    let total=0,amount=0
    const key=()=> 'local-'+crypto.randomUUID()
-   groups.forEach((group,gi)=>{
+   const prepared=groups.map((group,gi)=>{
     if(!group||typeof group.group_name!=='string'||!Array.isArray(group.sizes)||group.sizes.some(size=>typeof size!=='string')||
        new Set(group.sizes).size!==group.sizes.length||!Array.isArray(group.colors)||
        (group.id&&!expected.size_groups.some(row=>row.id===group.id))||
        (group.unit_price!==null&&!Number.isFinite(group.unit_price)))throw Error('Invalid PO Matrix size group.')
-    const gid=group.id||key()
+    const gid=group.id||crypto.randomUUID()
     rows.size_groups.push({id:gid,order_id:orderId,group_name:group.group_name,unit_price:group.id?group.unit_price:group.unit_price??0,
      currency:group.currency||'USD',sizes:group.sizes,base_size:group.base_size??null,sort_order:gi})
-    group.colors.forEach((color,ci)=>{
+    const colors=group.colors.map((color,ci)=>{
      if(!color||typeof color.color_name!=='string'||!color.color_name.trim()||!Array.isArray(color.quantities)||
         (color.id&&!expected.size_group_colors.some(row=>row.id===color.id&&row.size_group_id===gid)))
       throw Error('Invalid PO Matrix colour.')
-     const cid=color.id||key()
+     const cid=color.id||crypto.randomUUID()
      rows.size_group_colors.push({id:cid,size_group_id:gid,color_name:color.color_name,sort_order:ci,
       ratio_override:color.ratio_override??null,ratio_locked:!!color.ratio_locked})
      if(new Set(color.quantities.map(cell=>cell?.size)).size!==color.quantities.length)throw Error('Duplicate PO Matrix quantity.')
@@ -890,7 +954,9 @@ async function queuePoMatrix(directory,{payload,ownerId,isCurrent}){
       total+=cell.qty
       amount+=cell.qty*(group.unit_price||0)
      }
+     return {...color,...(!color.id?{desktop_id:cid}:{})}
     })
+    return {...group,colors,...(!group.id?{desktop_id:gid}:{})}
    })
    if(total!==qty||Math.abs(amount-value)>0.01||matrixTables.some(table=>new Set(rows[table].map(row=>row.id)).size!==rows[table].length))
     throw Error('PO Matrix totals or record IDs are invalid.')
@@ -898,15 +964,15 @@ async function queuePoMatrix(directory,{payload,ownerId,isCurrent}){
    const existingColors=new Set(expected.size_group_colors.map(color=>color.id))
    if(load('washing').some(row=>existingColors.has(row.color_id)&&!retainedColors.has(row.color_id)))
     throw Error('Cannot remove a colour linked to Washing. Update Washing first.')
-   edits.push({table:'orders',id:orderId,value:{...order,...summary}})
    for(const table of matrixTables){
     const next=new Map(rows[table].map(row=>[row.id,row]))
     for(const base of expected[table])edits.push({table,id:base.id,value:next.has(base.id)?{...base,...next.get(base.id)}:null})
-    for(const row of rows[table])if(row.id.startsWith('local-'))creates.push({table,id:row.id,value:row})
+    for(const row of rows[table])if(!expected[table].some(old=>old.id===row.id))creates.push({table,id:row.id,value:row})
    }
-   const intent=updateMutationIntent('orders',orderId,{po_matrix:payload},{summary:previous,...expected},stamp,null,
-    {matrix:{summary,rows,edits:edits.map(({table,id})=>({table,id})),creates:creates.map(({table,id})=>({table,id}))}})
-   if(Buffer.byteLength(JSON.stringify({payload,expected,previous}))>115000)throw Error('PO Matrix is too large for offline sync.')
+   const intent=updateMutationIntent('orders',orderId,{po_matrix:{...payload,p_groups:prepared}},{summary:previous,...expected},stamp,null,
+    {childTable:'po_matrix',independentOrderSection:true,...(creation?{afterOperation:creation}:{}),matrix:{summary,rows,edits:edits.map(({table,id})=>({table,id})),creates:creates.map(({table,id})=>({table,id}))}})
+   if(Buffer.byteLength(JSON.stringify({payload:{...payload,p_groups:prepared},expected,previous}))>115000)throw Error('PO Matrix is too large for offline sync.')
+   db.run('INSERT INTO offline_order_section_overlays VALUES (?,?,?,?)',[orderId,'po_matrix',JSON.stringify(summary),stamp])
    for(const {table,id,value} of edits)db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',[table,id,value===null?null:JSON.stringify(value),stamp])
    for(const {table,id,value} of creates)db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(value),stamp,stamp])
    if(!stageMutation(db,ownerId,intent))throw Error('Could not queue PO Matrix.')

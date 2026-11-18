@@ -4,7 +4,7 @@ const assert=require('node:assert/strict')
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const {PGlite}=require('@electric-sql/pglite')
 const sqlite=require('../desktop/node_modules/sql.js')
-const {queueOrderImport,queueOrderGeneral,queueNewJob,mutateLocalRecordBatch,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
+const {queueOrderSection,queueOrderImport,queueOrderGeneral,queueNewJob,mutateLocalRecordBatch,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
 const {applyCloudSnapshot}=require('../desktop/applyCloudSnapshot.cjs')
 const {createDesktopMutationHttp}=require('./desktopMutationHttp.cjs')
 const {issueDesktopSyncToken}=require('./desktopSyncToken.cjs')
@@ -40,7 +40,7 @@ test('bulk order edits and job assignments sync with conflict protection',async(
    alter table orders add column in_store_date date;
    alter table orders add column notes text;
    alter table orders add column step_po_matrix boolean;
-   alter table orders add column step_bom boolean;
+   alter table orders add column step_bom boolean default false;
    create table size_groups(id uuid primary key default gen_random_uuid(),order_id uuid references orders(id),group_name text,
     unit_price numeric,currency text,sizes text[],base_size text,sort_order integer);
    create table size_group_colors(id uuid primary key default gen_random_uuid(),size_group_id uuid references size_groups(id),
@@ -50,7 +50,7 @@ test('bulk order edits and job assignments sync with conflict protection',async(
    create table bom_items(id uuid primary key,order_id uuid references orders(id),library_item_id uuid,name text not null,
     category text,detail text,specification text,unit text,supplier_id uuid,usage_rule text,usage_data jsonb,final_qty numeric,
     base_qty numeric,wastage numeric,custom_usage jsonb,notes text,sort_order int,use_cutting_qty bool);
-   grant select,insert,update on size_groups,size_group_colors,size_group_breakdown,bom_items to service_role;
+   grant select,insert,update,delete on size_groups,size_group_colors,size_group_breakdown,bom_items to service_role;
    create table jobs(id uuid primary key,buyer_id uuid,job_number text unique);
    create table document_numbering(doc_type text primary key,label text,prefix text,pattern text,format text,seq_pad int,next_number int,current_number int,enabled bool,updated_at timestamptz);
    grant insert on jobs,document_numbering to service_role;
@@ -71,6 +71,7 @@ test('bulk order edits and job assignments sync with conflict protection',async(
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_order_duplicate.sql'),'utf8'))
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_z_order_confirmation.sql'),'utf8'))
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_order_import.sql'),'utf8'))
+  await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_bom.sql'),'utf8'))
   await db.exec('set role service_role')
   const SQL=await sqlite(),local=new SQL.Database()
   fs.writeFileSync(path.join(directory,'nizamia-app2a.sqlite'),Buffer.from(local.export()))
@@ -83,6 +84,9 @@ test('bulk order edits and job assignments sync with conflict protection',async(
    if(name==='desktop_create_and_assign_job')return {data:(await db.query(
     'select desktop_create_and_assign_job($1,$2,$3,$4::jsonb) as outcome',
     [args.actor,args.operation,args.target_buyer,JSON.stringify(args.expected_orders)])).rows[0].outcome}
+   if(name==='desktop_save_bom')return {data:(await db.query(
+    'select desktop_save_bom($1,$2,$3,$4::jsonb,$5::jsonb) as outcome',
+    [args.actor,args.operation,args.target_order,JSON.stringify(args.expected),JSON.stringify(args.lines)])).rows[0].outcome}
    if(name==='desktop_import_orders')return {data:(await db.query(
     'select desktop_import_orders($1,$2,$3::jsonb) as outcome',
     [args.actor,args.operation,JSON.stringify(args.rows)])).rows[0].outcome}
@@ -175,6 +179,11 @@ test('bulk order edits and job assignments sync with conflict protection',async(
   const created=await queueOrderGeneral(directory,{...owner,fields:draftFields})
   assert.equal((await queueOrderGeneral(directory,{...owner,orderId:created.id,fields:draftFields})).id,created.id)
   assert.equal((await listCombinedRecords(directory,'orders')).find(row=>row.id===created.id)._local_only,true)
+  await queueOrderSection(directory,{...owner,orderId:created.id,table:'bom_items',enabled:true,rows:[]})
+  assert.equal((await listCombinedRecords(directory,'orders')).find(row=>row.id===created.id).step_bom,true)
+
+  assert.equal((await flush()).archived,1)
+  await refresh()
   assert.equal((await flush()).archived,1)
   await refresh()
   const syncedOrders=(await listCombinedRecords(directory,'orders')).filter(row=>row.id===created.id)

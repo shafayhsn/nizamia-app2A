@@ -496,9 +496,9 @@ app.whenReady().then(() => {
       try{
         const raw=await request.text()
         if(Buffer.byteLength(raw)>115000)return Response.json({error:'Order section too large for offline sync'},{status:413})
-        const {table,orderId,rows,enabled,notes}=JSON.parse(raw)
+        const {table,orderId,rows,enabled,notes,rule}=JSON.parse(raw)
         const {queueOrderSection}=require('./standaloneRecords.cjs')
-        const data=await queueOrderSection(directory,{table,orderId,rows,enabled,notes,ownerId,
+        const data=await queueOrderSection(directory,{table,orderId,rows,enabled,notes,rule,ownerId,
           isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
         return Response.json({data},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:400})}

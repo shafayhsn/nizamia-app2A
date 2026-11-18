@@ -195,6 +195,14 @@ export default function Step4Fitting({ orderId, orderData, onSaved, registerSave
       usage_rule: b.usage_rule||'Generic', usage_data: b.usage_data||null,
       dxf_filename: b.dxf_filename||null, dxf_base64: b.dxf_base64||null, sort_order: idx,
     }))
+    if(window.location.protocol==='app2a:'){
+      const {error}=await supabase.rpc('save_offline_order_section',{
+        table:'fitting_blocks',orderId:oid,enabled:enabledRef.current,rows,
+      })
+      if(error)throw error
+      onSaved(oid,{step_fitting:enabledRef.current})
+      return
+    }
     if (rows.length) {
       const { error } = await supabase.from('fitting_blocks').upsert(rows, { onConflict: 'id' })
       if (error) throw error

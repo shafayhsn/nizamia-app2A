@@ -25,21 +25,23 @@ function stageMutation(db,ownerId,intent){
     !['create','update','delete'].includes(intent.operation)||!/^[a-f0-9]{64}$/.test(intent.fingerprint))
   throw Error('Authorized mutation intent required')
  initialize(db)
+ const recordId=intent.document?.independentOrderSection
+  ?intent.id+':'+intent.document.childTable:intent.id
  const saved=db.exec('SELECT operation_id FROM offline_mutation_outbox WHERE owner_id=? AND fingerprint=?',
   [ownerId,intent.fingerprint])[0]?.values?.[0]
  if(saved)return saved[0]
  const active=db.exec("SELECT 1 FROM offline_mutation_outbox WHERE table_name=? AND record_id=? AND state IN ('pending','conflict')",
-  [intent.table,intent.id])[0]?.values?.[0]
+  [intent.table,recordId])[0]?.values?.[0]
  if(active)return null
  const operationId=randomUUID()
  db.run("INSERT INTO offline_mutation_outbox(operation_id,owner_id,table_name,record_id,fingerprint,intent_json,state) VALUES (?,?,?,?,?,?,'pending')",
-  [operationId,ownerId,intent.table,intent.id,intent.fingerprint,JSON.stringify(intent)])
+  [operationId,ownerId,intent.table,recordId,intent.fingerprint,JSON.stringify(intent)])
  return operationId
 }
 
 function pendingMutations(db,ownerId){
  initialize(db)
- const rows=db.exec("SELECT operation_id,intent_json FROM offline_mutation_outbox WHERE owner_id=? AND state='pending' ORDER BY rowid LIMIT 20",
+ const rows=db.exec("SELECT operation_id,intent_json FROM offline_mutation_outbox WHERE owner_id=? AND state='pending' AND (  json_extract(intent_json,'$.document.afterOperation') IS NULL OR EXISTS(  SELECT 1 FROM offline_mutation_outbox AS parent WHERE parent.operation_id=json_extract(offline_mutation_outbox.intent_json,'$.document.afterOperation')  AND parent.owner_id=offline_mutation_outbox.owner_id AND parent.state='applied'))  ORDER BY rowid LIMIT 20",
   [ownerId])[0]?.values||[]
  return rows.map(([operationId,intent])=>({operationId,intent:JSON.parse(intent)}))
 }
@@ -50,11 +52,34 @@ function recordMutationOutcome(db,ownerId,operationId,outcome,resourceId){
  const state=['applied','already-applied'].includes(outcome)?'applied':outcome==='retry'?'pending':'conflict'
  db.run("UPDATE offline_mutation_outbox SET state=?,resource_id=? WHERE operation_id=? AND owner_id=? AND state='pending'",
   [state,resourceId||null,operationId,ownerId])
- return db.getRowsModified()===1
+ const updated=db.getRowsModified()===1
+ if(updated&&state==='conflict')db.run(`WITH RECURSIVE blocked(id) AS (
+  SELECT operation_id FROM offline_mutation_outbox WHERE owner_id=? AND operation_id=?
+  UNION
+  SELECT item.operation_id FROM offline_mutation_outbox item JOIN blocked
+   ON json_extract(item.intent_json,'$.document.afterOperation')=blocked.id WHERE item.owner_id=?
+ ) UPDATE offline_mutation_outbox SET state='conflict' WHERE state='pending' AND operation_id IN (SELECT id FROM blocked)`,
+ [ownerId,operationId,ownerId])
+ return updated
+}
+
+function assertOrderSectionAvailable(db,orderId,section,creation){
+ if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ if(db.exec(`SELECT 1 FROM offline_mutation_outbox
+  WHERE table_name='orders' AND (record_id=? AND state<>'applied' AND operation_id IS DISTINCT FROM ?
+   OR record_id=? AND json_extract(intent_json,'$.document.independentOrderSection')=1
+    AND (state<>'applied' OR EXISTS(SELECT 1 FROM offline_order_section_overlays
+      WHERE order_id=? AND section=?)))`,[orderId,creation||null,orderId+':'+section,orderId,section]).length)
+  throw Error('This order or section has a local change awaiting synchronization or review.')
+ if(db.exec("SELECT 1 FROM snapshot_edits WHERE table_name='orders' AND record_id=?",[orderId]).length)
+  throw Error('Sync the earlier order change before editing this section.')
 }
 
 function assertUnqueued(db,table,id){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ if(table==='orders'&&db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_order_section_overlays'").length&&
+    db.exec('SELECT 1 FROM offline_order_section_overlays WHERE order_id=?',[id]).length)
+  throw Error('This order has section edits awaiting synchronization or review.')
  if(table==='orders'&&db.exec(`SELECT 1 FROM offline_mutation_outbox box
   JOIN json_each(box.intent_json,'$.fields.orders') AS target
   JOIN snapshot_edits edit ON edit.table_name='orders' AND edit.record_id=json_extract(target.value,'$.id')
@@ -75,6 +100,12 @@ function assertUnqueued(db,table,id){
   throw Error('This record has a PO Matrix edit awaiting synchronization or review.')
  if(db.exec("SELECT 1 FROM offline_mutation_outbox WHERE (table_name=? AND record_id=? AND (state<>'applied' OR (json_extract(intent_json,'$.operation')='create' AND record_id LIKE 'local-%'))) OR (?='sample_comments' AND json_extract(intent_json,'$.historyRecord.id')=?) OR EXISTS(SELECT 1 FROM json_each(intent_json,'$.document.localLines') WHERE json_extract(value,'$.table')=? AND json_extract(value,'$.id')=?)",[table,id,table,id,table,id]).length)
   throw Error('This record is awaiting cloud synchronization or review.')
+ if(db.exec(`SELECT 1 FROM offline_mutation_outbox box
+  JOIN json_each(box.intent_json,'$.document.matrix.creates') child
+  JOIN standalone_records row ON row.table_name=json_extract(child.value,'$.table')
+   AND row.id=json_extract(child.value,'$.id') AND row.updated_at=json_extract(box.intent_json,'$.editedAt')
+  WHERE row.table_name=? AND row.id=?`,[table,id]).length)
+  throw Error('This new PO Matrix row is awaiting synchronization or review.')
  if(table==='orders'&&db.exec(`SELECT 1 FROM offline_mutation_outbox box
   JOIN standalone_records row ON row.id=box.record_id AND row.table_name=box.table_name
   WHERE box.table_name='orders' AND box.record_id=? AND json_extract(box.intent_json,'$.operation')='create'`,[id]).length)
@@ -117,8 +148,9 @@ function reconcilePoMatrices(db,tables,hold){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
  const entries=db.exec("SELECT intent_json,state FROM offline_mutation_outbox WHERE json_type(intent_json,'$.document.matrix')='object'")[0]?.values||[]
  for(const [json,state] of entries){
-  const {id,editedAt,document:{matrix}}=JSON.parse(json)
+  const {id,editedAt,document:{matrix,independentOrderSection}}=JSON.parse(json)
   if(complete&&state==='applied'&&matrixVisible(tables,id,matrix)){
+   if(independentOrderSection)db.run("DELETE FROM offline_order_section_overlays WHERE order_id=? AND section='po_matrix' AND updated_at=?",[id,editedAt])
    for(const item of matrix.edits)db.run('DELETE FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[item.table,item.id,editedAt])
    for(const item of matrix.creates)db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',[item.table,item.id,editedAt])
   }else for(const item of matrix.edits){
@@ -185,8 +217,13 @@ function reconcileDocumentEdits(db,tables){
   const current=tables[childTable]
   if(state==='applied'&&current&&tables[intent.table]?.some(row=>row.id===intent.id&&
      (intent.table!=='orders'||Object.entries(intent.changes).every(([key,value])=>row[key]===value)))&&
-     linked.every(line=>current?.some(row=>row.id===line.id.slice(6)))&&
-     intent.expected.lines.every(line=>!current?.some(row=>row.id===line.id))){
+     linked.every((line,index)=>current.some(row=>row.id===line.id.replace(/^local-/,'')&&
+      (childTable!=='fitting_blocks'||Object.entries(intent.document.lines[index]).every(([key,value])=>
+       require('node:util').isDeepStrictEqual(row[key],value)))))&&
+     intent.expected.lines.every(line=>linked.some(item=>item.id===line.id)||!current.some(row=>row.id===line.id))){
+   if(intent.document.independentOrderSection)
+    db.run('DELETE FROM offline_order_section_overlays WHERE order_id=? AND section=? AND updated_at=?',
+     [intent.id,childTable,intent.editedAt])
    for(const [table,id] of targets)db.run('DELETE FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[table,id,intent.editedAt])
    for(const {id,table} of linked)db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',[table,id,intent.editedAt])
   }else for(const [table,id] of targets){
@@ -228,11 +265,11 @@ function findQueuedRecords(db){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return new Set()
  return new Set((db.exec('SELECT table_name,record_id,intent_json FROM offline_mutation_outbox')[0]?.values||[]).flatMap(([table,id,json])=>{
   const intent=JSON.parse(json)
-  return [table+':'+id,...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
+  return [table+':'+(intent.document?.independentOrderSection?intent.id:id),...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
    ...(intent.expected?.lines||[]).map(line=>(intent.document.childTable||intent.document.localLines[0].table)+':'+line.id),
    ...(table==='jobs'&&Array.isArray(intent.fields?.orders)?intent.fields.orders.map(order=>'orders:'+order.id):[]),
    ...[...(intent.document?.matrix?.edits||[]),...(intent.document?.matrix?.creates||[]),...(intent.document?.buyer?.edits||[]),...(intent.document?.buyer?.creates||[]),...(intent.document?.clonedRows||[])].map(item=>item.table+':'+item.id)]
  }))
 }
 
-module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers}
+module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,assertOrderSectionAvailable,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers}

@@ -510,8 +510,11 @@ export default function Step2POMatrix({ orderId, orderData, onSaved, registerSav
       const qRows = buildQueueRows(rule, gs, customBatches)
       if (!qRows.length) throw new Error('No queue rows were created. Check that the PO Matrix has quantities.')
 
-      const { error: deleteError } = await supabase.from('order_queues').delete().eq('order_id', orderId)
-      if (deleteError) throw deleteError
+      const desktop=window.location.protocol==='app2a:'
+      if(!desktop){
+        const {error:deleteError}=await supabase.from('order_queues').delete().eq('order_id',orderId)
+        if(deleteError)throw deleteError
+      }
 
       let sgMap = {}
       if (qRows.some(r => r.size_group_name)) {
@@ -554,7 +557,10 @@ export default function Step2POMatrix({ orderId, orderData, onSaved, registerSav
           }))
         : baseInsertRows
 
-      const { error } = await supabase.from('order_queues').insert(insertRows)
+      const {error}=desktop
+        ? await supabase.rpc('save_offline_order_section',{table:'order_queues',orderId,enabled:true,rule,rows:insertRows})
+        : await supabase.from('order_queues').insert(insertRows)
+      if(error&&desktop)throw error
       if (error) {
         if (String(error.message || '').toLowerCase().includes('custom_components')) {
           if (rule === 'Custom') {
