@@ -152,7 +152,19 @@ function offlineChannel(){
  const channel={on:()=>channel,subscribe:(callback)=>{if(typeof callback==='function')queueMicrotask(()=>callback('SUBSCRIBED'));return channel},unsubscribe:async()=> 'ok',send:async()=> 'ok',track:async()=> 'ok',untrack:async()=> 'ok',presenceState:()=>({})}
  return channel
 }
-const offlineClient={from:offlineQuery,channel:offlineChannel,removeChannel:async()=> 'ok',removeAllChannels:async()=>[],getChannels:()=>[]}
+async function offlineRpc(name,payload){
+ if(name!=='save_po_matrix_atomic')return {data:null,error:{message:'This operation requires a cloud connection.'}}
+ try{
+  const response=await fetch('/api/offline/po-matrix',{
+   method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),
+  })
+  const result=await response.json()
+  if(!response.ok)throw Error(result.error||'Could not queue the PO Matrix.')
+  notifyOfflineWrite()
+  return {data:result.data,error:null}
+ }catch(error){return {data:null,error:{message:error.message}}}
+}
+const offlineClient={from:offlineQuery,rpc:offlineRpc,channel:offlineChannel,removeChannel:async()=> 'ok',removeAllChannels:async()=>[],getChannels:()=>[]}
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 export const supabase = isMacOffline ? offlineClient : (supabaseUrl && supabaseAnonKey)

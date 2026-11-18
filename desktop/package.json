@@ -70,6 +70,7 @@
       "legacyMutationReview.cjs",
       "shipmentStatusMutation.cjs",
       "orderDetailsMutation.cjs",
+      "poMatrixSync.cjs",
       "standaloneForms.cjs",
       "localDesktopAuth.cjs",
       "offlineOms.cjs",

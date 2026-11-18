@@ -61,8 +61,31 @@ function assertUnqueued(db,table,id){
    AND edit.updated_at=json_extract(box.intent_json,'$.editedAt')
   WHERE box.table_name='jobs' AND edit.record_id=?`,[id]).length)
   throw Error('This order has a new job awaiting cloud synchronization or review.')
+ if(db.exec(`SELECT 1 FROM offline_mutation_outbox box
+  JOIN json_each(box.intent_json,'$.document.matrix.edits') target
+  JOIN snapshot_edits edit ON edit.table_name=json_extract(target.value,'$.table')
+   AND edit.record_id=json_extract(target.value,'$.id') AND edit.updated_at=json_extract(box.intent_json,'$.editedAt')
+  WHERE edit.table_name=? AND edit.record_id=?`,[table,id]).length)
+  throw Error('This record has a PO Matrix edit awaiting synchronization or review.')
  if(db.exec("SELECT 1 FROM offline_mutation_outbox WHERE (table_name=? AND record_id=? AND (state<>'applied' OR json_extract(intent_json,'$.operation')='create')) OR (?='sample_comments' AND json_extract(intent_json,'$.historyRecord.id')=?) OR EXISTS(SELECT 1 FROM json_each(intent_json,'$.document.localLines') WHERE json_extract(value,'$.table')=? AND json_extract(value,'$.id')=?)",[table,id,table,id,table,id]).length)
   throw Error('This record is awaiting cloud synchronization or review.')
+}
+
+function reconcilePoMatrices(db,tables,hold){
+ const {matrixVisible,matrixTables}=require('./poMatrixSync.cjs')
+ const complete=[...matrixTables,'orders'].every(table=>Array.isArray(tables[table]))
+ if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ const entries=db.exec("SELECT intent_json,state FROM offline_mutation_outbox WHERE json_type(intent_json,'$.document.matrix')='object'")[0]?.values||[]
+ for(const [json,state] of entries){
+  const {id,editedAt,document:{matrix}}=JSON.parse(json)
+  if(complete&&state==='applied'&&matrixVisible(tables,id,matrix)){
+   for(const item of matrix.edits)db.run('DELETE FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[item.table,item.id,editedAt])
+   for(const item of matrix.creates)db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',[item.table,item.id,editedAt])
+  }else for(const item of matrix.edits){
+   if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[item.table,item.id,editedAt]).length)
+    hold.add(item.table+':'+item.id)
+  }
+ }
 }
 
 function reconcileNewJobs(db,tables,hold){
@@ -150,8 +173,9 @@ function findQueuedRecords(db){
   const intent=JSON.parse(json)
   return [table+':'+id,...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
    ...(intent.expected?.lines||[]).map(line=>intent.document.localLines[0].table+':'+line.id),
-   ...(table==='jobs'&&Array.isArray(intent.fields?.orders)?intent.fields.orders.map(order=>'orders:'+order.id):[])]
+   ...(table==='jobs'&&Array.isArray(intent.fields?.orders)?intent.fields.orders.map(order=>'orders:'+order.id):[]),
+   ...[...(intent.document?.matrix?.edits||[]),...(intent.document?.matrix?.creates||[])].map(item=>item.table+':'+item.id)]
  }))
 }
 
-module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs}
+module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices}

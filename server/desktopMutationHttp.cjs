@@ -79,6 +79,11 @@ function createDesktopMutationHttp({db,key}){
       intent.fields&&typeof intent.fields==='object'&&Array.isArray(intent.document?.lines)){
     rpc='desktop_create_purchasing_document'
     args={kind:intent.table,header:intent.fields,lines:intent.document.lines}
+   }else if(intent?.operation==='update'&&intent.table==='orders'&&uuid.test(intent.id||'')&&
+      intent.changes?.po_matrix?.p_order_id===intent.id&&Array.isArray(intent.changes.po_matrix.p_groups)&&
+      intent.expected&&typeof intent.expected==='object'){
+    rpc='desktop_save_po_matrix'
+    args={target_order:intent.id,payload:intent.changes.po_matrix,expected:intent.expected}
    }else if(intent?.operation==='create'&&intent.table==='jobs'&&uuid.test(intent.fields?.buyer_id||'')&&
       Array.isArray(intent.fields.orders)&&intent.fields.orders.length>0&&intent.fields.orders.length<=500){
     rpc='desktop_create_and_assign_job'

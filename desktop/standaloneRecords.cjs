@@ -396,7 +396,7 @@ async function submitPendingMutations(directory,{ownerId,submit,isCurrent}){
   operationId,intent:{
    operation:intent.operation,table:intent.table,id:intent.id,
    fields:intent.fields,changes:intent.changes,expected:intent.expected,
-   ...(intent.document?{document:{lines:intent.document.lines,...(intent.operation==='update'?{lineIds:intent.document.localLines.map(line=>line.id.slice(6))}:{})}}:{})
+   ...(intent.document?.lines?{document:{lines:intent.document.lines,...(intent.operation==='update'?{lineIds:intent.document.localLines.map(line=>line.id.slice(6))}:{})}}:{})
   }
  })).filter(item=>{
   const bytes=Buffer.byteLength(JSON.stringify(item))+1
@@ -534,6 +534,88 @@ async function queueParcelTransition(directory,{id,status,deliveryDate,receivedB
     fs.renameSync(temp,file)
    }finally{fs.rmSync(temp,{force:true})}
    return overlay
+  }finally{db.close()}
+ })
+}
+
+async function queuePoMatrix(directory,{payload,ownerId,isCurrent}){
+ const {p_order_id:orderId,p_groups:groups,p_total_qty:qty,p_total_value_usd:value,
+  p_excess_cutting_pct:excess,p_queue_split_rule:rule}=payload||{}
+ if(!ownerId||!cloudId.test(orderId||'')||!Array.isArray(groups)||groups.length>100||
+    !Number.isSafeInteger(qty)||qty<0||!Number.isFinite(value)||!Number.isFinite(excess)||typeof rule!=='string')
+  throw Error('A synchronized order and a valid PO Matrix are required.')
+ const {matrixRows,matrixTables,summaryFields}=require('./poMatrixSync.cjs')
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file),db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   const load=table=>db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=?',[table])[0]?.values?.map(([row])=>JSON.parse(row))||[]
+   const order=load('orders').find(row=>row.id===orderId)
+   if(!order)throw Error('Refresh this order before saving its PO Matrix.')
+   const expected=matrixRows(Object.fromEntries(matrixTables.map(table=>[table,load(table)])),orderId)
+   const previous=Object.fromEntries(summaryFields.map(key=>[key,order[key]??null]))
+   const summary={step_po_matrix:true,total_qty:qty,total_value_usd:value,excess_cutting_pct:excess,queue_split_rule:rule}
+   const rows={size_groups:[],size_group_colors:[],size_group_breakdown:[]}
+   const creates=[],edits=[],stamp=new Date().toISOString()
+   const assertReady=(table,id)=>{
+    assertUnqueued(db,table,id)
+    if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id]).length)
+     throw Error('A record in this PO Matrix already has a local edit awaiting review.')
+   }
+   assertReady('orders',orderId)
+   for(const table of matrixTables)for(const row of expected[table])assertReady(table,row.id)
+   let total=0,amount=0
+   const key=()=> 'local-'+crypto.randomUUID()
+   groups.forEach((group,gi)=>{
+    if(!group||typeof group.group_name!=='string'||!Array.isArray(group.sizes)||group.sizes.some(size=>typeof size!=='string')||
+       new Set(group.sizes).size!==group.sizes.length||!Array.isArray(group.colors)||
+       (group.id&&!expected.size_groups.some(row=>row.id===group.id))||
+       (group.unit_price!==null&&!Number.isFinite(group.unit_price)))throw Error('Invalid PO Matrix size group.')
+    const gid=group.id||key()
+    rows.size_groups.push({id:gid,order_id:orderId,group_name:group.group_name,unit_price:group.id?group.unit_price:group.unit_price??0,
+     currency:group.currency||'USD',sizes:group.sizes,base_size:group.base_size??null,sort_order:gi})
+    group.colors.forEach((color,ci)=>{
+     if(!color||typeof color.color_name!=='string'||!color.color_name.trim()||!Array.isArray(color.quantities)||
+        (color.id&&!expected.size_group_colors.some(row=>row.id===color.id&&row.size_group_id===gid)))
+      throw Error('Invalid PO Matrix colour.')
+     const cid=color.id||key()
+     rows.size_group_colors.push({id:cid,size_group_id:gid,color_name:color.color_name,sort_order:ci,
+      ratio_override:color.ratio_override??null,ratio_locked:!!color.ratio_locked})
+     if(new Set(color.quantities.map(cell=>cell?.size)).size!==color.quantities.length)throw Error('Duplicate PO Matrix quantity.')
+     for(const cell of color.quantities){
+      if(!cell||!group.sizes.includes(cell.size)||!Number.isSafeInteger(cell.qty)||cell.qty<0)
+       throw Error('Invalid PO Matrix quantity.')
+      rows.size_group_breakdown.push({id:key(),size_group_id:gid,color_id:cid,size:cell.size,qty:cell.qty})
+      total+=cell.qty
+      amount+=cell.qty*(group.unit_price||0)
+     }
+    })
+   })
+   if(total!==qty||Math.abs(amount-value)>0.01||matrixTables.some(table=>new Set(rows[table].map(row=>row.id)).size!==rows[table].length))
+    throw Error('PO Matrix totals or record IDs are invalid.')
+   const retainedColors=new Set(rows.size_group_colors.map(color=>color.id))
+   const existingColors=new Set(expected.size_group_colors.map(color=>color.id))
+   if(load('washing').some(row=>existingColors.has(row.color_id)&&!retainedColors.has(row.color_id)))
+    throw Error('Cannot remove a colour linked to Washing. Update Washing first.')
+   edits.push({table:'orders',id:orderId,value:{...order,...summary}})
+   for(const table of matrixTables){
+    const next=new Map(rows[table].map(row=>[row.id,row]))
+    for(const base of expected[table])edits.push({table,id:base.id,value:next.has(base.id)?{...base,...next.get(base.id)}:null})
+    for(const row of rows[table])if(row.id.startsWith('local-'))creates.push({table,id:row.id,value:row})
+   }
+   const intent=updateMutationIntent('orders',orderId,{po_matrix:payload},{summary:previous,...expected},stamp,null,
+    {matrix:{summary,rows,edits:edits.map(({table,id})=>({table,id})),creates:creates.map(({table,id})=>({table,id}))}})
+   if(Buffer.byteLength(JSON.stringify({payload,expected,previous}))>115000)throw Error('PO Matrix is too large for offline sync.')
+   for(const {table,id,value} of edits)db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',[table,id,value===null?null:JSON.stringify(value),stamp])
+   for(const {table,id,value} of creates)db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(value),stamp,stamp])
+   if(!stageMutation(db,ownerId,intent))throw Error('Could not queue PO Matrix.')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during PO Matrix save.')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
   }finally{db.close()}
  })
 }
@@ -702,4 +784,4 @@ async function queueParcelCreate(directory,{items,customItems,addressId,contactI
  })
 }
 
-module.exports={queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+module.exports={queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
