@@ -24,7 +24,7 @@ const token=issueDesktopSyncToken(key,actor)
 const snapshotToken=Buffer.from(JSON.stringify({
  id:actor,scope:'desktop-snapshot',exp:Date.now()+60*60*1000,
 })).toString('base64url')+'.fixture'
-const names=['orders','buyers','suppliers','size_groups','bom_items']
+const names=['orders','buyers','suppliers','size_groups','size_group_colors','order_queues','bom_items']
 let online=true
 let uploads=0
 let failure
@@ -47,6 +47,8 @@ const fixture=(async()=>{
   create table buyers(id uuid primary key,name text);
   create table suppliers(id uuid primary key,name text);
   create table size_groups(id uuid primary key,order_id uuid,group_name text);
+  create table size_group_colors(id uuid primary key,size_group_id uuid,color_name text);
+  create table order_queues(id uuid primary key,order_id uuid);
   create table bom_items(id uuid primary key,order_id uuid,name text);
   grant select,insert,update,delete on all tables in schema public to service_role;
  `)
@@ -61,7 +63,7 @@ const fixture=(async()=>{
 const mutations=createDesktopMutationHttp({key,db:{async rpc(name,args){
  assert.equal(name,'desktop_copy_order_sections')
  const {rows}=await db.query('select desktop_copy_order_sections($1,$2,$3,$4,$5::jsonb) as outcome',
-  [args.actor,args.operation,args.source_order,args.target_order,JSON.stringify(args.sections)])
+  [args.actor,args.operation,args.source_order,args.target_order,JSON.stringify(args.sections)]).catch(error=>{console.error('QA PostgreSQL error',error.code,error.message);throw error})
  return {data:rows[0].outcome}
 }}})
 global.fetch=async(url,options)=>{
