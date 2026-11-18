@@ -29,8 +29,8 @@ function createMutationIntent(table,id,fields,createdAt,editedAt,document){
  return {...intent,fingerprint:fingerprint(intent)}
 }
 
-function updateMutationIntent(table,id,changes,expected,editedAt,historyRecord){
- const intent={operation:'update',table,id,changes,expected,editedAt,...(historyRecord?{historyRecord}:{})}
+function updateMutationIntent(table,id,changes,expected,editedAt,historyRecord,document){
+ const intent={operation:'update',table,id,changes,expected,editedAt,...(historyRecord?{historyRecord}:{}),...(document?{document}:{})}
  return {...intent,fingerprint:fingerprint(intent)}
 }
 

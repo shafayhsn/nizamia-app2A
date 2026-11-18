@@ -454,9 +454,9 @@ app.whenReady().then(() => {
       try{
         const raw=await request.text()
         if(Buffer.byteLength(raw)>110000)return Response.json({error:'Document too large for offline sync'},{status:413})
-        const {table,fields,lines}=JSON.parse(raw)
+        const {table,fields,lines,documentId}=JSON.parse(raw)
         const {queuePurchasingDocument}=require('./standaloneRecords.cjs')
-        const data=await queuePurchasingDocument(directory,{table,fields,lines,ownerId,
+        const data=await queuePurchasingDocument(directory,{table,fields,lines,documentId,ownerId,
           isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
         return Response.json({data},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:400})}

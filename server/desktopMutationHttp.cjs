@@ -58,6 +58,13 @@ function createDesktopMutationHttp({db,key}){
       delivery_date:intent.changes.delivery_date,received_by:intent.changes.received_by
      }:{})
     }}
+   }else if(intent?.operation==='update'&&['purchase_orders','work_orders'].includes(intent.table)&&
+      uuid.test(intent.id||'')&&typeof intent.expected?.updated_at==='string'&&Array.isArray(intent.expected.lines)&&
+      Array.isArray(intent.document?.lines)&&intent.document.lines.length===intent.document.lineIds?.length&&
+      Array.isArray(intent.document.lineIds)&&intent.document.lineIds.every(id=>uuid.test(id))){
+    rpc='desktop_edit_purchasing_document'
+    args={kind:intent.table,target:intent.id,header:intent.changes,expected:intent.expected,
+     lines:intent.document.lines.map((line,index)=>({...line,id:intent.document.lineIds[index]}))}
    }else if(intent?.operation==='create'&&['purchase_orders','work_orders'].includes(intent.table)&&
       intent.fields&&typeof intent.fields==='object'&&Array.isArray(intent.document?.lines)){
     rpc='desktop_create_purchasing_document'

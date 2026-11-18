@@ -373,7 +373,7 @@ async function submitPendingMutations(directory,{ownerId,submit,isCurrent}){
   operationId,intent:{
    operation:intent.operation,table:intent.table,id:intent.id,
    fields:intent.fields,changes:intent.changes,expected:intent.expected,
-   ...(intent.document?{document:{lines:intent.document.lines}}:{})
+   ...(intent.document?{document:{lines:intent.document.lines,...(intent.operation==='update'?{lineIds:intent.document.localLines.map(line=>line.id.slice(6))}:{})}}:{})
   }
  })).filter(item=>{
   const bytes=Buffer.byteLength(JSON.stringify(item))+1
@@ -515,7 +515,7 @@ async function queueParcelTransition(directory,{id,status,deliveryDate,receivedB
  })
 }
 
-async function queuePurchasingDocument(directory,{table,fields,lines,ownerId,isCurrent}){
+async function queuePurchasingDocument(directory,{table,fields,lines,ownerId,isCurrent,documentId}){
  if(!ownerId||!['purchase_orders','work_orders'].includes(table)||
     !Array.isArray(lines)||!lines.length||lines.length>200)throw Error('Supplier and valid document lines are required.')
  const purchase=table==='purchase_orders'
@@ -525,7 +525,7 @@ async function queuePurchasingDocument(directory,{table,fields,lines,ownerId,isC
  const nameField=purchase?'description':'process_name'
  const vendor=fields?.[purchase?'supplier_id':'vendor_id']
  if(!cloudId.test(vendor||'')||fields.order_id&&!cloudId.test(fields.order_id)||
-    fields.status!=='Draft'||lines.some(line=>typeof line?.[nameField]!=='string'||!line[nameField].trim()))
+    (!documentId&&fields.status!=='Draft')||lines.some(line=>typeof line?.[nameField]!=='string'||!line[nameField].trim()))
   throw Error('Use a synchronized supplier, order and valid line descriptions.')
  const header={...fields}
  delete header[numberField]
@@ -540,15 +540,39 @@ async function queuePurchasingDocument(directory,{table,fields,lines,ownerId,isC
   try{
    schema(db)
    const stamp=new Date().toISOString(),id='local-'+crypto.randomUUID()
+   let expected
+   if(documentId){
+    if(!cloudId.test(documentId))throw Error('Wait for this document to synchronize before editing it.')
+    assertUnqueued(db,table,documentId)
+    const base=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name=? AND json_extract(row_json,'$.id')=?",
+     [table,documentId])[0]?.values?.[0]?.[0]
+    if(!base)throw Error('Synchronized document required.')
+    const current=JSON.parse(base)
+    const children=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name=? AND json_extract(row_json,?)=?",
+     [childTable,'$.'+parentField,documentId])[0]?.values?.map(([json])=>JSON.parse(json))||[]
+    for(const [name,key] of [[table,documentId],...children.map(line=>[childTable,line.id])]){
+     assertUnqueued(db,name,key)
+     if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=?',[name,key]).length)
+      throw Error('This document has a saved local edit awaiting review.')
+    }
+    if(!current.updated_at)throw Error('Refresh this document before editing.')
+    expected={updated_at:current.updated_at,header:Object.fromEntries(Object.keys(header).map(key=>[key,current[key]??null])),lines:children}
+    for(const line of children)db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',[childTable,line.id,null,stamp])
+    db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',[table,documentId,JSON.stringify({...current,...header}),stamp])
+   }
    const localHeader={...header,[numberField]:'OFFLINE-'+id.slice(6)}
-   db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(localHeader),stamp,stamp])
+   if(!documentId)db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(localHeader),stamp,stamp])
    const localLines=lines.map(line=>{
     const lineId='local-'+crypto.randomUUID()
     db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',
-     [lineId,childTable,JSON.stringify({...line,[parentField]:id}),stamp,stamp])
+     [lineId,childTable,JSON.stringify({...line,[parentField]:documentId||id}),stamp,stamp])
     return {id:lineId,table:childTable,parentField}
    })
-   if(!stageMutation(db,ownerId,createMutationIntent(table,id,header,stamp,stamp,{lines,localLines})))
+   const intent=documentId
+    ?updateMutationIntent(table,documentId,header,expected,stamp,null,{lines,localLines})
+    :createMutationIntent(table,id,header,stamp,stamp,{lines,localLines})
+   if(Buffer.byteLength(JSON.stringify(intent))>120000)throw Error('Document too large for offline sync.')
+   if(!stageMutation(db,ownerId,intent))
     throw Error('Could not queue purchasing document.')
    const temp=file+'.'+crypto.randomUUID()+'.tmp'
    try{

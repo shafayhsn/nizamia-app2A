@@ -1,6 +1,6 @@
 'use strict'
 const {isDeepStrictEqual:equal}=require('node:util')
-const {reconcileUploadedCreates}=require('./offlineMutationOutbox.cjs')
+const {reconcileUploadedCreates,reconcileDocumentEdits}=require('./offlineMutationOutbox.cjs')
 const timestamp=value=>typeof value==='string'&&/(Z|[+-]\d\d:\d\d)$/i.test(value)?Date.parse(value):NaN
 
 function shipmentStatusTime(before,after){
@@ -17,13 +17,13 @@ function shipmentStatusTime(before,after){
  return timestamp(fresh.history.findLast(event=>event?.to===fresh.status)?.at)
 }
 
-function reconcileOverlays(db,tables,excluded){
+function reconcileOverlays(db,tables,excluded,hold){
  const overlays=db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_edits'")
  if(!overlays.length)return {unresolved:[],rows:tables}
  const unresolved=[],rows={...tables},indexed=new Map()
  const edits=db.exec('SELECT table_name,record_id,fields_json,updated_at FROM snapshot_edits')[0]?.values||[]
  for(const [table,id,json,editedAt] of edits){
-  if(!Object.hasOwn(tables,table)||excluded.has(table))continue
+  if(!Object.hasOwn(tables,table)||excluded.has(table)||hold.has(table+':'+id))continue
   if(!indexed.has(table)){
    rows[table]=[...tables[table]]
    const stored=db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=?',[table])[0]?.values||[]
@@ -87,7 +87,8 @@ function mergeSnapshotRows(db,tables,{excludedTables=[]}={}){
  db.run('BEGIN TRANSACTION')
  let unresolved
  try{
-  const reconciliation=reconcileOverlays(db,tables,excluded)
+  const hold=reconcileDocumentEdits(db,Object.fromEntries(Object.entries(tables).filter(([name])=>!excluded.has(name))))
+  const reconciliation=reconcileOverlays(db,tables,excluded,hold)
   unresolved=reconciliation.unresolved
   const incoming=reconciliation.rows
   reconcileUploadedCreates(db,Object.fromEntries(Object.entries(incoming).filter(([table])=>!excluded.has(table))))

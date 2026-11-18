@@ -59,6 +59,29 @@ function assertUnqueued(db,table,id){
   throw Error('This record is awaiting cloud synchronization or review.')
 }
 
+function reconcileDocumentEdits(db,tables){
+ const hold=new Set()
+ if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return hold
+ const entries=db.exec("SELECT intent_json,state FROM offline_mutation_outbox WHERE json_type(intent_json,'$.expected.lines')='array'")[0]?.values||[]
+ for(const [json,state] of entries){
+  const intent=JSON.parse(json)
+  const linked=intent.document.localLines
+  const childTable=linked[0].table
+  const targets=[[intent.table,intent.id],...intent.expected.lines.map(line=>[childTable,line.id])]
+  const current=tables[childTable]
+  if(state==='applied'&&tables[intent.table]?.some(row=>row.id===intent.id)&&
+     linked.every(line=>current?.some(row=>row.id===line.id.slice(6)))&&
+     intent.expected.lines.every(line=>!current?.some(row=>row.id===line.id))){
+   for(const [table,id] of targets)db.run('DELETE FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[table,id,intent.editedAt])
+   for(const {id,table} of linked)db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',[table,id,intent.editedAt])
+  }else for(const [table,id] of targets){
+   if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[table,id,intent.editedAt]).length)
+    hold.add(table+':'+id)
+  }
+ }
+ return hold
+}
+
 function reconcileUploadedCreates(db,tables){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
  initialize(db)
@@ -86,8 +109,9 @@ function findQueuedRecords(db){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return new Set()
  return new Set((db.exec('SELECT table_name,record_id,intent_json FROM offline_mutation_outbox')[0]?.values||[]).flatMap(([table,id,json])=>{
   const intent=JSON.parse(json)
-  return [table+':'+id,...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id)]
+  return [table+':'+id,...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
+   ...(intent.expected?.lines||[]).map(line=>intent.document.localLines[0].table+':'+line.id)]
  }))
 }
 
-module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates}
+module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates,reconcileDocumentEdits}
