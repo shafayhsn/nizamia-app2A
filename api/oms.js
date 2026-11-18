@@ -38,7 +38,7 @@ export default async function handler(req,res){
    const {data,error}=await db.from('users').select('id,username,email,role,role_id,password_hash,is_active,is_restricted').eq(field,field==='email'?identifier.toLowerCase():identifier).maybeSingle()
    if(error||!data||data.is_active===false||data.is_restricted===true)return err(res,401,'Invalid credentials')
    if(!await passwordTools.verifyPassword(password,data.password_hash))return err(res,401,'Invalid credentials')
-   if(!/^scrypt:[a-f0-9]{32}:[a-f0-9]{128}$/.test(data.password_hash)){
+   if(process.env.ACCOUNT_PASSWORD_UPGRADE_ENABLED==='true'&&!/^scrypt:[a-f0-9]{32}:[a-f0-9]{128}$/.test(data.password_hash)){
      const hash=await passwordTools.hashPassword(password)
      const {error:upgradeError}=await db.from('users').update({password_hash:hash}).eq('id',data.id).eq('password_hash',data.password_hash)
      if(upgradeError)return err(res,503,'Login temporarily unavailable')
