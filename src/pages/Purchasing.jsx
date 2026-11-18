@@ -219,6 +219,24 @@ async function saveOfflinePurchasingDocument(table,fields,lines,documentId){
  window.dispatchEvent(new Event('app2a-offline-data-changed'))
 }
 
+const cloudSnapshotEvent='app2a-cloud-snapshot-updated'
+
+async function removePurchasingDocument(table,lineTable,parentField,id){
+ if(location.protocol==='app2a:'){
+  const response=await fetch('/api/offline/purchasing-remove',{
+   method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table,id}),
+  })
+  const result=await response.json()
+  if(!response.ok)throw Error(result.error||'Could not queue document deletion')
+  window.dispatchEvent(new Event('app2a-offline-data-changed'))
+  return
+ }
+ const {error:lineError}=await supabase.from(lineTable).delete().eq(parentField,id)
+ if(lineError)throw lineError
+ const {error}=await supabase.from(table).delete().eq('id',id)
+ if(error)throw error
+}
+
 function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
   const isNew = !po
   const decodedPO = decodeNotes(po?.notes || '')
@@ -327,8 +345,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
   const handleDelete = async () => {
     if (!window.confirm(`Delete PO ${po.po_number}? This cannot be undone.`)) return
     try {
-      await supabase.from('purchase_order_items').delete().eq('po_id', po.id)
-      await supabase.from('purchase_orders').delete().eq('id', po.id)
+      await removePurchasingDocument('purchase_orders','purchase_order_items','po_id',po.id)
       onClose()
       onSaved?.()
     } catch (e) {
@@ -536,8 +553,7 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, prefillItems, onClo
   const handleDelete = async () => {
     if (!window.confirm(`Delete WO ${wo.wo_number}? This cannot be undone.`)) return
     try {
-      await supabase.from('work_order_items').delete().eq('wo_id', wo.id)
-      await supabase.from('work_orders').delete().eq('id', wo.id)
+      await removePurchasingDocument('work_orders','work_order_items','wo_id',wo.id)
       onClose()
       onSaved?.()
     } catch (e) {
@@ -1612,7 +1628,11 @@ function PurchaseOrdersTab({ orders, suppliers }) {
   const [editPO, setEditPO] = useState(null)
   const [search, setSearch] = useState(new URLSearchParams(window.location.search).get('record') || '')
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    window.addEventListener(cloudSnapshotEvent,load)
+    return ()=>window.removeEventListener(cloudSnapshotEvent,load)
+  }, [])
   async function load() {
     setLoading(true)
     const { data } = await supabase.from('purchase_orders').select('*, purchase_order_items(*)').order('created_at',{ ascending:false })
@@ -1646,14 +1666,19 @@ function PurchaseOrdersTab({ orders, suppliers }) {
     e.stopPropagation()
     if (!user || user.role !== 'admin') { alert('Access Denied'); return }
     if (!window.confirm(`Delete PO ${p.po_number}? This cannot be undone.`)) return
-    await supabase.from('purchase_order_items').delete().eq('po_id', p.id)
-    await supabase.from('purchase_orders').delete().eq('id', p.id)
-    load()
+    try {
+      await removePurchasingDocument('purchase_orders','purchase_order_items','po_id',p.id)
+      await load()
+    } catch(error) { alert(error.message) }
   }
 
   const handleTogglePOApproval = async (p, e) => {
     e.stopPropagation()
     if (!access.canApprovePO(user)) { alert('Access Denied'); return }
+    if(location.protocol==='app2a:'&&String(p.id).startsWith('local-')){
+      alert('Sync this new purchase order before changing its approval status.')
+      return
+    }
     const nextStatus = String(p.status || '').toLowerCase() === 'approved' ? 'draft' : 'approved'
     if (!window.confirm(`${nextStatus === 'approved' ? 'Approve' : 'Unapprove'} PO ${p.po_number}?`)) return
     const {error}=await supabase.from('purchase_orders').update({ status: nextStatus }).eq('id', p.id)
@@ -1712,7 +1737,11 @@ function WorkOrdersTab({ orders, suppliers }) {
   const [editWO, setEditWO] = useState(null)
   const [search, setSearch] = useState(new URLSearchParams(window.location.search).get('record') || '')
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    window.addEventListener(cloudSnapshotEvent,load)
+    return ()=>window.removeEventListener(cloudSnapshotEvent,load)
+  }, [])
   async function load() {
     setLoading(true)
     const { data } = await supabase.from('work_orders').select('*, work_order_items(*)').order('created_at',{ ascending:false })
@@ -1730,9 +1759,10 @@ function WorkOrdersTab({ orders, suppliers }) {
   const handleDeleteWO = async (w,e) => {
     e.stopPropagation()
     if (!window.confirm(`Delete WO ${w.wo_number}? This cannot be undone.`)) return
-    await supabase.from('work_order_items').delete().eq('wo_id', w.id)
-    await supabase.from('work_orders').delete().eq('id', w.id)
-    load()
+    try {
+      await removePurchasingDocument('work_orders','work_order_items','wo_id',w.id)
+      await load()
+    } catch(error) { alert(error.message) }
   }
 
   return (
@@ -1791,7 +1821,11 @@ function DeliveriesTab({ orders, suppliers }) {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    window.addEventListener(cloudSnapshotEvent,load)
+    return ()=>window.removeEventListener(cloudSnapshotEvent,load)
+  }, [])
   async function load() {
     setLoading(true)
     const [{ data:p }, { data:w }] = await Promise.all([

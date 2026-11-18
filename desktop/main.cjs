@@ -112,7 +112,7 @@ async function refreshCloudSnapshot(token){
   const payload=await createSnapshotDownloadClient({origin:APP_URL,fetchImpl:fetch}).download({token})
   if(!desktopAuth?.isAuthenticated()||token!==onlineSnapshotToken)return {status:'skipped'}
   const excluded=new Set(['users','permissions','roles','app_database_sync_status','notification_reads','app_task_reads'])
-  const sensitive=/password|secret|token|api_key|private_key|session|credential|auth_hash/i
+  const sensitive=/password|secret|token|api_key|private_key|session|credential|auth_hash|passkey_hash/i
   const tables=Object.fromEntries(Object.entries(payload.tables)
    .filter(([name])=>!excluded.has(name))
    .map(([name,rows])=>[name,rows.map(row=>Object.fromEntries(Object.entries(row).filter(([field])=>!sensitive.test(field))))]))
@@ -583,6 +583,20 @@ app.whenReady().then(() => {
         const {orderIds}=JSON.parse(raw)
         const {queueNewJob}=require('./standaloneRecords.cjs')
         const data=await queueNewJob(directory,{orderIds,ownerId,
+          isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
+        return Response.json({data},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:400})}
+    }
+    if(url.pathname==='/api/offline/purchasing-remove'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
+      if(!ownerId||!directory)return Response.json({error:'Administrator access required for purchasing sync'},{status:403})
+      try{
+        const raw=await request.text()
+        if(Buffer.byteLength(raw)>4096)return Response.json({error:'Purchasing request too large'},{status:413})
+        const {table,id}=JSON.parse(raw)
+        const {queuePurchasingRemoval}=require('./standaloneRecords.cjs')
+        const data=await queuePurchasingRemoval(directory,{table,id,ownerId,
           isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
         return Response.json({data},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:400})}

@@ -8,7 +8,7 @@ const db=key&&url?createClient(url,key,{auth:{persistSession:false,autoRefreshTo
 // Deliberately excludes users, roles, permissions, read receipts, sync metadata,
 // feature assets/certificates and historical migration tables.
 const TABLES=["buyers","suppliers","library_items","bom_presets","bom_preset_items","jobs","orders","size_groups","size_group_colors","size_group_breakdown","bom_items","fitting","samples","washing","embellishments","finishing","finishing_color_packing","order_processes","purchase_orders","purchase_order_items","purchase_order_changelog","work_orders","work_order_items","work_order_changelog","settings","counters","exchange_rates","size_group_templates","fitting_blocks","finishing_packs","order_queues","sample_comments","sample_logs","shipments","shipment_lines","payment_settlements","app_settings","document_numbering","uoms","ui_status_colors","packing_snapshots","parcels","production_batches","production_batch_orders","app_tasks","app_task_comments","production_daily_entries","shipping_bookings","shipping_booking_lines","shipping_booking_shipments","parcel_status_history","buyer_addresses","buyer_contacts","parcel_invoice_snapshots","testing_orders","testing_requirements","pp_meetings","proforma_invoices","proforma_invoice_revisions","costing_sheets","costing_sheet_versions","costing_batches"]
-const sensitive=/password|secret|token|api_key|private_key|session|credential|auth_hash/i
+const sensitive=/password|secret|token|api_key|private_key|session|credential|auth_hash|passkey_hash/i
 function verifyBearer(value){
  if(typeof value!=='string'||!value.startsWith('Bearer '))return null
  const token=value.slice(7),parts=token.split('.')

@@ -1330,6 +1330,48 @@ async function queueNewJob(directory,{orderIds,ownerId,isCurrent}){
  })
 }
 
+async function queuePurchasingRemoval(directory,{table,id,ownerId,isCurrent}){
+ if(!ownerId||!['purchase_orders','work_orders'].includes(table)||!cloudId.test(id||''))
+  throw Error('A synchronized purchasing document is required.')
+ const purchase=table==='purchase_orders'
+ const [lineTable,historyTable,parent]=purchase?
+  ['purchase_order_items','purchase_order_changelog','po_id']:
+  ['work_order_items','work_order_changelog','wo_id']
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file)
+  const db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   const rows=(name,key)=>(db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=? AND json_extract(row_json,?)=?',
+    [name,'$.'+key,id])[0]?.values||[]).map(([json])=>JSON.parse(json)).sort((a,b)=>a.id.localeCompare(b.id))
+   const [record]=rows(table,'id')
+   if(!record)throw Error('Refresh the document before deleting it.')
+   const {passkey_hash,...header}=record
+   const lines=rows(lineTable,parent),history=rows(historyTable,parent)
+   const targets=[[table,id],...lines.map(row=>[lineTable,row.id]),...history.map(row=>[historyTable,row.id])]
+   const editedAt=new Date().toISOString()
+   for(const [name,key] of targets){
+    assertUnqueued(db,name,key)
+    if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=?',[name,key]).length)
+     throw Error('Review the previous local document change before deleting it.')
+    db.run('INSERT INTO snapshot_edits VALUES (?,?,NULL,?)',[name,key,editedAt])
+   }
+   const draft={operation:'delete',table,id,editedAt,expected:{purchasingRemoval:{header,lines,history}},document:{purchasingTargets:targets}}
+   const intent={...draft,fingerprint:require('./offlineMutationPlan.cjs').fingerprint(draft)}
+   if(Buffer.byteLength(JSON.stringify(intent))>115000||!stageMutation(db,ownerId,intent))
+    throw Error('Could not queue this deletion.')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during purchasing deletion.')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return {id}
+  }finally{db.close()}
+ })
+}
+
 async function queuePurchasingDocument(directory,{table,fields,lines,ownerId,isCurrent,documentId}){
  if(!ownerId||!['purchase_orders','work_orders'].includes(table)||
     !Array.isArray(lines)||!lines.length||lines.length>200)throw Error('Supplier and valid document lines are required.')
@@ -1395,7 +1437,7 @@ async function queuePurchasingDocument(directory,{table,fields,lines,ownerId,isC
     if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during purchasing save')
     fs.renameSync(temp,file)
    }finally{fs.rmSync(temp,{force:true})}
-   return {id,...localHeader}
+   return documentId?{...header,id:documentId}:{id,...localHeader}
   }finally{db.close()}
  })
 }
@@ -1447,4 +1489,4 @@ async function queueParcelCreate(directory,{items,customItems,addressId,contactI
  })
 }
 
-module.exports={queueParcelInvoice,queueArea3Records,queueOrderCopy,queueOrderRemoval,queueOrderImport,queueOrderSection,queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+module.exports={queuePurchasingRemoval,queueParcelInvoice,queueArea3Records,queueOrderCopy,queueOrderRemoval,queueOrderImport,queueOrderSection,queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}

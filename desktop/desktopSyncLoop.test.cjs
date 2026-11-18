@@ -31,3 +31,25 @@ test('upload waits for connectivity, retries, refreshes after acknowledgement an
  assert.equal(loop.getStatus().state,'sign-in-required')
  assert.equal(calls,2)
 })
+
+
+test('reconnect refreshes cloud changes without uploads and retries a failed download',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']})
+ let online=false,downloads=0
+ const loop=createDesktopSyncLoop({
+  isOnline:()=>online,intervalMs:1000,
+  coordinator:{async synchronize(){return {archived:0,retained:0,conflicts:0}}},
+  async refresh(){if(++downloads===1)throw Error('Snapshot download interrupted')}
+ })
+ const tick=async ms=>{t.mock.timers.tick(ms);await Promise.resolve();await Promise.resolve()}
+ loop.start({})
+ await tick(0)
+ online=true
+ await tick(1000)
+ assert.equal(loop.getStatus().state,'retrying')
+ await tick(1000)
+ assert.equal(loop.getStatus().state,'ready')
+ await tick(1000)
+ assert.equal(downloads,2)
+ loop.stop()
+})

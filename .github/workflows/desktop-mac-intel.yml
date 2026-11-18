@@ -7,6 +7,7 @@ on:
       - feature/CP-18-sqlite-foundation
       - feature/desktop-two-way-sync
       - feature/box-2-validation
+      - feature/box-4-validation
     paths:
       - 'api/**'
       - 'desktop/**'
@@ -310,9 +311,9 @@ jobs:
       - name: Test local SQLite backup, snapshot merge and offline reopen
         working-directory: desktop
         run: node --test desktopLocalBackup.test.cjs snapshotMerge.test.cjs localDesktopAuth.test.cjs
-      - name: Verify Area 2 and Area 3 inside Intel Electron
-        if: github.ref == 'refs/heads/feature/box-2-validation'
-        timeout-minutes: 5
+      - name: Verify Areas 2 to 4 inside Intel Electron
+        if: github.ref == 'refs/heads/feature/box-4-validation'
+        timeout-minutes: 7
         run: |
           set -euo pipefail
           resources="desktop/node_modules/electron/dist/Electron.app/Contents/Resources"

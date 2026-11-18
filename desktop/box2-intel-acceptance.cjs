@@ -24,7 +24,9 @@ const token=issueDesktopSyncToken(key,actor)
 const snapshotToken=Buffer.from(JSON.stringify({
  id:actor,scope:'desktop-snapshot',exp:Date.now()+60*60*1000,
 })).toString('base64url')+'.fixture'
-const names=['orders','buyers','suppliers','size_groups','size_group_colors','order_queues','bom_items','samples','sample_comments','parcels','parcel_status_history']
+const names=['orders','buyers','suppliers','size_groups','size_group_colors','order_queues','bom_items','samples','sample_comments','parcels','parcel_status_history',
+ 'order_processes','purchase_orders','purchase_order_items','purchase_order_changelog',
+ 'work_orders','work_order_items','work_order_changelog']
 let online=true
 let uploads=0
 let failure
@@ -65,16 +67,29 @@ const fixture=(async()=>{
    custom_items jsonb,tracking_url text,updated_at timestamptz,dispatched_at timestamptz,delivered_at timestamptz,received_by text);
   create table parcel_status_history(id uuid default gen_random_uuid(),parcel_id text,old_status text,new_status text,note text);
   create table counters(key text primary key,value int);
+   create table order_processes(id uuid primary key,order_id uuid);
+   create table document_numbering(doc_type text primary key,prefix text,current_number int,next_number int,format text,pattern text,seq_pad int,enabled bool,updated_at timestamp);
+   create table purchase_orders(id uuid primary key,po_number text unique not null,order_id uuid,supplier_id uuid,po_date date,delivery_date date,currency text,payment_terms text,status text,notes text,updated_at timestamptz default now());
+   create table purchase_order_items(id uuid primary key default gen_random_uuid(),po_id uuid references purchase_orders(id),
+    description text not null check(description<>'Reject'),specification text,qty numeric,unit text,unit_rate numeric,amount numeric,sort_order int,source_type text,source_id uuid);
+   create table work_orders(id uuid primary key,wo_number text unique not null,order_id uuid,vendor_id uuid,vendor_type text,vendor_phone text,factory_ref text,issue_date date,start_date date,complete_by date,daily_output int,payment_terms text,color text,qty int,status text,notes text,updated_at timestamptz default now());
+   create table work_order_items(id uuid primary key default gen_random_uuid(),wo_id uuid references work_orders(id),
+    order_process_id uuid,process_name text not null,dept_info text,qty numeric,unit text,rate numeric,amount numeric,sort_order int);
+   create table purchase_order_changelog(id uuid primary key,po_id uuid references purchase_orders(id),change_description text);
+   create table work_order_changelog(id uuid primary key,wo_id uuid references work_orders(id),change_description text);
   grant select,insert,update,delete on all tables in schema public to service_role;
  `)
  await db.exec(fs.readFileSync(path.join(__dirname,'../server/migrations/20261118_desktop_order_section_copy.sql'),'utf8'))
- for(const name of ['parcel_transition','sampling_parcels'])
+ for(const name of ['parcel_transition','sampling_parcels','purchasing_create','purchasing_edit','purchase_approval','purchasing_remove'])
   await db.exec(fs.readFileSync(path.join(__dirname,'../server/migrations/20261118_desktop_'+name+'.sql'),'utf8'))
  await db.exec('set role service_role')
  await db.query("insert into users values($1,'admin',true,false)",[actor])
  await db.query("insert into buyers values($1,'Intel QA buyer')",[buyer])
  await db.query("insert into orders(id,buyer_id,style_number,step_bom) values($1,$3,'Intel QA style',true),($2,$3,'Intel QA style',false)",[source,target,buyer])
  await db.query("insert into bom_items values($1,$2,'Intel QA denim')",[material,source])
+ await db.query("insert into suppliers values($1,'Intel supplier')",[buyer])
+ await db.query('insert into order_processes values($1,$2)',[material,target])
+ await db.exec("insert into document_numbering(doc_type,prefix,current_number,next_number,pattern,seq_pad,enabled) values ('po','INTELPO',1,1,'{PREFIX}-{SEQ}',3,true),('wo','INTELWO',1,1,'{PREFIX}-{SEQ}',3,true)")
  await db.exec("insert into parcels(id,status,items,custom_items) values('intel-area3-parcel','Draft','[]','[]')")
 })()
 
@@ -87,6 +102,26 @@ const mutations=createDesktopMutationHttp({key,db:{async rpc(name,args){
  if(name==='desktop_transition_parcel'){
   const {rows}=await db.query('select desktop_transition_parcel($1,$2,$3,$4::jsonb) as outcome',
    [args.actor,args.operation,args.target_parcel,JSON.stringify(args.payload)])
+  return {data:rows[0].outcome}
+ }
+ if(name==='desktop_create_purchasing_document'){
+  const {rows}=await db.query('select desktop_create_purchasing_document($1,$2,$3,$4::jsonb,$5::jsonb) as outcome',
+   [args.actor,args.operation,args.kind,JSON.stringify(args.header),JSON.stringify(args.lines)])
+  return {data:rows[0].outcome}
+ }
+ if(name==='desktop_edit_purchasing_document'){
+  const {rows}=await db.query('select desktop_edit_purchasing_document($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb) as outcome',
+   [args.actor,args.operation,args.kind,args.target,JSON.stringify(args.header),JSON.stringify(args.expected),JSON.stringify(args.lines)])
+  return {data:rows[0].outcome}
+ }
+ if(name==='desktop_update_purchase_approval'){
+  const {rows}=await db.query('select desktop_update_purchase_approval($1,$2,$3,$4,$5) as outcome',
+   [args.actor,args.operation,args.target_purchase_order,args.previous_status,args.new_status])
+  return {data:rows[0].outcome}
+ }
+ if(name==='desktop_remove_purchasing_document'){
+  const {rows}=await db.query('select desktop_remove_purchasing_document($1,$2,$3,$4,$5::jsonb) as outcome',
+   [args.actor,args.operation,args.kind,args.target,JSON.stringify(args.expected)])
   return {data:rows[0].outcome}
  }
  assert.equal(name,'desktop_copy_order_sections')
@@ -192,7 +227,46 @@ async function check(){
  await until(async()=> (await records(win,'parcel_status_history')).some(row=>row.new_status==='Dispatched'),
   'Reconnect did not publish linked parcel dispatch history')
  assert.equal((await db.query("select tracking_no from parcels where id='intel-area3-parcel'")).rows[0].tracking_no,'Intel-123')
- console.log('Intel Electron acceptance passed: offline reopen, section copy, sample and approval, parcel dispatch, reconnect and cloud readback.')
+ online=false
+ const queuePO=(fields,lines,documentId)=>request(win,'/api/offline/purchasing-create',{table:'purchase_orders',fields,lines,documentId})
+ const queueWO=(fields,lines,documentId)=>request(win,'/api/offline/purchasing-create',{table:'work_orders',fields,lines,documentId})
+ const poFields={order_id:target,supplier_id:buyer,status:'Draft',currency:'PKR'}
+ const woFields={order_id:target,vendor_id:buyer,status:'Draft'}
+ const {data:poDraft}=await queuePO(poFields,[{description:'Intel denim',qty:4,unit_rate:10}])
+ const {data:woDraft}=await queueWO(woFields,[{process_name:'Intel washing',order_process_id:material,qty:5,rate:12}])
+ assert.match(poDraft.po_number,/^OFFLINE-/)
+ assert.match(woDraft.wo_number,/^OFFLINE-/)
+ assert.equal((await records(win,'purchase_order_items')).find(line=>line.po_id===poDraft.id).qty,4)
+ assert.equal((await db.query('select count(*)::int as count from purchase_orders')).rows[0].count,0)
+ online=true
+ await login(win)
+ const po=await until(async()=> (await records(win,'purchase_orders')).find(row=>row.po_number==='INTELPO-001'&&row._local_only===false),
+  'PO draft did not receive its official number on reconnect')
+ const wo=await until(async()=> (await records(win,'work_orders')).find(row=>row.wo_number==='INTELWO-001'&&row._local_only===false),
+  'WO draft did not receive its official number on reconnect')
+ online=false
+ await request(win,'/api/offline/mutate',{table:'purchase_orders',id:po.id,action:'update',fields:{status:'approved'}})
+ await queueWO({...woFields,notes:'Intel revised work'},[{process_name:'Intel washing revised',order_process_id:material,qty:6,rate:12}],wo.id)
+ assert.equal((await records(win,'purchase_orders')).find(row=>row.id===po.id).status,'approved')
+ online=true
+ await login(win)
+ await until(async()=> (await records(win,'work_order_items')).some(row=>row.wo_id===wo.id&&row.amount===72&&row._local_only===false),
+  'Revised work order and calculated line amount did not upload')
+ assert.equal((await db.query('select status from purchase_orders where id=$1',[po.id])).rows[0].status,'approved')
+ await db.query("insert into work_order_changelog(id,wo_id,change_description) values($1,$2,'Intel cloud history')",[crypto.randomUUID(),wo.id])
+ await login(win)
+ await until(async()=> (await records(win,'work_order_changelog')).some(row=>row.wo_id===wo.id),
+  'Cloud work order history did not download into SQLite')
+ online=false
+ await request(win,'/api/offline/purchasing-remove',{table:'work_orders',id:wo.id})
+ assert.ok(!(await records(win,'work_order_items')).some(row=>row.wo_id===wo.id))
+ assert.ok(!(await records(win,'work_order_changelog')).some(row=>row.wo_id===wo.id))
+ online=true
+ await login(win)
+ await until(async()=> !(await db.query('select id from work_orders where id=$1',[wo.id])).rows.length,
+  'Confirmed work order removal did not upload')
+ assert.equal((await db.query('select count(*)::int as count from work_order_changelog where wo_id=$1',[wo.id])).rows[0].count,0)
+ console.log('Intel Electron acceptance passed for offline PO and WO drafts, cloud numbering, approval, edit, history and guarded deletion.')
 }
 check().then(async()=>{
  await db.close()

@@ -74,6 +74,10 @@ function createDesktopMutationHttp({db,key}){
       delivery_date:intent.changes.delivery_date,received_by:intent.changes.received_by
      }:{})
     }}
+   }else if(intent?.operation==='delete'&&['purchase_orders','work_orders'].includes(intent.table)&&
+      uuid.test(intent.id||'')&&intent.expected?.purchasingRemoval){
+    rpc='desktop_remove_purchasing_document'
+    args={kind:intent.table,target:intent.id,expected:intent.expected.purchasingRemoval}
    }else if(intent?.operation==='update'&&['purchase_orders','work_orders'].includes(intent.table)&&
       uuid.test(intent.id||'')&&typeof intent.expected?.updated_at==='string'&&Array.isArray(intent.expected.lines)&&
       Array.isArray(intent.document?.lines)&&intent.document.lines.length===intent.document.lineIds?.length&&

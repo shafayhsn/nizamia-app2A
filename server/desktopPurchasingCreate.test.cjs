@@ -4,7 +4,7 @@ const assert=require('node:assert/strict')
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const {PGlite}=require('@electric-sql/pglite')
 const sqlite=require('../desktop/node_modules/sql.js')
-const {queuePurchasingDocument,mutateLocalRecord,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
+const {queuePurchasingRemoval,queuePurchasingDocument,mutateLocalRecord,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
 const {applyCloudSnapshot}=require('../desktop/applyCloudSnapshot.cjs')
 const {createDesktopMutationHttp}=require('./desktopMutationHttp.cjs')
 const {issueDesktopSyncToken}=require('./desktopSyncToken.cjs')
@@ -27,6 +27,8 @@ test('offline purchasing assigns cloud numbers and commits the header, lines and
    create table work_orders(id uuid primary key,wo_number text unique not null,order_id uuid,vendor_id uuid,vendor_type text,vendor_phone text,factory_ref text,issue_date date,start_date date,complete_by date,daily_output int,payment_terms text,color text,qty int,status text,notes text,updated_at timestamptz default now());
    create table work_order_items(id uuid primary key default gen_random_uuid(),wo_id uuid references work_orders(id),
     order_process_id uuid,process_name text not null,dept_info text,qty numeric,unit text,rate numeric,amount numeric,sort_order int);
+   create table purchase_order_changelog(id uuid primary key,po_id uuid references purchase_orders(id),change_description text);
+   create table work_order_changelog(id uuid primary key,wo_id uuid references work_orders(id),change_description text);
    insert into users values ('${id(1)}','admin',true,false);
    insert into suppliers values ('${id(2)}');
    insert into orders values ('${id(3)}');
@@ -39,6 +41,7 @@ test('offline purchasing assigns cloud numbers and commits the header, lines and
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_purchasing_create.sql'),'utf8'))
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_purchase_approval.sql'),'utf8'))
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_purchasing_edit.sql'),'utf8'))
+  await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_purchasing_remove.sql'),'utf8'))
   await db.exec('set role service_role')
   const sql=await sqlite(),dbLocal=new sql.Database()
   fs.writeFileSync(path.join(folder,'nizamia-app2a.sqlite'),Buffer.from(dbLocal.export()))
@@ -51,6 +54,9 @@ test('offline purchasing assigns cloud numbers and commits the header, lines and
    if(name==='desktop_edit_purchasing_document')return {data:(await db.query(
     'select desktop_edit_purchasing_document($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb) as result',
     [args.actor,args.operation,args.kind,args.target,JSON.stringify(args.header),JSON.stringify(args.expected),JSON.stringify(args.lines)])).rows[0].result}
+   if(name==='desktop_remove_purchasing_document')return {data:(await db.query(
+    'select desktop_remove_purchasing_document($1,$2,$3,$4,$5::jsonb) as result',
+    [args.actor,args.operation,args.kind,args.target,JSON.stringify(args.expected)])).rows[0].result}
    assert.equal(name,'desktop_create_purchasing_document')
    return {data:(await db.query('select desktop_create_purchasing_document($1,$2,$3,$4::jsonb,$5::jsonb) as result',
     [args.actor,args.operation,args.kind,JSON.stringify(args.header),JSON.stringify(args.lines)])).rows[0].result}
@@ -70,7 +76,7 @@ test('offline purchasing assigns cloud numbers and commits the header, lines and
    return applied
   }})
   assert.equal(result.archived,2)
-  const pull=async()=>Object.fromEntries(await Promise.all(['purchase_orders','purchase_order_items','work_orders','work_order_items'].map(async table=>[
+  const pull=async()=>Object.fromEntries(await Promise.all(['purchase_orders','purchase_order_items','work_orders','work_order_items','purchase_order_changelog','work_order_changelog'].map(async table=>[
    table,(await db.query('select to_jsonb(t) as row from '+table+' t')).rows.map(r=>r.row)
   ])))
   const tables=await pull()
@@ -98,7 +104,40 @@ test('offline purchasing assigns cloud numbers and commits the header, lines and
   assert.equal(editedLines.length,1)
   assert.equal(editedLines[0].amount,16)
   assert.doesNotMatch(editedLines[0].id,/^local-/)
+  const remove=async(table,id,expectedOutcome)=>{
+   await queuePurchasingRemoval(folder,{...owner,table,id})
+   assert.ok(!(await listCombinedRecords(folder,table)).some(row=>row.id===id))
+   return submitPendingMutations(folder,{...owner,async submit(operations){
+    const accepted=(await send(operations)).body.results
+    assert.equal(accepted[0].outcome,expectedOutcome)
+    assert.equal((await send(operations)).body.results[0].outcome,expectedOutcome==='applied'?'already-applied':expectedOutcome)
+    return accepted
+   }})
+  }
+  await db.query("insert into work_order_changelog values($1,$2,'Earlier WO history')",[id(10),editId])
+  await applyCloudSnapshot({directory:folder,tables:await pull()})
+  assert.equal((await remove('work_orders',editId,'applied')).archived,1)
+  await applyCloudSnapshot({directory:folder,tables:await pull()})
+  for(const table of ['work_orders','work_order_items','work_order_changelog']){
+   assert.equal((await listCombinedRecords(folder,table)).length,0)
+   assert.equal((await pull())[table].length,0)
+  }
+  const untouchedPo=id(5)
+  await db.query("insert into purchase_order_changelog values($1,$2,'New cloud history')",[id(11),untouchedPo])
+  assert.equal((await remove('purchase_orders',untouchedPo,'conflict')).conflicts,1)
+  await applyCloudSnapshot({directory:folder,tables:await pull()})
+  assert.ok((await listCombinedRecords(folder,'purchase_orders')).some(row=>row.id===untouchedPo))
+  assert.equal((await listCombinedRecords(folder,'purchase_order_changelog')).length,1)
   const approvedId=tables.purchase_orders.find(row=>row.po_number==='NZP-002').id
+  await queuePurchasingDocument(folder,{...owner,table:'purchase_orders',documentId:approvedId,
+   fields:{supplier_id:id(2),order_id:id(3),status:'Draft',notes:'PO revised offline'},
+   lines:[{description:'Fabric revised',qty:5,unit_rate:2.5,sort_order:0}]})
+  const revised=await submitPendingMutations(folder,{...owner,async submit(operations){
+   return (await send(operations)).body.results
+  }})
+  assert.equal(revised.archived,1)
+  await applyCloudSnapshot({directory:folder,tables:await pull()})
+  assert.equal((await listCombinedRecords(folder,'purchase_order_items')).find(row=>row.po_id===approvedId).amount,12.5)
   await mutateLocalRecord(folder,{...owner,action:'update',table:'purchase_orders',id:approvedId,fields:{status:'approved'}})
   assert.equal((await listCombinedRecords(folder,'purchase_orders')).find(row=>row.id===approvedId).status,'approved')
   const approval=await submitPendingMutations(folder,{...owner,async submit(operations){

@@ -1050,6 +1050,16 @@ export async function buildSampleCards(orders) {
 // REPORT 8 & 9: PO and WO — triggered from Purchasing, handled separately
 // These are exported as standalone functions
 // ─────────────────────────────────────────────────────────────────────────────
+async function printPurchasingDocument(html,targetWindow,filename){
+  if(location.protocol!=='app2a:')return printHTML(html,targetWindow,filename)
+  const documentHtml=`<html><head><meta charset="utf-8"><style>${PRINT_CSS}</style></head><body>${html}</body></html>`
+  const response=await fetch('/api/offline/pdf',{
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({html:documentHtml,filename}),
+  })
+  if(!response.ok)throw Error((await response.json()).error||'Could not create purchasing PDF')
+  return response.json()
+}
+
 export async function printPurchaseOrder(po, supplier, order, taxRate, targetWindow = null) {
   const storedTax = decodePrintTax(po.notes)
   const effectiveTaxRate = taxRate ?? (storedTax?.enabled ? storedTax.rate : 18)
@@ -1089,7 +1099,7 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
     <div class="terms-block"><div class="terms-title">Terms &amp; Conditions</div><div class="terms-text">${escapeHTML(getPOTerms())}</div></div>
     <table class="sig-table"><tr><td class="signature-box"><div class="sig-label">Supplier Receiving</div></td><td class="signature-box"><div class="sig-label">Merchandiser</div></td><td class="signature-box"><div class="sig-label">Store Incharge</div></td><td class="signature-box"><div class="sig-label">CEO / Director</div></td></tr></table>
   </div>`
-  printHTML(html, targetWindow, po.po_number || 'Purchase Order')
+  return printPurchasingDocument(html,targetWindow,po.po_number||'Purchase Order')
 }
 
 export async function printWorkOrder(wo, vendor, order, targetWindow = null) {
@@ -1105,42 +1115,42 @@ export async function printWorkOrder(wo, vendor, order, targetWindow = null) {
   </div>`).join('')
 
   const itemRows = items.map(item => `<tr>
-    <td class="bold">${item.process_name||'—'}</td>
-    <td style="font-size:10px;color:#6b7280">${item.dept_info||'—'}</td>
+    <td class="bold">${escapeHTML(item.process_name||'—')}</td>
+    <td style="font-size:10px;color:#6b7280">${escapeHTML(item.dept_info||'—')}</td>
     <td class="right mono">${item.qty ? fmtNum(item.qty) : '—'}</td>
-    <td>${item.unit||'pc'}</td>
+    <td>${escapeHTML(item.unit||'pc')}</td>
     <td class="right mono">${item.rate ? fmtNum(item.rate,2) : '—'}</td>
     <td class="right mono bold">${item.amount ? fmtNum(item.amount,0) : '—'}</td>
   </tr>`).join('')
 
   const html = `
   <div class="page">
-    ${docHeader('Production Document', 'Work Order', `${wo.wo_number} · ${fmtDate(wo.issue_date)} · ORIGINAL`)}
+    ${docHeader('Production Document', 'Work Order', `${escapeHTML(wo.wo_number)} · ${fmtDate(wo.issue_date)} · ORIGINAL`)}
     <div class="po-header-box">
       <div class="po-left">
-        <div class="po-number">${wo.wo_number}</div>
+        <div class="po-number">${escapeHTML(wo.wo_number)}</div>
         <div class="po-meta-row">
           <div class="po-meta-item"><div class="lbl">Issue Date</div><div class="val">${fmtDate(wo.issue_date)}</div></div>
           <div class="po-meta-item"><div class="lbl">Start Date</div><div class="val">${fmtDate(wo.start_date)}</div></div>
         </div>
         <div class="po-meta-row">
           <div class="po-meta-item"><div class="lbl">Complete By</div><div class="val">${fmtDate(wo.complete_by)}</div></div>
-          <div class="po-meta-item"><div class="lbl">Daily Output</div><div class="val">${wo.daily_output ? wo.daily_output + ' pcs/day' : '—'}</div></div>
+          <div class="po-meta-item"><div class="lbl">Daily Output</div><div class="val">${wo.daily_output ? escapeHTML(wo.daily_output) + ' pcs/day' : '—'}</div></div>
         </div>
         <div class="po-meta-row">
-          <div class="po-meta-item"><div class="lbl">Payment Terms</div><div class="val">${wo.payment_terms||'—'}</div></div>
+          <div class="po-meta-item"><div class="lbl">Payment Terms</div><div class="val">${escapeHTML(wo.payment_terms||'—')}</div></div>
         </div>
       </div>
       <div class="po-right">
         <div class="info-label">Contractor / Vendor</div>
-        <div class="po-supplier-name">${vendor?.name||'—'}</div>
-        <div class="po-supplier-addr">${[vendor?.address, vendor?.city, vendor?.phone].filter(Boolean).join('<br>') || ''}</div>
+        <div class="po-supplier-name">${escapeHTML(vendor?.name||'—')}</div>
+        <div class="po-supplier-addr">${[vendor?.address, vendor?.city, vendor?.phone].filter(Boolean).map(escapeHTML).join('<br>') || ''}</div>
         <hr class="po-divider" />
         <div class="info-label" style="margin-bottom:4px">Order Reference</div>
         <div style="font-size:10px;line-height:1.6">
-          Job: ${order?.job_number||'—'}<br>
-          Style: ${order?.style_number||'—'}<br>
-          ${wo.color ? 'Colour: ' + wo.color + '<br>' : ''}
+          Job: ${escapeHTML(order?.job_number||'—')}<br>
+          Style: ${escapeHTML(order?.style_number||'—')}<br>
+          ${wo.color ? 'Colour: ' + escapeHTML(wo.color) + '<br>' : ''}
           ${wo.qty ? 'Qty: ' + parseInt(wo.qty).toLocaleString() + ' pcs' : ''}
         </div>
       </div>
@@ -1154,20 +1164,20 @@ export async function printWorkOrder(wo, vendor, order, targetWindow = null) {
     </table>
     <div class="po-totals">
       <div class="po-total-row"><span>Subtotal</span><span>PKR ${fmtNum(subtotal,0)}</span></div>
-      ${wo.advance_pct ? `<div class="po-total-row"><span>Advance (${wo.advance_pct}%)</span><span>PKR ${fmtNum(subtotal*(wo.advance_pct/100),0)}</span></div><div class="po-total-row grand"><span>Final Payable</span><span>PKR ${fmtNum(subtotal*(1-wo.advance_pct/100),0)}</span></div>` : `<div class="po-total-row grand"><span>Total</span><span>PKR ${fmtNum(subtotal,0)}</span></div>`}
+      ${wo.advance_pct ? `<div class="po-total-row"><span>Advance (${escapeHTML(wo.advance_pct)}%)</span><span>PKR ${fmtNum(subtotal*(wo.advance_pct/100),0)}</span></div><div class="po-total-row grand"><span>Final Payable</span><span>PKR ${fmtNum(subtotal*(1-wo.advance_pct/100),0)}</span></div>` : `<div class="po-total-row grand"><span>Total</span><span>PKR ${fmtNum(subtotal,0)}</span></div>`}
     </div>
-    ${wo.notes ? `<div class="tc-box"><div class="tc-label">Special Instructions</div><div class="tc-text">${wo.notes}</div></div>` : ''}
+    ${wo.notes ? `<div class="tc-box"><div class="tc-label">Special Instructions</div><div class="tc-text">${escapeHTML(wo.notes)}</div></div>` : ''}
     <div class="sig-block">
       <div><div class="sig-label">Issued By</div><div class="sig-line"></div><div class="sig-name">Merchandiser</div></div>
       <div><div class="sig-label">Contractor Acknowledgement</div><div class="sig-line"></div></div>
       <div><div class="sig-label">Date</div><div class="sig-line"></div><div class="sig-name">${today}</div></div>
     </div>
     <div class="doc-footer">
-      <span>Nizamia Apparels · Karachi, Pakistan — Work Order ${wo.wo_number} · Original</span>
+      <span>Nizamia Apparels · Karachi, Pakistan — Work Order ${escapeHTML(wo.wo_number)} · Original</span>
       <span>01 / 01</span>
     </div>
   </div>`
-  printHTML(html, targetWindow, wo.wo_number || 'Work Order')
+  return printPurchasingDocument(html,targetWindow,wo.wo_number||'Work Order')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
