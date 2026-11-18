@@ -32,7 +32,7 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
    create table washing(id uuid primary key,color_id uuid references size_group_colors(id),order_id uuid references orders(id),wash_type text);
    create table order_processes(id uuid primary key,order_id uuid references orders(id),process_name text,is_custom bool,sort_order integer);
    create table fitting_blocks(id uuid primary key,order_id uuid references orders(id),block_name text,spec_code text,usage_rule text,usage_data jsonb,dxf_filename text,dxf_base64 text,sort_order int);
-   create table order_queues(id uuid primary key,order_id uuid,job_id uuid,size_group_id uuid,qty int,split_rule text,label text);
+   create table order_queues(id uuid primary key,order_id uuid,job_id uuid,size_group_id uuid,qty int,split_rule text,label text,q_number text);
    create table purchase_order_items(id uuid primary key,source_id uuid,source_type text);
    create table finishing(id uuid primary key,order_id uuid,use_cutting_qty bool,total_qty int);
    create table finishing_packs(id uuid primary key,finishing_id uuid references finishing(id),order_id uuid,pack_name text,pack_type text,
@@ -47,7 +47,7 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
    insert into size_group_breakdown values('${id(5)}','${id(3)}','${id(4)}','M',1);
    insert into washing values('${id(6)}','${id(4)}','${id(2)}','Fixture Wash');
   `)
-  for(const migration of ['../supabase/migrations/20261017_po_matrix_preserve_linked_ids.sql','migrations/20261118_desktop_po_matrix.sql','migrations/20261118_desktop_bom.sql','migrations/20261118_desktop_order_sections.sql','migrations/20261118_desktop_z_order_fitting.sql','migrations/20261118_desktop_z_po_matrix_ids.sql','migrations/20261118_desktop_zz_order_queues.sql','migrations/20261118_desktop_finishing.sql'])
+  for(const migration of ['../supabase/migrations/20261017_po_matrix_preserve_linked_ids.sql','migrations/20261118_desktop_po_matrix.sql','migrations/20261118_desktop_bom.sql','migrations/20261118_desktop_order_sections.sql','migrations/20261118_desktop_z_order_fitting.sql','migrations/20261118_desktop_z_po_matrix_ids.sql','migrations/20261118_desktop_zz_order_queues.sql','migrations/20261118_desktop_finishing.sql','migrations/20261118_desktop_z_finishing_queue_links.sql'])
    await db.exec(fs.readFileSync(path.join(__dirname,migration),'utf8'))
   await db.exec('set role service_role')
   const SQL=await sqlite(),local=new SQL.Database()
@@ -88,6 +88,11 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
   const adults=(await listCombinedRecords(directory,'size_groups')).find(row=>row.group_name==='Adults')
   await queueOrderSection(directory,{...owner,table:'order_queues',orderId:id(2),enabled:true,rule:'None',
    rows:[{order_id:id(2),size_group_id:adults.id,qty:3,split_rule:'None',label:'Adults'}]})
+  const localQueue=(await listCombinedRecords(directory,'order_queues'))[0]
+  await queueOrderSection(directory,{...owner,table:'finishing_packs',orderId:id(2),enabled:true,
+   finishing:{use_cutting_qty:false,total_qty:9},rows:[{order_id:id(2),pack_name:'QA allocated pack',assigned_qty:3,
+    packing_basis:'By Q#',config:{lines:[{key:localQueue.id,qty:3}]}}]})
+
 
 
   const entries=()=>listCombinedRecords(directory,'size_group_breakdown')
@@ -107,6 +112,13 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
    return (await send(operations)).body.results
   }})
   assert.equal(washed.archived,2)
+  const allocated=await submitPendingMutations(directory,{...owner,async submit(operations){
+   assert.equal(operations.length,1)
+   assert.equal(operations[0].intent.document.childTable,'finishing_packs')
+   return (await send(operations)).body.results
+  }})
+  assert.equal(allocated.archived,1)
+
 
   await refresh()
   assert.equal((await entries()).length,2)
@@ -116,6 +128,9 @@ test('the desktop PO Matrix queues an atomic edit and preserves linked Washing I
   assert.ok(cloud.washing.some(row=>row.color_id===black.id))
   assert.equal(cloud.orders[0].total_qty,9)
   assert.equal(cloud.order_queues[0].size_group_id,adults.id)
+  assert.equal(cloud.order_queues[0].id,localQueue.id)
+  assert.equal(cloud.finishing_packs[0].config.lines[0].key,localQueue.id)
+
   const syncBom=async()=>submitPendingMutations(directory,{...owner,async submit(operations){
    const response=(await send(operations)).body.results
    assert.equal(response[0].outcome,'applied')

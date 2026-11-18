@@ -123,6 +123,20 @@ function assertUnqueued(db,table,id){
   throw Error('This copied record is awaiting synchronization or review.')
 }
 
+function reconcileOrderRemovals(db,tables,hold){
+ if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ const entries=db.exec("SELECT intent_json,state FROM offline_mutation_outbox WHERE json_type(intent_json,'$.document.removal')='object'")[0]?.values||[]
+ for(const [raw,state] of entries){
+  const {editedAt,expected,document:{removal}}=JSON.parse(raw)
+  const complete=state==='applied'&&tables.orders&&expected.orderIds.every(id=>!tables.orders.some(row=>row.id===id))
+  for(const {table,id} of removal.targets){
+   if(complete||state==='conflict')db.run(
+    'DELETE FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=? AND fields_json IS NULL',[table,id,editedAt])
+   else hold.add(table+':'+id)
+  }
+ }
+}
+
 function reconcileBuyers(db,tables,hold){
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
  const entries=db.exec("SELECT operation_id,intent_json,state FROM offline_mutation_outbox WHERE json_type(intent_json,'$.document.buyer')='object'")[0]?.values||[]
@@ -276,8 +290,8 @@ function findQueuedRecords(db){
   return [table+':'+(intent.document?.independentOrderSection?intent.id:id),...(intent.document?.finishingHeader?['finishing:'+intent.document.finishingHeader.id]:[]),...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
    ...(intent.expected?.lines||[]).map(line=>(intent.document.childTable||intent.document.localLines[0].table)+':'+line.id),
    ...(table==='jobs'&&Array.isArray(intent.fields?.orders)?intent.fields.orders.map(order=>'orders:'+order.id):[]),
-   ...[...(intent.document?.matrix?.edits||[]),...(intent.document?.matrix?.creates||[]),...(intent.document?.buyer?.edits||[]),...(intent.document?.buyer?.creates||[]),...(intent.document?.clonedRows||[])].map(item=>item.table+':'+item.id)]
+   ...[...(intent.document?.matrix?.edits||[]),...(intent.document?.matrix?.creates||[]),...(intent.document?.buyer?.edits||[]),...(intent.document?.buyer?.creates||[]),...(intent.document?.clonedRows||[]),...(intent.document?.removal?.targets||[])].map(item=>item.table+':'+item.id)]
  }))
 }
 
-module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,assertOrderSectionAvailable,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers}
+module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,assertOrderSectionAvailable,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers,reconcileOrderRemovals}

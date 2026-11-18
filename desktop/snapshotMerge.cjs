@@ -1,6 +1,6 @@
 'use strict'
 const {isDeepStrictEqual:equal}=require('node:util')
-const {reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers}=require('./offlineMutationOutbox.cjs')
+const {reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers,reconcileOrderRemovals}=require('./offlineMutationOutbox.cjs')
 const timestamp=value=>typeof value==='string'&&/(Z|[+-]\d\d:\d\d)$/i.test(value)?Date.parse(value):NaN
 
 function shipmentStatusTime(before,after){
@@ -101,6 +101,7 @@ function mergeSnapshotRows(db,tables,{excludedTables=[]}={}){
   const acceptedTables=Object.fromEntries(Object.entries(tables).filter(([name])=>!excluded.has(name)))
   reconcilePoMatrices(db,acceptedTables,hold)
   reconcileBuyers(db,acceptedTables,hold)
+  reconcileOrderRemovals(db,acceptedTables,hold)
   const reconciliation=reconcileOverlays(db,tables,excluded,hold)
   unresolved=reconciliation.unresolved
   const incoming=reconciliation.rows

@@ -4447,6 +4447,22 @@ export default function Orders() {
     const ids = [...selected]
     if (!ids.length) return
     if (!await confirm(`Delete ${ids.length} order(s)?`, { title:'Delete Orders', confirmText:'Delete', tone:'danger' })) return
+    if(window.location.protocol==='app2a:'){
+      try{
+        const response=await fetch('/api/offline/order-removal',{
+          method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderIds:ids}),
+        })
+        const result=await response.json()
+        if(!response.ok)throw Error(result.error||'Could not queue order removal.')
+        window.dispatchEvent(new Event('app2a-offline-data-changed'))
+        markTabUpdated('ordersPage','orders')
+        setTabNotices(getPageTabNoticeMap('ordersPage',['orders','queues']))
+        setSelected(new Set())
+        loadOrders()
+      }catch(error){await alert(error.message,{title:'Delete Failed'})}
+      return
+    }
+
 
     const { data: sgRows } = await supabase.from('size_groups').select('id').in('order_id', ids)
     const sgIds = (sgRows || []).map(g => g.id)

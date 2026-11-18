@@ -65,4 +65,4 @@ function inspectPendingMutations(db){
  return {mutations,blocked}
 }
 
-module.exports={inspectPendingMutations,createMutationIntent,updateMutationIntent}
+module.exports={fingerprint,inspectPendingMutations,createMutationIntent,updateMutationIntent}

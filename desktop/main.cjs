@@ -447,6 +447,19 @@ app.whenReady().then(() => {
         return Response.json({data:result,error:null},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({data:null,error:error.message},{status:400})}
     }
+    if(url.pathname==='/api/offline/order-removal'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
+      if(!ownerId||!directory)return Response.json({error:'Administrator access required for offline order removal'},{status:403})
+      try{
+        const raw=await request.text()
+        if(Buffer.byteLength(raw)>8192)return Response.json({error:'Too many orders selected'},{status:413})
+        const {orderIds}=JSON.parse(raw)
+        const {queueOrderRemoval}=require('./standaloneRecords.cjs')
+        await queueOrderRemoval(directory,{orderIds,ownerId,isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
+        return Response.json({data:null},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:400})}
+    }
     if(url.pathname==='/api/offline/order-import'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})
       const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
