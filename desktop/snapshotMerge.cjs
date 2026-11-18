@@ -1,4 +1,71 @@
 'use strict'
+const {isDeepStrictEqual:equal}=require('node:util')
+const timestamp=value=>typeof value==='string'&&/(Z|[+-]\d\d:\d\d)$/i.test(value)?Date.parse(value):NaN
+
+function shipmentStatusTime(before,after){
+ const parse=notes=>{
+  const match=typeof notes==='string'&&notes.match(/\[\[APP2A_SHIPPING_META:([A-Za-z0-9+/=]+)\]\]$/)
+  if(!match)return null
+  try {
+   const {display_status,status_history,...fields}=JSON.parse(Buffer.from(match[1],'base64').toString('utf8'))
+   return {text:notes.slice(0,match.index),fields,status:display_status,history:status_history}
+  }catch{return null}
+ }
+ const old=parse(before),fresh=parse(after)
+ if(!old||!fresh||old.text!==fresh.text||!equal(old.fields,fresh.fields)||old.status===fresh.status||!Array.isArray(fresh.history))return NaN
+ return timestamp(fresh.history.findLast(event=>event?.to===fresh.status)?.at)
+}
+
+function reconcileOverlays(db,tables,excluded){
+ const overlays=db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_edits'")
+ if(!overlays.length)return {unresolved:[],rows:tables}
+ const unresolved=[],rows={...tables},indexed=new Map()
+ const edits=db.exec('SELECT table_name,record_id,fields_json,updated_at FROM snapshot_edits')[0]?.values||[]
+ for(const [table,id,json,editedAt] of edits){
+  if(!Object.hasOwn(tables,table)||excluded.has(table))continue
+  if(!indexed.has(table)){
+   rows[table]=[...tables[table]]
+   const stored=db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=?',[table])[0]?.values||[]
+   indexed.set(table,{
+    stored:new Map(stored.map(([entry])=>{const row=JSON.parse(entry);return [String(row.id),row]})),
+    incoming:new Map(tables[table].map((row,index)=>[String(row.id),index]))
+   })
+  }
+  const {stored,incoming}=indexed.get(table)
+  const base=stored.get(String(id)),index=incoming.get(String(id)),cloud=rows[table][index]
+  if(equal(base,cloud))continue
+  const flag=()=>{
+   unresolved.push({table,recordId:id})
+   if(base&&cloud)rows[table][index]=base
+   if(base&&!cloud)rows[table].push(base)
+  }
+  if(!base||!cloud){flag();continue}
+  const local=json===null?null:JSON.parse(json)
+  const localTime=timestamp(editedAt)
+  if(local===null){
+   const cloudTime=timestamp(cloud.updated_at)
+   if(!Number.isFinite(localTime)||!Number.isFinite(cloudTime)||localTime===cloudTime){flag();continue}
+   if(cloudTime>localTime)db.run('DELETE FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id])
+   continue
+  }
+  const merged={...cloud}
+  let needsReview=false
+  for(const field of Object.keys(local)){
+   if(equal(local[field],base[field])||equal(local[field],cloud[field]))continue
+   if(equal(base[field],cloud[field])){merged[field]=local[field];continue}
+   const cloudTime=table==='shipments'&&field==='notes'
+    ?shipmentStatusTime(base.notes,cloud.notes)
+    :equal(base.updated_at,cloud.updated_at)?NaN:timestamp(cloud.updated_at)
+   if(!Number.isFinite(localTime)||!Number.isFinite(cloudTime)||localTime===cloudTime){needsReview=true;break}
+   if(localTime>cloudTime)merged[field]=local[field]
+  }
+  if(needsReview){flag();continue}
+  if(equal(merged,cloud))db.run('DELETE FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id])
+  else db.run('UPDATE snapshot_edits SET fields_json=? WHERE table_name=? AND record_id=?',[JSON.stringify(merged),table,id])
+ }
+ return {unresolved,rows}
+}
+
 // Pure, local-only snapshot refresh. Never touches Supabase or local draft tables.
 // Call only with a fully validated, authenticated snapshot and a verified backup.
 function mergeSnapshotRows(db,tables,{excludedTables=[]}={}){
@@ -14,26 +81,14 @@ function mergeSnapshotRows(db,tables,{excludedTables=[]}={}){
    if(JSON.stringify(row)===undefined)throw Error('Unserializable snapshot row')
   }
  }
- // Detect cloud changes underneath local overlays before replacing the base.
- // A local overlay may otherwise mask newer cloud data without warning.
- const overlays=db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_edits'")
- if(overlays.length){
-  const edits=db.exec('SELECT table_name,record_id FROM snapshot_edits')[0]?.values||[]
-  for(const [table,id] of edits){
-   if(!Object.hasOwn(tables,table)||excluded.has(table))continue
-   const oldRows=db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=? ORDER BY row_index',[table])[0]?.values||[]
-   const old=oldRows.map(([json])=>JSON.parse(json)).find(row=>String(row.id)===String(id))
-   const fresh=tables[table].find(row=>String(row.id)===String(id))
-   if(JSON.stringify(old??null)!==JSON.stringify(fresh??null))
-    throw Error('Snapshot refresh requires conflict review: cloud record '+table+'/'+String(id).slice(0,80)+' changed underneath a local edit. No data replaced.')
-  }
- }
- // Only snapshot_rows and snapshot_manifest are modified. Preserve standalone_records,
- // snapshot_edits, and offline_draft_journal unchanged, including pending/conflicts.
  db.run('CREATE TABLE IF NOT EXISTS snapshot_rows (table_name TEXT NOT NULL,row_index INTEGER NOT NULL,row_json TEXT NOT NULL,PRIMARY KEY(table_name,row_index))')
  db.run('CREATE TABLE IF NOT EXISTS snapshot_manifest (table_name TEXT PRIMARY KEY NOT NULL,row_count INTEGER NOT NULL)')
  db.run('BEGIN TRANSACTION')
+ let unresolved
  try{
+  const reconciliation=reconcileOverlays(db,tables,excluded)
+  unresolved=reconciliation.unresolved
+  const incoming=reconciliation.rows
   const insert=db.prepare('INSERT INTO snapshot_rows(table_name,row_index,row_json) VALUES (?,?,?)')
   const manifest=db.prepare('INSERT INTO snapshot_manifest(table_name,row_count) VALUES (?,?)')
   try{
@@ -41,14 +96,14 @@ function mergeSnapshotRows(db,tables,{excludedTables=[]}={}){
     if(excluded.has(name))continue
     db.run('DELETE FROM snapshot_rows WHERE table_name=?',[name])
     db.run('DELETE FROM snapshot_manifest WHERE table_name=?',[name])
-    tables[name].forEach((row,index)=>insert.run([name,index,JSON.stringify(row)]))
-    manifest.run([name,tables[name].length])
+    incoming[name].forEach((row,index)=>insert.run([name,index,JSON.stringify(row)]))
+    manifest.run([name,incoming[name].length])
    }
   }finally{insert.free();manifest.free()}
   const integrity=db.exec('PRAGMA quick_check')
   if(integrity[0]?.values?.[0]?.[0]!=='ok')throw Error('Snapshot refresh failed SQLite integrity check')
   db.run('COMMIT')
  }catch(error){try{db.run('ROLLBACK')}catch{};throw error}
- return {updatedTables:names.filter(name=>!excluded.has(name)).length}
+ return {updatedTables:names.filter(name=>!excluded.has(name)).length,unresolved}
 }
 module.exports={mergeSnapshotRows}

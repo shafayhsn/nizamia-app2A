@@ -32,7 +32,7 @@ async function applyCloudSnapshot({directory,tables,adminScope=false}){
    if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Local database integrity failure')
    // Standalone records are stored independently of snapshot_rows and are
    // preserved by mergeSnapshotRows. Local overlays are checked record-by-record
-   // against their cloud base by the merge helper; changed bases fail closed.
+   // against their cloud base by the merge helper. Unresolved records retain their base.
    // Supported order-note drafts retain their exact expected value and stable
    // operation ID. Only the server can acknowledge or reject their upload.
    const journal=db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='offline_draft_journal'").length

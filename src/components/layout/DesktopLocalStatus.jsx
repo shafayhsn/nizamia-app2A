@@ -67,7 +67,8 @@ export default function DesktopLocalStatus() {
     <div role="status" aria-live="polite" style={{margin:'6px 0 8px',color:'#475569',lineHeight:1.5}}>
       {error?'Local database status unavailable: '+error:status?<>
         <div>{status.totalUnsyncedLocalChanges} unsynced local items</div>
-        <div>{status.unsyncedDrafts} drafts · {status.draftStates.conflict} conflicts</div>
+        <div>{status.unsyncedDrafts} drafts · {status.draftStates.conflict} upload conflicts</div>
+        {status.refreshConflicts>0&&<div>{status.refreshConflicts} records need refresh review</div>}
         <div>{status.syncHistory.applied+status.syncHistory.alreadyApplied} archived draft results</div>
         <div>{cloudSyncLabel[status.cloudSync?.state]||'Cloud sync unavailable'}</div>
         <div>{connected?'Network available':'No network'}</div>

@@ -78,13 +78,13 @@ async function refreshCloudSnapshot(token){
   const digest=require('node:crypto').createHash('sha256').update(JSON.stringify(tables)).digest('hex')
   if(lastSnapshot?.directory===directory&&lastSnapshot.digest===digest){
    const file=path.join(directory,'nizamia-app2a.sqlite')
-   if(fs.statSync(file).mtimeMs===lastSnapshot.mtime)return {status:'current'}
+   if(fs.statSync(file).mtimeMs===lastSnapshot.mtime)return {status:'current',unresolved:lastSnapshot.unresolved}
   }
   const {applyCloudSnapshot}=require('./applyCloudSnapshot.cjs')
   const result=await applyCloudSnapshot({directory,tables,adminScope:true})
-  lastSnapshot={directory,digest,mtime:fs.statSync(path.join(directory,'nizamia-app2a.sqlite')).mtimeMs}
+  lastSnapshot={directory,digest,unresolved:result.unresolved,mtime:fs.statSync(path.join(directory,'nizamia-app2a.sqlite')).mtimeMs}
   announceCloudRefresh()
-  return {status:'updated',tables:result.updatedTables}
+  return {status:'updated',tables:result.updatedTables,unresolved:result.unresolved}
  }finally{refreshInFlight=false}
 }
 
@@ -361,7 +361,7 @@ app.whenReady().then(() => {
         const directory=getDatabaseDirectory()
         if(!directory)return Response.json({error:'Local database unavailable'},{status:503})
         const status=await require('./offlinePendingStatus.cjs').readPendingStatus(directory)
-        return Response.json({data:{...status,cloudSync:onlineSyncSession&&onlineSyncSession.expiresAt<=Date.now()?{state:'sign-in-required'}:syncLoop.getStatus()},error:null},{headers:{'Cache-Control':'no-store'}})
+        return Response.json({data:{...status,refreshConflicts:lastSnapshot?.directory===directory?lastSnapshot.unresolved.length:0,cloudSync:onlineSyncSession&&onlineSyncSession.expiresAt<=Date.now()?{state:'sign-in-required'}:syncLoop.getStatus()},error:null},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:500})}
     }
     if(url.pathname==='/api/offline/records'){
@@ -484,7 +484,10 @@ app.whenReady().then(() => {
           const result=await refreshCloudSnapshot(onlineSnapshotToken)
           const message=result.status==='updated'?result.tables+' tables refreshed':
            result.status==='current'?'Local cloud data is up to date':'A cloud refresh is already running or the session has ended'
-          await dialog.showMessageBox(owner,{type:'info',title:'Cloud snapshot',message})
+          const detail=result.unresolved?.length
+            ? result.unresolved.length+' records still need review. Their local edits are preserved.'
+            : undefined
+          await dialog.showMessageBox(owner,{type:'info',title:'Cloud snapshot',message,detail})
         }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Cloud refresh not completed',message:'Your local database was not intentionally replaced',detail:error.message})}
       } },
       { label: 'Import Read-Only Snapshot…', click: () => importBackup(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },
