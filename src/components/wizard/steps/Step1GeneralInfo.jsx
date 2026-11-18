@@ -112,7 +112,16 @@ export default function Step1GeneralInfo({ orderId, orderData, onSaved, register
       style_image_base64: imgBase64Ref.current || null,
     }
     let data, err
-    if (orderId) {
+    if (orderId && window.location.protocol==='app2a:' && !orderId.startsWith('local-')) {
+      if(payload.style_image_base64===(orderData?.style_image_base64||null))delete payload.style_image_base64
+      const response=await fetch('/api/offline/order-general',{
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orderId,fields:payload}),
+      })
+      const result=await response.json()
+      if(!response.ok)throw Error(result.error||'Could not queue General Info.')
+      data=result.data
+      window.dispatchEvent(new Event('app2a-offline-data-changed'))
+    } else if (orderId) {
       const res = await supabase.from('orders').update(payload).eq('id', orderId).select().single()
       data = res.data; err = res.error
     } else {
@@ -121,7 +130,7 @@ export default function Step1GeneralInfo({ orderId, orderData, onSaved, register
     }
     if (err) throw new Error(err.message)
     if (data) { setSavedImageKB(imageSizeKB(data.style_image_base64 || imgBase64Ref.current)); onSaved(data.id, data) }
-  }, [orderId, onSaved, status])
+  }, [orderId, onSaved, status, orderData?.style_image_base64])
 
   useEffect(() => { if (registerSave) registerSave(doSave) }, [doSave, registerSave])
 

@@ -143,10 +143,10 @@ function holdOrderDetails(db,tables,hold){
  const entries=db.exec("SELECT intent_json,state FROM offline_mutation_outbox WHERE table_name='orders' AND json_extract(intent_json,'$.operation')='update'")[0]?.values||[]
  for(const [json,state] of entries){
   const {id,changes,editedAt}=JSON.parse(json)
-  if((!isOrderJobPatch(changes)&&!isOrderDetailsPatch(changes))||(Object.keys(changes).join()==='status'&&changes.status!==null))continue
+  if(!changes?.general_info&&((!isOrderJobPatch(changes)&&!isOrderDetailsPatch(changes))||(Object.keys(changes).join()==='status'&&changes.status!==null)))continue
   if(!db.exec("SELECT 1 FROM snapshot_edits WHERE table_name='orders' AND record_id=? AND updated_at=?",[id,editedAt]).length)continue
   const cloud=tables.orders.find(row=>row.id===id)
-  if(state!=='applied'||!cloud||!Object.entries(changes).every(([key,value])=>cloud[key]===value))
+  if(state!=='applied'||!cloud||!Object.entries(changes.general_info||changes).every(([key,value])=>cloud[key]===value))
    hold.add('orders:'+id)
  }
 }

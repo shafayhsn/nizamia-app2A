@@ -566,6 +566,47 @@ async function queueParcelTransition(directory,{id,status,deliveryDate,receivedB
  })
 }
 
+const orderGeneralFields=new Set(['buyer_id', 'buyer_name', 'merchandiser_name', 'agent_name', 'factory_ref', 'product_id', 'style_number', 'store_name', 'brand_name', 'description', 'po_number', 'po_date', 'ship_date', 'planned_date', 'ship_mode', 'incoterms', 'currency', 'status', 'port_of_loading', 'port_of_discharge', 'style_image_base64'])
+
+async function queueOrderGeneral(directory,{orderId,fields,ownerId,isCurrent}){
+ if(!ownerId||!cloudId.test(orderId||'')||!fields||typeof fields!=='object'||
+    Object.entries(fields).some(([key,value])=>!orderGeneralFields.has(key)||
+     value!==null&&(typeof value!=='string'||value.length>(key==='style_image_base64'?100000:4000))))
+  throw Error('A synchronized order and valid General Info are required.')
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file),db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   const raw=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name='orders' AND json_extract(row_json,'$.id')=?",
+    [orderId])[0]?.values?.[0]?.[0]
+   if(!raw)throw Error('Refresh this order before saving.')
+   const base=JSON.parse(raw)
+   const saved=db.exec("SELECT fields_json FROM snapshot_edits WHERE table_name='orders' AND record_id=?",[orderId])[0]?.values?.[0]
+   if(saved?.[0]===null)throw Error('This order is pending deletion.')
+   const current=saved?JSON.parse(saved[0]):base
+   const changed=Object.entries(fields).filter(([key,value])=>value!==(current[key]??null))
+   if(!changed.length)return current
+   assertUnqueued(db,'orders',orderId)
+   if(saved)throw Error('This order has a local edit awaiting synchronization or review.')
+   const general=Object.fromEntries(changed)
+   const expected=Object.fromEntries(changed.map(([key])=>[key,base[key]??null]))
+   const stamp=new Date().toISOString(),next={...base,...general}
+   const intent=updateMutationIntent('orders',orderId,{general_info:general},{general_info:expected},stamp)
+   if(Buffer.byteLength(JSON.stringify(intent))>115000)throw Error('This order image is too large for offline sync.')
+   db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',['orders',orderId,JSON.stringify(next),stamp])
+   if(!stageMutation(db,ownerId,intent))throw Error('Could not queue General Info.')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during order save.')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return next
+  }finally{db.close()}
+ })
+}
+
 const buyerProfileFields=['name','contact_person','email','phone','address','country','currency','default_incoterms','default_ship_mode','notes','is_active','payment_terms_days']
 const buyerDetailFields={
  buyer_addresses:['label','recipient','address_line1','address_line2','city','region','postal_code','country','phone','email','is_default'],
@@ -937,4 +978,4 @@ async function queueParcelCreate(directory,{items,customItems,addressId,contactI
  })
 }
 
-module.exports={queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+module.exports={queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}

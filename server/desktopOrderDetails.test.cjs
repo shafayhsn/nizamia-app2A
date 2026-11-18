@@ -4,7 +4,7 @@ const assert=require('node:assert/strict')
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const {PGlite}=require('@electric-sql/pglite')
 const sqlite=require('../desktop/node_modules/sql.js')
-const {queueNewJob,mutateLocalRecordBatch,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
+const {queueOrderGeneral,queueNewJob,mutateLocalRecordBatch,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
 const {applyCloudSnapshot}=require('../desktop/applyCloudSnapshot.cjs')
 const {createDesktopMutationHttp}=require('./desktopMutationHttp.cjs')
 const {issueDesktopSyncToken}=require('./desktopSyncToken.cjs')
@@ -19,10 +19,28 @@ test('bulk order edits and job assignments sync with conflict protection',async(
    create table users(id uuid primary key,role text,is_active bool,is_restricted bool);
    create table orders(id uuid primary key,ship_date date,po_date date,merchandiser_name text,
     store_name text,status text,updated_at timestamptz default now(),buyer_id uuid,job_id uuid,job_number text);
+   create table buyers(id uuid primary key);
+   grant select,update on buyers to service_role;
+   alter table orders add column buyer_name text;
+   alter table orders add column agent_name text;
+   alter table orders add column factory_ref text;
+   alter table orders add column product_id text;
+   alter table orders add column style_number text;
+   alter table orders add column brand_name text;
+   alter table orders add column description text;
+   alter table orders add column po_number text;
+   alter table orders add column ship_mode text;
+   alter table orders add column incoterms text;
+   alter table orders add column currency text;
+   alter table orders add column port_of_loading text;
+   alter table orders add column port_of_discharge text;
+   alter table orders add column style_image_base64 text;
+   alter table orders add column planned_date date;
    create table jobs(id uuid primary key,buyer_id uuid,job_number text unique);
    create table document_numbering(doc_type text primary key,label text,prefix text,pattern text,format text,seq_pad int,next_number int,current_number int,enabled bool,updated_at timestamptz);
    grant insert on jobs,document_numbering to service_role;
    grant select,update on document_numbering to service_role;
+   grant insert on orders to service_role;
    grant select,update on users,orders,jobs to service_role;
    insert into users values('${id(1)}','admin',true,false);
    insert into orders(id,ship_date,store_name,status) values
@@ -33,6 +51,7 @@ test('bulk order edits and job assignments sync with conflict protection',async(
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_order_details.sql'),'utf8'))
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_order_job.sql'),'utf8'))
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_job_create.sql'),'utf8'))
+  await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_order_general.sql'),'utf8'))
   await db.exec('set role service_role')
   const SQL=await sqlite(),local=new SQL.Database()
   fs.writeFileSync(path.join(directory,'nizamia-app2a.sqlite'),Buffer.from(local.export()))
@@ -44,7 +63,7 @@ test('bulk order edits and job assignments sync with conflict protection',async(
    if(name==='desktop_create_and_assign_job')return {data:(await db.query(
     'select desktop_create_and_assign_job($1,$2,$3,$4::jsonb) as outcome',
     [args.actor,args.operation,args.target_buyer,JSON.stringify(args.expected_orders)])).rows[0].outcome}
-   assert.ok(['desktop_update_order_details','desktop_update_order_job'].includes(name))
+   assert.ok(['desktop_update_order_details','desktop_update_order_job','desktop_update_order_general'].includes(name))
    return {data:(await db.query('select '+name+'($1,$2,$3,$4::jsonb,$5::jsonb) as outcome',
     [args.actor,args.operation,args.target_order,JSON.stringify(args.previous_fields),JSON.stringify(args.new_fields)])).rows[0].outcome}
   }}})
@@ -112,6 +131,17 @@ test('bulk order edits and job assignments sync with conflict protection',async(
   assert.equal(current.orders.find(order=>order.id===id(2)).job_id,synced.id)
   await refresh()
   assert.ok((await listCombinedRecords(directory,'jobs')).some(job=>job.id===conflictDraft.id))
+  await db.query("insert into orders(id,style_number,description) values($1,'STYLE-QA','Before edit')",[id(9)])
+  await refresh()
+  const editInfo={...owner,orderId:id(9),fields:{description:'Updated locally',po_number:'PO-001',planned_date:'2026-12-20'}}
+  await queueOrderGeneral(directory,editInfo)
+  assert.equal((await queueOrderGeneral(directory,editInfo)).description,'Updated locally')
+  assert.equal((await flush()).archived,1)
+  await refresh()
+  const edited=(await listCombinedRecords(directory,'orders')).find(row=>row.id===id(9))
+  assert.equal(edited.po_number,'PO-001')
+  assert.equal(edited.planned_date,'2026-12-20')
+  assert.equal(edited._local_edited,undefined)
  }finally{
   await db.close()
   fs.rmSync(directory,{recursive:true,force:true})
