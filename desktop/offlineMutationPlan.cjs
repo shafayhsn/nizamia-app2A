@@ -24,13 +24,17 @@ function readBase(db,table,id){
  return JSON.parse(rows[0][0])
 }
 
+function createMutationIntent(table,id,fields,createdAt,editedAt){
+ const intent={operation:'create',table,id,fields,createdAt,editedAt}
+ return {...intent,fingerprint:fingerprint(intent)}
+}
+
 function inspectPendingMutations(db){
  const mutations=[],blocked=[]
  if(tableExists(db,'standalone_records')){
   const records=db.exec('SELECT table_name,id,fields_json,created_at,updated_at FROM standalone_records ORDER BY created_at,table_name,id')[0]?.values||[]
   for(const [table,id,json,createdAt,editedAt] of records){
-   const intent={operation:'create',table,id,fields:JSON.parse(json),createdAt,editedAt}
-   mutations.push({...intent,fingerprint:fingerprint(intent)})
+   mutations.push(createMutationIntent(table,id,JSON.parse(json),createdAt,editedAt))
   }
  }
 
@@ -57,4 +61,4 @@ function inspectPendingMutations(db){
  return {mutations,blocked}
 }
 
-module.exports={inspectPendingMutations}
+module.exports={inspectPendingMutations,createMutationIntent}

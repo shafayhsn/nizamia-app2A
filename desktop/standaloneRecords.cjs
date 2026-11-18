@@ -7,6 +7,14 @@ const TABLES=new Set(['orders','tasks','buyers','suppliers','purchase_orders','p
 const DB_NAME='nizamia-app2a.sqlite'
 const {normalizeForm,FORMS}=require('./standaloneForms.cjs')
 const queues=new Map()
+const {createMutationIntent}=require('./offlineMutationPlan.cjs')
+const {stageMutation,assertUnqueued,pendingMutations,recordMutationOutcome}=require('./offlineMutationOutbox.cjs')
+const cloudId=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i
+function queueProductionCreate(db,ownerId,table,id,fields,stamp){
+ if(ownerId&&table==='production_daily_entries'&&[fields.order_id,fields.size_group_id,fields.color_id].every(id=>cloudId.test(id||'')))
+  stageMutation(db,ownerId,createMutationIntent(table,id,fields,stamp,stamp))
+}
+
 function validateTable(table){if(!TABLES.has(table))throw Error('Unsupported standalone record table')}
 function validateFields(fields){
  if(!fields||typeof fields!=='object'||Array.isArray(fields))throw Error('Invalid record fields')
@@ -108,7 +116,7 @@ function serialize(directory,task){
  settled.finally(()=>{if(queues.get(key)===settled)queues.delete(key)})
  return next
 }
-async function mutateLocalRecord(directory,{action,table,id,fields}){
+async function mutateLocalRecord(directory,{action,table,id,fields,ownerId}){
  return serialize(directory,async()=>{
   validateTable(table)
   if(!['create','update','delete'].includes(action))throw Error('Unsupported local record operation')
@@ -126,6 +134,7 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
    schema(db)
    if(action!=='delete'){assertOrderReference(db,table,fields);assertParentReference(db,table,fields)}
    const stamp=new Date().toISOString()
+   if(action!=='create')assertUnqueued(db,table,id)
    if(action!=='create'&&!id.startsWith('local-')){
     if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_rows'").length)throw Error('Imported snapshot unavailable')
     const stmt=db.prepare('SELECT row_json FROM snapshot_rows WHERE table_name=?')
@@ -139,6 +148,7 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
    }else if(action==='create'){
     id='local-'+crypto.randomUUID()
     db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(fields),stamp,stamp])
+    queueProductionCreate(db,ownerId,table,id,fields,stamp)
    }else{
     const existing=db.exec('SELECT 1 FROM standalone_records WHERE id=? AND table_name=?',[id,table])
     if(!existing.length)throw Error('Standalone record not found')
@@ -161,7 +171,7 @@ async function mutateLocalRecord(directory,{action,table,id,fields}){
  })
 }
 
-async function createLocalRecordBatch(directory,{table,rows}){
+async function createLocalRecordBatch(directory,{table,rows,ownerId}){
  return serialize(directory,async()=>{
   validateTable(table)
   if(!Array.isArray(rows)||rows.length<1||rows.length>500)throw Error('Batch requires 1–500 records')
@@ -178,6 +188,7 @@ async function createLocalRecordBatch(directory,{table,rows}){
      assertOrderReference(db,table,fields);assertParentReference(db,table,fields)
      const id='local-'+crypto.randomUUID()
      db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(fields),stamp,stamp])
+    queueProductionCreate(db,ownerId,table,id,fields,stamp)
      created.push({id,table,action:'create',localOnly:true})
     }
     db.run('COMMIT')
@@ -210,6 +221,7 @@ async function mutateLocalRecordBatch(directory,{action,table,ids,fields}){
      try{stmt.bind([table]);while(stmt.step()){const row=JSON.parse(stmt.get()[0]);imported.set(String(row.id),row)}}finally{stmt.free()}
     }
     for(const id of ids){
+     assertUnqueued(db,table,id)
      if(id.startsWith('local-')){
       const existing=read(db,table).find(row=>row.id===id)
       if(!existing)throw Error('Standalone batch record not found: '+id)
@@ -289,6 +301,7 @@ async function upsertLocalRecordBatch(directory,{table,rows,onConflict}){
       const next={...found,...fields}
       for(const key of ['id','_local_only','_local_updated_at','_local_edited'])delete next[key]
       validateFields(next);assertOrderReference(db,table,next);assertParentReference(db,table,next)
+      assertUnqueued(db,table,found.id)
       if(String(found.id).startsWith('local-'))db.run('UPDATE standalone_records SET fields_json=?,updated_at=? WHERE id=? AND table_name=?',[JSON.stringify(next),stamp,found.id,table])
       else db.run('INSERT OR REPLACE INTO snapshot_edits (table_name,record_id,fields_json,updated_at) VALUES (?,?,?,?)',[table,found.id,JSON.stringify({...next,id:found.id}),stamp])
       result.push({id:found.id,table,action:'update'})
@@ -315,4 +328,41 @@ async function listLocalRecords(directory,table){
  const file=assertFile(directory),SQL=await sql(),db=new SQL.Database(fs.readFileSync(file))
  try{if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure');return read(db,table)}finally{db.close()}
 }
-module.exports={TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+async function submitPendingMutations(directory,{ownerId,submit,isCurrent}){
+ const SQL=await sql()
+ const file=assertFile(directory)
+ let db=new SQL.Database(fs.readFileSync(file))
+ let operations
+ try{operations=pendingMutations(db,ownerId)}finally{db.close()}
+ if(!operations.length||!isCurrent())return {archived:0,conflicts:0,retained:0}
+ const results=await submit(operations)
+ const expected=new Set(operations.map(item=>item.operationId))
+ if(!Array.isArray(results)||results.length!==expected.size||
+    results.some(item=>!expected.delete(item?.operationId)||
+      !['applied','already-applied','conflict','retry','invalid','unauthorized','unsupported'].includes(item.outcome)))
+  throw Error('Invalid desktop mutation acknowledgement')
+
+ return serialize(directory,async()=>{
+  if(!isCurrent())return {archived:0,conflicts:0,retained:operations.length}
+  const current=assertFile(directory),before=fs.readFileSync(current)
+  db=new SQL.Database(Buffer.from(before))
+  const summary={archived:0,conflicts:0,retained:0}
+  try{
+   for(const {operationId,outcome} of results){
+    if(!recordMutationOutcome(db,ownerId,operationId,outcome))continue
+    if(['applied','already-applied'].includes(outcome))summary.archived++
+    else if(outcome==='retry')summary.retained++
+    else summary.conflicts++
+   }
+   const temp=current+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!fs.readFileSync(current).equals(before))throw Error('Database changed during upload acknowledgement')
+    fs.renameSync(temp,current)
+   }finally{fs.rmSync(temp,{force:true})}
+   return summary
+  }finally{db.close()}
+ })
+}
+
+module.exports={submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}

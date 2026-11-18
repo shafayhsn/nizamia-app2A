@@ -5,8 +5,9 @@ const fs=require('node:fs')
 const path=require('node:path')
 const {PGlite}=require('@electric-sql/pglite')
 const initSqlJs=require('../desktop/node_modules/sql.js')
-const {stageMutation,pendingMutations,recordMutationOutcome}=require('../desktop/offlineMutationOutbox.cjs')
-const {inspectPendingMutations}=require('../desktop/offlineMutationPlan.cjs')
+const os=require('node:os')
+const {createLocalRecordBatch,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
+const {applyCloudSnapshot}=require('../desktop/applyCloudSnapshot.cjs')
 const {createDesktopMutationHttp}=require('./desktopMutationHttp.cjs')
 const {issueDesktopSyncToken}=require('./desktopSyncToken.cjs')
 
@@ -43,29 +44,41 @@ test('production entry and retry receipt commit together for a valid order varia
   const key='test-desktop-sync-key'
   const submit=createDesktopMutationHttp({key,db:{rpc:async(_name,args)=>({data:await run(args.actor,args.operation,args.payload)})}})
   const SQLite=await initSqlJs()
-  let offline=new SQLite.Database()
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'app2a-production-sync-'))
+  const offline=new SQLite.Database()
   try{
-   offline.run('CREATE TABLE standalone_records(table_name TEXT,id TEXT,fields_json TEXT,created_at TEXT,updated_at TEXT)')
-   offline.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',
-    ['production_daily_entries','local-entry',JSON.stringify({...payload,job_number:'stale'}),'2026-11-18T08:00:00Z','2026-11-18T08:00:00Z'])
-   const [intent]=inspectPendingMutations(offline).mutations
-   const operationId=stageMutation(offline,id(1),intent)
-   const request={method:'POST',headers:{authorization:'Bearer '+issueDesktopSyncToken(key,id(1))},
-    body:{operations:pendingMutations(offline,id(1))}}
-   assert.equal((await submit({...request,headers:{}})).status,401)
-   assert.equal((await submit(request)).body.results[0].outcome,'applied')
-   // Simulate losing the reply and restarting before acknowledging it.
-   const bytes=offline.export()
+   offline.run('CREATE TABLE app_metadata (key TEXT PRIMARY KEY,value TEXT)')
+   fs.writeFileSync(path.join(directory,'nizamia-app2a.sqlite'),Buffer.from(offline.export()))
+   const [local]=await createLocalRecordBatch(directory,{
+    table:'production_daily_entries',rows:[{...payload,job_number:'stale'}],ownerId:id(1)
+   })
+   const invoke=operations=>submit({method:'POST',headers:{authorization:'Bearer '+issueDesktopSyncToken(key,id(1))},body:{operations}})
+   assert.equal((await submit({method:'POST',headers:{},body:{operations:[]}})).status,401)
+   const identity={ownerId:id(1),isCurrent:()=>true}
+   let operationId
+   await assert.rejects(submitPendingMutations(directory,{...identity,async submit(operations){
+    operationId=operations[0].operationId
+    assert.equal((await invoke(operations)).body.results[0].outcome,'applied')
+    throw Error('response lost')
+   }}),/response lost/)
+   assert.equal((await listCombinedRecords(directory,'production_daily_entries'))[0].id,local.id)
+   const retry=await submitPendingMutations(directory,{...identity,async submit(operations){
+    assert.equal(operations[0].operationId,operationId)
+    const {body}=await invoke(operations)
+    assert.equal(body.results[0].outcome,'already-applied')
+    return body.results
+   }})
+   assert.deepEqual(retry,{archived:1,conflicts:0,retained:0})
+   const {rows}=await db.query('select id,quantity,job_number,created_by from public.production_daily_entries')
+   assert.deepEqual(rows,[{id:operationId,quantity:15,job_number:'J1',created_by:id(1)}])
+   await applyCloudSnapshot({directory,tables:{production_daily_entries:rows}})
+   const combined=await listCombinedRecords(directory,'production_daily_entries')
+   assert.equal(combined.length,1)
+   assert.equal(combined[0].id,operationId)
+   assert.equal(combined[0]._local_only,false)
+  }finally{
    offline.close()
-   offline=new SQLite.Database(bytes)
-   request.body.operations=pendingMutations(offline,id(1))
-   const [retry]=(await submit(request)).body.results
-   assert.deepEqual(retry,{operationId,outcome:'already-applied'})
-   assert.equal(recordMutationOutcome(offline,id(1),retry.operationId,retry.outcome),true)
-   assert.deepEqual(pendingMutations(offline,id(1)),[])
-   assert.equal(await run(id(1),operationId,{...payload,quantity:20}),'conflict')
-   assert.deepEqual((await db.query('select id,quantity,job_number,created_by from public.production_daily_entries')).rows,
-     [{id:operationId,quantity:15,job_number:'J1',created_by:id(1)}])
-  }finally{offline.close()}
+   fs.rmSync(directory,{recursive:true,force:true})
+  }
  }finally{await db.close()}
 })

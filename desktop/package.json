@@ -65,6 +65,8 @@
       "snapshotViewerRenderer.js",
       "offline.html",
       "standaloneRecords.cjs",
+      "offlineMutationOutbox.cjs",
+      "offlineMutationPlan.cjs",
       "standaloneForms.cjs",
       "localDesktopAuth.cjs",
       "offlineOms.cjs",

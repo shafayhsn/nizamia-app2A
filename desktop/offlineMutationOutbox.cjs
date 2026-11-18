@@ -43,12 +43,30 @@ function pendingMutations(db,ownerId){
 }
 
 function recordMutationOutcome(db,ownerId,operationId,outcome){
- if(!['applied','already-applied','conflict','retry'].includes(outcome))throw Error('Invalid sync acknowledgement')
+ if(!['applied','already-applied','conflict','retry','invalid','unauthorized','unsupported'].includes(outcome))throw Error('Invalid sync acknowledgement')
  initialize(db)
- const state=outcome==='already-applied'?'applied':outcome==='retry'?'pending':outcome
+ const state=['applied','already-applied'].includes(outcome)?'applied':outcome==='retry'?'pending':'conflict'
  db.run("UPDATE offline_mutation_outbox SET state=? WHERE operation_id=? AND owner_id=? AND state='pending'",
   [state,operationId,ownerId])
  return db.getRowsModified()===1
 }
 
-module.exports={stageMutation,pendingMutations,recordMutationOutcome}
+function assertUnqueued(db,table,id){
+ if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ if(db.exec('SELECT 1 FROM offline_mutation_outbox WHERE table_name=? AND record_id=?',[table,id]).length)
+  throw Error('This record is awaiting cloud synchronization or review.')
+}
+
+function reconcileUploadedCreates(db,tables){
+ if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ const entries=db.exec("SELECT operation_id,table_name,record_id,intent_json FROM offline_mutation_outbox WHERE state='applied'")[0]?.values||[]
+ for(const [operationId,table,id,json] of entries){
+  if(!tables[table]?.some(row=>row.id===operationId))continue
+  const intent=JSON.parse(json)
+  if(intent.operation!=='create')continue
+  db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',
+   [table,id,intent.editedAt])
+ }
+}
+
+module.exports={stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates}

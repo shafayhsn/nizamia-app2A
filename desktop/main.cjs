@@ -28,8 +28,40 @@ const syncCoordinator=createOfflineSyncCoordinator({
  getToken:session=>session===onlineSyncSession&&Date.now()<session.expiresAt?session.token:null,
  authenticateSession:async session=>session===onlineSyncSession&&desktopAuth?.status().user?.id===session.identity
 })
+function productionSyncOwner(){
+ const user=desktopAuth?.status().user
+ return user?.role==='admin'?user.id:null
+}
+
+async function synchronizeDesktopChanges(){
+ const session=onlineSyncSession
+ const directory=getDatabaseDirectory()
+ const result=await syncCoordinator.synchronize()
+ const isCurrent=()=>session&&session===onlineSyncSession&&Date.now()<session.expiresAt&&
+  productionSyncOwner()===session.identity&&getDatabaseDirectory()===directory
+ if(!directory||!isCurrent())return result
+ try{
+  const {submitPendingMutations}=require('./standaloneRecords.cjs')
+  const batch=await submitPendingMutations(directory,{
+   ownerId:session.identity,isCurrent,
+   async submit(operations){
+    const response=await fetch(APP_URL+'/api/desktop/mutations',{
+     method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+session.token},
+     body:JSON.stringify({operations}),signal:AbortSignal.timeout(15000),redirect:'error'
+    })
+    if(!response.ok)throw Error('Production entries are waiting for the cloud service.')
+    return (await response.json()).results
+   }
+  })
+  return {...result,archived:result.archived+batch.archived,
+   conflicts:result.conflicts+batch.conflicts,retained:result.retained+batch.retained}
+ }catch{
+  return {...result,retained:result.retained+1}
+ }
+}
+
 const syncLoop=createDesktopSyncLoop({
- coordinator:syncCoordinator,
+ coordinator:{synchronize:synchronizeDesktopChanges},
  isOnline:()=>net.isOnline(),
  refresh:session=>session===onlineSyncSession?refreshCloudSnapshot(onlineSnapshotToken):null
 })
@@ -386,7 +418,7 @@ app.whenReady().then(() => {
         if(Buffer.byteLength(raw)>1048576)return Response.json({error:'Batch too large'},{status:413})
         const input=JSON.parse(raw),directory=getDatabaseDirectory()
         if(!directory)return Response.json({error:'Local database unavailable'},{status:503})
-        const result=await createLocalRecordBatch(directory,{table:input.table,rows:input.rows})
+        const result=await createLocalRecordBatch(directory,{table:input.table,rows:input.rows,ownerId:productionSyncOwner()})
         return Response.json({data:result,error:null},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({data:null,error:error.message},{status:400})}
     }
@@ -427,7 +459,7 @@ app.whenReady().then(() => {
         if(!['create','update','delete'].includes(input.action))return Response.json({error:'Unsupported operation'},{status:400})
         const directory=getDatabaseDirectory()
         if(!directory)return Response.json({error:'Local database unavailable'},{status:503})
-        const result=await mutateLocalRecord(directory,{action:input.action,table:input.table,id:input.id,fields:input.fields})
+        const result=await mutateLocalRecord(directory,{action:input.action,table:input.table,id:input.id,fields:input.fields,ownerId:productionSyncOwner()})
         return Response.json({data:result,error:null},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({data:null,error:error.message},{status:400})}
     }
