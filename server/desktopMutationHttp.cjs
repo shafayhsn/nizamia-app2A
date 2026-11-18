@@ -33,6 +33,11 @@ function createDesktopMutationHttp({db,key}){
       typeof intent.changes.status==='string'&&(intent.expected.status===null||typeof intent.expected.status==='string')){
     rpc='desktop_update_order_status'
     args={target_order:intent.id,previous_status:intent.expected.status,new_status:intent.changes.status}
+   }else if(['samples','sample_comments','parcels','parcel_invoice_snapshots'].includes(intent?.table)&&['create','update','delete'].includes(intent.operation)&&
+      /^[a-z0-9_-]{1,128}$/i.test(intent.id||'')&&(intent.fields?.area3||intent.changes?.area3||intent.expected?.area3)){
+    rpc='desktop_change_sampling_parcel'
+    args={kind:intent.table,verb:intent.operation,target:intent.id,patch:intent.fields?.area3||intent.changes?.area3||null,
+     expected:intent.expected?.area3||null}
    }else if(intent?.operation==='update'&&intent.table==='orders'&&uuid.test(intent.id||'')&&
       isOrderJobPatch(intent.changes)&&isOrderJobPatch(intent.expected)){
     rpc='desktop_update_order_job'
@@ -64,6 +69,7 @@ function createDesktopMutationHttp({db,key}){
     args={target_parcel:intent.id,payload:{
      status:intent.changes.status,expected_status:intent.expected.status,
      expected_updated_at:intent.expected.updated_at,
+     ...(intent.changes.status==='Dispatched'&&intent.changes.details?{details:intent.changes.details}:{}),
      ...(intent.changes.status==='Delivered'?{
       delivery_date:intent.changes.delivery_date,received_by:intent.changes.received_by
      }:{})

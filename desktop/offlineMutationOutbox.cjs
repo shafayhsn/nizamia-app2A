@@ -125,6 +125,22 @@ function assertUnqueued(db,table,id){
   throw Error('This copied record is awaiting synchronization or review.')
 }
 
+function reconcileArea3Records(db,tables,hold){
+ if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ const entries=db.exec("SELECT intent_json,state FROM offline_mutation_outbox WHERE json_type(intent_json,'$.expected.area3')='object'")[0]?.values||[]
+ const {isDeepStrictEqual}=require('node:util')
+ for(const [raw,state] of entries){
+  const intent=JSON.parse(raw),{id,table,operation,editedAt}=intent
+  if(!tables[table])continue
+  const row=tables[table].find(item=>item.id===id)
+  const matches=(a,b)=>isDeepStrictEqual(a,b)||typeof a==='string'&&typeof b==='string'&&a.includes('T')&&b.includes('T')&&Date.parse(a)===Date.parse(b)
+  if((operation==='delete'&&state==='conflict')||state==='applied'&&(
+     operation==='delete'?!row:row&&Object.entries(intent.changes.area3).every(([key,value])=>matches(row[key],value))))
+   db.run('DELETE FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[table,id,editedAt])
+  else hold.add(table+':'+id)
+ }
+}
+
 function reconcileOrderCopies(db,tables){
  if(!tables.orders||!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
  const entries=db.exec("SELECT intent_json FROM offline_mutation_outbox WHERE state='applied' AND json_type(intent_json,'$.document.copyRows')='array'")[0]?.values||[]
@@ -282,8 +298,8 @@ function reconcileUploadedCreates(db,tables){
    db.run("DELETE FROM standalone_records WHERE table_name='sample_comments' AND id=? AND updated_at=?",
     [historyId,editedAt])
   }
-  const cloudId=resourceId||(table==='orders'&&intent.operation==='create'&&!id.startsWith('local-')?id:operationId)
-  if(!tables[table]?.some(row=>row.id===cloudId))continue
+  const cloudId=resourceId||(intent.fields?.area3?id:table==='orders'&&intent.operation==='create'&&!id.startsWith('local-')?id:operationId)
+  if(!tables[table]?.some(row=>(table==='parcel_invoice_snapshots'?row.parcel_id:row.id)===cloudId))continue
   if(intent.operation!=='create'||table==='jobs'||intent.document?.buyer)continue
   const copied=intent.document?.clonedRows||[]
   if(!copied.every(child=>tables[child.table]?.some(row=>row.id===child.id)))continue
@@ -309,4 +325,4 @@ function findQueuedRecords(db){
  }))
 }
 
-module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,assertOrderSectionAvailable,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers,reconcileOrderRemovals,reconcileOrderCopies}
+module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,assertOrderSectionAvailable,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers,reconcileOrderRemovals,reconcileOrderCopies,reconcileArea3Records}

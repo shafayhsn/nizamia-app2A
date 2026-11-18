@@ -507,7 +507,133 @@ async function reviewSavedChanges(directory,{ownerId,approval,isCurrent=()=>true
  })
 }
 
-async function queueParcelTransition(directory,{id,status,deliveryDate,receivedBy,ownerId,isCurrent}){
+function parcelConsignee(address,buyer,contact){
+ return {name:address.recipient||buyer.name||'',label:address.label||'',
+  address_line1:address.address_line1||'',address_line2:address.address_line2||'',
+  city:address.city||'',region:address.region||'',postal_code:address.postal_code||'',country:address.country||'',
+  contact_name:contact?.name||buyer.contact_person||'',phone:contact?.phone||address.phone||'',email:contact?.email||address.email||''}
+}
+
+async function queueParcelInvoice(directory,{parcelId,addressId,contactId,ownerId,isCurrent}){
+ if(!ownerId||typeof parcelId!=='string'||parcelId.startsWith('local-')||!/^[a-z0-9_-]{1,128}$/i.test(parcelId)||!cloudId.test(addressId||'')||contactId&&!cloudId.test(contactId))throw Error('A synchronized parcel and buyer address are required.')
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file)
+  const db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   const get=(table,id,key='id')=>{
+    const entry=db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=? AND json_extract(row_json,?)=?',
+     [table,'$.'+key,id])[0]?.values?.[0]
+    return entry&&JSON.parse(entry[0])
+   }
+   const prior=get('parcel_invoice_snapshots',parcelId,'parcel_id')||
+    read(db,'parcel_invoice_snapshots').find(row=>row.parcel_id===parcelId)
+   if(prior)return prior
+   const parcel=get('parcels',parcelId)
+   const address=get('buyer_addresses',addressId)
+   const buyer=address&&get('buyers',address.buyer_id)
+   const contact=contactId&&get('buyer_contacts',contactId)
+   if(!buyer||contactId&&contact?.buyer_id!==buyer.id||!parcel?.items?.length||
+    parcel.items.some(({sampleId})=>get('orders',get('samples',sampleId)?.order_id||'')?.buyer_id!==buyer.id))
+    throw Error('Choose an address and contact for the buyer linked to this parcel.')
+   const stamp=new Date().toISOString()
+   const fields={address_id:addressId,contact_id:contactId||null}
+   const snapshot={parcel_id:parcelId,buyer_id:buyer.id,...fields,consignee:parcelConsignee(address,buyer,contact),updated_at:stamp}
+   db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[parcelId,'parcel_invoice_snapshots',JSON.stringify(snapshot),stamp,stamp])
+   if(!stageMutation(db,ownerId,createMutationIntent('parcel_invoice_snapshots',parcelId,{area3:fields},stamp,stamp)))
+    throw Error('Could not queue parcel invoice.')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during invoice save.')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return snapshot
+  }finally{db.close()}
+ })
+}
+
+async function queueArea3Records(directory,{table,action,ids,rows,ownerId,isCurrent}){
+ const {shape}=require('./area3Mutation.cjs')
+ if(!ownerId||!['samples','sample_comments','parcels'].includes(table)||!['create','update','delete'].includes(action)||
+    table==='parcels'&&action==='create')throw Error('Unsupported Sampling or Parcel action.')
+ const count=action==='create'?rows?.length:ids?.length
+ if(!Number.isSafeInteger(count)||count<1||count>100||(action!=='create'&&new Set(ids).size!==ids.length))
+  throw Error('Select 1–100 records.')
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file),db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   const stamp=new Date().toISOString(),saved=[]
+   const lookup=(name,id)=>{
+    const raw=db.exec("SELECT row_json FROM snapshot_rows WHERE table_name=? AND json_extract(row_json,'$.id')=?",[name,id])[0]?.values?.[0]?.[0]
+    return raw?JSON.parse(raw):null
+   }
+   for(let index=0;index<count;index++){
+    const id=action==='create'?crypto.randomUUID():ids[index]
+    const fields=action==='delete'?{}:shape(table,rows[index])
+    if(action!=='delete')validateFields(fields)
+    let intent,next
+    if(action==='create'){
+     const local={...fields,created_at:stamp}
+     let dependency
+     if(table==='samples'){
+      if(!lookup('orders',fields.order_id)||!String(fields.sample_type||'').trim())
+       throw Error('Choose a synchronized order and sample type.')
+      if(fields.parent_sample_id&&!lookup('samples',fields.parent_sample_id))throw Error('Refresh the source sample before requesting a revision.')
+      local.sample_number='OFFLINE-'+id.slice(0,8)
+     }else{
+      const sample=lookup('samples',fields.sample_id)||read(db,'samples').find(row=>row.id===fields.sample_id)
+      if(!sample)throw Error('Choose a synchronized or queued sample.')
+      if(!lookup('samples',fields.sample_id)){
+       dependency=db.exec("SELECT operation_id FROM offline_mutation_outbox WHERE owner_id=? AND table_name='samples' AND record_id=? AND state IN ('pending','applied')",
+        [ownerId,fields.sample_id])[0]?.values?.[0]?.[0]
+       if(!dependency)throw Error('Review the pending sample before adding a comment.')
+      }
+     }
+     intent=createMutationIntent(table,id,{area3:fields},stamp,stamp,dependency?{afterOperation:dependency}:undefined)
+     next={id,...local}
+     db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(local),stamp,stamp])
+    }else{
+     const base=lookup(table,id)
+     const overlay=db.exec('SELECT fields_json FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id])[0]?.values?.[0]
+     const current=overlay?.[0]?JSON.parse(overlay[0]):base||read(db,table).find(row=>row.id===id)
+     if(!current)throw Error('Refresh this record before changing it.')
+     const {isDeepStrictEqual}=require('node:util')
+     const changed=Object.fromEntries(Object.entries(fields).filter(([key,value])=>!isDeepStrictEqual(current[key]??null,value)))
+     if(action==='update'&&!Object.keys(changed).length){saved.push(current);continue}
+     if(!base)throw Error('Sync this new record before changing it.')
+     assertUnqueued(db,table,id)
+     if(overlay)throw Error('Sync or review the previous changes before saving.')
+     if(action==='delete'){
+      const draft={operation:'delete',table,id,expected:{area3:base},editedAt:stamp}
+      intent={...draft,fingerprint:require('./offlineMutationPlan.cjs').fingerprint(draft)}
+      next=null
+     }else{
+      const previous=Object.fromEntries(Object.keys(changed).map(key=>[key,base[key]??null]))
+      intent=updateMutationIntent(table,id,{area3:changed},{area3:previous},stamp)
+      next={...current,...changed}
+     }
+     db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',[table,id,next?JSON.stringify(next):null,stamp])
+    }
+    if(Buffer.byteLength(JSON.stringify(intent))>115000)throw Error('This record exceeds the offline sync size limit.')
+    if(!stageMutation(db,ownerId,intent))throw Error('Could not queue this change.')
+    if(next)saved.push(next)
+   }
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed while saving.')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return saved
+  }finally{db.close()}
+ })
+}
+
+async function queueParcelTransition(directory,{id,status,deliveryDate,receivedBy,details,ownerId,isCurrent}){
  if(!ownerId||typeof id!=='string'||id.startsWith('local-')||!/^[a-z0-9_-]{1,128}$/i.test(id)||
     !['Dispatched','Delivered'].includes(status))throw Error('A synchronized parcel is required.')
  return serialize(directory,async()=>{
@@ -538,7 +664,14 @@ async function queueParcelTransition(directory,{id,status,deliveryDate,receivedB
    const changes={status}
    const overlay={...local,status}
    if(status==='Dispatched'){
-    if(row.status!=='Draft'||!row.courier?.trim()||!row.tracking_no?.trim()||!row.dispatch_date)
+    if(details){
+     const editable=require('./area3Mutation.cjs').shape('parcels',details)
+     delete editable.status
+     validateFields(editable)
+     Object.assign(overlay,editable)
+     changes.details=editable
+    }
+    if(row.status!=='Draft'||!overlay.courier?.trim()||!overlay.tracking_no?.trim()||!overlay.dispatch_date)
      throw Error('Courier, tracking number and dispatch date are required.')
     overlay.dispatched_at=stamp
    }else{
@@ -556,7 +689,8 @@ async function queueParcelTransition(directory,{id,status,deliveryDate,receivedB
    const writeOverlay=(table,id,record)=>db.run(
     'INSERT OR REPLACE INTO snapshot_edits (table_name,record_id,fields_json,updated_at) VALUES (?,?,?,?)',
     [table,id,JSON.stringify(record),stamp])
-   for(const sampleId of new Set(row.items.map(item=>item.sampleId))){
+   if(!Array.isArray(overlay.items)||overlay.items.length>500)throw Error('Invalid linked samples.')
+   for(const sampleId of new Set(overlay.items.map(item=>item.sampleId))){
     if(!cloudId.test(sampleId||''))throw Error('This parcel contains an unsynchronized sample.')
     const sample=getRecord('samples',sampleId)
     if(sample.local.dispatch_status!==sample.row.dispatch_status||
@@ -1294,10 +1428,7 @@ async function queueParcelCreate(directory,{items,customItems,addressId,contactI
    const stamp=new Date().toISOString(),id='local-'+crypto.randomUUID(),snapshotId='local-'+crypto.randomUUID()
    const fields={items,custom_items:customItems,address_id:addressId,contact_id:contactId||null}
    const localFields={items,custom_items:customItems,status:'Draft',created_at:stamp}
-   const consignee={name:address.recipient||buyer.name||'',label:address.label||'',
-    address_line1:address.address_line1||'',address_line2:address.address_line2||'',
-    city:address.city||'',region:address.region||'',postal_code:address.postal_code||'',country:address.country||'',
-    contact_name:contact?.name||buyer.contact_person||'',phone:contact?.phone||address.phone||'',email:contact?.email||''}
+   const consignee=parcelConsignee(address,buyer,contact)
    const snapshot={parcel_id:id,buyer_id:buyer.id,address_id:addressId,contact_id:contactId||null,consignee,updated_at:stamp}
    db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?),(?,?,?,?,?)',
     [id,'parcels',JSON.stringify(localFields),stamp,stamp,
@@ -1316,4 +1447,4 @@ async function queueParcelCreate(directory,{items,customItems,addressId,contactI
  })
 }
 
-module.exports={queueOrderCopy,queueOrderRemoval,queueOrderImport,queueOrderSection,queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+module.exports={queueParcelInvoice,queueArea3Records,queueOrderCopy,queueOrderRemoval,queueOrderImport,queueOrderSection,queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}

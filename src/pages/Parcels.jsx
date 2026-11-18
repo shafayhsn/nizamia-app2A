@@ -43,10 +43,8 @@ const validTrackingUrl=value=>{try{const u=new URL(value);return ['https:','http
 const PREF_KEY='app2a.parcels.view.v1'
 const readPrefs=()=>{try{return JSON.parse(sessionStorage.getItem(PREF_KEY)||'{}')}catch{return {}}}
 
-function openPrint(html, title, onBlocked) {
-  const w = window.open('', '_blank', 'width=1000,height=800')
-  if (!w) { onBlocked?.(); return }
-  w.document.write(`<!doctype html><html><head><title>${title}</title><style>
+async function openPrint(html, title, onBlocked) {
+  const documentHtml = `<html><head><title>${title}</title><style>
     @page{size:A4 portrait;margin:15mm} html,body{margin:0;padding:0} body{font-family:Arial,sans-serif;color:#111;font-size:12px} .invoice-page{min-height:calc(297mm - 30mm);display:flex;flex-direction:column;box-sizing:border-box}
     h1,h2,h3{margin:0}
     .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:14px}
@@ -59,7 +57,18 @@ function openPrint(html, title, onBlocked) {
     .section{margin-top:14px}
     .right{text-align:right}
     .head h1{font-size:24px}.head h2{font-size:17px;font-weight:500;margin-top:4px}.box{line-height:1.5;min-height:125px;font-size:13px}.two .box h3{font-size:17px;margin-bottom:7px}.two .box>div{overflow-wrap:anywhere}.invoice-signatures{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:auto;padding-top:36px;break-inside:avoid}.invoice-signatures>div{border-top:1px solid #111;padding-top:8px}thead{display:table-header-group}tr{break-inside:avoid}
-  </style></head><body>${html}</body></html>`)
+  </style></head><body>${html}</body></html>`
+  if (window.location.protocol === 'app2a:') {
+    const response = await fetch('/api/offline/pdf', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({html:documentHtml,filename:title})
+    })
+    if (!response.ok) throw Error((await response.json()).error || 'PDF generation failed')
+    return
+  }
+  const w = window.open('', '_blank', 'width=1000,height=800')
+  if (!w) { onBlocked?.(); return }
+  w.document.write('<!doctype html>' + documentHtml)
   w.document.close(); w.focus(); setTimeout(()=>w.print(), 350)
 }
 
@@ -79,6 +88,12 @@ export function ParcelBuilderModal({ poolRows, onClose, onCreated }) {
     if(!buyerId){setConsigneeError(buyerIds.length>1?'Select samples from one buyer per parcel':'No buyer linked to sample order');return}
     let cancelled=false
     Promise.all(['addresses','contacts'].map(async type=>{
+      if(window.location.protocol==='app2a:'){
+        const {data,error}=await supabase.from(type==='addresses'?'buyer_addresses':'buyer_contacts').select('*').eq('buyer_id',buyerId)
+        if(error)throw error
+        return data||[]
+      }
+
       const r=await fetch('/api/oms?action=list&type='+type+'&buyerId='+encodeURIComponent(buyerId))
       const j=await r.json();if(!r.ok)throw Error(j.error||'Unable to load buyer details');return j.data||[]
     })).then(([a,c])=>{if(cancelled)return;setAddresses(a);setContacts(c);setAddressId(a.find(x=>x.is_default)?.id||a[0]?.id||'');setContactId(c.find(x=>x.is_default)?.id||c[0]?.id||'');setConsigneeError('')}).catch(e=>{if(!cancelled)setConsigneeError(e.message)})
@@ -152,8 +167,8 @@ function ParcelEditModal({parcel,samples,orders,parcels,onClose,onSave,onDispatc
  const setCustom=(i,key,value)=>setForm(v=>({...v,customItems:v.customItems.map((x,j)=>i===j?{...x,[key]:value}:x)}))
  const taken=new Set(parcels.filter(p=>p.id!==parcel.id).flatMap(p=>(p.items||[]).map(it=>it.sampleId)))
  const choices=samples.filter(x=>!taken.has(x.id) && !form.items.some(it=>it.sampleId===x.id) && String(x.stage||'').toLowerCase()==='ready')
- const matchingChoices=choices.filter(x=>[x.sample_number,orderMap[x.order_id]?.style_number,x.sample_type].join(' ').toLowerCase().includes(sampleSearch.toLowerCase()))
  const orderMap=Object.fromEntries(orders.map(o=>[o.id,o]))
+ const matchingChoices=choices.filter(x=>[x.sample_number,orderMap[x.order_id]?.style_number,x.sample_type].join(' ').toLowerCase().includes(sampleSearch.toLowerCase()))
  const submit=async(dispatch=false)=>{
    if(form.trackingUrl&&!validTrackingUrl(form.trackingUrl)){window.alert('Enter a valid http(s) tracking URL.');return}
    if(dispatch&&(!form.courier||!form.trackingNo||!form.dispatchDate)){window.alert('Courier, tracking number and dispatch date are required.');return}
@@ -352,7 +367,7 @@ export default function Parcels() {
     const db=toDb(changed)
     const {error}=await supabase.from('parcels').update({...db,updated_at:new Date().toISOString()}).eq('id',parcelId)
     if(error){alert(error.message,{title:'Parcel Update Failed'});setBusy(false);return false}
-    if(patch.status&&patch.status!==old.status){
+    if(window.location.protocol!=='app2a:'&&patch.status&&patch.status!==old.status){
       const {error:historyError}=await supabase.from('parcel_status_history').insert({parcel_id:parcelId,old_status:old.status,new_status:patch.status})
       if(historyError)alert('Status updated, but history could not be saved: '+historyError.message,{title:'History Warning'})
     }
@@ -399,7 +414,7 @@ export default function Parcels() {
     }
     if(window.location.protocol==='app2a:'){
       setBusy(true)
-      try{await queueParcelStatus(parcel.id,'Dispatched');await load()}
+      try{await queueParcelStatus(parcel.id,'Dispatched',{details:toDb(parcel)});await load();return true}
       catch(error){alert(error.message,{title:'Dispatch Failed'})}
       finally{setBusy(false)}
       return
@@ -508,18 +523,17 @@ export default function Parcels() {
   }
   async function saveInvoiceAndPrint(){
     if(!invoiceChoice||invoiceBusy||invoiceError)return
-    const {parcel,buyerId}=invoiceChoice
+    const {parcel}=invoiceChoice
     const address=invoiceAddresses.find(a=>a.id===invoiceAddressId)
     const contact=invoiceContacts.find(c=>c.id===invoiceContactId)
     if(!address){setInvoiceError('Select a saved buyer address before issuing an invoice.');return}
     setInvoiceBusy(true)
-    const buyer=buyerMap[buyerId]||{}
-    const consignee={name:address.recipient||buyer.name||'',label:address.label||'',address_line1:address.address_line1||'',address_line2:address.address_line2||'',city:address.city||'',region:address.region||'',postal_code:address.postal_code||'',country:address.country||'',contact_name:contact?.name||buyer.contact_person||'',phone:contact?.phone||address.phone||'',email:contact?.email||address.email||''}
     const response=await fetch('/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save',type:'snapshots',parcelId:parcel.id,addressId:address.id,contactId:contact?.id||null})})
     const result=await response.json().catch(()=>({error:'Invoice server unavailable'}))
     const {data,error}={data:result.data,error:response.ok?null:{message:result.error||'Could not save invoice'}}
     setInvoiceBusy(false)
     if(error){setInvoiceError('Could not save invoice snapshot: '+error.message);return}
+    if(location.protocol==='app2a:')window.dispatchEvent(new Event('app2a-offline-data-changed'))
     setInvoiceSnapshot(data);setInvoiceChoice(null);printInvoice(parcel,data.consignee)
   }
 
@@ -558,7 +572,8 @@ export default function Parcels() {
       <div class="section box"><strong>Declaration</strong><div style="margin-top:6px">We hereby declare that the goods described are samples of no commercial value and are being sent for development and approval purposes only.</div><div style="margin-top:8px;font-weight:700">NO COMMERCIAL VALUE. VALUE ONLY FOR CUSTOMS PURPOSES.</div></div>
       <div class="invoice-signatures"><div>Authorized Signatory</div><div>Courier Acknowledgement</div></div></div>
     `
-    openPrint(html, `${parcel.id} Non-Commercial Invoice`, () => alert('Please allow popups to print this document.', { title:'Popup Blocked' }))
+    try { await openPrint(html, `${parcel.id} Non-Commercial Invoice`, () => alert('Please allow popups to print this document.', { title:'Popup Blocked' })) }
+    catch (error) { alert(error.message,{title:'Invoice Error'}) }
   }
 
   return (
@@ -652,7 +667,7 @@ export default function Parcels() {
           <div style={{display:'flex',justifyContent:'flex-end',gap:8}}><button style={btn} disabled={busy} onClick={()=>setDeliveryOpen(false)}>Cancel</button><button style={{...btn,background:'#dcfce7',color:'#166534',borderColor:'#bbf7d0'}} disabled={busy||!deliveryDate} onClick={confirmDelivered}><CheckCheck size={14}/> Confirm Delivery</button></div>
         </div>
       </div>}
-      {editing&&<ParcelEditModal parcel={editing} samples={samples} orders={orders} parcels={parcels} onClose={()=>setEditing(null)} onSave={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok)setEditing(null)}} onDispatch={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok){await doDispatch({...editing,...patch});setEditing(null)}}}/>}
+      {editing&&<ParcelEditModal parcel={editing} samples={samples} orders={orders} parcels={parcels} onClose={()=>setEditing(null)} onSave={async patch=>{const ok=await patchParcel(editing.id,patch);if(ok)setEditing(null)}} onDispatch={async patch=>{if(location.protocol==='app2a:'){if(await doDispatch({...editing,...patch}))setEditing(null);return}const ok=await patchParcel(editing.id,patch);if(ok){await doDispatch({...editing,...patch});setEditing(null)}}}/>}
       {creating && <ParcelBuilderModal poolRows={selectedSamples.length?availableSamples.filter(r=>selectedSamples.includes(r.sampleId)):availableSamples} onClose={() => setCreating(false)} onCreated={createNewParcel} />}
       <Dialogs />
     </div>

@@ -78,7 +78,7 @@ function RequestModal({ orderId, onClose, onCreated }) {
     if (!selGroup || selColours.length === 0) return
     setSaving(true)
     try {
-      const num = await generateSampleNumber()
+      const num = window.location.protocol==='app2a:'?null:await generateSampleNumber()
       const { error: insertError } = await supabase.from('samples').insert([{
         order_id:        orderId,
         sample_number:   num,
@@ -97,8 +97,10 @@ function RequestModal({ orderId, onClose, onCreated }) {
         emb_snapshot:    embData,
       }])
       if (insertError) throw insertError
-      const { error: flagError } = await supabase.from('orders').update({ step_sampling: true }).eq('id', orderId)
-      if (flagError) throw flagError
+      if(window.location.protocol!=='app2a:'){
+        const {error:flagError}=await supabase.from('orders').update({step_sampling:true}).eq('id',orderId)
+        if(flagError)throw flagError
+      }
       onCreated()
       onClose()
     } catch (e) { console.error(e); window.alert(`Sample request was not saved: ${e.message || e}`) }
@@ -417,8 +419,10 @@ export default function Step5Sampling({ orderId, onSaved, registerSave }) {
     }))
     const failure = results.find(result => result.error)
     if (failure) throw failure.error
-    const { error: flagError } = await supabase.from('orders').update({ step_sampling: true }).eq('id', orderId)
-    if (flagError) throw flagError
+    if(window.location.protocol!=='app2a:'){
+      const {error:flagError}=await supabase.from('orders').update({step_sampling:true}).eq('id',orderId)
+      if(flagError)throw flagError
+    }
     onSaved(orderId, { step_sampling: true })
   }, [orderId])
 

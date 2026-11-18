@@ -64,6 +64,18 @@ function offlineQuery(table) {
         if(records.some(row=>!row))throw Error('Upsert saved but some records could not be reloaded')
         return {data:single?records[0]:records,error:null}
       }
+      if(!upsert&&(['samples','sample_comments'].includes(table)||table==='parcels'&&operation!=='create')){
+        const values=operation==='create'?(Array.isArray(payload)?payload:[payload]):existing.map(()=>payload)
+        const response=await fetch('/api/offline/sampling-parcels',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:operation,table,ids:existing.map(row=>row.id),rows:values}),
+        })
+        const result=await response.json()
+        if(!response.ok)throw Error(result.error||'Could not save offline changes')
+        notifyOfflineWrite()
+        const records=operation==='delete'?existing:result.data
+        return {data:returnRows?(single?records[0]:records):null,error:null}
+      }
       if(operation!=='create' && existing.length>1){
         if(existing.length>500)throw Error('Maximum 500 records per batch')
         const ids=existing.map(row=>String(row.id))

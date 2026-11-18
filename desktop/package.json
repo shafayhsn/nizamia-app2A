@@ -72,6 +72,7 @@
       "orderDetailsMutation.cjs",
       "orderRemoval.cjs",
       "orderSectionCopy.cjs",
+      "area3Mutation.cjs",
       "poMatrixSync.cjs",
       "standaloneForms.cjs",
       "localDesktopAuth.cjs",

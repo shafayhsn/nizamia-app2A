@@ -86,10 +86,8 @@ function statusPill(bg, color, text) {
   return <span style={statusBadgeStyle(text,{},'samples')}>{statusDisplay(text,'samples')}</span>
 }
 
-function PrintWindow({ html, title }) {
-  const w = window.open('', '_blank', 'width=1000,height=800')
-  if (!w) { alert('Please allow popups to print this document.'); return }
-  w.document.write(`<!doctype html><html><head><title>${title}</title><style>
+async function printProgramDocument({ html, title }) {
+  const documentHtml = `<html><head><title>${title}</title><style>
     body{font-family:Arial,sans-serif;color:#111;padding:18px}
     h1,h2,h3{margin:0}
     .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:14px}
@@ -131,7 +129,16 @@ function PrintWindow({ html, title }) {
       .bom tr,.history{break-inside:avoid;page-break-inside:avoid}
     }
 
-  </style></head><body>${html}</body></html>`)
+  </style></head><body>${html}</body></html>`
+  if (location.protocol==='app2a:') {
+    const response=await fetch('/api/offline/pdf',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({html:documentHtml,filename:title})})
+    if(!response.ok)throw Error((await response.json()).error||'PDF generation failed')
+    return
+  }
+  const w = window.open('', '_blank', 'width=1000,height=800')
+  if (!w) { alert('Please allow popups to print this document.'); return }
+  w.document.write('<!doctype html>'+documentHtml)
   w.document.close()
   w.focus()
   setTimeout(() => w.print(), 350)
@@ -516,7 +523,7 @@ export default function SamplingApprovals() {
     const meta={...(existing?.meta||{}),revision_reasons:payload.reasons||[],...((existing||legacy)?{edit_history:[...(existing?.meta?.edit_history||[]),{previous:previous||{type:legacy.comment_type,text:legacy.comment_text,by:legacy.comment_by,date:legacy.comment_date,reasons:legacy.meta?.revision_reasons||[]},edited_at:new Date().toISOString()}]}:{})}
     const query=existing?supabase.from('sample_comments').update({...fields,meta}).eq('id',existing.id):supabase.from('sample_comments').insert({sample_id:sample.id,root_sample_id:sample.root_sample_id||sample.id,sam_number:sample.sample_number,version_label:sample.version,...fields,is_internal:false,meta})
     const {error:commentError}=await query
-    if(commentError){alert('Comment was not saved to Supabase: '+commentError.message,{title:'Save Failed'});return}
+    if(commentError){alert('Could not save the comment: '+commentError.message,{title:'Save Failed'});return}
     if(existing){setSampleComments(v=>v.map(c=>c.id===existing.id?{...c,...fields,meta}:c))}else{if(!legacy)addSampleComment(sample.id, payload)}
     const patch = payload.type === 'Approval'
       ? { approvalStatus:'Approved', dispatchStatus:'Comments Received', latestCommentType: payload.type, latestCommentDate: payload.date, latestCommentBy: payload.by }
@@ -582,7 +589,8 @@ export default function SamplingApprovals() {
 
   async function printSampleProgram(row) {
     const html=await buildSampleProgramHTML(row,{bomItems,fittingBlocks,allRows,sampleComments,parcelItems})
-    PrintWindow({html,title:`${row.sample_number} Sampling Program`})
+    try { await printProgramDocument({html,title:`${row.sample_number} Sampling Program`}) }
+    catch (error) { alert(error.message,{title:'Sampling Program Error'}) }
   }
 
   const washColour = r => {

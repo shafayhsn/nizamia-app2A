@@ -356,7 +356,13 @@ app.whenReady().then(() => {
     }
     if(url.pathname==='/api/oms'){
       if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
-      try{const directory=getDatabaseDirectory();if(!directory)return Response.json({error:'Local database unavailable'},{status:503});return await require('./offlineOms.cjs').handleOfflineOms(directory,url,request)}catch(error){return Response.json({error:error.message},{status:400})}
+      try{const directory=getDatabaseDirectory();if(!directory)return Response.json({error:'Local database unavailable'},{status:503});return await require('./offlineOms.cjs').handleOfflineOms(directory,url,request,{
+        queueParcelInvoice: input=>{
+         const ownerId=productionSyncOwner()
+         const {queueParcelInvoice}=require('./standaloneRecords.cjs')
+         return queueParcelInvoice(directory,{...input,ownerId,isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
+        }
+      })}catch(error){return Response.json({error:error.message},{status:400})}
     }
     // Local-only read bridge for the bundled original React interface.
     // Never expose arbitrary SQL, filesystem paths, or cloud credentials.
@@ -595,6 +601,20 @@ app.whenReady().then(() => {
         return Response.json({data},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:400})}
     }
+    if(url.pathname==='/api/offline/sampling-parcels'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
+      if(!ownerId||!directory)return Response.json({error:'Administrator access required for Sampling and Parcels sync'},{status:403})
+      try{
+        const raw=await request.text()
+        if(Buffer.byteLength(raw)>800000)return Response.json({error:'Too much data selected'},{status:413})
+        const {action,table,ids,rows}=JSON.parse(raw)
+        const {queueArea3Records}=require('./standaloneRecords.cjs')
+        const data=await queueArea3Records(directory,{action,table,ids,rows,ownerId,
+          isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
+        return Response.json({data},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:400})}
+    }
     if(url.pathname==='/api/offline/parcel-create'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})
       const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
@@ -615,10 +635,10 @@ app.whenReady().then(() => {
       if(!ownerId||!directory)return Response.json({error:'Administrator access required for offline parcel sync'},{status:403})
       try{
         const raw=await request.text()
-        if(Buffer.byteLength(raw)>4096)return Response.json({error:'Request too large'},{status:413})
-        const {id,status,deliveryDate,receivedBy}=JSON.parse(raw)
+        if(Buffer.byteLength(raw)>110000)return Response.json({error:'Request too large'},{status:413})
+        const {id,status,deliveryDate,receivedBy,details}=JSON.parse(raw)
         const {queueParcelTransition}=require('./standaloneRecords.cjs')
-        const data=await queueParcelTransition(directory,{id,status,deliveryDate,receivedBy,ownerId,
+        const data=await queueParcelTransition(directory,{id,status,deliveryDate,receivedBy,details,ownerId,
          isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
         return Response.json({data},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:400})}
