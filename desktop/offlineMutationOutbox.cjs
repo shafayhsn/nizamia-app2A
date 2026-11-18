@@ -77,6 +77,30 @@ function assertUnqueued(db,table,id){
   throw Error('This record is awaiting cloud synchronization or review.')
 }
 
+function reconcileBuyers(db,tables,hold){
+ if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ const entries=db.exec("SELECT operation_id,intent_json,state FROM offline_mutation_outbox WHERE json_type(intent_json,'$.document.buyer')='object'")[0]?.values||[]
+ for(const [operationId,json,state] of entries){
+  const {id,operation,editedAt,fields,changes,document:{buyer}}=JSON.parse(json)
+  const cloudId=operation==='create'?operationId:id
+  const patch=fields||changes
+  const cloud=tables.buyers?.find(row=>row.id===cloudId)
+  const visible=cloud&&Object.entries(patch.header).every(([key,value])=>cloud[key]===value)&&
+   Object.entries(patch.details).every(([table,rows])=>{
+    const cached=tables[table]?.filter(row=>row.buyer_id===cloudId)
+    return cached?.length===rows.length&&rows.every(expected=>cached.some(row=>
+     Object.entries(expected).every(([key,value])=>row[key]===value)))
+   })
+  if(state==='applied'&&visible){
+   for(const item of buyer.edits)db.run('DELETE FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[item.table,item.id,editedAt])
+   for(const item of buyer.creates)db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',[item.table,item.id,editedAt])
+  }else for(const item of buyer.edits){
+   if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[item.table,item.id,editedAt]).length)
+    hold.add(item.table+':'+item.id)
+  }
+ }
+}
+
 function reconcilePoMatrices(db,tables,hold){
  const {matrixVisible,matrixTables}=require('./poMatrixSync.cjs')
  const complete=[...matrixTables,'orders'].every(table=>Array.isArray(tables[table]))
@@ -176,7 +200,7 @@ function reconcileUploadedCreates(db,tables){
   }
   const cloudId=resourceId||operationId
   if(!tables[table]?.some(row=>row.id===cloudId))continue
-  if(intent.operation!=='create'||table==='jobs')continue
+  if(intent.operation!=='create'||table==='jobs'||intent.document?.buyer)continue
   const linked=intent.document?.localLines||[]
   if(linked.length&&!tables[linked[0].table]?.filter(row=>row[linked[0].parentField]===cloudId).length)continue
   for(const child of linked)db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',
@@ -193,8 +217,8 @@ function findQueuedRecords(db){
   return [table+':'+id,...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
    ...(intent.expected?.lines||[]).map(line=>(intent.document.childTable||intent.document.localLines[0].table)+':'+line.id),
    ...(table==='jobs'&&Array.isArray(intent.fields?.orders)?intent.fields.orders.map(order=>'orders:'+order.id):[]),
-   ...[...(intent.document?.matrix?.edits||[]),...(intent.document?.matrix?.creates||[])].map(item=>item.table+':'+item.id)]
+   ...[...(intent.document?.matrix?.edits||[]),...(intent.document?.matrix?.creates||[]),...(intent.document?.buyer?.edits||[]),...(intent.document?.buyer?.creates||[])].map(item=>item.table+':'+item.id)]
  }))
 }
 
-module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits}
+module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers}

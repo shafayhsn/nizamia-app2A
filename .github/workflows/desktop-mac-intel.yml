@@ -78,7 +78,7 @@ jobs:
         working-directory: desktop
         run: npm install --no-audit --no-fund
       - name: Test linked desktop sync workflows
-        run: node --test server/desktopOrderDetails.test.cjs server/desktopPoMatrix.test.cjs server/desktopSupplier.test.cjs server/desktopParcelTransition.test.cjs server/desktopPurchasingCreate.test.cjs src/lib/offlineProjection.test.cjs
+        run: node --test server/desktopOrderDetails.test.cjs server/desktopPoMatrix.test.cjs server/desktopBuyer.test.cjs server/desktopSupplier.test.cjs server/desktopParcelTransition.test.cjs server/desktopPurchasingCreate.test.cjs src/lib/offlineProjection.test.cjs
       - name: Check desktop entry syntax
         working-directory: desktop
         run: |

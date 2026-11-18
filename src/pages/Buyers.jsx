@@ -4,6 +4,17 @@ import { supabase } from '../lib/supabase'
 import { Plus, Edit2, Trash2, Users, Search, RefreshCcw, Settings, ListFilter, CheckSquare } from 'lucide-react'
 import { useAppDialogs } from '../components/ui/AppDialogs'
 
+const isDesktop=typeof location!=='undefined'&&location.protocol==='app2a:'
+
+async function saveOfflineBuyer(payload){
+ const response=await fetch('/api/offline/buyer',{
+  method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+ })
+ const result=await response.json()
+ if(!response.ok)throw Error(result.error||'Unable to save buyer')
+ window.dispatchEvent(new Event('app2a-offline-data-changed'))
+}
+
 export default function Buyers() {
   const { confirm, Dialogs } = useAppDialogs()
   const [buyers, setBuyers] = useState([])
@@ -40,6 +51,14 @@ export default function Buyers() {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const detailsRequest=async(type,buyerId,rows)=>{
+    if(isDesktop){
+      if(!buyerId)return []
+      const table=type==='addresses'?'buyer_addresses':'buyer_contacts'
+      const {data,error}=await supabase.from(table).select('*').eq('buyer_id',buyerId).order('created_at')
+      if(error)throw error
+      return data||[]
+    }
+
     const qs='?action='+(buyerId?'list':'check')+'&type='+type+(buyerId?'&buyerId='+encodeURIComponent(buyerId):'')
     const response=await fetch('/api/oms'+(rows? '':qs),rows?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'sync',type,buyerId,rows})}:{})
     const json=await response.json()
@@ -57,6 +76,14 @@ export default function Buyers() {
     setSaving(true);setDetailError('')
     const {id,created_at,updated_at,...fields}=form
     const saveBody = { ...fields, payment_terms_days: parseInt(form.payment_terms_days, 10) || 0 }
+    if(isDesktop){
+      try{
+        await saveOfflineBuyer({buyerId:editing?.id,fields:saveBody,addresses,contacts})
+        setModal(false);load()
+      }catch(error){setDetailError(error.message)}
+      finally{setSaving(false)}
+      return
+    }
     let res = editing ? await supabase.from('buyers').update(saveBody).eq('id', editing.id).select('id').single() : await supabase.from('buyers').insert([saveBody]).select('id').single()
     if (res.error && /payment_terms_days|schema cache|column/i.test(res.error.message || '')) {
       const { payment_terms_days, ...fallback } = saveBody
@@ -77,7 +104,10 @@ export default function Buyers() {
   const handleDelete = async (id) => {
     const ok = await confirm('Buyer records cannot be deleted. Deactivate this buyer instead?', { title:'Deactivate Buyer', confirmText:'Deactivate', tone:'danger' })
     if (!ok) return
-    await supabase.from('buyers').update({ is_active: false }).eq('id', id)
+    if(isDesktop){
+      try{await saveOfflineBuyer({buyerId:id,fields:{is_active:false}})}
+      catch(error){window.alert(error.message);return}
+    }else await supabase.from('buyers').update({ is_active: false }).eq('id', id)
     load()
   }
 

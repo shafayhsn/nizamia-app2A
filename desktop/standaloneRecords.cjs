@@ -566,6 +566,86 @@ async function queueParcelTransition(directory,{id,status,deliveryDate,receivedB
  })
 }
 
+const buyerProfileFields=['name','contact_person','email','phone','address','country','currency','default_incoterms','default_ship_mode','notes','is_active','payment_terms_days']
+const buyerDetailFields={
+ buyer_addresses:['label','recipient','address_line1','address_line2','city','region','postal_code','country','phone','email','is_default'],
+ buyer_contacts:['name','designation','department','phone','email','is_default'],
+}
+
+async function queueBuyer(directory,{buyerId,fields,addresses,contacts,ownerId,isCurrent}){
+ if(!ownerId||buyerId&&!cloudId.test(buyerId)||!fields||typeof fields!=='object'||Array.isArray(fields))
+  throw Error('A valid buyer profile is required.')
+ const header=Object.fromEntries(Object.entries(fields).filter(([key])=>buyerProfileFields.includes(key)))
+ validateFields(header)
+ if((!buyerId||Object.hasOwn(header,'name'))&&(typeof header.name!=='string'||!header.name.trim()))
+  throw Error('Enter a buyer name.')
+ const details={buyer_addresses:addresses,buyer_contacts:contacts}
+ for(const rows of Object.values(details)){
+  if(rows===undefined&&buyerId)continue
+  if(!Array.isArray(rows)||rows.length>100||rows.some(row=>!row||typeof row!=='object')||
+     rows.length&&rows.filter(row=>row.is_default===true).length!==1)
+   throw Error('Select one default address and contact where applicable.')
+ }
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file),db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   const stamp=new Date().toISOString(),localId=buyerId||'local-'+crypto.randomUUID()
+   const find=(table,key,value)=>db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=? AND json_extract(row_json,?)=?',
+    [table,'$.'+key,value])[0]?.values?.map(([row])=>JSON.parse(row))||[]
+   const ensureReady=(table,id)=>{
+    assertUnqueued(db,table,id)
+    if(db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id]).length)
+     throw Error('This buyer has a local change awaiting synchronization or review.')
+   }
+   const baseline=buyerId?find('buyers','id',buyerId)[0]:null
+   if(buyerId&&!baseline)throw Error('Refresh this buyer before saving.')
+   if(buyerId)ensureReady('buyers',buyerId)
+   const expected=baseline?{header:Object.fromEntries(Object.keys(header).map(key=>[key,baseline[key]??null])),details:{}}:null
+   const patch={header,details:{}},edits=[],creates=[]
+   if(baseline)edits.push({table:'buyers',id:buyerId,value:{...baseline,...header}})
+   else creates.push({table:'buyers',id:localId,value:{is_active:true,...header}})
+   for(const [table,rows] of Object.entries(details)){
+    if(rows===undefined)continue
+    const original=buyerId?find(table,'buyer_id',buyerId):[]
+    if(expected)expected.details[table]=original
+    const old=new Map(original.map(row=>[row.id,row]))
+    const ids=rows.filter(row=>row.id).map(row=>row.id)
+    if(new Set(ids).size!==ids.length||ids.some(id=>!old.has(id)))throw Error('Refresh this buyer’s addresses and contacts.')
+    const next=new Map()
+    patch.details[table]=rows.map(row=>{
+     const id=row.id||'local-'+crypto.randomUUID()
+     const values=Object.fromEntries(buyerDetailFields[table].map(key=>[key,key==='is_default'?row[key]===true:row[key]??'']))
+     validateFields(values)
+     const local={id,buyer_id:localId,...values}
+     next.set(id,local)
+     if(!row.id)creates.push({table,id,value:local})
+     return {...values,id:row.id||id.slice(6)}
+    })
+    for(const row of original){
+     ensureReady(table,row.id)
+     edits.push({table,id:row.id,value:next.has(row.id)?{...row,...next.get(row.id)}:null})
+    }
+   }
+   const document={buyer:{edits:edits.map(({table,id,value})=>({table,id,removed:value===null})),
+    creates:creates.map(({table,id})=>({table,id}))}}
+   const intent=buyerId?updateMutationIntent('buyers',buyerId,patch,expected,stamp,null,document)
+    :createMutationIntent('buyers',localId,patch,stamp,stamp,document)
+   if(Buffer.byteLength(JSON.stringify(intent))>115000)throw Error('Buyer profile is too large for offline sync.')
+   for(const {table,id,value} of edits)db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',[table,id,value===null?null:JSON.stringify(value),stamp])
+   for(const {table,id,value} of creates)db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(value),stamp,stamp])
+   if(!stageMutation(db,ownerId,intent))throw Error('Could not queue buyer changes.')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during buyer save.')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+  }finally{db.close()}
+ })
+}
+
 async function queueBom(directory,{orderId,rows,ownerId,isCurrent}){
  if(!ownerId||!cloudId.test(orderId||'')||!Array.isArray(rows)||rows.length>300)
   throw Error('A synchronized order and a valid BOM are required.')
@@ -857,4 +937,4 @@ async function queueParcelCreate(directory,{items,customItems,addressId,contactI
  })
 }
 
-module.exports={queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+module.exports={queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}

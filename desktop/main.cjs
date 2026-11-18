@@ -447,6 +447,20 @@ app.whenReady().then(() => {
         return Response.json({data:result,error:null},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({data:null,error:error.message},{status:400})}
     }
+    if(url.pathname==='/api/offline/buyer'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
+      if(!ownerId||!directory)return Response.json({error:'Administrator access required for buyer sync'},{status:403})
+      try{
+        const raw=await request.text()
+        if(Buffer.byteLength(raw)>115000)return Response.json({error:'Buyer profile too large for offline sync'},{status:413})
+        const {buyerId,fields,addresses,contacts}=JSON.parse(raw)
+        const {queueBuyer}=require('./standaloneRecords.cjs')
+        await queueBuyer(directory,{buyerId,fields,addresses,contacts,ownerId,
+          isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
+        return Response.json({data:null},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:400})}
+    }
     if(url.pathname==='/api/offline/bom'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})
       const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
