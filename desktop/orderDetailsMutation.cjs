@@ -9,4 +9,12 @@ function isOrderDetailsPatch(patch){
   (patch[key]===null||typeof patch[key]==='string'&&patch[key].length<=2000))
 }
 
-module.exports={isOrderDetailsPatch}
+const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i
+
+function isOrderJobPatch(patch){
+ return !!patch&&Object.keys(patch).sort().join()==='job_id,job_number'&&
+  (patch.job_id===null||typeof patch.job_id==='string'&&uuid.test(patch.job_id))&&
+  (patch.job_number===null||typeof patch.job_number==='string'&&patch.job_number.length<=128)
+}
+
+module.exports={isOrderDetailsPatch,isOrderJobPatch}

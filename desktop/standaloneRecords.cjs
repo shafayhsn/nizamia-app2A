@@ -10,7 +10,7 @@ const queues=new Map()
 const {createMutationIntent,updateMutationIntent}=require('./offlineMutationPlan.cjs')
 const {stageMutation,assertUnqueued,pendingMutations,recordMutationOutcome}=require('./offlineMutationOutbox.cjs')
 const {isShipmentStatusChange}=require('./shipmentStatusMutation.cjs')
-const {isOrderDetailsPatch}=require('./orderDetailsMutation.cjs')
+const {isOrderDetailsPatch,isOrderJobPatch}=require('./orderDetailsMutation.cjs')
 const cloudId=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i
 function queueProductionCreate(db,ownerId,table,id,fields,stamp){
  if(ownerId&&table==='production_daily_entries'&&[fields.order_id,fields.size_group_id,fields.color_id].every(id=>cloudId.test(id||'')))
@@ -23,10 +23,19 @@ function queueOrderStatus(db,ownerId,table,id,base,fields,stamp){
   stageMutation(db,ownerId,updateMutationIntent(table,id,{status:fields.status},{status:base.status},stamp))
 }
 function queueOrderDetails(db,ownerId,table,id,base,previous,fields,stamp){
- if(table!=='orders'||!cloudId.test(id)||!isOrderDetailsPatch(fields))return
+ const jobChange=isOrderJobPatch(fields)
+ if(table!=='orders'||!cloudId.test(id)||!jobChange&&!isOrderDetailsPatch(fields))return
  if(!ownerId)throw Error('Administrator access is required to synchronize these order changes.')
- const changed=Object.keys(fields).filter(key=>fields[key]!==previous[key])
+ let changed=Object.keys(fields).filter(key=>fields[key]!==previous[key])
  if(!changed.length||Object.keys(fields).join()==='status'&&fields.status!==null)return
+ if(jobChange){
+  changed=['job_id','job_number']
+  const row=fields.job_id&&db.exec("SELECT row_json FROM snapshot_rows WHERE table_name='jobs' AND json_extract(row_json,'$.id')=?",
+   [fields.job_id])[0]?.values?.[0]?.[0]
+  const job=row&&JSON.parse(row)
+  if(fields.job_id?(!job||job.buyer_id!==previous.buyer_id||job.job_number!==fields.job_number):fields.job_number!==null)
+   throw Error('Choose a synchronized job for the same buyer.')
+ }
  if(changed.some(key=>!Object.hasOwn(base,key)||base[key]!==previous[key]))
   throw Error('Refresh this order or review its earlier local edits before saving.')
  const values=source=>Object.fromEntries(changed.map(key=>[key,source[key]]))

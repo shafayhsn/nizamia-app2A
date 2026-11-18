@@ -18,23 +18,27 @@ test('existing bulk order edits upload changed fields without replacing concurre
    create schema desktop_private; grant usage on schema desktop_private to service_role;
    create table users(id uuid primary key,role text,is_active bool,is_restricted bool);
    create table orders(id uuid primary key,ship_date date,po_date date,merchandiser_name text,
-    store_name text,status text,updated_at timestamptz default now());
-   grant select,update on users,orders to service_role;
+    store_name text,status text,updated_at timestamptz default now(),buyer_id uuid,job_id uuid,job_number text);
+   create table jobs(id uuid primary key,buyer_id uuid,job_number text);
+   grant select,update on users,orders,jobs to service_role;
    insert into users values('${id(1)}','admin',true,false);
    insert into orders(id,ship_date,store_name,status) values
     ('${id(2)}','2026-12-01','Original','Draft'),('${id(3)}','2026-12-01','Original','Draft');
+   update orders set buyer_id='${id(4)}';
+   insert into jobs values ('${id(5)}','${id(4)}','NZ-101'),('${id(6)}','${id(7)}','NZ-102');
   `)
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_order_details.sql'),'utf8'))
+  await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_order_job.sql'),'utf8'))
   await db.exec('set role service_role')
   const SQL=await sqlite(),local=new SQL.Database()
   fs.writeFileSync(path.join(directory,'nizamia-app2a.sqlite'),Buffer.from(local.export()))
   local.close()
-  const pull=async()=>({orders:(await db.query('select to_jsonb(o) as row from orders o')).rows.map(row=>row.row)})
+  const pull=async()=>({orders:(await db.query('select to_jsonb(o) as row from orders o')).rows.map(row=>row.row),jobs:(await db.query('select to_jsonb(j) as row from jobs j')).rows.map(row=>row.row)})
   const refresh=async()=>applyCloudSnapshot({directory,tables:await pull()})
   const owner={ownerId:id(1),isCurrent:()=>true},key='fixture-order-details-signer'
   const handle=createDesktopMutationHttp({key,db:{async rpc(name,args){
-   assert.equal(name,'desktop_update_order_details')
-   return {data:(await db.query('select desktop_update_order_details($1,$2,$3,$4::jsonb,$5::jsonb) as outcome',
+   assert.ok(['desktop_update_order_details','desktop_update_order_job'].includes(name))
+   return {data:(await db.query('select '+name+'($1,$2,$3,$4::jsonb,$5::jsonb) as outcome',
     [args.actor,args.operation,args.target_order,JSON.stringify(args.previous_fields),JSON.stringify(args.new_fields)])).rows[0].outcome}
   }}})
   const send=operations=>handle({method:'POST',headers:{authorization:'Bearer '+issueDesktopSyncToken(key,id(1))},body:{operations}})
@@ -60,6 +64,23 @@ test('existing bulk order edits upload changed fields without replacing concurre
   const cached=await listCombinedRecords(directory,'orders')
   assert.equal(cached.find(row=>row.id===id(2)).merchandiser_name,'Cloud merchandiser')
   assert.equal(cached.find(row=>row.id===id(3)).store_name,'New store')
+  const link=fields=>mutateLocalRecordBatch(directory,{...owner,action:'update',table:'orders',ids:[id(2)],fields})
+  await assert.rejects(link({job_id:id(6),job_number:'NZ-102'}),/same buyer/)
+  await link({job_id:id(5),job_number:'NZ-101'})
+  assert.equal((await listCombinedRecords(directory,'orders')).find(row=>row.id===id(2)).job_number,'NZ-101')
+  const flush=()=>submitPendingMutations(directory,{...owner,async submit(operations){
+   const response=(await send(operations)).body.results
+   assert.equal(response[0].outcome,'applied')
+   assert.equal((await send(operations)).body.results[0].outcome,'already-applied')
+   return response
+  }})
+  assert.equal((await flush()).archived,1)
+  await refresh()
+  assert.equal((await pull()).orders.find(row=>row.id===id(2)).job_id,id(5))
+  await link({job_id:null,job_number:null})
+  assert.equal((await flush()).archived,1)
+  await refresh()
+  assert.equal((await pull()).orders.find(row=>row.id===id(2)).job_number,null)
  }finally{
   await db.close()
   fs.rmSync(directory,{recursive:true,force:true})

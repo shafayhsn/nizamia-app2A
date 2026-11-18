@@ -129,9 +129,10 @@ function AssignJobModal({ selectedOrders, onClose, onDone }) {
         jobNumber = jobs.find(j => j.id === jobId)?.job_number
       }
       // Assign all selected orders to this job
-      await supabase.from('orders')
+      const { error: linkError } = await supabase.from('orders')
         .update({ job_id: jobId, job_number: jobNumber })
         .in('id', selectedOrders.map(o => o.id))
+      if (linkError) throw new Error(linkError.message)
       onDone()
     } catch (e) {
       setError(e.message)
