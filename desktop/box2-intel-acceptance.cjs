@@ -1,0 +1,147 @@
+'use strict'
+
+// Test-only Electron entry point. It is intentionally omitted from the DMG.
+const assert=require('node:assert/strict')
+const crypto=require('node:crypto')
+const fs=require('node:fs')
+const os=require('node:os')
+const path=require('node:path')
+const {setTimeout:delay}=require('node:timers/promises')
+const {app,BrowserWindow,dialog,safeStorage}=require('electron')
+const {PGlite}=require('@electric-sql/pglite')
+const {createDesktopMutationHttp}=require('../server/desktopMutationHttp.cjs')
+const {issueDesktopSyncToken}=require('../server/desktopSyncToken.cjs')
+
+assert.equal(process.platform,'darwin')
+assert.equal(process.arch,'x64')
+assert.equal(app.isPackaged,false)
+const profile=fs.mkdtempSync(path.join(os.homedir(),'app2a-box2-ci-'))
+app.setPath('userData',profile)
+const db=new PGlite()
+const [actor,buyer,source,target,material]=Array.from({length:5},()=>crypto.randomUUID())
+const key=crypto.randomBytes(32)
+const token=issueDesktopSyncToken(key,actor)
+const snapshotToken=Buffer.from(JSON.stringify({
+ id:actor,scope:'desktop-snapshot',exp:Date.now()+60*60*1000,
+})).toString('base64url')+'.fixture'
+const names=['orders','buyers','suppliers','size_groups','bom_items']
+let online=true
+let uploads=0
+let failure
+// The hosted runner has no unlocked user keychain. Encrypted tokens have separate tests.
+safeStorage.isEncryptionAvailable=()=>false
+dialog.showErrorBox=(title,message)=>{failure=Error(title+' '+message)}
+dialog.showMessageBox=async(...args)=>{
+ const details=args.at(-1)
+ if(details.type==='warning')failure=Error(details.message)
+ return {response:0}
+}
+
+const fixture=(async()=>{
+ await db.exec(`
+  create role anon; create role authenticated; create role service_role;
+  create schema desktop_private; grant usage on schema desktop_private to service_role;
+  create table users(id uuid primary key,role text,is_active bool,is_restricted bool);
+  create table orders(id uuid primary key,buyer_id uuid,style_number text,step_bom boolean);
+  create table buyers(id uuid primary key,name text);
+  create table suppliers(id uuid primary key,name text);
+  create table size_groups(id uuid primary key,order_id uuid,group_name text);
+  create table bom_items(id uuid primary key,order_id uuid,name text);
+  grant select,insert,update,delete on all tables in schema public to service_role;
+ `)
+ await db.exec(fs.readFileSync(path.join(__dirname,'../server/migrations/20261118_desktop_order_section_copy.sql'),'utf8'))
+ await db.exec('set role service_role')
+ await db.query("insert into users values($1,'admin',true,false)",[actor])
+ await db.query("insert into buyers values($1,'Intel QA buyer')",[buyer])
+ await db.query("insert into orders values($1,$3,'Intel QA style',true),($2,$3,'Intel QA style',false)",[source,target,buyer])
+ await db.query("insert into bom_items values($1,$2,'Intel QA denim')",[material,source])
+})()
+
+const mutations=createDesktopMutationHttp({key,db:{async rpc(name,args){
+ assert.equal(name,'desktop_copy_order_sections')
+ const {rows}=await db.query('select desktop_copy_order_sections($1,$2,$3,$4,$5::jsonb) as outcome',
+  [args.actor,args.operation,args.source_order,args.target_order,JSON.stringify(args.sections)])
+ return {data:rows[0].outcome}
+}}})
+global.fetch=async(url,options)=>{
+ const route=new URL(url)
+ assert.equal(route.origin,'https://app.nizamia.com')
+ if(!online)throw Error('Acceptance transport disconnected')
+ await fixture
+ switch(route.pathname){
+  case '/api/oms': {
+   const login=JSON.parse(options.body)
+   assert.equal(login.identifier,'box2-fixture')
+   assert.equal(login.password,'box2-local-test-password')
+   return Response.json({ok:true,desktopSnapshotToken:snapshotToken,desktopSyncToken:token,
+    desktopUser:{id:actor,username:'box2-fixture',email:'box2-fixture@example.invalid',role:'admin',is_active:true,permissions:{}}})
+  }
+  case '/api/desktop/snapshot': {
+   assert.equal(options.headers.authorization,'Bearer '+snapshotToken)
+   const tables=Object.fromEntries(await Promise.all(names.map(async name=>
+    [name,(await db.query('select to_jsonb(t) as row from '+name+' t order by id')).rows.map(row=>row.row)])))
+   return Response.json({backup_metadata:{table_count:names.length,table_row_counts:
+    Object.fromEntries(names.map(name=>[name,tables[name].length]))},tables})
+  }
+  case '/api/desktop/mutations': {
+   const result=await mutations({method:'POST',headers:{authorization:options.headers.Authorization},body:options.body})
+   uploads++
+   return Response.json(result.body,{status:result.status})
+  }
+  default: throw Error('Unexpected cloud request to '+route.pathname)
+ }
+}
+
+require('./main.cjs')
+async function until(check,message){
+ const deadline=Date.now()+45000
+ while(Date.now()<deadline){
+  if(failure)throw failure
+  const result=await check()
+  if(result)return result
+  await delay(180)
+ }
+ throw Error(message)
+}
+const findWindow=()=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().startsWith('app2a://local/')&&!w.webContents.isLoadingMainFrame())
+const request=(win,route,body)=>win.webContents.executeJavaScript(
+ `(async()=>{const response=await fetch(${JSON.stringify(route)},${JSON.stringify(body===undefined?{}:{
+  method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
+ })});const data=await response.json();if(!response.ok)throw Error(data.error||response.status);return data})()`)
+const login=win=>request(win,'/api/offline/auth',{action:'login',username:'box2-fixture',password:'box2-local-test-password'})
+const records=async(win,table)=>(await request(win,'/api/offline/records?table='+table)).data
+
+async function check(){
+ await fixture
+ let win=await until(findWindow,'App-2A renderer did not launch')
+ assert.equal((await login(win)).data.authenticated,true)
+ await until(async()=> (await records(win,'orders')).some(row=>row.id===target),'Initial cloud snapshot did not arrive')
+ online=false
+ await request(win,'/api/offline/auth',{action:'logout'})
+ win.destroy()
+ app.emit('activate')
+ win=await until(findWindow,'App-2A renderer did not reopen offline')
+ assert.equal((await login(win)).data.authenticated,true)
+ assert.equal((await records(win,'buyers'))[0].name,'Intel QA buyer')
+ await request(win,'/api/offline/order-copy',{sourceId:source,targetIds:[target],sections:['bom_items']})
+ const cached=(await records(win,'bom_items')).find(row=>row.order_id===target)
+ assert.equal(cached.name,'Intel QA denim')
+ assert.equal(cached._local_only,true)
+ assert.equal(uploads,0)
+ online=true
+ assert.equal((await login(win)).data.authenticated,true)
+ await until(async()=> (await records(win,'bom_items')).some(row=>row.id===cached.id&&row._local_only===false),
+  'Reconnect did not upload and refresh the linked order section')
+ assert.ok(uploads>0)
+ assert.equal((await db.query('select count(*)::int as count from bom_items where order_id=$1',[target])).rows[0].count,1)
+ console.log('Intel Electron acceptance passed: online enrollment, offline reopen and write, reconnect, PostgreSQL readback and snapshot reconciliation.')
+}
+check().then(async()=>{
+ await db.close()
+ fs.rmSync(profile,{recursive:true,force:true})
+ app.exit(0)
+},error=>{
+ console.error(error)
+ fs.rmSync(profile,{recursive:true,force:true})
+ app.exit(1)
+})
