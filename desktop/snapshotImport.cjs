@@ -6,7 +6,7 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 const { app, dialog } = require('electron')
 const initSqlJs = require('sql.js')
-const { assertSnapshotReplaceSafe } = require('./snapshotReplaceGuard.cjs')
+const { mergeSnapshotRows } = require('./snapshotMerge.cjs')
 const DB_NAME = 'nizamia-app2a.sqlite'
 const EXCLUDED_TABLES = new Set(['users', 'permissions', 'roles', 'app_database_sync_status', 'notification_reads', 'app_task_reads'])
 const SENSITIVE_FIELDS = /password|secret|token|api_key|private_key|session|credential|auth_hash/i
@@ -72,55 +72,43 @@ async function importBackup(parent, databaseDirectory) {
     const answer = await dialog.showMessageBox(parent, {
       type: 'question', buttons: ['Cancel', 'Import read-only snapshot'], defaultId: 0, cancelId: 0,
       title: 'Confirm local snapshot import',
-      message: 'Import the business tables into your local SQLite database?',
-      detail: 'This reads a backup file on your Mac. It will NOT write to Supabase. Authentication tables and sensitive fields are excluded. The existing SQLite file will be preserved as a pre-import backup.'
+      message: 'Refresh business snapshot while preserving local work?',
+      detail: 'This reads a backup file on your Mac. It will NOT write to Supabase. Authentication tables and sensitive fields are excluded. Standalone offline records, local edits and drafts will be retained. The existing SQLite file will be preserved as a pre-import backup.'
     })
     if (answer.response !== 1) return
     const db = await sqlite(fs.readFileSync(destination))
     let tableCount = 0, rowCount = 0
     try {
-      assertSnapshotReplaceSafe(db)
-      db.run('BEGIN')
+      // Refresh only imported snapshot tables. Standalone records, overlays and
+      // pending drafts stay in the same SQLite database, unchanged.
+      const safeTables = {}
+      for (const name of names) {
+        if (EXCLUDED_TABLES.has(name)) continue
+        safeTables[name] = payload.tables[name].map(source => {
+          if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('Invalid row in ' + name)
+          return Object.fromEntries(Object.entries(source).filter(([key]) => !SENSITIVE_FIELDS.test(key)))
+        })
+        tableCount++
+        rowCount += safeTables[name].length
+      }
+      mergeSnapshotRows(db, safeTables)
       db.run('CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)')
-      db.run('CREATE TABLE IF NOT EXISTS snapshot_rows (table_name TEXT NOT NULL, row_index INTEGER NOT NULL, row_json TEXT NOT NULL, PRIMARY KEY (table_name, row_index))')
-      db.run('CREATE TABLE IF NOT EXISTS snapshot_manifest (table_name TEXT PRIMARY KEY NOT NULL, row_count INTEGER NOT NULL)')
-      db.run('DELETE FROM snapshot_rows')
-      db.run('DELETE FROM snapshot_manifest')
-      const insert = db.prepare('INSERT INTO snapshot_rows (table_name, row_index, row_json) VALUES (?, ?, ?)')
-      const manifest = db.prepare('INSERT INTO snapshot_manifest (table_name, row_count) VALUES (?, ?)')
-      try {
-        for (const name of names) {
-          if (EXCLUDED_TABLES.has(name)) continue
-          const rows = payload.tables[name]
-          for (let i = 0; i < rows.length; i++) {
-            const source = rows[i]
-            if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('Invalid row in ' + name)
-            const safe = Object.fromEntries(Object.entries(source).filter(([key]) => !SENSITIVE_FIELDS.test(key)))
-            insert.run([name, i, JSON.stringify(safe)])
-          }
-          manifest.run([name, rows.length])
-          tableCount++
-          rowCount += rows.length
-        }
-      } finally { insert.free(); manifest.free() }
       db.run('INSERT OR REPLACE INTO app_metadata (key, value) VALUES (?, ?)', ['snapshot_imported_at', new Date().toISOString()])
       db.run('INSERT OR REPLACE INTO app_metadata (key, value) VALUES (?, ?)', ['snapshot_source_sha256', crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')])
-      db.run('COMMIT')
-      const checked = db.exec('SELECT COUNT(*), COALESCE(SUM(row_count),0) FROM snapshot_manifest')
+      const checked = db.exec('SELECT COUNT(*), COALESCE(SUM(row_count),0) FROM snapshot_manifest WHERE table_name IN ('+Object.keys(safeTables).map(()=>'?').join(',')+')',Object.keys(safeTables))
       const [actualTables, expectedRows] = checked[0].values[0]
-      const actualRows = db.exec('SELECT COUNT(*) FROM snapshot_rows')[0].values[0][0]
+      const actualRows = db.exec('SELECT COUNT(*) FROM snapshot_rows WHERE table_name IN ('+Object.keys(safeTables).map(()=>'?').join(',')+')',Object.keys(safeTables))[0].values[0][0]
       if (actualTables !== tableCount || expectedRows !== rowCount || actualRows !== rowCount)
         throw new Error('Local snapshot verification failed; original database remains unchanged.')
-      assertSnapshotReplaceSafe(db)
+      if (db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0] !== 'ok') throw new Error('Merged SQLite integrity check failed')
       atomicReplace(destination, db.export())
     } catch (error) {
-      try { db.run('ROLLBACK') } catch {}
       throw error
     } finally { db.close() }
     await dialog.showMessageBox(parent, {
       type: 'info', title: 'Read-only snapshot imported',
       message: tableCount + ' business tables imported successfully.',
-      detail: rowCount.toLocaleString() + ' records verified. Your original SQLite database was preserved as nizamia-app2a.sqlite.pre-import-backup.\n\nApp-2A screens still use Supabase. Offline reads and sync are not yet enabled.'
+      detail: rowCount.toLocaleString() + ' records verified. Your original SQLite database was preserved as nizamia-app2a.sqlite.pre-import-backup.\n\nLocal work was preserved. This is a manual snapshot refresh; live Supabase sync is not yet enabled.'
     })
   } catch (error) {
     await dialog.showMessageBox(parent, {
