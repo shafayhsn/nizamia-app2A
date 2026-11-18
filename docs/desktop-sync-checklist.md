@@ -49,3 +49,4 @@ For an editable workflow, verify authorized download, offline reopen, the existi
 | Session | Completed | Pending |
 | --- | --- | --- |
 | 1 | Mapped the existing page groups, snapshot tables and known API and storage exceptions. Recorded existing automated and live QA evidence. | Start with Orders and its linked writes. Tick individual workflows after their live acceptance evidence is recorded. |
+| 2 | Added upload coverage for the existing Bulk Edit Orders fields. Automated and Supabase QA checks covered retries, field-level conflicts and preservation of unrelated cloud changes. | Verify the UI on Intel Mac and cover the remaining Orders actions, including job links, PO Matrix and BOM. |

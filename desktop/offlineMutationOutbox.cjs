@@ -59,6 +59,20 @@ function assertUnqueued(db,table,id){
   throw Error('This record is awaiting cloud synchronization or review.')
 }
 
+function holdOrderDetails(db,tables,hold){
+ if(!tables.orders||!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ const {isOrderDetailsPatch}=require('./orderDetailsMutation.cjs')
+ const entries=db.exec("SELECT intent_json,state FROM offline_mutation_outbox WHERE table_name='orders' AND json_extract(intent_json,'$.operation')='update'")[0]?.values||[]
+ for(const [json,state] of entries){
+  const {id,changes,editedAt}=JSON.parse(json)
+  if(!isOrderDetailsPatch(changes)||(Object.keys(changes).join()==='status'&&changes.status!==null))continue
+  if(!db.exec("SELECT 1 FROM snapshot_edits WHERE table_name='orders' AND record_id=? AND updated_at=?",[id,editedAt]).length)continue
+  const cloud=tables.orders.find(row=>row.id===id)
+  if(state!=='applied'||!cloud||!Object.entries(changes).every(([key,value])=>cloud[key]===value))
+   hold.add('orders:'+id)
+ }
+}
+
 function reconcileDocumentEdits(db,tables){
  const hold=new Set()
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return hold
@@ -114,4 +128,4 @@ function findQueuedRecords(db){
  }))
 }
 
-module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates,reconcileDocumentEdits}
+module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails}

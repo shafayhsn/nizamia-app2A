@@ -1,6 +1,6 @@
 'use strict'
 const {isDeepStrictEqual:equal}=require('node:util')
-const {reconcileUploadedCreates,reconcileDocumentEdits}=require('./offlineMutationOutbox.cjs')
+const {reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails}=require('./offlineMutationOutbox.cjs')
 const timestamp=value=>typeof value==='string'&&/(Z|[+-]\d\d:\d\d)$/i.test(value)?Date.parse(value):NaN
 
 function shipmentStatusTime(before,after){
@@ -23,7 +23,7 @@ function reconcileOverlays(db,tables,excluded,hold){
  const unresolved=[],rows={...tables},indexed=new Map()
  const edits=db.exec('SELECT table_name,record_id,fields_json,updated_at FROM snapshot_edits')[0]?.values||[]
  for(const [table,id,json,editedAt] of edits){
-  if(!Object.hasOwn(tables,table)||excluded.has(table)||hold.has(table+':'+id))continue
+  if(!Object.hasOwn(tables,table)||excluded.has(table))continue
   if(!indexed.has(table)){
    rows[table]=[...tables[table]]
    const stored=db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=?',[table])[0]?.values||[]
@@ -34,6 +34,11 @@ function reconcileOverlays(db,tables,excluded,hold){
   }
   const {stored,incoming}=indexed.get(table)
   const base=stored.get(String(id)),index=incoming.get(String(id)),cloud=rows[table][index]
+  if(hold.has(table+':'+id)){
+   if(base&&cloud)rows[table][index]=base
+   if(base&&!cloud)rows[table].push(base)
+   continue
+  }
   if(equal(base,cloud))continue
   const flag=()=>{
    unresolved.push({table,recordId:id})
@@ -88,6 +93,7 @@ function mergeSnapshotRows(db,tables,{excludedTables=[]}={}){
  let unresolved
  try{
   const hold=reconcileDocumentEdits(db,Object.fromEntries(Object.entries(tables).filter(([name])=>!excluded.has(name))))
+  if(!excluded.has('orders'))holdOrderDetails(db,tables,hold)
   const reconciliation=reconcileOverlays(db,tables,excluded,hold)
   unresolved=reconciliation.unresolved
   const incoming=reconciliation.rows

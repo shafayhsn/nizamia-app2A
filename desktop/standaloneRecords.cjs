@@ -10,6 +10,7 @@ const queues=new Map()
 const {createMutationIntent,updateMutationIntent}=require('./offlineMutationPlan.cjs')
 const {stageMutation,assertUnqueued,pendingMutations,recordMutationOutcome}=require('./offlineMutationOutbox.cjs')
 const {isShipmentStatusChange}=require('./shipmentStatusMutation.cjs')
+const {isOrderDetailsPatch}=require('./orderDetailsMutation.cjs')
 const cloudId=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i
 function queueProductionCreate(db,ownerId,table,id,fields,stamp){
  if(ownerId&&table==='production_daily_entries'&&[fields.order_id,fields.size_group_id,fields.color_id].every(id=>cloudId.test(id||'')))
@@ -20,6 +21,17 @@ function queueOrderStatus(db,ownerId,table,id,base,fields,stamp){
  if(ownerId&&table==='orders'&&cloudId.test(id)&&Object.keys(fields).join()==='status'&&
     ['Draft','Active','Booked','Shipped','Cancelled'].includes(fields.status)&&Object.hasOwn(base,'status')&&base.status!==fields.status)
   stageMutation(db,ownerId,updateMutationIntent(table,id,{status:fields.status},{status:base.status},stamp))
+}
+function queueOrderDetails(db,ownerId,table,id,base,previous,fields,stamp){
+ if(table!=='orders'||!cloudId.test(id)||!isOrderDetailsPatch(fields))return
+ if(!ownerId)throw Error('Administrator access is required to synchronize these order changes.')
+ const changed=Object.keys(fields).filter(key=>fields[key]!==previous[key])
+ if(!changed.length||Object.keys(fields).join()==='status'&&fields.status!==null)return
+ if(changed.some(key=>!Object.hasOwn(base,key)||base[key]!==previous[key]))
+  throw Error('Refresh this order or review its earlier local edits before saving.')
+ const values=source=>Object.fromEntries(changed.map(key=>[key,source[key]]))
+ if(!stageMutation(db,ownerId,updateMutationIntent(table,id,values(fields),values(base),stamp)))
+  throw Error('This order already has a queued change.')
 }
 function queueShipmentStatus(db,ownerId,table,id,base,previous,fields,stamp){
  if(ownerId&&table==='shipments'&&cloudId.test(id)&&Object.keys(fields).join()==='notes'&&
@@ -156,6 +168,7 @@ async function mutateLocalRecord(directory,{action,table,id,fields,ownerId,sampl
     if(prior.length&&prior[0].values[0][0]===null)throw Error('Imported record already deleted')
     const previous=prior.length&&prior[0].values[0][0]?JSON.parse(prior[0].values[0][0]):imported
     if(action==='update'){
+     queueOrderDetails(db,ownerId,table,id,imported,previous,fields,stamp)
      queueOrderStatus(db,ownerId,table,id,imported,fields,stamp)
      queueShipmentStatus(db,ownerId,table,id,imported,previous,fields,stamp)
      if(ownerId&&table==='purchase_orders'&&cloudId.test(id)&&Object.keys(fields).join()==='status'&&
@@ -277,6 +290,7 @@ async function mutateLocalRecordBatch(directory,{action,table,ids,fields,ownerId
       const next=action==='delete'?null:{...previous,...fields,id}
       if(next){const clean={...next};delete clean.id;validateFields(clean);assertOrderReference(db,table,clean);assertParentReference(db,table,clean)}
       if(action==='update'){
+       queueOrderDetails(db,ownerId,table,id,source,previous,fields,stamp)
        queueOrderStatus(db,ownerId,table,id,source,fields,stamp)
        queueShipmentStatus(db,ownerId,table,id,source,previous,fields,stamp)
       }

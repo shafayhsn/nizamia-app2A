@@ -1,4 +1,5 @@
 'use strict'
+const {isOrderDetailsPatch}=require('../desktop/orderDetailsMutation.cjs')
 const {verifyDesktopSyncToken}=require('./desktopSyncToken.cjs')
 const {isShipmentStatusChange}=require('../desktop/shipmentStatusMutation.cjs')
 const uuid=/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i
@@ -32,6 +33,11 @@ function createDesktopMutationHttp({db,key}){
       typeof intent.changes.status==='string'&&(intent.expected.status===null||typeof intent.expected.status==='string')){
     rpc='desktop_update_order_status'
     args={target_order:intent.id,previous_status:intent.expected.status,new_status:intent.changes.status}
+   }else if(intent?.operation==='update'&&intent.table==='orders'&&uuid.test(intent.id||'')&&
+      isOrderDetailsPatch(intent.changes)&&isOrderDetailsPatch(intent.expected)&&
+      Object.keys(intent.changes).sort().join()===Object.keys(intent.expected).sort().join()){
+    rpc='desktop_update_order_details'
+    args={target_order:intent.id,previous_fields:intent.expected,new_fields:intent.changes}
    }else if(intent?.operation==='update'&&intent.table==='purchase_orders'&&uuid.test(intent.id||'')&&
       Object.keys(intent.changes||{}).join()==='status'&&Object.keys(intent.expected||{}).join()==='status'&&
       ['draft','approved'].includes(intent.changes.status)&&(intent.expected.status===null||typeof intent.expected.status==='string')){
