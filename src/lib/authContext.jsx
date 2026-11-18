@@ -127,8 +127,12 @@ export function AuthProvider({ children }) {
 
     try {
       await accountRequest('login',{identifier:cleanIdentifier,password:cleanPassword})
-      const appUser=await refreshUser()
-      if(!appUser)throw Error('Could not load your account.')
+      const {user: verifiedUser}=await accountRequest('accountProfile').catch(()=>{
+        throw Error('Password accepted, but the sign-in session could not be loaded. Open the test link in a separate browser tab and try again.')
+      })
+      const appUser=await normalizeAppUser(verifiedUser)
+      if(!appUser)throw Error('Password accepted, but the account profile could not be loaded.')
+      setAppUser(appUser)
       return {user:appUser,error:null}
     }catch(error){return {user:null,error}}
   }
