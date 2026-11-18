@@ -17,16 +17,15 @@ async function applyCloudSnapshot({directory,tables}){
   let updated
   try{
    if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Local database integrity failure')
-   // A cloud refresh must never change the base beneath unuploaded local
-   // records or pending drafts. Those require explicit reconciliation first.
+   // Standalone records are stored independently of snapshot_rows and are
+   // preserved by mergeSnapshotRows. Local overlays are checked record-by-record
+   // against their cloud base by the merge helper; changed bases fail closed.
+   // Pending drafts depend on a whole-snapshot fingerprint and must not be
+   // invalidated by a refresh until per-draft rebasing is implemented.
    const present=new Set((db.exec("SELECT name FROM sqlite_master WHERE type='table'")[0]?.values||[]).map(r=>r[0]))
-   const count=name=>present.has(name)?db.exec('SELECT COUNT(*) FROM "'+name+'"')[0]?.values?.[0]?.[0]||0:0
-   const localRecords=count('standalone_records')
-   const localEdits=count('snapshot_edits')
    const pendingDrafts=present.has('offline_draft_journal')
     ?(db.exec("SELECT COUNT(*) FROM offline_draft_journal WHERE state IN ('pending','conflict')")[0]?.values?.[0]?.[0]||0):0
-   if(localRecords||localEdits||pendingDrafts)
-    throw Error('Cloud refresh blocked: '+localRecords+' local records, '+localEdits+' local snapshot edits, '+pendingDrafts+' pending/conflicted drafts need reconciliation first. No data replaced.')
+   if(pendingDrafts)throw Error('Cloud refresh blocked: '+pendingDrafts+' pending/conflicted drafts require safe rebasing first. No data replaced.')
    updated=mergeSnapshotRows(db,tables)
    if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Merged database integrity failure')
    const bytes=Buffer.from(db.export())
