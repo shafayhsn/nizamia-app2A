@@ -1,3 +1,4 @@
+import {roleAction} from '../server/roleActions.js'
 import {accountAction,accountColumns} from '../server/accountActions.js'
 import passwordTools from '../server/accountPassword.cjs'
 import { createClient } from '@supabase/supabase-js'
@@ -66,6 +67,7 @@ export default async function handler(req,res){
    const {data,error}=await db.from('users').select(accountColumns).eq('id',user.id).maybeSingle()
    return error||!data?err(res,503,'Account unavailable'):res.json({ok:true,user:data})
  }
+ if(['roleCreate','rolePermissionsSave'].includes(action))return roleAction(req,res,db,user,action)
  if(['accountDirectory','accountList','accountCreate','accountPassword','accountActive','accountRestriction','accountRole'].includes(action))
    return accountAction(req,res,db,user,action)
  if(['listCostings','saveCosting','costingHistory','listCostingBatches','saveCostingBatch','assignCostingBatch'].includes(action)){

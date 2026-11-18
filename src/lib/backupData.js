@@ -247,7 +247,7 @@ export async function restoreAppData(payload, { onProgress } = {}) {
 
   const knownTables = BACKUP_TABLES.filter(t => tableNames.includes(t))
   const extraTables = tableNames.filter(t => t !== 'users' && !BACKUP_TABLES.includes(t))
-  const restoreTables = [...knownTables, ...extraTables]
+  const restoreTables = [...knownTables, ...extraTables].filter(t=>t!=='roles'&&t!=='permissions')
   const deleteTables = [...restoreTables].reverse()
 
   let step = 0

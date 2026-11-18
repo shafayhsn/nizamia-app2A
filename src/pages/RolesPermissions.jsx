@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { accountRequest } from '../lib/accounts'
 import { supabase } from '../lib/supabase'
 import { MODULES, ACTIONS } from '../lib/permissions'
 
@@ -69,9 +70,7 @@ export default function RolesPermissions() {
     if (name === 'admin') return alert('Admin role already exists and is locked.')
     setSaving(true)
     try {
-      const { data, error } = await supabase.from('roles').insert({ name }).select('id, name, created_at').single()
-      if (error) throw error
-      await Promise.all(MODULES.map(m => supabase.from('permissions').insert({ role_id: data.id, module: m.key })))
+      const {data}=await accountRequest('roleCreate',{name})
       setNewRoleName('')
       await loadRoles()
       setSelectedId(data.id)
@@ -95,15 +94,13 @@ export default function RolesPermissions() {
     setSaving(true)
     try {
       const rows = MODULES.map(m => ({
-        role_id: selectedId,
         module: m.key,
         can_view: !!perms[m.key]?.view,
         can_create: !!perms[m.key]?.create,
         can_edit: !!perms[m.key]?.edit,
         can_delete: !!perms[m.key]?.delete,
       }))
-      const { error } = await supabase.from('permissions').upsert(rows, { onConflict: 'role_id,module' })
-      if (error) throw error
+      await accountRequest('rolePermissionsSave',{roleId:selectedId,permissions:rows})
       setSaved(true)
       setTimeout(() => setSaved(false), 1500)
     } catch (err) {
