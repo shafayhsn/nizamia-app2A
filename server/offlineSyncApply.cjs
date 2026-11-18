@@ -4,8 +4,8 @@
 // This module does not connect to production or accept client-side authority.
 const {validateDraft,operationId}=require('../desktop/offlineSyncPlanner.cjs')
 const TABLES=new Set(['orders','production_daily_entries'])
-function createOfflineSyncApply({authenticate,authorize,transaction}){
- if(typeof authenticate!=='function'||typeof authorize!=='function'||typeof transaction!=='function')
+function createOfflineSyncApply({authenticate,authorize,transaction,applyOperation}){
+ if(typeof authenticate!=='function'||typeof authorize!=='function'||(typeof transaction!=='function'&&typeof applyOperation!=='function'))
   throw Error('Trusted authentication, authorization and transactional storage required')
  return async function apply(request){
   if(!request||!Array.isArray(request.operations)||request.operations.length<1||request.operations.length>100)
@@ -36,7 +36,9 @@ function createOfflineSyncApply({authenticate,authorize,transaction}){
    try{
     // tx.once(id, fn) must atomically deduplicate idempotency keys and commit
     // the conditional record update. No check-then-write race is permitted.
-    const outcome=await transaction(async tx=>{
+    const outcome=applyOperation
+      ?await applyOperation({identity:session.identity,draft,operationId:id})
+      :await transaction(async tx=>{
      if(typeof tx.once!=='function'||typeof tx.readForUpdate!=='function'||typeof tx.updateConditional!=='function')
       throw Error('Atomic transaction adapter required')
      return tx.once(id,async()=>{
@@ -52,7 +54,7 @@ function createOfflineSyncApply({authenticate,authorize,transaction}){
       return {decision:'applied'}
      })
     })
-    if(!outcome||!['applied','conflict','already-applied'].includes(outcome.decision))
+    if(!outcome||!['applied','conflict','already-applied','blocked'].includes(outcome.decision))
      throw Error('Invalid transaction outcome')
     results.push({draftId:draft.draftId,decision:outcome.decision,...(typeof outcome.reason==='string'?{reason:outcome.reason.slice(0,240)}:{})})
    }catch{

@@ -6,6 +6,7 @@ on:
       - standalone/desktop-foundation-cp15
       - feature/CP-18-sqlite-foundation
     paths:
+      - 'api/**'
       - 'desktop/**'
       - 'server/**'
       - 'src/main.jsx'
@@ -44,6 +45,10 @@ jobs:
           node src/lib/offlineAdapterContract.test.cjs
           node --check desktop/snapshotReplaceGuard.cjs
           node --check desktop/standaloneRecords.cjs
+      - name: Verify desktop order sync endpoint
+        run: |
+          node --check api/offline-sync.js
+          node --test server/desktopOrderSync.test.cjs
       - name: Validate production web application build
         run: npm run build
       - name: Build packaged React assets with relative URLs
