@@ -5,6 +5,7 @@ on:
     branches:
       - standalone/desktop-foundation-cp15
       - feature/CP-18-sqlite-foundation
+      - feature/desktop-two-way-sync
     paths:
       - 'api/**'
       - 'desktop/**'
@@ -53,6 +54,8 @@ jobs:
         run: |
           node --check api/offline-sync.js
           node --test server/desktopOrderSync.test.cjs server/snapshotTableReader.test.cjs
+      - name: Test linked desktop sync workflows
+        run: node --test server/desktopParcelTransition.test.cjs server/desktopPurchasingCreate.test.cjs src/lib/offlineProjection.test.cjs
       - name: Validate production web application build
         run: npm run build
       - name: Build packaged React assets with relative URLs
