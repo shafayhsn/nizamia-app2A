@@ -1656,7 +1656,8 @@ function PurchaseOrdersTab({ orders, suppliers }) {
     if (!access.canApprovePO(user)) { alert('Access Denied'); return }
     const nextStatus = String(p.status || '').toLowerCase() === 'approved' ? 'draft' : 'approved'
     if (!window.confirm(`${nextStatus === 'approved' ? 'Approve' : 'Unapprove'} PO ${p.po_number}?`)) return
-    await supabase.from('purchase_orders').update({ status: nextStatus }).eq('id', p.id)
+    const {error}=await supabase.from('purchase_orders').update({ status: nextStatus }).eq('id', p.id)
+    if(error){alert(error.message);return}
     load()
   }
 

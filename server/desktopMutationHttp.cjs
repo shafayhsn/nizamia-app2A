@@ -32,6 +32,11 @@ function createDesktopMutationHttp({db,key}){
       typeof intent.changes.status==='string'&&(intent.expected.status===null||typeof intent.expected.status==='string')){
     rpc='desktop_update_order_status'
     args={target_order:intent.id,previous_status:intent.expected.status,new_status:intent.changes.status}
+   }else if(intent?.operation==='update'&&intent.table==='purchase_orders'&&uuid.test(intent.id||'')&&
+      Object.keys(intent.changes||{}).join()==='status'&&Object.keys(intent.expected||{}).join()==='status'&&
+      ['draft','approved'].includes(intent.changes.status)&&(intent.expected.status===null||typeof intent.expected.status==='string')){
+    rpc='desktop_update_purchase_approval'
+    args={target_purchase_order:intent.id,previous_status:intent.expected.status,new_status:intent.changes.status}
    }else if(intent?.operation==='update'&&intent.table==='samples'&&uuid.test(intent.id||'')&&
       Object.keys(intent.changes||{}).join()==='stage'&&Object.keys(intent.expected||{}).join()==='stage'&&
       typeof intent.changes.stage==='string'&&(intent.expected.stage===null||typeof intent.expected.stage==='string')){

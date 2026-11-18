@@ -4,7 +4,7 @@ const assert=require('node:assert/strict')
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const {PGlite}=require('@electric-sql/pglite')
 const sqlite=require('../desktop/node_modules/sql.js')
-const {queuePurchasingDocument,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
+const {queuePurchasingDocument,mutateLocalRecord,submitPendingMutations,listCombinedRecords}=require('../desktop/standaloneRecords.cjs')
 const {applyCloudSnapshot}=require('../desktop/applyCloudSnapshot.cjs')
 const {createDesktopMutationHttp}=require('./desktopMutationHttp.cjs')
 const {issueDesktopSyncToken}=require('./desktopSyncToken.cjs')
@@ -37,12 +37,16 @@ test('offline purchasing assigns cloud numbers and commits the header, lines and
    grant select,insert,update on all tables in schema public to service_role;
   `)
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_purchasing_create.sql'),'utf8'))
+  await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_purchase_approval.sql'),'utf8'))
   await db.exec('set role service_role')
   const sql=await sqlite(),dbLocal=new sql.Database()
   fs.writeFileSync(path.join(folder,'nizamia-app2a.sqlite'),Buffer.from(dbLocal.export()))
   dbLocal.close()
   const owner={ownerId:id(1),isCurrent:()=>true},key='fixture-purchase-signer'
   const endpoint=createDesktopMutationHttp({key,db:{async rpc(name,args){
+   if(name==='desktop_update_purchase_approval')return {data:(await db.query(
+    'select desktop_update_purchase_approval($1,$2,$3,$4,$5) as result',
+    [args.actor,args.operation,args.target_purchase_order,args.previous_status,args.new_status])).rows[0].result}
    assert.equal(name,'desktop_create_purchasing_document')
    return {data:(await db.query('select desktop_create_purchasing_document($1,$2,$3,$4::jsonb,$5::jsonb) as result',
     [args.actor,args.operation,args.kind,JSON.stringify(args.header),JSON.stringify(args.lines)])).rows[0].result}
@@ -72,6 +76,19 @@ test('offline purchasing assigns cloud numbers and commits the header, lines and
   await applyCloudSnapshot({directory:folder,tables})
   assert.equal((await listCombinedRecords(folder,'purchase_order_items')).length,1)
   assert.equal((await listCombinedRecords(folder,'work_orders')).length,1)
+  const approvedId=tables.purchase_orders.find(row=>row.po_number==='NZP-002').id
+  await mutateLocalRecord(folder,{...owner,action:'update',table:'purchase_orders',id:approvedId,fields:{status:'approved'}})
+  assert.equal((await listCombinedRecords(folder,'purchase_orders')).find(row=>row.id===approvedId).status,'approved')
+  const approval=await submitPendingMutations(folder,{...owner,async submit(operations){
+   const accepted=(await send(operations)).body.results
+   assert.equal(accepted[0].outcome,'applied')
+   assert.equal((await send(operations)).body.results[0].outcome,'already-applied')
+   return accepted
+  }})
+  assert.equal(approval.archived,1)
+  await applyCloudSnapshot({directory:folder,tables:await pull()})
+  assert.equal((await pull()).purchase_orders.find(row=>row.id===approvedId).status,'approved')
+
   await po({description:'Reject',qty:1,unit_rate:2,sort_order:0})
   const failed=await submitPendingMutations(folder,{...owner,async submit(operations){
    return (await send(operations)).body.results

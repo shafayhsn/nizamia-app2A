@@ -158,6 +158,13 @@ async function mutateLocalRecord(directory,{action,table,id,fields,ownerId,sampl
     if(action==='update'){
      queueOrderStatus(db,ownerId,table,id,imported,fields,stamp)
      queueShipmentStatus(db,ownerId,table,id,imported,previous,fields,stamp)
+     if(ownerId&&table==='purchase_orders'&&cloudId.test(id)&&Object.keys(fields).join()==='status'&&
+        ['draft','approved'].includes(fields.status)&&Object.hasOwn(imported,'status')){
+      if(previous.status!==imported.status)throw Error('This purchase order has a prior local status edit awaiting review.')
+      if(imported.status!==fields.status&&!stageMutation(db,ownerId,
+        updateMutationIntent(table,id,{status:fields.status},{status:imported.status},stamp)))
+       throw Error('Purchase order already has a queued change.')
+     }
     }
     if(sampleStage){
      if(!ownerId||action!=='update'||table!=='samples'||!cloudId.test(id)||
