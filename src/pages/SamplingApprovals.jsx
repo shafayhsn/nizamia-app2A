@@ -377,12 +377,21 @@ export default function SamplingApprovals() {
     setSelectedIds([]);setViewTab(next)
   }
 
-  useEffect(() => { load() }, [refreshKey])
+  useEffect(() => {
+    let active = true
+    load(() => active)
+    return () => { active = false }
+  }, [refreshKey])
+  useEffect(() => {
+    const refresh = () => setRefreshKey(key => key + 1)
+    window.addEventListener('app2a-cloud-snapshot-updated', refresh)
+    return () => window.removeEventListener('app2a-cloud-snapshot-updated', refresh)
+  }, [])
   useEffect(() => {
     try { sessionStorage.setItem(SETTINGS_KEY,JSON.stringify({...tabSettings,[viewTab]:{groupBy,sortBy,filterBuyer,filterType,filterStage,filterApproval,query}})) } catch {}
   },[groupBy,sortBy,filterBuyer,filterType,filterStage,filterApproval,query,viewTab])
 
-  async function load() {
+  async function load(isCurrent) {
     const [{ data: s }, { data: o }, { data: b }, {data: bom}, {data: blocks}, {data: comments}, {data: parcels}] = await Promise.all([
       supabase.from('samples').select('*').order('created_at', { ascending:false }),
       supabase.from('orders').select('id,buyer_id,buyer_name,job_number,style_number,description,factory_ref,merchandiser_name,style_image_url').order('created_at', { ascending:false }),
@@ -392,6 +401,7 @@ export default function SamplingApprovals() {
       supabase.from('sample_comments').select('*').order('comment_date'),
       supabase.from('parcels').select('id,items,custom_items,status,courier,tracking_no,created_at,dispatch_date,dispatched_at,delivered_at,received_by'),
     ])
+    if (!isCurrent()) return
     setSamples(s || [])
     setOrders(o || [])
     setBuyers(b || [])

@@ -333,6 +333,20 @@ async function check(){
  await db.query('update costing_sheets set customer=$1 where id=$2',['Cloud QA',costing.id])
  await login(win)
  await until(async()=> (await records(win,'costing_sheets')).some(row=>row.id===costing.id&&row.customer==='Cloud QA'),'Cloud costing edit did not reach SQLite')
+ const stageSample=crypto.randomUUID()
+ await db.query("insert into samples(id,order_id,sample_number,sample_type,stage) values($1,$2,'SAM-REFRESH','Fit','Stitching')",[stageSample,target])
+ await login(win)
+ await until(async()=> (await records(win,'samples')).some(row=>row.id===stageSample),'Missing stage fixture')
+ await win.loadURL('app2a://local/sampling')
+ const displayedStage=()=>win.webContents.executeJavaScript(
+  "Array.from(document.querySelectorAll('tr')).find(row=>row.innerText.includes('SAM-REFRESH'))?.querySelector('select')?.value")
+ await until(async()=>await displayedStage()==='Stitching','Initial sample stage was not rendered')
+ await db.query("update samples set stage='Washing' where id=$1",[stageSample])
+ const menu=require('electron').Menu.getApplicationMenu()
+ const refresh=menu.items.find(item=>item.label==='Database').submenu.items.find(item=>item.label.startsWith('Refresh Snapshot from Cloud'))
+ await refresh.click()
+ await until(async()=>await displayedStage()==='Washing','Open Sampling page missed the downloaded stage')
+ console.log('Verified cloud stage change in the open Sampling page on Intel.')
  console.log('Intel Electron verified Areas 2 to 6.')
 
 }
