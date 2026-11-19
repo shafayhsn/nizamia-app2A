@@ -4,6 +4,8 @@ import { Eye, EyeOff, Lock, UserRound } from 'lucide-react'
 import { useAuth } from '../lib/authContext'
 import nizamiaLogoMark from '../assets/nizamia-logo-mark.png'
 
+import DesktopLogin from './DesktopLogin'
+
 const REMEMBER_LOGIN_KEY = 'nizamia_app2a_login_identifier'
 const REMEMBER_FLAG_KEY = 'nizamia_app2a_remember_login'
 
@@ -51,6 +53,11 @@ export default function Login() {
     } finally {
       setBusy(false)
     }
+  }
+
+  if (location.protocol === 'app2a:') {
+    return <DesktopLogin {...{identifier, setIdentifier, password, setPassword, remember, setRemember,
+      showPassword, setShowPassword, busy, error, setError, handleSubmit, offlineSetupRequired}} />
   }
 
   return (
