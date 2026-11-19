@@ -7,6 +7,8 @@ const moduleTables={
  production:'production_batches production_batch_orders production_daily_entries',
  purchasing:'work_orders work_order_items work_order_changelog testing_orders testing_requirements',
  shipping:'shipments shipment_lines shipping_bookings shipping_booking_lines shipping_booking_shipments',
+ 'features/costing':'costing_batches costing_sheet_versions costing_sheets',
+ 'reports/pp-meeting':'pp_meetings',
  library:'library_items bom_presets bom_preset_items size_group_templates'
 }
 function scopeKey(user){
@@ -29,6 +31,13 @@ async function staffSnapshot(db,user,readTable){
        !/password|secret|token|api_key|private_key|session|credential|auth_hash|passkey|attachment_path|storage_path/i.test(field)
        && !(table==='shipments' && /notes|payment|credit|receipt|settlement|bank/i.test(field)))))
    }
+ }
+ if(permissions.tasks?.view){
+   const tasks=await readTable(db,'app_tasks')
+   tables.app_tasks=tasks.filter(row=>row.assignee_id===user.id||row.created_by===user.id)
+   const ids=new Set(tables.app_tasks.map(row=>row.id))
+   tables.app_task_comments=(await readTable(db,'app_task_comments')).filter(row=>ids.has(row.task_id))
+   tables.desktop_task_assignees=await readTable(db,'desktop_task_assignees')
  }
  if(permissions.purchasing?.view){
    const pos=[],items=[]

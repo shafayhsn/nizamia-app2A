@@ -1,6 +1,6 @@
 {
   "name": "nizamia-app2a-desktop",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "NZOS for Intel Mac",
   "main": "main.cjs",
@@ -101,7 +101,8 @@
       "applyCloudSnapshot.cjs",
       "snapshotMerge.cjs",
       "nzosWorkspace.cjs",
-      "permissions.mjs"
+      "permissions.mjs",
+      "staffOperations.cjs"
     ],
     "mac": {
       "category": "public.app-category.business",

@@ -57,7 +57,7 @@ const syncCoordinator=createOfflineSyncCoordinator({
 })
 function productionSyncOwner(){
  const user=desktopAuth?.status().user
- return user?.role==='admin' || (staffDirectory && user?.permissions?.sampling?.view && user.permissions.sampling.edit)?user.id:null
+ return user?.role==='admin' || (staffDirectory && user?.role_id)?user.id:null
 }
 
 async function synchronizeDesktopChanges(){
@@ -407,7 +407,7 @@ app.whenReady().then(async () => {
     }
     if(url.pathname.startsWith('/api/')&&desktopAuth?.isAuthenticated()){
       const member=desktopAuth.status().user
-      if(member.role!=='admin' && !['/api/offline/records','/api/offline/pending-status','/api/offline/version','/api/offline/refresh','/api/offline/po-review','/api/offline/pdf','/api/offline/sample-stage','/api/offline/drafts'].includes(url.pathname))
+      if(member.role!=='admin' && !await require('./staffOperations.cjs').staffRequestAllowed(member,url.pathname,request))
         return Response.json({error:'This offline operation requires additional authorization.'},{status:403})
       try{await enforceLocalDataScope()}
       catch(error){return Response.json({error:error.message},{status:403})}
@@ -448,7 +448,7 @@ app.whenReady().then(async () => {
       try{
         const body=request.method==='POST'?await request.json():null
         const action=body?.action||url.searchParams.get('action')
-        const permitted=review?(request.method==='GET'?['poApprovers','assignedPOReviews']:['savePurchaseOrder','readPOHistory','setPOStage','readPOPage','requestPOReview','approveAssignedPO']):request.method==='GET'?['accountList','accountRoles']:['accountDelete','accountHistory','accountCreate','accountPassword','accountRole','accountActive','accountRestriction']
+        const permitted=review?(request.method==='GET'?['poApprovers','assignedPOReviews']:['savePurchaseOrder','readPOHistory','setPOStage','readPOPage','requestPOReview','approveAssignedPO']):request.method==='GET'?['accountList','accountRoles']:['accountRoleRights','accountSaveRights','accountDelete','accountHistory','accountCreate','accountPassword','accountRole','accountActive','accountRestriction']
         if(!['GET','POST'].includes(request.method)||!permitted.includes(action))
           return Response.json({error:'Unknown account request'},{status:400})
         const endpoint=new URL('/api/oms',APP_URL)
@@ -488,7 +488,7 @@ app.whenReady().then(async () => {
     if(url.pathname==='/api/offline/order-note'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})
       const user=desktopAuth?.status().user
-      if(user?.role!=='admin')return Response.json({error:'Administrator access is required for order note syncing'},{status:403})
+      if(!user || user.role!=='admin' && !user.permissions?.orders?.edit)return Response.json({error:'Orders edit access required'},{status:403})
       try{
         const raw=await request.text()
         if(Buffer.byteLength(raw)>65536)return Response.json({error:'Order note is too large'},{status:413})

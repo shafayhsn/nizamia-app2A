@@ -21,6 +21,25 @@ function recordFailure(input,method,status,message){
   lastFailure={area,action,status:status||null,message:String(message||'Database request failed').slice(0,300),time:new Date().toISOString()}
   failed=true
 }
+let proofInFlight=null
+let cachedProof=null
+let generation=0
+export function resetEditSession(){generation++;cachedProof=null;proofInFlight=null}
+async function sessionProof(){
+  if(cachedProof && cachedProof.until>Date.now())return cachedProof.token
+  if(proofInFlight)return proofInFlight
+  const epoch=generation
+  const pending=(async()=>{
+    const response=await fetch('/api/oms',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'editSession'})})
+    if(!response.ok)throw Error('Your session could not be verified. Sign in again and retry.')
+    const {token}=await response.json()
+    if(epoch!==generation||!token)throw Error('Your session changed. Retry after signing in.')
+    cachedProof={token,until:Date.now()+30000}
+    return token
+  })()
+  proofInFlight=pending
+  try{return await pending}finally{if(proofInFlight===pending)proofInFlight=null}
+}
 export async function trackedFetch(input,init={}) {
  const method=String(init?.method||'GET').toUpperCase()
  const isWrite=['POST','PATCH','PUT','DELETE'].includes(method)&&!String(typeof input==='string'?input:input?.url||input).includes('/auth/v1/')
@@ -28,10 +47,8 @@ export async function trackedFetch(input,init={}) {
  try {
    const target=new URL(typeof input==='string'?input:input?.url||String(input),location.href)
    const database=import.meta.env.VITE_SUPABASE_URL
-   if((isWrite || target.pathname==='/rest/v1/payment_settlements') && database && target.origin===new URL(database).origin && target.pathname.startsWith('/rest/v1/')){
-     const proof=await fetch('/api/oms',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'editSession'})})
-     if(!proof.ok)throw Error('Your edit could not be verified. Sign in again and retry.')
-     const {token}=await proof.json()
+   if(database && target.origin===new URL(database).origin && target.pathname.startsWith('/rest/v1/')){
+     const token=await sessionProof()
      const headers=new Headers(init.headers||input?.headers)
      headers.set('x-nzos-edit-proof',token)
      init={...init,headers,redirect:'error'}
