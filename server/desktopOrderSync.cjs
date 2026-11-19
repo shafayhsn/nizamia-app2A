@@ -4,7 +4,7 @@ const {createOfflineSyncHttpHandler}=require('./offlineSyncHttpHandler.cjs')
 const {verifyDesktopSyncToken}=require('./desktopSyncToken.cjs')
 const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 
-function createDesktopOrderSync({db,key}){
+function createDesktopOrderSync({db,key,actorDb=()=>db}){
  async function authenticate({headers}){
   const header=headers?.authorization
   if(typeof header!=='string'||!header.startsWith('Bearer '))return null
@@ -17,7 +17,7 @@ function createDesktopOrderSync({db,key}){
   authorize:async({table,fields,recordId})=>table==='orders'&&fields.length===1&&fields[0]==='notes'&&uuid.test(recordId),
   async applyOperation({identity,draft,operationId}){
    if(Object.keys(draft.before).length!==1)return {decision:'conflict',reason:'invalid-base-fields'}
-   const {data,error}=await db.rpc('desktop_apply_order_note',{
+   const {data,error}=await actorDb(identity).rpc('desktop_apply_order_note',{
     actor:identity,operation:operationId,order_id:draft.recordId,
     previous_note:draft.before.notes,new_note:draft.changes.notes
    })

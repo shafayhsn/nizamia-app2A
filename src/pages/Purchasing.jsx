@@ -235,10 +235,20 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
   )
   const [saving, setSaving] = useState(false)
   const [localSuppliers, setLocalSuppliers] = useState(suppliers || [])
+  useEffect(()=>{if(suppliers?.length)setLocalSuppliers(previous=>[...new Map([...previous,...suppliers].map(row=>[row.id,row])).values()])},[suppliers])
   const [quickSupplier, setQuickSupplier] = useState(false)
   const [newSupplier, setNewSupplier] = useState({category:'Fabric',lead_time_days:''})
   const [quickSupplierSaving, setQuickSupplierSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [admins,setAdmins]=useState([])
+  const [reviewer,setReviewer]=useState('')
+  const needsReviewer=isNew && userRole?.role!=='admin'
+  useEffect(()=>{
+    if(!needsReviewer)return
+    let active=true
+    reviewRequest('poApprovers').then(({data})=>{if(active)setAdmins(data)}).catch(e=>{if(active)setError(e.message)})
+    return ()=>{active=false}
+  },[needsReviewer])
   const [locked, setLocked] = useState(!isNew)
   const [showPasskey, setShowPasskey] = useState(false)
 
@@ -273,6 +283,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
   const handleSave = async () => {
     if (!(isNew ? access.canCreatePO(userRole) : access.canEditPO(userRole))) { setError('Purchasing permission required'); return }
     if (!items.some(item => item.description?.trim())) { setError('Enter at least one item description'); return }
+    if(needsReviewer&&!reviewer){setError('Choose the Admin who will approve this PO.');return}
     if (!form.supplier_id) { setError('Select a supplier'); return }
     setSaving(true)
     try {
@@ -292,9 +303,9 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
       }))
       const expected=po?.id?{updated_at:po.updated_at,header:Object.fromEntries(Object.keys(header).map(key=>[key,po[key]??null])),
         lines:po.purchase_order_items||po.items}:null
-      const fingerprint=JSON.stringify([po?.id,header,lines,expected])
+      const fingerprint=JSON.stringify([po?.id,header,lines,expected,reviewer])
       if(lastSave.current?.fingerprint!==fingerprint){
-        lastSave.current={fingerprint,command:{poId:po?.id||null,operation:crypto.randomUUID(),header,expected,
+        lastSave.current={fingerprint,command:{approver:reviewer||null,poId:po?.id||null,operation:crypto.randomUUID(),header,expected,
           lines:po?.id?lines.map(line=>({...line,id:crypto.randomUUID()})):lines}}
       }
       await reviewRequest('savePurchaseOrder',lastSave.current.command)
@@ -340,6 +351,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
         </div>
         <div style={{ flex:1, overflowY:'auto', padding:'20px 24px' }}>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:16 }}>
+            {needsReviewer&&<label style={lbl}>Approving Admin<select style={mkSel(false)} value={reviewer} onChange={e=>setReviewer(e.target.value)}><option value="">Choose an Admin…</option>{admins.map(a=><option key={a.id} value={a.id}>{a.username}</option>)}</select></label>}
             <div><label style={lbl}>Supplier *</label>
               <div style={{display:'flex',gap:6}}><select style={{...mkSel(locked),flex:1}} value={form.supplier_id} onChange={set('supplier_id')} disabled={locked}>
                 <option value="">Select supplier...</option>

@@ -1,5 +1,6 @@
 import {createClient} from '@supabase/supabase-js'
 import {createHmac,timingSafeEqual} from 'node:crypto'
+import teamSnapshot from '../../server/teamSnapshot.cjs'
 import snapshotReader from '../../server/snapshotTableReader.cjs'
 const key=process.env.SUPABASE_SERVICE_ROLE_KEY
 const url=process.env.VITE_SUPABASE_URL||process.env.SUPABASE_URL
@@ -29,12 +30,13 @@ export default async function handler(req,res){
  if(!db)return res.status(503).json({error:'Backend unavailable'})
  const claim=verifyBearer(req.headers.authorization)
  if(!claim)return res.status(401).json({error:'Authenticated desktop session required'})
- const {data:user,error:userError}=await db.from('users').select('id,role,is_active,is_restricted').eq('id',claim.id).maybeSingle()
+ const {data:user,error:userError}=await db.from('users').select('id,role,role_id,is_active,is_restricted').eq('id',claim.id).maybeSingle()
  if(userError||!user||user.is_active!==true||user.is_restricted===true)return res.status(403).json({error:'Access denied'})
- // Initial release is restricted to administrators until table-level permission
- // and row-scoping rules are implemented. Service-role access must not bypass authorization.
- if(String(user.role).toLowerCase()!=='admin')return res.status(403).json({error:'Administrator authorization required'})
  try{
+  if(user.role!=='admin'){
+    if(req.query?.attachment || !user.role_id)return res.status(403).json({error:'Access denied'})
+    return res.json(await teamSnapshot.staffSnapshot(db,user,snapshotReader.readSnapshotTable))
+  }
   const entries=[]
   const concurrency=8
   for(let offset=0;offset<TABLES.length;offset+=concurrency){

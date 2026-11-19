@@ -14,10 +14,18 @@ export async function accountAction(req,res,db,user,action){
   return error?fail(503,'Roles unavailable'):res.json({data})
  }
  if(action==='accountList'&&req.method==='GET'){
-  const {data,error}=await db.from('users').select(accountColumns).order('created_at',{ascending:false})
+  const {data,error}=await db.from('users').select(accountColumns).is('deleted_at',null).order('created_at',{ascending:false})
   return error?fail(503,'Accounts unavailable'):res.json({data})
  }
  if(req.method!=='POST')return fail(405,'Method not allowed')
+ if(action==='accountHistory'){
+   const {data,error}=await db.rpc('read_team_history',{actor:user.id,before_id:req.body.beforeId||null})
+   return error?fail(503,'Edit history unavailable'):res.json({data})
+ }
+ if(action==='accountDelete'){
+   const {error}=await db.rpc('retire_team_account',{actor:user.id,target:req.body.id})
+   return error?fail(409,error.code==='P0001'?error.message:'Account could not be removed'):res.json({ok:true})
+ }
  const {id,email,username,password,roleId,active,restricted,reason}=req.body
  if(action!=='accountCreate'&&(typeof id!=='string'||!id))return fail(400,'Account ID required')
  let fields={}
@@ -44,6 +52,6 @@ export async function accountAction(req,res,db,user,action){
   if(typeof restricted!=='boolean'||(id===user.id&&restricted))return fail(400,'Invalid restriction')
   fields={is_restricted:restricted,restricted_reason:restricted?String(reason||'Restricted by admin').slice(0,500):null,restricted_at:restricted?new Date().toISOString():null}
  }
- const {data,error}=await db.from('users').update(fields).eq('id',id).select('id').maybeSingle()
+ const {data,error}=await db.from('users').update(fields).eq('id',id).is('deleted_at',null).select('id').maybeSingle()
  return error||!data?fail(400,'Could not update account'):res.json({ok:true})
 }
