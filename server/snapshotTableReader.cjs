@@ -44,4 +44,4 @@ async function readSnapshotTable(db,table,{pageSize=1000,maxRows=100000}={}){
  return rows
 }
 
-module.exports={readSnapshotTable}
+module.exports={readSnapshotTable,primaryKeys}

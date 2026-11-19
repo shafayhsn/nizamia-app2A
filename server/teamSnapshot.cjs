@@ -61,4 +61,4 @@ async function staffSnapshot(db,user,readTable){
     scope!==scopeKey({...user,permissions:await load()}))throw Error('Permissions changed during download')
  return {tables,backup_metadata:{staff_scope:scope,table_count:Object.keys(tables).length,table_row_counts:Object.fromEntries(Object.entries(tables).map(([t,r])=>[t,r.length])),exported_at:new Date().toISOString()}}
 }
-module.exports={staffSnapshot,scopeKey}
+module.exports={staffSnapshot,scopeKey,moduleTables}

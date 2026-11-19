@@ -24,7 +24,16 @@ async function hasAdminCloudSnapshot(directory){
   return false
  }finally{db.close()}
 }
-async function applyCloudSnapshot({directory,tables,adminScope=false}){
+function storedCheckpoint(db){
+ if(!db.exec("SELECT 1 FROM sqlite_master WHERE name='app_metadata'").length)return null
+ const value=db.exec("SELECT value FROM app_metadata WHERE key='sync_checkpoint'")[0]?.values[0][0]
+ return value?JSON.parse(value):null
+}
+async function readCheckpoint(directory){
+ const SQL=await getSqlEngine(),db=new SQL.Database(fs.readFileSync(path.join(directory,DB)))
+ try{return storedCheckpoint(db)}finally{db.close()}
+}
+async function applyCloudSnapshot({directory,tables,adminScope=false,delta,checkpoint}){
  if(busy)throw Error('Refresh already in progress')
  busy=true
  try{
@@ -56,7 +65,26 @@ async function applyCloudSnapshot({directory,tables,adminScope=false}){
      if(!supported)throw Error('Cloud refresh blocked: pending/conflicted drafts require review. No data replaced.')
     }
    }
-   updated=mergeSnapshotRows(db,tables)
+   if(delta){
+    const prior=storedCheckpoint(db)
+    if(!prior||prior.scope!==checkpoint.scope||prior.revision!==delta.after)throw Error('Local checkpoint changed')
+    tables={}
+    // Reconciliation can span parent and child tables. Build its input from local bytes.
+    for(const [name] of db.exec('SELECT table_name FROM snapshot_manifest')[0]?.values||[]){
+     tables[name]=(db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=? ORDER BY row_index',[name])[0]?.values||[]).map(([v])=>JSON.parse(v))
+    }
+    for(const [table,part] of Object.entries(delta.changes)){
+     if(!db.exec('SELECT 1 FROM snapshot_manifest WHERE table_name=?',[table]).length)throw Error('Missing baseline for '+table)
+     const byId=new Map(tables[table].map(row=>[String(row[part.key]),row]))
+     for(const id of part.removed)byId.delete(id)
+     for(const row of part.records)byId.set(String(row[part.key]),row)
+     tables[table]=[...byId.values()]
+    }
+   }
+   updated=Object.keys(tables).length?mergeSnapshotRows(db,tables):{unresolved:[],updatedTables:0}
+   db.run('CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY NOT NULL,value TEXT NOT NULL)')
+   if(checkpoint && !updated.unresolved?.length)db.run("INSERT OR REPLACE INTO app_metadata VALUES ('sync_checkpoint',?)",[JSON.stringify(checkpoint)])
+   else db.run("DELETE FROM app_metadata WHERE key='sync_checkpoint'")
    if(adminScope){
     db.run('CREATE TABLE IF NOT EXISTS app_metadata (key TEXT PRIMARY KEY NOT NULL,value TEXT NOT NULL)')
     db.run("INSERT OR REPLACE INTO app_metadata VALUES ('cloud_snapshot_scope','admin')")
@@ -75,4 +103,4 @@ async function applyCloudSnapshot({directory,tables,adminScope=false}){
   }finally{db.close()}
  }finally{busy=false}
 }
-module.exports={applyCloudSnapshot,hasAdminCloudSnapshot}
+module.exports={applyCloudSnapshot,hasAdminCloudSnapshot,readCheckpoint}

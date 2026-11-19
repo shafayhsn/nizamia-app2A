@@ -1,5 +1,6 @@
 import {createClient} from '@supabase/supabase-js'
 import {createHmac,timingSafeEqual} from 'node:crypto'
+import incremental from '../../server/snapshotDelta.cjs'
 import teamSnapshot from '../../server/teamSnapshot.cjs'
 import snapshotReader from '../../server/snapshotTableReader.cjs'
 const key=process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -33,9 +34,27 @@ export default async function handler(req,res){
  const {data:user,error:userError}=await db.from('users').select('id,role,role_id,is_active,is_restricted').eq('id',claim.id).maybeSingle()
  if(userError||!user||user.is_active!==true||user.is_restricted===true)return res.status(403).json({error:'Access denied'})
  try{
+  let checkpoint={}
+  if(req.query?.sync==='2'){
+    const after=req.query.after===undefined?null:Number(req.query.after)
+    if(after!==null&&(!Number.isSafeInteger(after)||after<0))return res.status(400).json({error:'Invalid checkpoint'})
+    const result=await incremental.buildDelta(db,user,TABLES,after,req.query.scope)
+    checkpoint=result.metadata
+    if(result.delta){
+      const {data:current,error}=await db.from('users').select('role,role_id,is_active,is_restricted').eq('id',user.id).single()
+      if(error||!current?.is_active||current.is_restricted||current.role!==user.role||current.role_id!==user.role_id)return res.status(403).json({error:'Access changed'})
+      if(user.role!=='admin'){
+       const {data:rows,error}=await db.from('permissions').select('module,can_view').eq('role_id',user.role_id)
+       if(error)throw error
+       const permissions=Object.fromEntries(rows.map(r=>[r.module,{view:r.can_view}]))
+       if(teamSnapshot.scopeKey({...user,permissions})!==checkpoint.scope)return res.status(403).json({error:'Access changed'})
+      }
+      return res.json({checkpoint,delta:result.delta})
+    }
+  }
   if(user.role!=='admin'){
     if(req.query?.attachment || !user.role_id)return res.status(403).json({error:'Access denied'})
-    return res.json(await teamSnapshot.staffSnapshot(db,user,snapshotReader.readSnapshotTable))
+    return res.json({...await teamSnapshot.staffSnapshot(db,user,snapshotReader.readSnapshotTable),checkpoint})
   }
   if(req.query?.attachment){
    const kind=req.query.attachment
@@ -60,6 +79,6 @@ export default async function handler(req,res){
   }
   const tables=Object.fromEntries(entries)
   const counts=Object.fromEntries(entries.map(([name,rows])=>[name,rows.length]))
-  return res.status(200).json({backup_metadata:{table_count:TABLES.length,table_row_counts:counts,exported_at:new Date().toISOString()},tables})
+  return res.status(200).json({checkpoint,backup_metadata:{table_count:TABLES.length,table_row_counts:counts,exported_at:new Date().toISOString()},tables})
  }catch(error){return res.status(503).json({error:'Cloud snapshot could not be prepared'})}
 }

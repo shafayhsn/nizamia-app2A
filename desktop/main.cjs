@@ -137,8 +137,31 @@ async function refreshCloudSnapshot(token){
   const directory=getDatabaseDirectory()
   if(!directory)throw Error('Local database directory unavailable')
   const {createSnapshotDownloadClient}=require('./snapshotDownloadClient.cjs')
-  const payload=await createSnapshotDownloadClient({origin:APP_URL,fetchImpl:fetch}).download({token})
+  const {readCheckpoint,applyCloudSnapshot}=require('./applyCloudSnapshot.cjs')
+  const checkpoint=await readCheckpoint(directory)
+  const member=desktopAuth.status().user
+  let payload
+  try{
+   payload=await createSnapshotDownloadClient({origin:APP_URL,fetchImpl:fetch}).download({token,checkpoint,incremental:true})
+   if(payload.checkpoint?.scope && payload.checkpoint.scope!==scopeKey(member))throw Object.assign(Error('Access changed. Sign in again.'),{status:403})
+  }catch(error){
+   if(error.status===403 && onlineSnapshotToken===token){
+    desktopAuth.forget(member.username);desktopAuth.logout();clearOnlineSession();staffDirectory=null
+    for(const win of BrowserWindow.getAllWindows())if(!win.isDestroyed())win.loadURL('app2a://local/login')
+   }
+   throw error
+  }
   if(!desktopAuth?.isAuthenticated()||token!==onlineSnapshotToken)return {status:'skipped'}
+  if(directory!==getDatabaseDirectory())return {status:'skipped'}
+  if(payload.delta){
+   const member=desktopAuth.status().user
+   if(member.role!=='admin'&&scopeKey(member)!==payload.checkpoint.scope)throw Error('Permissions changed. Sign in again.')
+   if(payload.checkpoint.revision===checkpoint.revision&&!Object.keys(payload.delta.changes).length)return {status:'current'}
+   const result=await applyCloudSnapshot({directory,delta:payload.delta,checkpoint:payload.checkpoint,adminScope:member.role==='admin'})
+   lastSnapshot=null
+   announceCloudRefresh()
+   return {status:'updated',tables:result.updatedTables,unresolved:result.unresolved}
+  }
   const excluded=new Set(['users','permissions','roles','app_database_sync_status','notification_reads','app_task_reads'])
   const sensitive=/password|secret|token|api_key|private_key|session|credential|auth_hash|passkey_hash/i
   const tables=Object.fromEntries(Object.entries(payload.tables)
@@ -146,14 +169,13 @@ async function refreshCloudSnapshot(token){
    .map(([name,rows])=>[name,rows.map(row=>Object.fromEntries(Object.entries(row).filter(([field])=>!sensitive.test(field))))]))
   if(getDatabaseDirectory()!==directory)return {status:'skipped'}
   const digest=require('node:crypto').createHash('sha256').update(JSON.stringify(tables)).digest('hex')
-  if(lastSnapshot?.directory===directory&&lastSnapshot.digest===digest){
+  if(!payload.checkpoint?.scope&&lastSnapshot?.directory===directory&&lastSnapshot.digest===digest){
    const file=path.join(directory,'nizamia-app2a.sqlite')
    if(fs.statSync(file).mtimeMs===lastSnapshot.mtime)return {status:'current',unresolved:lastSnapshot.unresolved}
   }
-  const {applyCloudSnapshot}=require('./applyCloudSnapshot.cjs')
   const user=desktopAuth.status().user
   if(user.role!=='admin' && (payload.backup_metadata.staff_scope!==scopeKey(user)||directory!==staffDirectory))throw Error('Permissions changed. Sign in again before refreshing.')
-  const result=await applyCloudSnapshot({directory,tables,adminScope:user.role==='admin'})
+  const result=await applyCloudSnapshot({directory,tables,adminScope:user.role==='admin',checkpoint:payload.checkpoint?.scope?payload.checkpoint:null})
   lastSnapshot={directory,digest,unresolved:result.unresolved,mtime:fs.statSync(path.join(directory,'nizamia-app2a.sqlite')).mtimeMs}
   announceCloudRefresh()
   return {status:'updated',tables:result.updatedTables,unresolved:result.unresolved}

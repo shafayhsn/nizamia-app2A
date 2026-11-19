@@ -8,19 +8,23 @@ function createSnapshotDownloadClient({origin,fetchImpl,maxBytes=100*1024*1024})
  if(typeof fetchImpl!=='function'||!Number.isSafeInteger(maxBytes)||maxBytes<1024||maxBytes>1024*1024*1024)
   throw Error('Invalid snapshot transport')
  let busy=false
- async function download({token}){
+ async function download({token,checkpoint,incremental=false}){
   if(busy)throw Error('Snapshot download already running')
   if(typeof token!=='string'||token.length<16||token.length>4096)throw Error('Authenticated online session required')
   busy=true
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000)
   try{
    const url=new URL('/api/desktop/snapshot',base)
+   if(incremental){
+    url.searchParams.set('sync','2')
+    if(checkpoint){url.searchParams.set('after',checkpoint.revision);url.searchParams.set('scope',checkpoint.scope)}
+   }
    const response=await fetchImpl(url.toString(),{
     method:'GET',redirect:'error',cache:'no-store',credentials:'omit',
     headers:{authorization:'Bearer '+token,accept:'application/json'},
     signal:controller.signal
    })
-   if(!response||response.status!==200)throw Error('Authenticated snapshot endpoint unavailable')
+   if(!response||response.status!==200)throw Object.assign(Error('Authenticated snapshot endpoint unavailable'),{status:response?.status})
    if(response.url&&new URL(response.url).origin!==base.origin)throw Error('Snapshot response origin mismatch')
    const length=response.headers?.get?.('content-length')
    if(length!==null&&length!==undefined&&(!/^\d+$/.test(length)||Number(length)>maxBytes))
@@ -38,6 +42,14 @@ function createSnapshotDownloadClient({origin,fetchImpl,maxBytes=100*1024*1024})
     }
    }finally{reader.releaseLock()}
    const payload=JSON.parse(Buffer.concat(chunks,total).toString('utf8'))
+   if(payload?.delta){
+    const {after,changes}=payload.delta,next=payload.checkpoint
+    if(!checkpoint||next?.scope!==checkpoint.scope||after!==checkpoint.revision||!Number.isSafeInteger(next.revision)||next.revision<after||!changes||typeof changes!=='object'||Array.isArray(changes))throw Error('Invalid change response')
+    for(const [table,part] of Object.entries(changes)){
+     if(!/^[a-z][a-z0-9_]*$/.test(table)||!['id','key','order_id','parcel_id'].includes(part?.key)||!Array.isArray(part.records)||!Array.isArray(part.removed)||part.records.some(r=>r?.[part.key]==null)||part.removed.some(id=>typeof id!=='string'))throw Error('Incomplete changed records')
+    }
+    return payload
+   }
    if(!payload||typeof payload!=='object'||!payload.backup_metadata||!payload.tables||
       typeof payload.tables!=='object'||Array.isArray(payload.tables))
     throw Error('Invalid snapshot envelope')
