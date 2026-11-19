@@ -38,7 +38,7 @@ The desktop endpoint currently lists **62** tables. The list is a starting point
 
 ### Dependencies outside the snapshot list
 
-- Company Resources uses `feature_assets`, `feature_certificates` and the `company-assets` bucket. PP meetings use signed links for the `ppm-attachments` bucket. Both need verification of file bytes and their associated records.
+- Company Resources uses `feature_assets`, `feature_certificates` and the `company-assets` bucket. PP meetings use signed links for the `ppm-attachments` bucket. Private attachments are download-only on the Mac. Verify authorized downloads and offline access to cached files. File uploads, replacement, and cloud deletion stay in the web app.
 - Login and role administration reference `users`, `roles` and `permissions`. Continue using the existing session and access checks. User credentials are excluded from business snapshots.
 - Some queries are defined in shared components, report definitions, backup helpers and dynamic OMS actions. Verify them against the individual workflow before ticking it. Local adapter names such as `tasks`, `costing`, `supplier_contacts` and `production_plans` require mapping to the actual web workflow before enabling upload.
 

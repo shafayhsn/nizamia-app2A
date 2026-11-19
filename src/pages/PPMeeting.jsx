@@ -12,6 +12,7 @@ const blankNote=()=>({critical:'',measure:'',owner_due:''})
 const hasContent=m=>!!m&&(m.status!=='Draft'||!!m.meeting_date||!!m.decision||!!m.attachment_path||!!String(m.outstanding_actions||'').trim()||m.fit_approved!==null||Object.values(m.technical_checks||{}).some(Boolean)||Object.values(m.department_notes||{}).some(n=>Object.values(n||{}).some(v=>String(v||'').trim())))
 export default function PPMeeting(){
  const [params]=useSearchParams(),navigate=useNavigate()
+ const desktop=typeof location!=='undefined'&&location.protocol==='app2a:'
  const requestedOrder=params.get('order')
  const [washes,setWashes]=useState({}),[orders,setOrders]=useState([]),[orderId,setOrderId]=useState(requestedOrder||''),[meetings,setMeetings]=useState([]),[showCreate,setShowCreate]=useState(false)
  const [current,setCurrent]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState(''),[orderSearch,setOrderSearch]=useState(''),[uploadFile,setUploadFile]=useState(null),[notice,setNotice]=useState('')
@@ -29,7 +30,7 @@ export default function PPMeeting(){
  useEffect(()=>{loadOrders().catch(e=>setError(e.message))},[])
  useEffect(()=>{loadMeetings().catch(e=>setError(e.message))},[orderId])
  useEffect(()=>{if(requestedOrder)setOrderId(requestedOrder)},[requestedOrder])
- const upload=async()=>{if(!current||!uploadFile)return;setBusy(true);setError('');try{
+ const upload=async()=>{if(desktop||!current||!uploadFile)return;setBusy(true);setError('');try{
   if(!['application/pdf','image/jpeg','image/png'].includes(uploadFile.type)||uploadFile.size>10485760)throw Error('Attach a PDF, JPG or PNG up to 10 MB')
   const extension=uploadFile.name.split('.').pop().toLowerCase()
   const signed=await api('ppmAttachmentUrl',{id:current.id,extension,contentType:uploadFile.type})
@@ -91,7 +92,7 @@ export default function PPMeeting(){
  <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:12}}>{CHECKS.map(c=><label key={c}><input type="checkbox" checked={!!current.technical_checks?.[c]} onChange={e=>patch('technical_checks',{...current.technical_checks,[c]:e.target.checked})}/>{c}</label>)}<label>FIT approved <select value={current.fit_approved===null?'':String(current.fit_approved)} onChange={e=>patch('fit_approved',e.target.value===''?null:e.target.value==='true')}><option value="">Unknown</option><option value="true">Yes</option><option value="false">No</option></select></label></div>
  <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}><thead><tr>{['Department','Critical area / challenge','Preventive / corrective measure','Owner / due'].map(x=><th key={x} style={{textAlign:'left',padding:8,background:'#f1f5f9'}}>{x}</th>)}</tr></thead><tbody>{DEPARTMENTS.map(d=><tr key={d}><td style={{fontWeight:700,padding:8,borderBottom:'1px solid #e2e8f0'}}>{d}</td>{['critical','measure','owner_due'].map(k=><td key={k} style={{padding:5,borderBottom:'1px solid #e2e8f0'}}><textarea rows={2} style={{width:'100%',resize:'vertical',border:'1px solid #cbd5e1',borderRadius:4}} value={current.department_notes?.[d]?.[k]||''} onChange={e=>updateNote(d,k,e.target.value)}/></td>)}</tr>)}</tbody></table></div>
  <label style={{display:'block',marginTop:12}}>Outstanding actions / next review<textarea rows={2} style={{display:'block',width:'100%'}} value={current.outstanding_actions||''} onChange={e=>patch('outstanding_actions',e.target.value)}/></label>
- <div style={{display:'flex',gap:10,alignItems:'center',marginTop:14,flexWrap:'wrap'}}><label>Signed handwritten sheet (PDF/JPG/PNG, max 10MB) <input type="file" accept="application/pdf,image/jpeg,image/png" onChange={e=>setUploadFile(e.target.files?.[0]||null)}/></label><button style={button} disabled={busy||!uploadFile} onClick={upload}>Upload signed sheet</button>{current.attachment_path&&<button style={button} onClick={()=>viewAttachment(current)}>View attachment</button>}</div><div style={{display:'flex',gap:8,marginTop:14}}><button style={{...button,background:'#151b30',color:'#fff'}} disabled={busy} onClick={save}>Save meeting</button></div>
+ <div style={{display:'flex',gap:10,alignItems:'center',marginTop:14,flexWrap:'wrap'}}>{!desktop&&<><label>Signed handwritten sheet (PDF/JPG/PNG, max 10MB) <input type="file" accept="application/pdf,image/jpeg,image/png" onChange={e=>setUploadFile(e.target.files?.[0]||null)}/></label><button style={button} disabled={busy||!uploadFile} onClick={upload}>Upload signed sheet</button></>}{current.attachment_path&&<button style={button} onClick={()=>viewAttachment(current)}>View attachment</button>}</div><div style={{display:'flex',gap:8,marginTop:14}}><button style={{...button,background:'#151b30',color:'#fff'}} disabled={busy} onClick={save}>Save meeting</button></div>
  </div></div>:null}
  </div>
 }
