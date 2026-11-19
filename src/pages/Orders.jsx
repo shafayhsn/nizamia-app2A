@@ -1,3 +1,4 @@
+import {reviewRequest,purchasingLookup} from '../lib/poReview'
 import { saveDesktopPdf } from '../lib/saveDesktopPdf.mjs'
 import {saveOfflineOperation,usesOfflineOperations} from '../lib/offlineOperations'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -14,6 +15,7 @@ import { Search, Printer, Layers, Plus, X, Check, AlertCircle, Copy, Upload, Dow
 import { generateJobNumber } from '../lib/utils'
 import { useAppDialogs } from '../components/ui/AppDialogs'
 import { getPageTabNoticeMap, markTabSeen, markTabUpdated } from '../lib/tabNotices'
+import { can } from '../lib/permissions'
 import { useAuth } from '../lib/authContext'
 import { statusBadgeStyle, statusDotStyle, statusColors, statusDisplay, configuredStatusOptions } from '../lib/statusColors'
 import * as XLSX from 'xlsx'
@@ -433,8 +435,8 @@ function OldQueuesTab({ onEditOrder }) {
     const [{ data: qs }, { data: ors }, { data: pos }, { data: poi }, { data: sl }] = await Promise.all([
       supabase.from('order_queues').select('*').order('created_at', { ascending: true }),
       supabase.from('orders').select('id,style_number,buyer_name,job_number,brand_name,queue_split_rule,description,store_name,ship_date,po_number,total_qty,excess_cutting_pct').order('ship_date'),
-      supabase.from('purchase_orders').select('id,order_id,status'),
-      supabase.from('purchase_order_items').select('po_id,specification'),
+      purchasingLookup(supabase.from('purchase_orders').select('id,order_id,status')),
+      purchasingLookup(supabase.from('purchase_order_items').select('po_id,specification'),{lines:true}),
       supabase.from('shipment_lines').select('queue_id,shipped_qty'),
     ])
     setQueues(qs || [])
@@ -591,8 +593,8 @@ function OldQueuesTab({ onEditOrder }) {
       safeQuery(supabase.from('finishing_packs').select('*').eq('order_id', q.order_id).order('sort_order'), []),
       safeQuery(supabase.from('size_groups').select('id,group_name,sizes,base_size').eq('order_id', q.order_id).order('sort_order'), []),
       safeQuery(supabase.from('fitting_blocks').select('block_name,sort_order').eq('order_id', q.order_id).order('sort_order'), []),
-      safeQuery(supabase.from('purchase_orders').select('id,po_number,status,created_at').eq('order_id', q.order_id).order('created_at', { ascending: false }), []),
-      safeQuery(supabase.from('purchase_order_items').select('po_id,description,specification,source_type,source_id,sort_order').order('sort_order'), []),
+      safeQuery(purchasingLookup(supabase.from('purchase_orders').select('id,po_number,status,created_at').eq('order_id', q.order_id).order('created_at', { ascending: false }),{orderId:q.order_id}), []),
+      safeQuery(purchasingLookup(supabase.from('purchase_order_items').select('po_id,description,specification,source_type,source_id,sort_order').order('sort_order'),{lines:true}), []),
       safeQuery(supabase.from('library_items').select('*'), []),
       safeQuery(supabase.from('suppliers').select('id,name'), []),
     ])
@@ -2178,8 +2180,8 @@ const esc = (v) => String(v ?? '—').replace(/&/g, '&amp;').replace(/</g, '&lt;
       safeQuery(supabase.from('finishing_packs').select('*').eq('order_id', q.order_id).order('sort_order'), []),
       safeQuery(supabase.from('size_groups').select('id,group_name,sizes,base_size').eq('order_id', q.order_id).order('sort_order'), []),
       safeQuery(supabase.from('fitting_blocks').select('block_name,sort_order').eq('order_id', q.order_id).order('sort_order'), []),
-      safeQuery(supabase.from('purchase_orders').select('id,po_number,status,created_at').eq('order_id', q.order_id).order('created_at', { ascending: false }), []),
-      safeQuery(supabase.from('purchase_order_items').select('po_id,description,specification,source_type,source_id,sort_order').order('sort_order'), []),
+      safeQuery(purchasingLookup(supabase.from('purchase_orders').select('id,po_number,status,created_at').eq('order_id', q.order_id).order('created_at', { ascending: false }),{orderId:q.order_id}), []),
+      safeQuery(purchasingLookup(supabase.from('purchase_order_items').select('po_id,description,specification,source_type,source_id,sort_order').order('sort_order'),{lines:true}), []),
       safeQuery(supabase.from('library_items').select('*'), []),
       safeQuery(supabase.from('suppliers').select('id,name'), []),
     ])
@@ -3539,6 +3541,8 @@ function OrdersMinimizeButton({ onClick }) {
   return <button type="button" className="btn btn-ghost" title="Minimize" aria-label="Minimize" onClick={onClick}><Minus size={16}/></button>
 }
 function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
+  const {userRole}=useAuth()
+  const canViewMeeting=can(userRole,'reports/pp-meeting')
   const { minimized, setMinimized } = useOrdersPopupWindow(`orders:metadata:${order.id}`, `Order Metadata · ${order.po_number || order.style_number || ''}`, onClose)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -3564,14 +3568,14 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
 
   async function load() {
     setLoading(true)
-    fetch('/api/oms?action=ppmList&orderId='+encodeURIComponent(order.id),{credentials:'same-origin'}).then(async r=>{const j=await r.json();if(!r.ok)throw Error(j.error||'PPM lookup failed');setPPMeetings(j.data||[])}).catch(e=>console.warn('PPM lookup unavailable',e.message))
+    if(canViewMeeting) fetch('/api/oms?action=ppmList&orderId='+encodeURIComponent(order.id),{credentials:'same-origin'}).then(async r=>{const j=await r.json();if(!r.ok)throw Error(j.error||'PPM lookup failed');setPPMeetings(j.data||[])}).catch(e=>console.warn('PPM lookup unavailable',e.message))
     const mainResults = await Promise.all([
       safeQuery(supabase.from('size_groups').select('*').eq('order_id', order.id).order('sort_order')),
       safeQuery(supabase.from('bom_items').select('*').eq('order_id', order.id).order('sort_order')),
       safeQuery(supabase.from('samples').select('*').eq('order_id', order.id).order('created_at')),
       safeQuery(supabase.from('fitting_blocks').select('*').eq('order_id', order.id).order('sort_order')),
       safeQuery(supabase.from('embellishments').select('*').eq('order_id', order.id)),
-      safeQuery(supabase.from('purchase_orders').select('id,po_number,status,created_at,purchase_order_items(*)').eq('order_id', order.id).order('created_at', { ascending:false })),
+      safeQuery(purchasingLookup(supabase.from('purchase_orders').select('id,po_number,status,created_at,purchase_order_items(*)').eq('order_id', order.id).order('created_at', { ascending:false }),{orderId:order.id})),
       safeQuery(supabase.from('order_processes').select('*').eq('order_id',order.id)),
       safeQuery(supabase.from('finishing').select('*').eq('order_id',order.id)),
       safeQuery(supabase.from('finishing_packs').select('*').eq('order_id',order.id).order('sort_order')),
@@ -3894,7 +3898,7 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
                 <div style={{display:'grid',gap:1}}>{validations.map(([name,detail,valid],i)=><button key={name} onClick={()=>onEdit(order,i+1)} style={{display:'grid',gridTemplateColumns:'155px minmax(0,1fr) 18px',gap:12,textAlign:'left',alignItems:'center',border:0,borderRadius:5,padding:'3px 5px',background:'transparent',cursor:'pointer',fontSize:12,color:'#1f2937'}} onMouseEnter={e=>e.currentTarget.style.background='#f1f5f9'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}><strong>{String(i+1).padStart(2,'0')}: {name}</strong><span style={{color:'#64748b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{detail}</span><span title={validationUnavailable(i)?'Unable to check: required database data did not load':valid?'Basic checks passed (not full downstream verification)':'Needs review'} style={{color:validationUnavailable(i)?'#64748b':valid?'#16a34a':'#d97706',fontWeight:900}}>{validationUnavailable(i)?'?':valid?'✓':'!'}</span></button>)}</div>
               </div>
               <div style={{borderLeft:'1px solid #e2e8f0',paddingLeft:14}}><h3 style={{fontSize:16,margin:'0 0 10px',fontWeight:800}}>Linked</h3>
-                {Object.entries(linkedDefinitions).map(([label,config])=><button type="button" key={label} onClick={()=>{if(label==='PP Meetings'){window.location.assign('/reports/pp-meeting?order='+encodeURIComponent(order.id));return}setShowPOGrid(false);setLinkedView(label)}} style={{display:'flex',justifyContent:'space-between',alignItems:'center',width:'100%',padding:'7px 5px',border:0,borderRadius:5,background:'transparent',cursor:'pointer',fontSize:13,fontWeight:650,color:'#334155',textAlign:'left'}} onMouseEnter={e=>e.currentTarget.style.background='#f1f5f9'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}><span>{String(config.rows.length).padStart(2,'0')} {label}</span><span style={{color:'#94a3b8'}}>›</span></button>)}
+                {Object.entries(linkedDefinitions).filter(([label])=>label!=='PP Meetings'||canViewMeeting).map(([label,config])=><button type="button" key={label} onClick={()=>{if(label==='PP Meetings'){window.location.assign('/reports/pp-meeting?order='+encodeURIComponent(order.id));return}setShowPOGrid(false);setLinkedView(label)}} style={{display:'flex',justifyContent:'space-between',alignItems:'center',width:'100%',padding:'7px 5px',border:0,borderRadius:5,background:'transparent',cursor:'pointer',fontSize:13,fontWeight:650,color:'#334155',textAlign:'left'}} onMouseEnter={e=>e.currentTarget.style.background='#f1f5f9'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}><span>{String(config.rows.length).padStart(2,'0')} {label}</span><span style={{color:'#94a3b8'}}>›</span></button>)}
               </div>
             </div>
           </>}
@@ -3905,7 +3909,7 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
           <button className="btn btn-secondary" onClick={()=>runReport('trims')} disabled={loading||Boolean(reportBusy)}>Trims Plan</button>
           <button className="btn btn-secondary" onClick={openSamplePlan} disabled={loading||Boolean(reportBusy)}>Sampling Plan</button>
           <button className="btn btn-secondary" onClick={printFinishingPlan} disabled={loading||Boolean(reportBusy)}>Finishing Plan</button>
-          <button className="btn btn-secondary" onClick={()=>window.location.assign("/reports/pp-meeting?order="+encodeURIComponent(order.id))}>PP Meeting</button>
+          {canViewMeeting && <button className="btn btn-secondary" onClick={()=>window.location.assign("/reports/pp-meeting?order="+encodeURIComponent(order.id))}>PP Meeting</button>}
           <button className="btn" style={{background:showPOGrid ? "#ede9fe" : "#6d28d9",color:showPOGrid ? "#5b21b6" : "#ffffff",border:"1px solid #7c3aed",fontWeight:700}} onClick={()=>{setLinkedView(null);setShowPOGrid(v=>!v)}} disabled={loading}>{showPOGrid ? "Back to Metadata" : "View PO Grid"}</button>
         </div>
       </div>
@@ -4475,52 +4479,8 @@ export default function Orders() {
     }
 
 
-    const { data: sgRows } = await supabase.from('size_groups').select('id').in('order_id', ids)
-    const sgIds = (sgRows || []).map(g => g.id)
-    if (sgIds.length) {
-      const { data: colorRows } = await supabase.from('size_group_colors').select('id').in('size_group_id', sgIds)
-      const colorIds = (colorRows || []).map(c => c.id)
-      if (colorIds.length) await supabase.from('size_group_breakdown').delete().in('color_id', colorIds)
-      await supabase.from('size_group_colors').delete().in('size_group_id', sgIds)
-      await supabase.from('size_groups').delete().in('id', sgIds)
-    }
-
-    const { data: queueRows } = await supabase.from('order_queues').select('id').in('order_id', ids)
-    const queueIds = (queueRows || []).map(q => q.id)
-    if (queueIds.length) await supabase.from('purchase_order_items').delete().in('source_id', queueIds).eq('source_type', 'queue')
-    if (queueIds.length) await supabase.from('order_queues').delete().in('id', queueIds)
-
-    const { data: finishingRows } = await supabase.from('finishing').select('id').in('order_id', ids)
-    const finishingIds = (finishingRows || []).map(f => f.id)
-    if (finishingIds.length) await supabase.from('finishing_packs').delete().in('finishing_id', finishingIds)
-
-    const { data: sampleRows } = await supabase.from('samples').select('id').in('order_id', ids)
-    const sampleIds = (sampleRows || []).map(s => s.id)
-    if (sampleIds.length) {
-      await supabase.from('sample_comments').delete().in('sample_id', sampleIds)
-      await supabase.from('sample_logs').delete().in('sample_id', sampleIds)
-      await supabase.from('samples').delete().in('id', sampleIds)
-    }
-
-    await supabase.from('bom_items').delete().in('order_id', ids)
-    await supabase.from('fitting').delete().in('order_id', ids)
-    await supabase.from('washing').delete().in('order_id', ids)
-    await supabase.from('embellishments').delete().in('order_id', ids)
-    await supabase.from('finishing').delete().in('order_id', ids)
-    await supabase.from('order_processes').delete().in('order_id', ids)
-
-    const { data: woRows } = await supabase.from('work_orders').select('id').in('order_id', ids)
-    const woIds = (woRows || []).map(w => w.id)
-    if (woIds.length) {
-      await supabase.from('work_order_items').delete().in('wo_id', woIds)
-      await supabase.from('work_order_changelog').delete().in('wo_id', woIds)
-      await supabase.from('work_orders').delete().in('id', woIds)
-    }
-
-    await supabase.from('purchase_orders').delete().in('order_id', ids)
-
-    const { error } = await supabase.from('orders').delete().in('id', ids)
-    if (error) { await alert(error.message || 'Could not delete selected orders.', { title:'Delete Failed' }); return }
+    try{await reviewRequest('deletePORecords',{orderIds:ids})}
+    catch(error){await alert(error.message,{title:'Delete Failed'});return}
     markTabUpdated('ordersPage', 'orders')
     setTabNotices(getPageTabNoticeMap('ordersPage', ['orders','queues']))
     setSelected(new Set())

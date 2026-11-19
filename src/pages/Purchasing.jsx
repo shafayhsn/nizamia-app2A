@@ -1,3 +1,4 @@
+import {reviewRequest,readPurchasingRegister,purchasingLookup} from '../lib/poReview'
 import useManagedPopup from '../components/ui/useManagedPopup'
 import TestingTab from '../components/purchasing/TestingTab'
 import { formatDate as appFormatDate } from '../lib/utils'
@@ -7,7 +8,7 @@ import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { statusBadgeStyle, statusDisplay, configuredStatusOptions } from '../lib/statusColors'
 import { Search, Plus, Trash2, X, Lock, Unlock, Printer, Pencil } from 'lucide-react'
-import { generatePONumber, generateWONumber } from '../lib/utils'
+import { generateWONumber } from '../lib/utils'
 import { printPurchaseOrder, printWorkOrder } from '../components/PrintReports'
 import { getPageTabNoticeMap, markTabSeen, markTabUpdated } from '../lib/tabNotices'
 import { useAuth } from '../lib/authContext'
@@ -238,7 +239,10 @@ async function removePurchasingDocument(table,lineTable,parentField,id){
 }
 
 function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
+  const { userRole } = useAuth()
+  const lastSave=useRef(null)
   const isNew = !po
+  const awaitingApproval = isNew || String(po.status || 'draft').toLowerCase() === 'draft'
   const decodedPO = decodeNotes(po?.notes || '')
   const [poVersion, setPOVersion] = useState(decodedPO.meta?.version || 1)
   const initialTaxRate = decodedPO.tax?.rate || getSavedTaxRate()
@@ -291,44 +295,49 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
   const selectedOrder = orders.find(o => o.id === form.order_id)
   const qReference = extractModalQReference(items, selectedOrder)
 
+  const content=JSON.stringify([{...form,status:null},items,taxEnabled,taxRate])
+  const initialContent=useRef(content)
   const handleSave = async () => {
+    if (!(isNew ? access.canCreatePO(userRole) : access.canEditPO(userRole))) { setError('Purchasing permission required'); return }
+    if (!items.some(item => item.description?.trim())) { setError('Enter at least one item description'); return }
     if (!form.supplier_id) { setError('Select a supplier'); return }
     setSaving(true)
     try {
-      if(window.location.protocol==='app2a:'){
+      if(po?.id && po.status!==form.status){
+        if(content!==initialContent.current)throw Error('Save the changed PO for approval before updating its issuance status.')
+        await reviewRequest('setPOStage',{poId:po.id,status:form.status,expectedTime:po.updated_at})
+        markTabUpdated('purchasingPage','pos');onSaved();setSaving(false);return
+      }
+
+      if(window.location.protocol==='app2a:' && userRole?.role==='admin'){
         const notes=encodeNotes(form.notes,taxEnabled,taxRate,po?.id?poVersion+1:1)
-        const lines=items.filter(i=>i.description).map((i,sort_order)=>({
+        const lines=items.filter(i=>i.description?.trim()).map((i,sort_order)=>({
          description:i.description,specification:encodeSpec(i.specification,i.breakdown)||null,
          qty:parseFloat(i.qty)||null,unit:i.unit||null,unit_rate:parseFloat(i.unit_rate)||null,
          amount:parseFloat(i.amount)||null,source_type:i.source_type||null,source_id:i.source_id||null,sort_order
         }))
-        await saveOfflinePurchasingDocument('purchase_orders',{...form,notes},lines,po?.id)
+        await saveOfflinePurchasingDocument('purchase_orders',{...form,status:'Draft',order_id:form.order_id || null,delivery_date:form.delivery_date || null,notes},lines,po?.id)
         markTabUpdated('purchasingPage','pos')
         onSaved()
         setSaving(false)
         return
       }
-      const poNum = form.po_number || await generatePONumber()
-      const nextVersion = po?.id ? Math.max(1, poVersion + 1) : 1
-      const payload = { ...form, po_number:poNum, notes: encodeNotes(form.notes, taxEnabled, taxRate, nextVersion) }
-      let poId
-      if (po?.id) {
-        await supabase.from('purchase_orders').update(payload).eq('id', po.id)
-        setPOVersion(nextVersion)
-        poId = po.id
-        await supabase.from('purchase_order_items').delete().eq('po_id', poId)
-      } else {
-        const { data:newPO, error:pe } = await supabase.from('purchase_orders').insert([payload]).select().single()
-        if (pe) throw new Error(pe.message)
-        poId = newPO.id
-      }
-      const rows = items.filter(i=>i.description).map((i,idx)=>({
-        po_id:poId, description:i.description, specification:encodeSpec(i.specification, i.breakdown)||null,
-        qty:parseFloat(i.qty)||null, unit:i.unit||null,
-        unit_rate:parseFloat(i.unit_rate)||null, amount:parseFloat(i.amount)||null,
-        source_type:i.source_type||null, source_id:i.source_id||null, sort_order:idx,
+      const {po_number,...fields}=form
+      const header={...fields,status:'Draft',order_id:form.order_id||null,delivery_date:form.delivery_date||null,
+        notes:encodeNotes(form.notes,taxEnabled,taxRate,po?.id?poVersion+1:1)}
+      const lines=items.filter(i=>i.description?.trim()).map((i,sort_order)=>({
+        description:i.description.trim(),specification:encodeSpec(i.specification,i.breakdown)||null,
+        unit:i.unit||null,qty:parseFloat(i.qty)||null,unit_rate:i.unit_rate===''?null:Number(i.unit_rate),
+        source_type:i.source_type||null,source_id:i.source_id||null,sort_order
       }))
-      if (rows.length) await supabase.from('purchase_order_items').insert(rows)
+      const expected=po?.id?{updated_at:po.updated_at,header:Object.fromEntries(Object.keys(header).map(key=>[key,po[key]??null])),
+        lines:po.purchase_order_items||po.items}:null
+      const fingerprint=JSON.stringify([po?.id,header,lines,expected])
+      if(lastSave.current?.fingerprint!==fingerprint){
+        lastSave.current={fingerprint,command:{poId:po?.id||null,operation:crypto.randomUUID(),header,expected,
+          lines:po?.id?lines.map(line=>({...line,id:crypto.randomUUID()})):lines}}
+      }
+      await reviewRequest('savePurchaseOrder',lastSave.current.command)
       markTabUpdated('purchasingPage', 'pos')
       onSaved()
     } catch(e) { setError(e.message) }
@@ -345,7 +354,8 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
   const handleDelete = async () => {
     if (!window.confirm(`Delete PO ${po.po_number}? This cannot be undone.`)) return
     try {
-      await removePurchasingDocument('purchase_orders','purchase_order_items','po_id',po.id)
+      if(location.protocol==='app2a:')await removePurchasingDocument('purchase_orders','purchase_order_items','po_id',po.id)
+      else await reviewRequest('deletePORecords',{poId:po.id,expectedTime:po.updated_at})
       onClose()
       onSaved?.()
     } catch (e) {
@@ -385,8 +395,8 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
               </select></div>
             <div><label style={lbl}>Payment Terms</label><input style={mkInp(locked)} value={form.payment_terms} onChange={set('payment_terms')} placeholder="e.g. 30 days net" disabled={locked} /></div>
             <div><label style={lbl}>Status</label>
-              <select style={mkSel(locked)} value={form.status} onChange={set('status')} disabled={locked}>
-                {configuredStatusOptions('purchasing',['Draft','Issued','Acknowledged','Delivered','Cancelled']).map(v=><option key={v} value={v}>{statusDisplay(v,'purchasing')}</option>)}
+              <select style={mkSel(locked)} value={form.status} onChange={set('status')} disabled={locked || awaitingApproval}>
+                {Array.from(new Set([form.status,...configuredStatusOptions('purchasing',['Draft','Issued','Acknowledged','Delivered','Cancelled'])].filter(Boolean))).map(v=><option key={v} value={v}>{statusDisplay(v,'purchasing')}</option>)}
               </select></div>
             <div style={{ gridColumn:'2 / 4' }}><label style={lbl}>Notes</label><input style={mkInp(locked)} value={form.notes} onChange={set('notes')} placeholder="Any notes..." disabled={locked} /></div>
           </div>
@@ -408,7 +418,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
               </tr>
             ))}</tbody>
           </table>
-          {!locked&&<button className="btn btn-secondary btn-sm" onClick={()=>setItems(its=>[...its,{_id:String(Date.now()),description:'',specification:'',breakdown:'',qty:'',unit:'yards',unit_rate:'',amount:'',source_type:null,source_id:null}])} style={{marginBottom:12}}><Plus size={12}/> Add Line</button>}
+          {!locked&&<button className="btn btn-secondary btn-sm" onClick={()=>setItems(its=>[...its,{_id:String(Date.now()),description:'',specification:'',breakdown:'',qty:'',unit:'yards',unit_rate:'',amount:'',source_type:null,source_id:null}])} style={{marginBottom:12}}><Plus size={12}/> Add custom item</button>}
           {total>0&&<div style={{display:'flex',justifyContent:'flex-end',paddingRight:34}}><div style={{background:'#0d0d0d',color:'#fff',padding:'8px 16px',borderRadius:6,fontSize:13,fontWeight:700}}>Subtotal: {form.currency} {fmtNum(total,2)}{taxEnabled ? ` · GST ${taxRate}%: ${form.currency} ${fmtNum(taxAmount,2)} · Grand: ${form.currency} ${fmtNum(grandTotal,2)}` : ''}</div></div>}
           {error&&<div style={{marginTop:10,fontSize:12,color:'#dc2626'}}>{error}</div>}
         </div>
@@ -708,6 +718,7 @@ function demandSelectionSummary(rows, selected) {
 
 // ── Tab 1: Material Demand ────────────────────────────────────────────────────
 function MaterialDemandTab({ suppliers }) {
+  const { userRole } = useAuth()
   const [orders, setOrders] = useState([])
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
@@ -740,7 +751,7 @@ function MaterialDemandTab({ suppliers }) {
       supabase.from('bom_items').select('id,order_id,name,category,specification,detail,unit,supplier_id,usage_rule,usage_data,base_qty,wastage,final_qty,po_status,use_cutting_qty,sort_order').order('sort_order'),
       supabase.from('embellishments').select('id,order_id,description,technique,placement,dimensions,qty,unit,vendor_id,applies_to,usage_rule,usage_data'),
       supabase.from('washing').select('id,order_id,color_id,color_name,wash_type,wash_ref,qty,unit,vendor_id'),
-      supabase.from('purchase_order_items').select('qty,source_type,source_id'),
+      purchasingLookup(supabase.from('purchase_order_items').select('qty,source_type,source_id'),{lines:true}),
       supabase.from('size_groups').select('id,order_id,group_name,sizes,base_size').in('order_id', idArr),
       supabase.from('order_queues').select('id,order_id,q_number,label,split_rule,color_name,size_group_id,qty,status,sort_order').in('order_id', idArr).order('sort_order'),
     ])
@@ -1251,7 +1262,7 @@ function MaterialDemandTab({ suppliers }) {
         <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:8 }}>
           <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setCollapsedOrders(Object.fromEntries(Object.keys(grouped).map(id=>[id,true])))}>Collapse All</button>
           <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setCollapsedOrders({})}>Expand All</button>
-          <button className="btn btn-primary btn-sm" style={{height:32}} onClick={()=>setShowPOModal(true)} disabled={selectionCount===0}>+ Generate PO {selectionCount>0?`(${selectionCount})`:''}</button>
+          <button className="btn btn-primary btn-sm" style={{height:32}} onClick={()=>setShowPOModal(true)} disabled={!access.canCreatePO(userRole)}>{selectionCount ? `+ Generate PO (${selectionCount})` : '+ New custom PO'}</button>
         </div>
       </div>
       {selectionCount>0&&(
@@ -1621,7 +1632,11 @@ function ProcessDemandTab({ suppliers }) {
 
 // ── Tab 3: Purchase Orders ────────────────────────────────────────────────────
 function PurchaseOrdersTab({ orders, suppliers }) {
-  const { user } = useAuth()
+  const {user,userRole}=useAuth()
+  const [reviewPO,setReviewPO]=useState(null)
+  const [approvers,setApprovers]=useState([])
+  const [approver,setApprover]=useState('')
+  const [submitting,setSubmitting]=useState(false)
   const [pos, setPos] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -1635,8 +1650,13 @@ function PurchaseOrdersTab({ orders, suppliers }) {
   }, [])
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('purchase_orders').select('*, purchase_order_items(*)').order('created_at',{ ascending:false })
-    setPos(data||[])
+    try{
+      if(location.protocol==='app2a:' && user?.role==='admin'){
+        const {data,error}=await supabase.from('purchase_orders').select('*, purchase_order_items(*)').order('created_at',{ascending:false})
+        if(error)throw error
+        setPos(data||[])
+      }else setPos(await readPurchasingRegister())
+    }catch(error){setPos([]);alert(error.message)}
     setLoading(false)
   }
 
@@ -1652,7 +1672,7 @@ function PurchaseOrdersTab({ orders, suppliers }) {
     if(target.documentType==='purchase-order'){
       if(!access.canPrintPO(user)){alert('Access Denied');return}
       printPurchaseOrder({...match,items:match.purchase_order_items||[]},suppliers.find(x=>x.id===match.supplier_id),orders.find(x=>x.id===match.order_id),null).catch(e=>alert('Could not open PO PDF: '+e.message))
-    }else{setEditPO({...match,items:match.purchase_order_items||[]});setShowModal(true)}
+    }else if(!match.details_hidden){setEditPO({...match,items:match.purchase_order_items||[]});setShowModal(true)}
   },[globalSearchLocation.key,pos,orders,suppliers,user])
   const filtered = pos.filter(p=>{ const q=search.toLowerCase(); return !q||[p.po_number,suppliers.find(s=>s.id===p.supplier_id)?.name,p.notes].some(f=>f?.toLowerCase().includes(q)) })
   const stStyle = { draft:{color:'#d97706',bg:'#fff7ed'}, approved:{color:'#16a34a',bg:'#f0fdf4'}, Draft:{color:'#d97706',bg:'#fff7ed'}, Issued:{color:'#2563eb',bg:'#eff6ff'}, Acknowledged:{color:'#7c3aed',bg:'#f5f3ff'}, Delivered:{color:'#16a34a',bg:'#f0fdf4'}, Cancelled:{color:'#dc2626',bg:'#fef2f2'} }
@@ -1667,25 +1687,27 @@ function PurchaseOrdersTab({ orders, suppliers }) {
     if (!user || user.role !== 'admin') { alert('Access Denied'); return }
     if (!window.confirm(`Delete PO ${p.po_number}? This cannot be undone.`)) return
     try {
-      await removePurchasingDocument('purchase_orders','purchase_order_items','po_id',p.id)
+      if(location.protocol==='app2a:')await removePurchasingDocument('purchase_orders','purchase_order_items','po_id',p.id)
+      else await reviewRequest('deletePORecords',{poId:p.id,expectedTime:p.updated_at})
       await load()
     } catch(error) { alert(error.message) }
   }
 
-  const handleTogglePOApproval = async (p, e) => {
-    e.stopPropagation()
-    if (!access.canApprovePO(user)) { alert('Access Denied'); return }
-    if(location.protocol==='app2a:'&&String(p.id).startsWith('local-')){
-      alert('Sync this new purchase order before changing its approval status.')
-      return
-    }
-    const nextStatus = String(p.status || '').toLowerCase() === 'approved' ? 'draft' : 'approved'
-    if (!window.confirm(`${nextStatus === 'approved' ? 'Approve' : 'Unapprove'} PO ${p.po_number}?`)) return
-    const {error}=await supabase.from('purchase_orders').update({ status: nextStatus }).eq('id', p.id)
-    if(error){alert(error.message);return}
-    load()
+  async function chooseReviewer(po){
+    if(String(po.id).startsWith('local-'))return alert('Sync this draft before submitting it for approval.')
+    try{
+      const {data}=await reviewRequest('poApprovers')
+      setApprovers(data);setApprover('');setReviewPO(po)
+    }catch(error){alert(error.message)}
   }
-
+  async function submitReview(){
+    setSubmitting(true)
+    try{
+      await reviewRequest('requestPOReview',{poId:reviewPO.id,approverId:approver})
+      setReviewPO(null);window.dispatchEvent(new Event('app2a-tasks-changed'))
+      alert('Approval task sent.')
+    }catch(error){alert(error.message)}finally{setSubmitting(false)}
+  }
   return (
     <>
       <div style={{ padding:'10px 24px', borderBottom:'1px solid #f3f4f6', display:'flex', alignItems:'center', gap:8, flexShrink:0, flexWrap:'wrap' }}>
@@ -1708,22 +1730,32 @@ function PurchaseOrdersTab({ orders, suppliers }) {
               const supplier=suppliers.find(s=>s.id===p.supplier_id); const order=orders.find(o=>o.id===p.order_id)
               const ss=stStyle[p.status]||{}; const total=(p.purchase_order_items||[]).reduce((s,i)=>s+(parseFloat(i.amount)||0),0)
               return (
-                <tr key={p.id} style={{ cursor:'pointer' }} onClick={()=>{ if(!access.canEditPO(user)){ alert('Access Denied'); return } setEditPO({...p,items:p.purchase_order_items||[]}); setShowModal(true) }}
+                <tr key={p.id} style={{ cursor:'pointer' }} onClick={()=>{ if(p.details_hidden){alert('Supplier and job details are hidden until approval.');return} if(!access.canEditPO(userRole)){ alert('Access Denied'); return } setEditPO({...p,items:p.purchase_order_items||[]}); setShowModal(true) }}
                   onMouseEnter={e=>e.currentTarget.style.background='#fafafa'} onMouseLeave={e=>e.currentTarget.style.background=''}>
                   <TD style={{ fontFamily:'monospace', fontWeight:700 }}>{p.po_number}</TD>
-                  <TD style={{ fontWeight:600 }}>{supplier?.name||'—'}</TD>
+                  <TD style={{ fontWeight:600 }}>{p.details_hidden?'Awaiting approval':supplier?.name||'—'}</TD>
                   <TD style={{ color:'#6b7280', fontSize:11 }}>{order?`${order.style_number} · ${order.buyer_name}`:'—'}</TD>
                   <TD style={{ color:'#6b7280', fontSize:11 }}>{fmtDate(p.po_date)}</TD>
                   <TD style={{ color:dateColor(p.delivery_date), fontSize:11 }}>{fmtDate(p.delivery_date)}</TD>
                   <TD style={{ fontSize:11 }}>{(p.purchase_order_items||[]).length} lines{total>0&&<span style={{ fontWeight:700, color:'#0d0d0d', marginLeft:6 }}>{p.currency} {fmtNum(total)}</span>}</TD>
                   <TD><span style={statusBadgeStyle(p.status,{},'purchasing')}>{p.status}</span></TD>
-                  <td style={{ padding:'9px 8px', borderBottom:'1px solid #f9fafb', whiteSpace:'nowrap' }}><button className="btn btn-ghost btn-sm" title="Edit" onClick={e=>{ e.stopPropagation(); if(!access.canEditPO(user)){ alert('Access Denied'); return } setEditPO({...p,items:p.purchase_order_items||[]}); setShowModal(true) }}><Pencil size={12} color="#6b7280"/></button><button className="btn btn-ghost btn-sm" title="Print" onClick={e=>handlePrint(p,e)}><Printer size={12} color="#6b7280"/></button>{access.canApprovePO(user)&&<button className="btn btn-ghost btn-sm" title={String(p.status||'').toLowerCase()==='approved'?'Unapprove':'Approve'} onClick={e=>handleTogglePOApproval(p,e)}>{String(p.status||'').toLowerCase()==='approved'?<Unlock size={12} color="#d97706"/>:<Lock size={12} color="#16a34a"/>}</button>}<button className="btn btn-ghost btn-sm" title="Delete" onClick={e=>handleDeletePO(p,e)}><Trash2 size={12} color="#dc2626"/></button></td>
+                  <td style={{ padding:'9px 8px', borderBottom:'1px solid #f9fafb', whiteSpace:'nowrap' }}><button className="btn btn-ghost btn-sm" title="Edit" onClick={e=>{ e.stopPropagation(); if(p.details_hidden){alert('Supplier and job details are hidden until approval.');return} if(!access.canEditPO(userRole)){ alert('Access Denied'); return } setEditPO({...p,items:p.purchase_order_items||[]}); setShowModal(true) }}><Pencil size={12} color="#6b7280"/></button><button className="btn btn-ghost btn-sm" title="Print" onClick={e=>handlePrint(p,e)}><Printer size={12} color="#6b7280"/></button>{access.canCreatePO(userRole)&&String(p.status).toLowerCase()==='draft'&&<button className="btn btn-secondary btn-sm" onClick={e=>{e.stopPropagation();chooseReviewer(p)}}>Request approval</button>}<button className="btn btn-ghost btn-sm" title="Delete" onClick={e=>handleDeletePO(p,e)}><Trash2 size={12} color="#dc2626"/></button></td>
                 </tr>
               )
             })}</tbody>
           </table>
         )}
       </div>
+      {reviewPO&&<div role="dialog" aria-label="Request PO approval" style={{position:'fixed',inset:0,zIndex:400,background:'#0005',display:'grid',placeItems:'center'}}>
+        <div style={{background:'white',borderRadius:10,padding:24,display:'grid',gap:12}}>
+          <strong>Request approval for {reviewPO.po_number}</strong>
+          <label>Approving admin <select value={approver} onChange={e=>setApprover(e.target.value)}>
+            <option value="">Choose an admin</option>{approvers.map(a=><option key={a.id} value={a.id}>{a.username}</option>)}
+          </select></label>
+          <button className="btn btn-primary" disabled={!approver||submitting} onClick={submitReview}>Send approval task</button>
+          <button className="btn btn-secondary" disabled={submitting} onClick={()=>setReviewPO(null)}>Cancel</button>
+        </div>
+      </div>}
       {showModal&&<POModal po={editPO} orders={orders} suppliers={suppliers} onClose={()=>{ setShowModal(false); setEditPO(null) }} onSaved={()=>{ setShowModal(false); setEditPO(null); load() }}/>}
     </>
   )
@@ -1816,6 +1848,7 @@ function WorkOrdersTab({ orders, suppliers }) {
 
 // ── Tab 5: Expected Deliveries ────────────────────────────────────────────────
 function DeliveriesTab({ orders, suppliers }) {
+  const {user}=useAuth()
   const [pos, setPos] = useState([])
   const [wos, setWos] = useState([])
   const [loading, setLoading] = useState(true)
@@ -1829,7 +1862,9 @@ function DeliveriesTab({ orders, suppliers }) {
   async function load() {
     setLoading(true)
     const [{ data:p }, { data:w }] = await Promise.all([
-      supabase.from('purchase_orders').select('*, purchase_order_items(*)').not('status','eq','Cancelled').order('delivery_date',{nullsLast:true}),
+      location.protocol==='app2a:' && user?.role==='admin'
+        ? supabase.from('purchase_orders').select('*, purchase_order_items(*)').not('status','eq','Cancelled').order('delivery_date',{nullsLast:true})
+        : readPurchasingRegister().then(rows=>({data:rows.filter(p=>p.status!=='Cancelled')})).catch(error=>{alert(error.message);return {data:[]}}),
       supabase.from('work_orders').select('*, work_order_items(*)').not('status','eq','Cancelled').order('complete_by',{nullsLast:true}),
     ])
     setPos(p||[]); setWos(w||[]); setLoading(false)

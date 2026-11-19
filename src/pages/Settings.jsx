@@ -1,3 +1,4 @@
+import { can } from '../lib/permissions'
 import React, { useEffect, useMemo, useState } from 'react'
 import { Building2, Calculator, FileText, Users, ShieldCheck, Hash, Ruler, SlidersHorizontal, Download, X, Palette, Briefcase } from 'lucide-react'
 import UsersAndRights from './UsersAndRights'
@@ -42,7 +43,7 @@ function applyGroupRowVars(v = DEFAULT_GROUP_ROW) {
 export default function Settings() {
   const [active, setActive] = useState(null)
   const {userRole}=useAuth()
-  const isAdmin=String(userRole?.name||userRole?.role||userRole||'').toLowerCase().includes('admin')
+  const isAdmin=can(userRole, 'settings')
   const [topShortcuts,setTopShortcuts]=useState(DEFAULT_SHORTCUTS)
   const [usersTab, setUsersTab] = useState('users')
   const [saved, setSaved] = useState(false)

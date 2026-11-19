@@ -320,7 +320,7 @@ export default function Topbar({onOpenDeadlines}) {
       </div>
       {shortcutIds.slice(0,5).map(id=>{
         const entry=SHORTCUT_CATALOG.find(x=>x.id===id)
-        if(!entry || (entry.module&&!can(userRole,entry.module,entry.permission||'view')))return null
+        if(!entry || (entry.module&&(!can(userRole,entry.module,'view')||!can(userRole,entry.module,entry.permission||'view'))))return null
         const Icon=ICONS[entry.icon]||Package
         if(id==='tasks')return <div key={id} style={{position:'relative'}}><button title="My tasks" aria-label="Open assigned tasks" onClick={()=>{setTasksOpen(v=>!v);setNotificationsOpen(false);setCalculatorOpen(false)}} style={{background:'none',border:0,cursor:'pointer',color:'#6b7280',padding:6,display:'flex',borderRadius:6}}><ClipboardCheck size={18} strokeWidth={1.9}/></button>
         {tasksOpen&&<>

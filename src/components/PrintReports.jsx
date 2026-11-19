@@ -1,3 +1,4 @@
+import {reviewRequest,relatedPurchaseOrders} from '../lib/poReview'
 import { formatDate as appFormatDate } from '../lib/utils'
 import { usageObject, usageNumber, usageEntries, grossUsage } from '../lib/usageMath'
 import React, { useState, useEffect, useRef } from 'react'
@@ -615,6 +616,7 @@ async function buildOrderSummary(orders) {
 // REPORT 3: Fabric Plan
 // ─────────────────────────────────────────────────────────────────────────────
 export async function buildFabricPlan(orders) {
+  const webPOs=location.protocol==='app2a:'?null:await relatedPurchaseOrders()
   const pages = []
   for (const o of orders) {
     const { data: bom } = await supabase.from('bom_items').select('*').eq('order_id', o.id).eq('category', 'Fabric').order('sort_order')
@@ -622,7 +624,7 @@ export async function buildFabricPlan(orders) {
     const sgIds = (sgs||[]).map(g=>g.id)
     const { data: colors } = sgIds.length ? await supabase.from('size_group_colors').select('*').in('size_group_id', sgIds).order('sort_order') : { data: [] }
     const { data: bd } = sgIds.length ? await supabase.from('size_group_breakdown').select('*').in('size_group_id', sgIds) : { data: [] }
-    const { data: pos } = await supabase.from('purchase_orders').select('*, purchase_order_items(*)').eq('order_id', o.id)
+    const { data: pos } = webPOs ? {data:webPOs.filter(po=>po.order_id===o.id)} : await supabase.from('purchase_orders').select('*, purchase_order_items(*)').eq('order_id', o.id)
 
     const colourQtyMap = {}
     ;(colors||[]).forEach(c => { colourQtyMap[c.color_name] = (colourQtyMap[c.color_name]||0) + ((bd||[]).filter(b=>b.color_id===c.id).reduce((s,b)=>s+(b.qty||0),0)) })
@@ -726,12 +728,13 @@ export async function buildFabricPlan(orders) {
 // REPORT 4: Trims Plan
 // ─────────────────────────────────────────────────────────────────────────────
 export async function buildTrimsPlan(orders) {
+  const webPOs=location.protocol==='app2a:'?null:await relatedPurchaseOrders()
   const pages = []
   for (const o of orders) {
     const { data: stitching } = await supabase.from('bom_items').select('*').eq('order_id', o.id).eq('category', 'Stitching Trim').order('sort_order')
     const { data: packing }   = await supabase.from('bom_items').select('*').eq('order_id', o.id).eq('category', 'Packing Trim').order('sort_order')
     const { data: suppliers } = await supabase.from('suppliers').select('id,name')
-    const { data: pos } = await supabase.from('purchase_orders').select('po_number,supplier_id').eq('order_id', o.id)
+    const { data: pos } = webPOs ? {data:webPOs.filter(po=>po.order_id===o.id)} : await supabase.from('purchase_orders').select('po_number,supplier_id').eq('order_id', o.id)
 
     const { data: trimGroups } = await supabase.from('size_groups').select('id,group_name').eq('order_id', o.id)
     const trimGroupIds = (trimGroups || []).map(g => g.id)
@@ -786,6 +789,7 @@ export async function buildTrimsPlan(orders) {
 // REPORT 5: Embellishment Plan
 // ─────────────────────────────────────────────────────────────────────────────
 async function buildEmbellishmentPlan(orders) {
+  const webPOs=location.protocol==='app2a:'?null:await relatedPurchaseOrders()
   const pages = []
   for (const o of orders) {
     const { data: embs } = await supabase.from('embellishments').select('*').eq('order_id', o.id)
@@ -857,6 +861,7 @@ async function buildEmbellishmentPlan(orders) {
 // REPORT 6: Finishing Plan
 // ─────────────────────────────────────────────────────────────────────────────
 async function buildFinishingPlan(orders) {
+  const webPOs=location.protocol==='app2a:'?null:await relatedPurchaseOrders()
   const pages = []
   for (const o of orders) {
     const { data: fin } = await supabase.from('finishing').select('*').eq('order_id', o.id).single().catch(()=>({data:null}))
@@ -1065,14 +1070,30 @@ async function printPurchasingDocument(html,targetWindow,filename){
 }
 
 export async function printPurchaseOrder(po, supplier, order, taxRate, targetWindow = null) {
+  // Issuance needs confirmation for the exact cloud version, including its lines.
+  // A modified offline copy can still be printed as a masked draft.
+  let verified=false
+  if(po?.id && !String(po.id).startsWith('local-')){
+    try{
+      const {rows}=await reviewRequest('readPOPage',{poId:po.id})
+      const current=rows[0]
+      if(current?.approval_verified){
+        po={...current,items:[...current.purchase_order_items].sort((a,b)=>a.sort_order-b.sort_order)}
+        supplier=supplier?.id===current.supplier_id?supplier:null
+        order=order?.id===current.order_id?order:null
+        taxRate=null
+        verified=true
+      }
+    }catch{ /* A printed draft carries no supplier or job reference. */ }
+  }
+  if(!verified){supplier=null;order=null}
   const storedTax = decodePrintTax(po.notes)
   const effectiveTaxRate = taxRate ?? (storedTax?.enabled ? storedTax.rate : 18)
-  const qReference = extractQReference(po, order)
+  const qReference = verified ? extractQReference(po, order) : null
   const version = getPOVersion(po.notes)
   const company = getCompanyInfo()
   const printCount = bumpPrintCount(po.po_number)
-  const rawStatus = String(po.status || po.po_status || 'draft').toLowerCase()
-  const isPOApproved = rawStatus === 'approved'
+  const isPOApproved = verified
   const statusText = isPOApproved ? 'APPROVED' : 'DRAFT'
   const printableSupplierName = isPOApproved ? (supplier?.name || '—') : '************'
   const items = (po.items || po.purchase_order_items || []).map(it => ({ ...it, ...decodePrintSpec(it.specification), breakdown: it.breakdown || decodePrintSpec(it.specification).breakdown }))

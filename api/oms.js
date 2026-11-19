@@ -1,5 +1,8 @@
+import {poReview} from '../server/poReview.js'
+import {accountAction} from '../server/accountActions.js'
 import { createClient } from '@supabase/supabase-js'
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import passwordTools from '../server/accountPassword.cjs'
 import desktopSyncToken from '../server/desktopSyncToken.cjs'
 
 const key=process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -35,9 +38,7 @@ export default async function handler(req,res){
    const field=identifier.includes('@')?'email':'username'
    const {data,error}=await db.from('users').select('id,username,email,role,role_id,password_hash,is_active,is_restricted').eq(field,identifier).maybeSingle()
    if(error||!data||data.is_active===false||data.is_restricted===true)return err(res,401,'Invalid credentials')
-   const stored=Buffer.from(String(data.password_hash||''))
-   const supplied=Buffer.from(password)
-   if(stored.length!==supplied.length||!timingSafeEqual(stored,supplied))return err(res,401,'Invalid credentials')
+   if(!await passwordTools.verifyPassword(password,data.password_hash))return err(res,401,'Invalid credentials')
    const payload=Buffer.from(JSON.stringify({id:data.id,exp:Date.now()+8*60*60*1000})).toString('base64url')
    res.setHeader('Set-Cookie',cookieName+'='+payload+'.'+sign(payload)+'; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=28800')
    if(req.body?.desktopEnrollment===true){
@@ -56,16 +57,17 @@ export default async function handler(req,res){
  }
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
+ if(['setPOStage','deletePORecords','readPOHistory','savePurchaseOrder','readPOPage','poApprovers','requestPOReview','approveAssignedPO'].includes(action))return poReview(req,res,db,user,action)
+ if(['accountDirectory','accountRoles','accountList','accountCreate','accountPassword','accountActive','accountRestriction','accountRole'].includes(action))return accountAction(req,res,db,user,action)
  if(action==='session')return res.json({ok:true})
  if(['listCostings','saveCosting','costingHistory','listCostingBatches','saveCostingBatch','assignCostingBatch'].includes(action)){
    const admin=String(user.role||'').toLowerCase()==='admin'
    let canView=admin,canEdit=admin
    if(!admin&&user.role_id){
-     const {data:perms,error:pe}=await db.from('permissions').select('can_view,can_create,can_edit').eq('role_id',user.role_id).eq('module','reports').maybeSingle()
+     const {data:perms,error:pe}=await db.from('permissions').select('can_view,can_create,can_edit').eq('role_id',user.role_id).eq('module','features/costing').maybeSingle()
      if(pe)return err(res,500,'Cannot check feature permissions')
      canView=!!perms?.can_view;canEdit=!!(perms?.can_create||perms?.can_edit)
    }
-   if(!admin&&!user.role_id&&user.role==='merchandiser'){canView=true;canEdit=true}
    if(!canView)return err(res,403,'Features access required')
    if(action==='listCostings'&&req.method==='GET'){
      const {data,error}=await db.from('costing_sheets').select('*').order('updated_at',{ascending:false}).limit(500)
@@ -228,8 +230,8 @@ export default async function handler(req,res){
      {table:'fitting_blocks',category:'Fitting blocks',module:'orders',fields:'id,order_id,block_name,spec_code',match:["block_name","spec_code"],ref:'spec_code',label:'block_name',path:'/orders'},
      {table:'order_processes',category:'Order processes',module:'orders',fields:'id,order_id,process_name',match:["process_name"],ref:'process_name',label:'process_name',path:'/orders'},
      {table:'finishing_packs',category:'Packing',module:'orders',fields:'id,order_id,pack_name,pack_type',match:["pack_name","pack_type"],ref:'pack_name',label:'pack_type',path:'/orders'},
-     {table:'production_batches',category:'Production batches',module:'orders',fields:'id,name',match:["name"],ref:'name',label:'name',path:'/production'},
-     {table:'production_daily_entries',category:'Production entries',module:'orders',fields:'id,order_id,job_number,buyer_name,style_number,po_number,department,movement',match:["job_number","buyer_name","style_number","po_number","department","movement"],ref:'job_number',label:'department',path:'/production'},
+     {table:'production_batches',category:'Production batches',module:'production',fields:'id,name',match:["name"],ref:'name',label:'name',path:'/production'},
+     {table:'production_daily_entries',category:'Production entries',module:'production',fields:'id,order_id,job_number,buyer_name,style_number,po_number,department,movement',match:["job_number","buyer_name","style_number","po_number","department","movement"],ref:'job_number',label:'department',path:'/production'},
      {table:'shipping_bookings',category:'Bookings',module:'shipping',fields:'id,booking_no,status,notes',match:["booking_no","status","notes"],ref:'booking_no',label:'status',path:'/shipping'},
      {table:'shipments',category:'Shipments',module:'shipping',fields:'id,shipment_no,container_no,booking_ref,gate_pass_no,delivery_challan_no,gd_no,hbl_hawb_no,fi_no,lc_no,notes',match:["shipment_no","container_no","booking_ref","gate_pass_no","delivery_challan_no","gd_no","hbl_hawb_no","fi_no","lc_no","notes"],ref:'shipment_no',label:'container_no',path:'/shipping'},
      {table:'parcels',category:'Parcels',module:'parcels',fields:'id,tracking_no,courier,notes',match:["tracking_no","courier","notes"],ref:'tracking_no',label:'courier',path:'/parcels'},
@@ -238,8 +240,8 @@ export default async function handler(req,res){
      {table:'library_items',category:'Library items',module:'library',fields:'id,name,category,description,composition,colour,notes',match:["name","category","description","composition","colour","notes"],ref:'name',label:'category',path:'/library'},
      {table:'bom_presets',category:'BOM presets',module:'library',fields:'id,name,description',match:["name","description"],ref:'name',label:'description',path:'/library'},
      {table:'size_group_templates',category:'Size templates',module:'library',fields:'id,name,buyer_name',match:["name","buyer_name"],ref:'name',label:'buyer_name',path:'/library'},
-     {table:'pp_meetings',category:'PP meetings',module:'reports',fields:'id,order_id,ppm_number,status,decision',match:["ppm_number","status","decision"],ref:'ppm_number',label:'status',path:'/reports/pp-meeting'},
-     {table:'feature_certificates',category:'Certificates',module:'reports',fields:'id,certificate,certificate_number',match:["certificate","certificate_number"],ref:'certificate',label:'certificate_number',path:'/features'},
+     {table:'pp_meetings',category:'PP meetings',module:'reports/pp-meeting',fields:'id,order_id,ppm_number,status,decision',match:["ppm_number","status","decision"],ref:'ppm_number',label:'status',path:'/reports/pp-meeting'},
+     {table:'feature_certificates',category:'Certificates',module:'features',fields:'id,certificate,certificate_number',match:["certificate","certificate_number"],ref:'certificate',label:'certificate_number',path:'/features'},
      {table:'document_numbering',category:'Document numbering',module:'settings',fields:'id,doc_type,prefix,label,pattern',match:["doc_type","prefix","label","pattern"],ref:'label',label:'prefix',path:'/settings'},
      {table:'uoms',category:'Units of measure',module:'settings',fields:'id,name,short_name,type',match:["name","short_name","type"],ref:'name',label:'short_name',path:'/settings'},
      {table:'roles',category:'Roles',module:'settings',fields:'id,name',match:["name"],ref:'name',label:'name',path:'/settings/users'}
@@ -251,16 +253,28 @@ export default async function handler(req,res){
      if(permError)return err(res,500,'Search permissions unavailable')
      const permitted=new Set((permissions||[]).filter(p=>p.can_view).map(p=>p.module))
      const legacy=user.role==='merchandiser'&&!user.role_id
-     for(const src of sources){const mod=src.module;if(permitted.has(mod)||(legacy&&['orders','purchasing','buyers','suppliers','sampling','parcels','shipping','library','reports','tasks'].includes(mod)))allowed.add(src.category)}
+     for(const src of sources){const mod=src.module;if(mod==='settings')continue;if(permitted.has(mod)||(legacy&&['orders','purchasing','buyers','suppliers','sampling','parcels','shipping','library','reports','tasks'].includes(mod)))allowed.add(src.category)}
    }
    const out=await Promise.all(sources.filter(src=>allowed.has(src.category)).map(async src=>{
-     const query=db.from(src.table).select(src.fields).or(src.match.map(f=>f+'.ilike.'+like).join(',')).limit(5)
+     const restrictedPO=user.role!=='admin'&&src.table==='purchase_orders'
+     const restrictedLine=user.role!=='admin'&&src.table==='purchase_order_items'
+     const fields=restrictedPO?'id,po_number,status':restrictedLine?'id,description':src.fields
+     const match=restrictedLine?['description']:src.match
+     const query=db.from(src.table).select(fields).or(match.map(f=>f+'.ilike.'+like).join(',')).limit(5)
      const {data,error}=await query
      if(error)return {category:src.category,error:true,items:[]}
      return {category:src.category,module:src.module,items:(data||[]).map(row=>({id:row.id,reference:String(row[src.ref]||''),detail:String(row[src.label]||'').slice(0,160),path:src.path,orderId:row.order_id||null,taskId:row.task_id||null,buyerId:row.buyer_id||null,rootSampleId:row.root_sample_id||null,score:String(row[src.ref]||'').toLowerCase()===q.toLowerCase()?0:1}))}
    }))
    const results=out.flatMap(x=>x.items.flatMap(item=>x.category==='Sampling'?[{...item,category:x.category,module:x.module},{...item,module:x.module,category:'Sampling PDFs',documentType:'sampling-program',detail:'Generate and open sampling program PDF'}]:x.category==='Purchasing'?[{...item,category:x.category,module:x.module},{...item,module:x.module,category:'Purchase Order PDFs',documentType:'purchase-order',detail:'Generate and open supplier purchase order PDF'}]:[{...item,category:x.category,module:x.module}]))
    return res.json({results:results.sort((a,b)=>a.score-b.score).slice(0,90),partial:out.some(x=>x.error)})
+ }
+ if (typeof action === 'string' && action.startsWith('ppm') && user.role !== 'admin') {
+   if (!user.role_id) return err(res,403,'PP Meeting access required')
+   const {data:grant,error}=await db.from('permissions').select('can_view,can_create,can_edit,can_delete')
+     .eq('role_id',user.role_id).eq('module','reports/pp-meeting').maybeSingle()
+   if (error) return err(res,500,'Cannot check PP Meeting permissions')
+   const actionGrant={ppmCreate:'can_create',ppmSave:'can_edit',ppmDelete:'can_delete',ppmAttachmentSave:'can_edit',ppmAttachmentUrl:'can_edit'}
+   if (!grant?.can_view || (actionGrant[action] && !grant[actionGrant[action]])) return err(res,403,'PP Meeting access required')
  }
  if(action==='ppmList'&&req.method==='GET'){
    const orderId=String(req.query.orderId||'')
@@ -325,29 +339,30 @@ export default async function handler(req,res){
    return error?err(res,500,'Could not open attachment'):res.json({url:data.signedUrl})
  }
  if(action==='backupProtected'&&req.method==='GET'){
-   const role=String(user.role||'').toLowerCase()
-   const {data:roleRow}=await db.from('roles').select('name').eq('id',user.role).maybeSingle()
-   if(role!=='admin'&&String(roleRow?.name||'').toLowerCase()!=='admin')return err(res,403,'Admin access required')
+   if(user.role!=='admin')return err(res,403,'Admin access required')
    const result={}
-   for(const [type,table] of Object.entries(tables)){
-     const {data,error}=await db.from(table).select('*').limit(10000)
-     if(error)return err(res,500,'Could not export '+type)
-     if(data.length===10000)return err(res,500,'Backup limit reached for '+type)
-     result[table]=data
+   for(const [type,table] of Object.entries({...tables,purchase_orders:'purchase_orders',purchase_order_items:'purchase_order_items',purchase_order_changelog:'purchase_order_changelog',po_approval_requests:'po_approval_requests'})){
+     const primaryKey=table==='po_approval_requests'?'po_id':table==='parcel_invoice_snapshots'?'parcel_id':'id'
+     const rows=[]
+     let total
+     do{
+       const {data,error,count}=await db.from(table).select('*',{count:'exact'}).order(primaryKey).range(rows.length,rows.length+499)
+       if(error||count===null||(total!==undefined&&total!==count)||(!data.length&&rows.length<count))return err(res,500,'Incomplete backup for '+type)
+       total=count;rows.push(...data)
+     }while(rows.length<total)
+     result[table]=rows
    }
    return res.json({tables:result})
  }
 
 
  if(action==='restoreProtected'&&req.method==='POST'){
-   const role=String(user.role||'').toLowerCase()
-   const {data:roleRow}=await db.from('roles').select('name').eq('id',user.role).maybeSingle()
-   if(role!=='admin'&&String(roleRow?.name||'').toLowerCase()!=='admin')return err(res,403,'Admin access required')
+   if(user.role!=='admin')return err(res,403,'Admin access required')
    const table=String(req.body?.table||'')
-   if(!Object.values(tables).includes(table))return err(res,400,'Invalid protected table')
+   if(![...Object.values(tables),'purchase_orders','purchase_order_items','purchase_order_changelog','po_approval_requests'].includes(table))return err(res,400,'Invalid protected table')
    const phase=req.body?.phase
    if(phase==='clear'){
-     const {error}=await db.from(table).delete().not(table==='parcel_invoice_snapshots'?'parcel_id':'id','is',null)
+     const {error}=await db.from(table).delete().not(table==='po_approval_requests'?'po_id':table==='parcel_invoice_snapshots'?'parcel_id':'id','is',null)
      return error?err(res,500,'Could not clear '+table+': '+error.message):res.json({ok:true})
    }
    if(phase==='insert'){

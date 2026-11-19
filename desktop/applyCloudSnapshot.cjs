@@ -13,8 +13,15 @@ async function hasAdminCloudSnapshot(directory){
  const SQL=await getSqlEngine()
  const db=new SQL.Database(fs.readFileSync(path.join(directory,DB)))
  try{
-  if(!db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='app_metadata'").length)return false
-  return db.exec("SELECT value FROM app_metadata WHERE key='cloud_snapshot_scope'")[0]?.values?.[0]?.[0]==='admin'
+  const tables=new Set((db.exec("SELECT name FROM sqlite_master WHERE type='table'")[0]?.values||[]).flat())
+  if(tables.has('app_metadata')&&db.exec("SELECT value FROM app_metadata WHERE key='cloud_snapshot_scope'")[0]?.values?.[0]?.[0]==='admin')return true
+  // Old shared folders can predate the administrator snapshot marker.
+  for(const table of ['snapshot_rows','standalone_records']){
+   if(!tables.has(table))continue
+   if(!db.exec('PRAGMA table_info('+table+')')[0]?.values.some(column=>column[1]==='table_name'))continue
+   if(db.exec("SELECT 1 FROM "+table+" WHERE table_name IN ('purchase_orders','purchase_order_items','payment_settlements') LIMIT 1").length)return true
+  }
+  return false
  }finally{db.close()}
 }
 async function applyCloudSnapshot({directory,tables,adminScope=false}){

@@ -31,6 +31,7 @@ const { snapshotReady } = require('./snapshotStartup.cjs')
 protocol.registerSchemesAsPrivileged([{scheme:'app2a',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}])
 const APP_URL = 'https://app.nizamia.com'
 const ALLOWED_ORIGIN = new URL(APP_URL).origin
+let onlineWebSession=null
 let onlineSyncSession=null
 const {createOfflineSyncClient}=require('./offlineSyncClient.cjs')
 const {createOfflineSyncCoordinator}=require('./offlineSyncCoordinator.cjs')
@@ -98,6 +99,7 @@ function activateOnlineSession(user,tokens){
  }
 }
 function clearOnlineSession(){
+ onlineWebSession=null
  onlineSnapshotToken=null
  onlineSyncSession=null
  syncLoop.stop()
@@ -348,6 +350,8 @@ app.whenReady().then(async () => {
           if(!verified.ok||!verified.desktopUser)throw Error('Online enrollment response invalid')
           data=desktopAuth.enroll(input.username,input.password,verified.desktopUser)
           const tokens={snapshotToken:verified.desktopSnapshotToken,syncToken:verified.desktopSyncToken}
+          const cookie=response.headers.get('set-cookie')?.match(/(?:^|,\s*)(nizamia_backend_session=[A-Za-z0-9_.-]+);/)?.[1]
+           if(cookie)onlineWebSession={id:data.user.id,cookie}
           if(data.user?.role==='admin'){
            const fallback={snapshot:tokens.snapshotToken?{token:tokens.snapshotToken}:null,
             sync:tokens.syncToken?{token:tokens.syncToken,expiresAt:Date.now()+8*60*60*1000}:null}
@@ -404,6 +408,27 @@ app.whenReady().then(async () => {
         return Response.json({ok:true})
       }catch(error){return Response.json({error:'PDF generation failed: '+error.message},{status:500})}
       finally{if(pdfWindow&&!pdfWindow.isDestroyed())pdfWindow.destroy()}
+    }
+    if(['/api/offline/accounts','/api/offline/po-review'].includes(url.pathname)){
+      const review=url.pathname==='/api/offline/po-review'
+      const actor=desktopAuth?.status().user
+      if(!actor||(!review&&actor.role!=='admin')||!onlineWebSession||onlineWebSession.id!==actor.id)
+        return Response.json({error:'Sign in online with the required permissions.'},{status:403})
+      try{
+        const body=request.method==='POST'?await request.json():null
+        const action=body?.action||url.searchParams.get('action')
+        const permitted=review?(request.method==='GET'?['poApprovers']:['savePurchaseOrder','readPOHistory','setPOStage','readPOPage','requestPOReview','approveAssignedPO']):request.method==='GET'?['accountList','accountRoles']:['accountCreate','accountPassword','accountRole','accountActive','accountRestriction']
+        if(!['GET','POST'].includes(request.method)||!permitted.includes(action))
+          return Response.json({error:'Unknown account request'},{status:400})
+        const endpoint=new URL('/api/oms',APP_URL)
+        if(!body)endpoint.searchParams.set('action',action)
+        const session=onlineWebSession
+        const result=await fetch(endpoint,{method:request.method,redirect:'error',signal:AbortSignal.timeout(15000),
+          headers:{Cookie:session.cookie,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined})
+        const data=await result.json()
+        if(onlineWebSession!==session)return Response.json({error:'Session changed'},{status:403})
+        return Response.json(data,{status:result.status,headers:{'Cache-Control':'no-store'}})
+      }catch{return Response.json({error:'Account service unavailable. Check your connection.'},{status:503})}
     }
     if(url.pathname==='/api/oms'){
       if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})

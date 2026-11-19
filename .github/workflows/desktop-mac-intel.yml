@@ -11,6 +11,7 @@ on:
       - feature/box-5-validation
       - feature/desktop-release-acceptance
       - feature/nzos-1.0
+      - nzos/admin-only-settings-payments
     paths:
       - 'api/**'
       - 'desktop/**'

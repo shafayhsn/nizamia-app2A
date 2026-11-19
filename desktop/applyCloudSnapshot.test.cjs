@@ -13,6 +13,8 @@ async function run(){
   db.run("INSERT INTO standalone_records VALUES ('local-work')")
   fs.writeFileSync(file,Buffer.from(db.export()));db.close()
   assert.equal(await hasAdminCloudSnapshot(directory),false)
+  await applyCloudSnapshot({directory,tables:{purchase_orders:[{id:'legacy-draft',status:'Draft'}]}})
+  assert.equal(await hasAdminCloudSnapshot(directory),true,'Legacy unmarked PO cache must require admin access')
  const outcome=await applyCloudSnapshot({directory,adminScope:true,tables:{orders:[{id:'cloud-order'}],buyers:[],suppliers:[]}})
   assert.equal(outcome.updatedTables,3)
   assert.equal(await hasAdminCloudSnapshot(directory),true)

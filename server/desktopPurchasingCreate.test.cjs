@@ -63,8 +63,8 @@ test('offline purchasing assigns cloud numbers and commits the header, lines and
   }}})
   const send=operations=>endpoint({method:'POST',headers:{authorization:'Bearer '+issueDesktopSyncToken(key,id(1))},body:{operations}})
   const po=fields=>queuePurchasingDocument(folder,{...owner,table:'purchase_orders',
-   fields:{supplier_id:id(2),order_id:id(3),status:'Draft'},lines:[fields]})
-  const saved=await po({description:'Fabric',qty:4,unit_rate:2.5,sort_order:0})
+   fields:{supplier_id:id(2),order_id:null,status:'Draft'},lines:[fields]})
+  const saved=await po({description:'Custom denim patches',qty:4,unit_rate:2.5,sort_order:0,source_type:null,source_id:null})
   assert.match(saved.po_number,/^OFFLINE-/)
   assert.equal((await listCombinedRecords(folder,'purchase_order_items'))[0].po_id,saved.id)
   await queuePurchasingDocument(folder,{...owner,table:'work_orders',
@@ -81,6 +81,9 @@ test('offline purchasing assigns cloud numbers and commits the header, lines and
   ])))
   const tables=await pull()
   assert.ok(tables.purchase_orders.some(x=>x.po_number==='NZP-002'))
+  assert.equal(tables.purchase_orders.find(row=>row.po_number==='NZP-002').order_id,null)
+  assert.equal(tables.purchase_order_items[0].description,'Custom denim patches')
+  assert.equal(tables.purchase_order_items[0].source_id,null)
   assert.equal(tables.purchase_order_items[0].amount,10)
   assert.equal(tables.work_orders[0].wo_number,'NZW-001')
   await applyCloudSnapshot({directory:folder,tables})

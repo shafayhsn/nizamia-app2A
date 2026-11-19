@@ -1,3 +1,4 @@
+import {reviewRequest,relatedPurchaseOrders} from '../lib/poReview'
 import { saveDesktopPdf } from '../lib/saveDesktopPdf.mjs'
 import ProductionFormats from './ProductionFormats'
 import ProformaInvoice from './ProformaInvoice'
@@ -8,6 +9,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { Search, FileSpreadsheet, Printer, RefreshCw, ArrowLeft, FileText, Columns3, RotateCcw, Star } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { can } from '../lib/permissions'
 import { useAuth } from '../lib/authContext'
 import { printHTML } from '../components/PrintReports'
 
@@ -187,7 +189,7 @@ export default function Reports() {
   const [activeSortBy,setActiveSortBy] = useState('style')
   const [activeSortDir,setActiveSortDir] = useState('asc')
   const [truncated,setTruncated] = useState(false)
-  const {user:appUser}=useAuth()
+  const {user:appUser,userRole}=useAuth()
   const printedBy=appUser?.displayName||appUser?.username||appUser?.email||'Unknown user'
   const [statusFilter,setStatusFilter] = useState([])
   const [groupFilter,setGroupFilter] = useState([])
@@ -202,7 +204,30 @@ export default function Reports() {
     try {
       // Page through Supabase rather than silently showing only its default 1,000 records.
       const all=[];const pageSize=750;const limit=30000
-      while(all.length<limit){
+      const protectedReads=!(window.location.protocol==='app2a:' && userRole?.role==='admin')
+      let register
+      const readRegister=()=>register??=relatedPurchaseOrders()
+      const restrictedTable=protectedReads && ['purchase_orders','purchase_order_items','purchase_order_changelog'].includes(active.table)
+      if(restrictedTable){
+        const headers=await readRegister()
+        if(active.table==='purchase_orders'){
+          for(const {purchase_order_items,approval_verified,details_hidden,...header} of headers)all.push(header)
+        }else if(active.table==='purchase_order_items'){
+          for(const po of headers)for(const line of po.purchase_order_items)all.push({...line,po_id:po.id})
+        }else{
+          const ids=headers.filter(po=>!po.details_hidden).map(po=>po.id)
+          for(let i=0;i<ids.length;i+=50){
+            let afterId=null
+            for(;;){
+              const {rows}=await reviewRequest('readPOHistory',{ids:ids.slice(i,i+50),afterId})
+              all.push(...rows)
+              if(rows.length<100)break
+              afterId=rows.at(-1).id
+            }
+          }
+        }
+      }
+      while(!restrictedTable && all.length<limit){
         const {data,error:dbError}=await supabase.from(active.table).select('*').range(all.length,all.length+pageSize-1)
         if(dbError) throw dbError
         if(cancelled) return
@@ -222,6 +247,7 @@ export default function Reports() {
           shipments:'id,shipment_no'
         }
         const lookup=async(table)=>{
+          if(protectedReads && table==='purchase_orders')return readRegister()
           const result=[];let offset=0;while(offset<30000){const {data,error}=await supabase.from(table).select(lookupFields[table]||'*').range(offset,offset+749);if(error)throw error;result.push(...(data||[]));if(!data||data.length<750)break;offset+=750}return result
         }
         const [orders,suppliers,purchase,work]=await Promise.all([
@@ -659,17 +685,17 @@ export default function Reports() {
   }
   const reportCatalog=[...flatten,{title:'PP Meeting',table:'pp_meetings',category:'Orders & Customers',ppm:true}]
   const categories=[...new Set(reportCatalog.map(r=>r.category))]
-   const matches=reportCatalog.filter(r=>(category==='All'||(category==='Favorites'?favorites.includes(favoriteKey(r)):r.category===category))&&`${r.title} ${r.category}`.toLowerCase().includes(catalogSearch.toLowerCase())).sort((a,b)=>catalogSort==='category'?a.category.localeCompare(b.category)||a.title.localeCompare(b.title):a.title.localeCompare(b.title))
+   const matches=reportCatalog.filter(r=>!r.ppm || can(userRole,'reports/pp-meeting')).filter(r=>(category==='All'||(category==='Favorites'?favorites.includes(favoriteKey(r)):r.category===category))&&`${r.title} ${r.category}`.toLowerCase().includes(catalogSearch.toLowerCase())).sort((a,b)=>catalogSort==='category'?a.category.localeCompare(b.category)||a.title.localeCompare(b.title):a.title.localeCompare(b.title))
    if(active?.proforma)return <div style={{height:'100%',overflow:'auto',background:'#f8fafc'}}><ProformaInvoice initialSelection={incomingPI} onBack={()=>{setActive(null);if(incomingPI)navigate('/reports',{replace:true,state:null})}}/></div>
    return <div style={{height:'100%',overflow:'auto',padding:'22px 26px',background:'#fff',fontFamily:'var(--font,Arial,sans-serif)',color:'#202633'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,gap:12}}>
       <div><div style={{fontSize:22,fontWeight:750}}>Reports</div><div style={{fontSize:12,color:'#6b7280',marginTop:4}}>Central read-only reporting · existing Supabase records · Excel and print/PDF</div></div>
-      <div style={{display:'flex',gap:8}}>{active&&<button style={btn} onClick={()=>setActive(null)}><ArrowLeft size={15}/> All Reports</button>}<button style={{...btn,background:'#141b2e',color:'#fff',borderColor:'#141b2e'}} onClick={()=>navigate('/reports/custom')}><Plus size={15}/> Create Custom Report</button></div>
+      <div style={{display:'flex',gap:8}}>{active&&<button style={btn} onClick={()=>setActive(null)}><ArrowLeft size={15}/> All Reports</button>}{can(userRole,'reports/custom') && <button style={{...btn,background:'#141b2e',color:'#fff',borderColor:'#141b2e'}} onClick={()=>navigate('/reports/custom')}><Plus size={15}/> Create Custom Report</button>}</div>
     </div>
     {!active ? <>
 
 <div style={{display:'flex',flexWrap:'wrap',alignItems:'center',columnGap:6,rowGap:0,borderBottom:'1px solid #dce1e9',marginBottom:14}}>
-{[['All','All Reports'],['Favorites','★ Favorites'],['Production Formats','Production Formats'],...categories.map(c=>[c,c])].map(([key,label])=><button key={key} onClick={()=>setCategory(key)} style={{border:0,borderBottom:category===key?'3px solid #151b30':'3px solid transparent',background:'transparent',padding:'11px 13px',fontSize:12,fontWeight:category===key?750:550,color:category===key?'#111827':'#64748b',whiteSpace:'nowrap',cursor:'pointer'}}>{label} <span style={{color:'#94a3b8'}}>{key==='All'?reportCatalog.length:key==='Favorites'?reportCatalog.filter(r=>favorites.includes(favoriteKey(r))).length:key==='Production Formats'?40:reportCatalog.filter(r=>r.category===key).length}</span></button>)}
+{[['All','All Reports'],['Favorites','★ Favorites'],['Production Formats','Production Formats'],...categories.map(c=>[c,c])].map(([key,label])=><button key={key} onClick={()=>setCategory(key)} style={{border:0,borderBottom:category===key?'3px solid #151b30':'3px solid transparent',background:'transparent',padding:'11px 13px',fontSize:12,fontWeight:category===key?750:550,color:category===key?'#111827':'#64748b',whiteSpace:'nowrap',cursor:'pointer'}}>{label} <span style={{color:'#94a3b8'}}>{key==='All'?reportCatalog.length:key==='Favorites'?reportCatalog.filter(r=>!r.ppm || can(userRole,'reports/pp-meeting')).filter(r=>favorites.includes(favoriteKey(r))).length:key==='Production Formats'?40:reportCatalog.filter(r=>!r.ppm || can(userRole,'reports/pp-meeting')).filter(r=>r.category===key).length}</span></button>)}
 </div>
 {category==='Production Formats'?<ProductionFormats onBack={()=>setCategory('All')}/>:<>
 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:12}}>

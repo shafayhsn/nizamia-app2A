@@ -6,13 +6,14 @@ import { statusBadgeStyle } from '../lib/statusColors'
 import { useNavigate } from 'react-router-dom'
 import { ClipboardList, AlertTriangle, Ship, Layers, Scissors, ChevronRight, Printer } from 'lucide-react'
 import { buildBusinessOverview, printHTML, openPrintWindow } from '../components/PrintReports'
+import { can } from '../lib/permissions'
 import { useAuth } from '../lib/authContext'
 
 const statusColor = { Draft: '#d97706', Confirmed: '#16a34a', Cancelled: '#dc2626' }
 const statusBg    = { Draft: '#fff7ed', Confirmed: '#f0fdf4', Cancelled: '#fef2f2' }
 
 export default function Dashboard() {
-  const { user } = useAuth()
+  const { user, userRole } = useAuth()
   const displayName = user?.username || user?.displayName || user?.email || 'there'
   const [orders, setOrders]   = useState([])
   const [loading, setLoading] = useState(true)
@@ -161,12 +162,12 @@ export default function Dashboard() {
   ]
 
   const QUICK_ACTIONS = [
-    { label: '+ New Order',         primary: true,  action: () => navigate('/orders') },
-    { label: 'Manage Orders',       primary: false, action: () => navigate('/orders') },
-    { label: 'New Sample Request',  primary: false, action: () => navigate('/orders') },
-    { label: 'New Supplier PO',     primary: false, action: () => navigate('/purchasing') },
-    { label: 'Issue Work Order',    primary: false, action: () => navigate('/purchasing') },
-    { label: 'Send Parcel',         primary: false, action: () => {} },
+    { label: '+ New Order', module: 'orders',         primary: true,  action: () => navigate('/orders') },
+    { label: 'Manage Orders', module: 'orders',       primary: false, action: () => navigate('/orders') },
+    { label: 'New Sample Request', module: 'orders',  primary: false, action: () => navigate('/orders') },
+    { label: 'New Supplier PO', module: 'purchasing',     primary: false, action: () => navigate('/purchasing') },
+    { label: 'Issue Work Order', module: 'purchasing',    primary: false, action: () => navigate('/purchasing') },
+    { label: 'Send Parcel', module: 'parcels',         primary: false, action: () => {} },
   ]
 
   // Closed months show actual shipments; open months show actual + remaining scheduled.
@@ -240,7 +241,7 @@ export default function Dashboard() {
 
       {/* Quick actions */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-        {QUICK_ACTIONS.map(({ label, primary, action }) => (
+        {QUICK_ACTIONS.filter(item=>can(userRole,item.module)).map(({ label, primary, action }) => (
           <button key={label} onClick={action} className={primary ? 'btn btn-primary btn-lg' : 'btn btn-secondary'}>
             {label}
           </button>

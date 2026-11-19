@@ -1,7 +1,7 @@
 import React, { useEffect, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/authContext'
-import { can, desktopHome } from './lib/permissions'
+import { can, MODULES } from './lib/permissions'
 import Layout from './components/layout/Layout'
 import WindowManager from './components/ui/WindowManager'
 const Login = lazy(() => import('./pages/Login'))
@@ -86,10 +86,9 @@ function ProtectedRoute({ children }) {
 
 function DashboardEntry() {
   const {userRole,loading}=useAuth()
-  if(window.location.protocol!=='app2a:')return <Dashboard />
-  if(loading)return <FullScreenLoader />
-  const home=desktopHome(userRole)
-  if(home && home!=='/dashboard')return <Navigate to={home} replace />
+  if (loading) return <FullScreenLoader />
+  const home=MODULES.find(page=>can(userRole,page.key))
+  if (home && home.key !== 'dashboard') return <Navigate to={'/'+home.key} replace />
   return <RequireRight module="dashboard"><Dashboard /></RequireRight>
 }
 
@@ -129,13 +128,13 @@ export default function App() {
             <Route path="suppliers" element={<RequireRight module="suppliers">{null}</RequireRight>} />
             <Route path="sampling" element={<RequireRight module="sampling"><SamplingApprovals /></RequireRight>} />
             <Route path="parcels" element={<RequireRight module="parcels"><Parcels /></RequireRight>} />
-            <Route path="features" element={<Features />} />
-            <Route path="features/costing" element={<CostingPage />} />
-            <Route path="production" element={<RequireRight module="orders"><Production /></RequireRight>} />
+            <Route path="features" element={<RequireRight module="features"><Features /></RequireRight>} />
+            <Route path="features/costing" element={<RequireRight module="features/costing"><CostingPage /></RequireRight>} />
+            <Route path="production" element={<RequireRight module="production"><Production /></RequireRight>} />
             <Route path="tasks" element={<RequireRight module="tasks"><Tasks /></RequireRight>} />
             <Route path="reports" element={<RequireRight module="reports"><Reports /></RequireRight>} />
-            <Route path="reports/pp-meeting" element={<RequireRight module="reports"><PPMeeting /></RequireRight>} />
-            <Route path="reports/custom" element={<RequireRight module="reports"><CustomReportBuilder /></RequireRight>} />
+            <Route path="reports/pp-meeting" element={<RequireRight module="reports/pp-meeting"><PPMeeting /></RequireRight>} />
+            <Route path="reports/custom" element={<RequireRight module="reports/custom"><CustomReportBuilder /></RequireRight>} />
             <Route path="shipping" element={<RequireRight module="shipping"><Shipping /></RequireRight>} />
             <Route path="library" element={<RequireRight module="library">{null}</RequireRight>} />
             <Route path="settings" element={<RequireRight module="settings"><Settings /></RequireRight>} />
