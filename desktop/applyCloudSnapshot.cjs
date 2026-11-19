@@ -75,9 +75,13 @@ async function applyCloudSnapshot({directory,tables,adminScope=false,delta,check
     }
     for(const [table,part] of Object.entries(delta.changes)){
      if(!db.exec('SELECT 1 FROM snapshot_manifest WHERE table_name=?',[table]).length)throw Error('Missing baseline for '+table)
-     const byId=new Map(tables[table].map(row=>[String(row[part.key]),row]))
+     const byId=new Map((part.replace?[]:tables[table]).map(row=>[String(row[part.key]),row]))
      for(const id of part.removed)byId.delete(id)
-     for(const row of part.records)byId.set(String(row[part.key]),row)
+     for(const row of part.records){
+      const id=String(row[part.key])
+      if(table==='orders'&&!Object.hasOwn(row,'style_image_base64')&&byId.has(id))row.style_image_base64=byId.get(id).style_image_base64
+      byId.set(id,row)
+     }
      tables[table]=[...byId.values()]
     }
    }

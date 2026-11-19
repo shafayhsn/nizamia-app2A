@@ -7,13 +7,13 @@ const primaryKeys=Object.freeze({
  production_batch_orders:'order_id'
 })
 
-async function readSnapshotTable(db,table,{pageSize=1000,maxRows=100000}={}){
+async function readSnapshotTable(db,table,{pageSize=1000,maxRows=100000,filter=q=>q}={}){
  const directory=table==='desktop_task_assignees'
  const source=directory?'users':table
  const fields=directory?'id,username':'*'
  const select=(fields,options)=>{
   const q=db.from(source).select(fields,options)
-  return directory?q.eq('is_active',true):q
+  return filter(directory?q.eq('is_active',true):q)
  }
  const key=primaryKeys[table]||'id'
  const rows=[]

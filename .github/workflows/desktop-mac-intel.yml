@@ -84,7 +84,7 @@ jobs:
         working-directory: desktop
         run: npm install --no-audit --no-fund
       - name: Verify NZOS workspace, archive and database migration
-        run: node --test desktop/nzosWorkspace.test.cjs desktop/desktopOnline.test.cjs
+        run: node --test server/snapshotDelta.test.cjs desktop/nzosWorkspace.test.cjs desktop/desktopOnline.test.cjs
       - name: Test linked desktop sync workflows
         run: node --test server/desktopOrderDetails.test.cjs server/desktopOrderRemoval.test.cjs server/desktopOrderSectionCopy.test.cjs server/desktopPoMatrix.test.cjs server/desktopBuyer.test.cjs server/desktopSupplier.test.cjs server/desktopParcelTransition.test.cjs server/desktopArea3.test.cjs server/desktopPurchasingCreate.test.cjs server/desktopOperationalRecords.test.cjs src/lib/offlineProjection.test.cjs
       - name: Check desktop entry syntax

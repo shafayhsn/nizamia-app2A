@@ -159,6 +159,7 @@ async function refreshCloudSnapshot(token){
    if(payload.checkpoint.revision===checkpoint.revision&&!Object.keys(payload.delta.changes).length)return {status:'current'}
    const result=await applyCloudSnapshot({directory,delta:payload.delta,checkpoint:payload.checkpoint,adminScope:member.role==='admin'})
    lastSnapshot=null
+   if(payload.delta.more&&!result.unresolved?.length)setImmediate(()=>{if(onlineSnapshotToken===token)refreshCloudSnapshot(token).catch(error=>console.warn('Sync will retry:',error.message))})
    announceCloudRefresh()
    return {status:'updated',tables:result.updatedTables,unresolved:result.unresolved}
   }
