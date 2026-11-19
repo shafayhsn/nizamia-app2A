@@ -18,6 +18,14 @@ export async function accountAction(req,res,db,user,action){
   return error?fail(503,'Accounts unavailable'):res.json({data})
  }
  if(req.method!=='POST')return fail(405,'Method not allowed')
+ if(action==='accountRoleRights'){
+   const {data,error}=await db.from('permissions').select('module,can_view,can_create,can_edit,can_delete').eq('role_id',req.body.roleId)
+   return error?fail(503,'Role permissions unavailable'):res.json({data})
+ }
+ if(action==='accountSaveRights'){
+   const {data,error}=await db.rpc('save_team_role',{actor:user.id,target:req.body.roleId||null,role_name:req.body.name||null,grants:req.body.rows})
+   return error?fail(409,'Could not save this role and its permissions'):res.json({id:data})
+ }
  if(action==='accountHistory'){
    const {data,error}=await db.rpc('read_team_history',{actor:user.id,before_id:req.body.beforeId||null})
    return error?fail(503,'Edit history unavailable'):res.json({data})

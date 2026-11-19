@@ -2,6 +2,7 @@
 // App-table login gate for Nizamia OMS + DB role permissions
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { resetEditSession } from './syncTracker'
 import { supabase } from './supabase'
 import { accountRequest } from './accounts'
 import { MODULES } from './permissions'
@@ -120,6 +121,7 @@ export function AuthProvider({ children }) {
   }, [refreshUser])
 
   const login = async (identifier, password) => {
+    resetEditSession()
     if(IS_DESKTOP){try{const result=await desktopRequest('login',{username:identifier,password});setUser(result.user);setUserRole(result.user);setOfflineSetupRequired(false);return {user:result.user,error:null}}catch(error){return {user:null,error}}}
     const cleanIdentifier = String(identifier || '').trim()
     const cleanPassword = String(password || '')
@@ -138,6 +140,7 @@ export function AuthProvider({ children }) {
   }
 
   const logout = async () => {
+    resetEditSession()
     if(IS_DESKTOP){await desktopRequest('logout');setUser(null);setUserRole(null);return}
     await fetch('/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'logout'})}).catch(()=>{})
     setAppUser(null)

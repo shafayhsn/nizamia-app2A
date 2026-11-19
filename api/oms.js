@@ -80,7 +80,7 @@ export default async function handler(req,res){
    return error||!data?err(res,503,'Account unavailable'):res.json({ok:true,user:data})
  }
  if(['setPOStage','deletePORecords','readPOHistory','savePurchaseOrder','readPOPage','assignedPOReviews','poApprovers','requestPOReview','approveAssignedPO'].includes(action))return poReview(req,res,db,user,action)
- if(['accountHistory','accountDelete','accountDirectory','accountRoles','accountList','accountCreate','accountPassword','accountActive','accountRestriction','accountRole'].includes(action))
+ if(['accountRoleRights','accountSaveRights','accountHistory','accountDelete','accountDirectory','accountRoles','accountList','accountCreate','accountPassword','accountActive','accountRestriction','accountRole'].includes(action))
    return accountAction(req,res,db,user,action)
  if(['listCostings','saveCosting','costingHistory','listCostingBatches','saveCostingBatch','assignCostingBatch'].includes(action)){
    const admin=String(user.role||'').toLowerCase()==='admin'
@@ -149,7 +149,7 @@ export default async function handler(req,res){
      if(pe)return err(res,500,'Cannot check report permissions')
      canView=!!perms?.can_view;canEdit=!!(perms?.can_create||perms?.can_edit)
    }
-   if(!admin&&!user.role_id&&user.role==='merchandiser'){canView=true;canEdit=true}
+
    if(!canView)return err(res,403,'Reports access required')
    if(action==='listProformas'&&req.method==='GET'){
      const {data,error}=await db.from('proforma_invoices').select('id,pi_number,buyer_id,status,revision,created_at,updated_at,issued_at,accepted_at,acceptance_email_from,acceptance_email_date').order('updated_at',{ascending:false}).limit(200)
@@ -363,7 +363,7 @@ export default async function handler(req,res){
  if(action==='backupProtected'&&req.method==='GET'){
    if(user.role!=='admin')return err(res,403,'Admin access required')
    const result={}
-   for(const [type,table] of Object.entries({...tables,purchase_orders:'purchase_orders',purchase_order_items:'purchase_order_items',purchase_order_changelog:'purchase_order_changelog',po_approval_requests:'po_approval_requests'})){
+   for(const [type,table] of Object.entries({...tables,roles:'roles',permissions:'permissions',purchase_orders:'purchase_orders',purchase_order_items:'purchase_order_items',purchase_order_changelog:'purchase_order_changelog',po_approval_requests:'po_approval_requests'})){
      const primaryKey=table==='po_approval_requests'?'po_id':table==='parcel_invoice_snapshots'?'parcel_id':'id'
      const rows=[]
      let total
@@ -381,7 +381,7 @@ export default async function handler(req,res){
  if(action==='restoreProtected'&&req.method==='POST'){
    if(user.role!=='admin')return err(res,403,'Admin access required')
    const table=String(req.body?.table||'')
-   if(![...Object.values(tables),'purchase_orders','purchase_order_items','purchase_order_changelog','po_approval_requests'].includes(table))return err(res,400,'Invalid protected table')
+   if(![...Object.values(tables),'roles','permissions','purchase_orders','purchase_order_items','purchase_order_changelog','po_approval_requests'].includes(table))return err(res,400,'Invalid protected table')
    const phase=req.body?.phase
    if(phase==='clear'){
      const {error}=await db.from(table).delete().not(table==='po_approval_requests'?'po_id':table==='parcel_invoice_snapshots'?'parcel_id':'id','is',null)
@@ -399,6 +399,15 @@ export default async function handler(req,res){
    return err(res,400,'Invalid restore phase')
  }
 
+ async function hasGrant(module, verb) {
+   if (user.role === 'admin') return true
+   if (!user.role_id) return false
+   const field = 'can_' + verb
+   const {data,error} = await db.from('permissions').select('*').eq('role_id',user.role_id).eq('module',module).maybeSingle()
+   return !error && data?.can_view === true && data[field] === true
+ }
+ const operationGrants = {createParcel:['parcels','create'], testing:['purchasing','view'], testingSave:['purchasing','edit'], testingIssue:['purchasing','create'], testingComplete:['purchasing','edit']}
+ if(Object.hasOwn(operationGrants,action) && !await hasGrant(...operationGrants[action])) return err(res,403,'Permission required')
  if(action==='createParcel'&&req.method==='POST'){
    const payload=req.body?.parcel
    if(!payload||typeof payload!=='object'||!Array.isArray(payload.items)||!Array.isArray(payload.custom_items))return err(res,400,'Invalid parcel data')
@@ -494,7 +503,8 @@ export default async function handler(req,res){
 
  const type=req.method==='GET'?req.query.type:req.body?.type
  const table=tables[type]
- if(!table)return err(res,400,'Invalid data type')
+ if(!['addresses','contacts','snapshots'].includes(type))return err(res,400,'Invalid data type')
+ if(!await hasGrant(type==='snapshots'?'parcels':'buyers',req.method==='GET'?'view':'edit'))return err(res,403,'Permission required')
  if(type==='snapshots'){
    const parcelId=String(req.method==='GET'?req.query.parcelId:req.body?.parcelId||'')
    if(!parcelId)return err(res,400,'Parcel ID required')
@@ -533,7 +543,7 @@ export default async function handler(req,res){
    return error?err(res,500,'Could not load buyer details'):res.json({data:data||[]})
  }
  if(action!=='sync')return err(res,400,'Invalid action')
- if(!['admin','manager'].includes(String(user.role||'').toLowerCase()))return err(res,403,'Administrator or manager access required')
+
  const rows=req.body?.rows
  if(!Array.isArray(rows)||rows.length>100)return err(res,400,'Invalid records')
  if(rows.length&&rows.filter(r=>r.is_default).length!==1)return err(res,400,'Select exactly one default')

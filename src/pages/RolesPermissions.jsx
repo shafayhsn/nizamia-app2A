@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { accountRequest } from '../lib/accounts'
 import { MODULES, ACTIONS } from '../lib/permissions'
 
 const actionLabels = { view: 'View', create: 'Create', edit: 'Edit', delete: 'Delete' }
@@ -28,7 +28,7 @@ export default function RolesPermissions() {
   async function loadRoles() {
     setLoading(true)
     try {
-      const { data, error } = await supabase.from('roles').select('id, name, created_at').order('name')
+      const { data, error } = await accountRequest('accountRoles')
       if (error) throw error
       const list = data || []
       setRoles(list)
@@ -46,7 +46,7 @@ export default function RolesPermissions() {
       setPerms(blankPerms(true))
       return
     }
-    const { data, error } = await supabase.from('permissions').select('*').eq('role_id', roleId)
+    const { data, error } = await accountRequest('accountRoleRights',{roleId}).catch(error=>({error}))
     if (error) {
       alert(`Error loading permissions: ${error.message}`)
       return
@@ -70,9 +70,7 @@ export default function RolesPermissions() {
     if (name === 'admin') return alert('Admin role already exists and is locked.')
     setSaving(true)
     try {
-      const { data, error } = await supabase.from('roles').insert({ name }).select('id, name, created_at').single()
-      if (error) throw error
-      await Promise.all(MODULES.map(m => supabase.from('permissions').insert({ role_id: data.id, module: m.key })))
+      const data=await accountRequest('accountSaveRights',{name,rows:MODULES.map(m=>({module:m.key}))})
       setNewRoleName('')
       await loadRoles()
       setSelectedId(data.id)
@@ -103,7 +101,7 @@ export default function RolesPermissions() {
         can_edit: !!perms[m.key]?.edit,
         can_delete: !!perms[m.key]?.delete,
       }))
-      const { error } = await supabase.from('permissions').upsert(rows, { onConflict: 'role_id,module' })
+      const { error } = await accountRequest('accountSaveRights',{roleId:selectedId,rows})
       if (error) throw error
       setSaved(true)
       setTimeout(() => setSaved(false), 1500)

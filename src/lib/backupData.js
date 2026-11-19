@@ -107,7 +107,7 @@ const BATCH_SIZE = 500
  */
 const PAGE_SIZE = 500
 export const BACKUP_STORAGE_BUCKETS = ['company-assets']
-const PROTECTED_BACKUP_TABLES = new Set(['purchase_orders','purchase_order_items','purchase_order_changelog','po_approval_requests','buyer_addresses','buyer_contacts','parcel_invoice_snapshots','testing_orders','testing_requirements','costing_batches','costing_sheets','costing_sheet_versions','parcel_status_history','pp_meetings','proforma_invoices','proforma_invoice_revisions'])
+const PROTECTED_BACKUP_TABLES = new Set(['roles','permissions','purchase_orders','purchase_order_items','purchase_order_changelog','po_approval_requests','buyer_addresses','buyer_contacts','parcel_invoice_snapshots','testing_orders','testing_requirements','costing_batches','costing_sheets','costing_sheet_versions','parcel_status_history','pp_meetings','proforma_invoices','proforma_invoice_revisions'])
 
 /** Fail closed: a missing or inaccessible table must never be recorded as empty. */
 async function fetchTable(tableName) {
