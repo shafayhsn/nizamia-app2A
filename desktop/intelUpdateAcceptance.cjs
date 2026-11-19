@@ -23,6 +23,7 @@ async function main(){
  const old=spawn(binary,[],{stdio:'ignore'})
  const settings=await until(()=>fs.readdirSync(support).filter(n=>/nizamia/i.test(n)).map(n=>path.join(support,n,'local-database-settings.json')).find(p=>fs.existsSync(p)),'Installed 0.1.11 did not initialize its database')
  const profile=path.dirname(settings),directory=JSON.parse(fs.readFileSync(settings)).databaseDirectory,dbFile=path.join(directory,'nizamia-app2a.sqlite')
+ console.log('Located previous profile:',profile,'and SQLite folder:',directory)
  console.log('Closing the CI copy of 0.1.11 before seeding its offline queue')
  const stopped=()=>old.exitCode!==null||old.signalCode!==null
  old.kill('SIGTERM')
@@ -47,7 +48,16 @@ async function main(){
  const ready=path.join(profile,'desktop-update-ready.txt'),pending=path.join(profile,'desktop-update-pending.json')
  const {token}=JSON.parse(fs.readFileSync(pending))
  try{await until(()=>fs.existsSync(ready)&&fs.readFileSync(ready,'utf8')===token&&!fs.existsSync(pending),'Updated app did not confirm startup')}
- catch(e){console.error(fs.readFileSync(path.join(profile,'Update Helper/latest-install.log'),'utf8'));throw e}
+ catch(e){
+   console.error(fs.readFileSync(path.join(profile,'Update Helper/latest-install.log'),'utf8'))
+   for(const name of fs.readdirSync(support).filter(n=>/nizamia|nzos/i.test(n))){
+     const dir=path.join(support,name)
+     console.error(name,fs.readdirSync(dir))
+     const errorFile=path.join(dir,'last-startup-error.txt')
+     if(fs.existsSync(errorFile))console.error(fs.readFileSync(errorFile,'utf8'))
+   }
+   throw e
+ }
  assert.equal(execFileSync('/usr/libexec/PlistBuddy',['-c','Print :CFBundleShortVersionString',path.join(target,'Contents/Info.plist')],{encoding:'utf8'}).trim(),version)
  const migrated=JSON.parse(fs.readFileSync(settings))
  assert.equal(path.basename(migrated.workspaceRoot),'NZOS')

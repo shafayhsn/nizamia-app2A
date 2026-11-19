@@ -2,7 +2,7 @@
 
 Install NZOS.app in Applications. At the first location prompt, select a folder inside your Mac account. NZOS creates Database, Downloads, Backups, App Assets and Source Code inside an NZOS folder at that location. Close any older copy of the app before opening the new one.
 
-The in-app upgrade from 0.1.11 uses the compatibility DMG. Its Finder filename stays Nizamia App-2A.app. The running application identifies itself as NZOS. The automatic upgrade places its workspace in Documents/NZOS. The existing database is copied with a verified backup before the active database setting changes.
+The in-app upgrade from 0.1.11 uses the compatibility DMG. Its Finder filename stays Nizamia App-2A.app. The running application identifies itself as NZOS. The automatic upgrade places its workspace in an NZOS folder beside the existing database folder. The existing database is copied with a verified backup before the active database setting changes.
 
 Sign in online once and check Connected. Supported PDF exports write the user-selected copy and a second copy in Downloads in the NZOS workspace. Database backups are available under NZOS → Mac Maintenance to an administrator. Recovery verifies the selected file and creates a separate copy.
 

@@ -10,7 +10,11 @@ const {createLocalAuth}=require('./localDesktopAuth.cjs')
 const {readSettings,saveSettings}=require('./localDatabase.cjs')
 const {prepareWorkspace,archivePdf,privateFolder}=require('./nzosWorkspace.cjs')
 if(app.isPackaged && process.platform==='darwin') {
-  const profile=app.commandLine.getSwitchValue('user-data-dir') || path.join(app.getPath('appData'),'Nizamia App-2A')
+  const support=app.getPath('appData')
+  const profiles=[app.getPath('userData'),path.join(support,'nizamia-app2a-desktop'),path.join(support,'Nizamia App-2A')]
+  const pending=profiles.find(dir=>fs.existsSync(path.join(dir,'desktop-update-pending.json')))
+  const configured=profiles.find(dir=>fs.existsSync(path.join(dir,'local-database-settings.json')))
+  const profile=app.commandLine.getSwitchValue('user-data-dir') || pending || configured || path.join(support,'NZOS')
   fs.mkdirSync(profile,{recursive:true,mode:0o700})
   app.setPath('userData',profile)
   if(!app.requestSingleInstanceLock())app.exit(0)
@@ -171,8 +175,10 @@ async function startDesktop() {
     let directory=getDatabaseDirectory()
     if (!readSettings().workspaceRoot) {
       const saved=readSettings()
-      let selected=saved.workspaceParent||app.getPath('documents')
-      if (!saved.workspaceParent && app.isPackaged && !fs.existsSync(path.join(app.getPath('userData'),'desktop-update-pending.json'))) {
+      // The old helper waits for startup. Migrate beside its verified database without a new Documents permission prompt.
+      const upgrading=fs.existsSync(path.join(app.getPath('userData'),'desktop-update-pending.json'))
+      let selected=saved.workspaceParent||(upgrading&&directory?path.dirname(directory):app.getPath('documents'))
+      if (!saved.workspaceParent && app.isPackaged && !upgrading) {
         const choice=await dialog.showOpenDialog({title:'Choose NZOS Location',defaultPath:selected,properties:['openDirectory','createDirectory']})
         if(choice.canceled){app.quit();return}
         selected=choice.filePaths[0]
@@ -212,6 +218,8 @@ async function startDesktop() {
     // Confirm only after the local database passed startup verification.
     try{require('./desktopUpdateLaunch.cjs').confirmSuccessfulStartup({userData:app.getPath('userData'),version:app.getVersion()})}catch(error){console.error('Update startup confirmation failed:',error)}
   } catch(error) {
+    console.error('NZOS startup failed:',error.message)
+    try{fs.writeFileSync(path.join(app.getPath('userData'),'last-startup-error.txt'),error.message,{mode:0o600})}catch{}
     dialog.showErrorBox('Standalone startup failed',error.message+'\n\nKeep your existing database and backups. Close NZOS before recovering the workspace.')
   }
 }
