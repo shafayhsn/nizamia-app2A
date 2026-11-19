@@ -9,6 +9,10 @@ export async function accountAction(req,res,db,user,action){
   return error?fail(503,'Account directory unavailable'):res.json({data})
  }
  if(user.role!=='admin')return fail(403,'Administrator access required')
+ if(action==='accountRoles'&&req.method==='GET'){
+  const {data,error}=await db.from('roles').select('id,name').order('name')
+  return error?fail(503,'Roles unavailable'):res.json({data})
+ }
  if(action==='accountList'&&req.method==='GET'){
   const {data,error}=await db.from('users').select(accountColumns).order('created_at',{ascending:false})
   return error?fail(503,'Accounts unavailable'):res.json({data})

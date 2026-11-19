@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { can } from '../lib/permissions'
+import { useAuth } from '../lib/authContext'
 import { useNavigate } from 'react-router-dom'
 import { Calculator, Truck, Layers, Activity, Tag, Box, Scale, Palette, BookImage, BookOpen, ShieldCheck, X, Construction } from 'lucide-react'
 import { ThreadCalc, CBMCalc, GSMFinder, PantoneConverter } from '../components/tools/ToolsTray'
@@ -27,6 +29,7 @@ function SewingThreadTool(){const [mode,setMode]=useState('smart');useEffect(()=
 const card={border:'1px solid #e1e5eb',borderRadius:12,background:'#fff',boxShadow:'0 1px 3px #1018280b'}
 export default function Features(){
   const navigate=useNavigate()
+  const {userRole}=useAuth()
   const [active,setActive]=useState(null)
   const feature=FEATURES.find(x=>x.id===active)
   const Tool=COMPONENTS[active]
@@ -35,7 +38,7 @@ export default function Features(){
     <div style={{marginBottom:16,flexShrink:0}}><h1 style={{fontSize:24,fontWeight:750,margin:0,color:'#1a1a2e'}}>Features</h1></div>
     <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:10,flexShrink:0,color:'#667085',fontSize:13,fontWeight:750,letterSpacing:'.35px'}}><Calculator size={17}/> PRODUCTION UTILITIES</div>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:12,marginBottom:18,flexShrink:0}}>
-      {FEATURES.map(f=><button key={f.id} onClick={()=>f.id==='costing'?navigate('/features/costing'):setActive(f.id)} style={{...card,cursor:'pointer',minHeight:96,padding:'10px 10px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:7,fontFamily:'inherit',position:'relative'}} title={f.ready?'Open '+f.label:f.label+' · Not configured yet'}>
+      {FEATURES.filter(f=>f.id!=='costing'||can(userRole,'features/costing')).map(f=><button key={f.id} onClick={()=>f.id==='costing'?navigate('/features/costing'):setActive(f.id)} style={{...card,cursor:'pointer',minHeight:96,padding:'10px 10px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:7,fontFamily:'inherit',position:'relative'}} title={f.ready?'Open '+f.label:f.label+' · Not configured yet'}>
         <span style={{width:35,height:35,borderRadius:'50%',display:'grid',placeItems:'center',background:f.color+'12',color:f.color}}><f.icon size={19} strokeWidth={1.9}/></span>
         <span style={{fontSize:13,fontWeight:650,color:'#344054',textAlign:'center'}}>{f.label}</span>
         {!f.ready&&<span style={{position:'absolute',right:9,top:9,fontSize:9,color:'#98a2b3'}}>Coming soon</span>}

@@ -25,7 +25,7 @@ const NAV_GROUPS = [
   },
   {
     heading: 'Operations',
-    items: [{ to: '/reports', icon: BarChart3, label: 'Reports', module: 'reports' }, { to: '/tasks', icon: ClipboardCheck, label: 'Tasks', module: 'tasks' }, { to: '/production', icon: Factory, label: 'Production', module: 'orders' }],
+    items: [{ to: '/reports', icon: BarChart3, label: 'Reports', module: 'reports' }, { to: '/tasks', icon: ClipboardCheck, label: 'Tasks', module: 'tasks' }, { to: '/production', icon: Factory, label: 'Production', module: 'production' }],
   },
   {
     heading: 'Database',
@@ -93,33 +93,10 @@ export default function Sidebar({ onOpenDeadlines }) {
     .map(p => [String(p.id), p])).values()]
 
 
-  const disabledItem = (Icon, label, key) => (
-    <div key={key || label} title="No permission" style={{
-      display: 'flex', alignItems: 'center', gap: 10, padding: collapsed ? '8px 0' : '6px 12px',
-      justifyContent: collapsed ? 'center' : 'flex-start', margin: '1px 0', borderRadius: 7,
-      fontSize: 13, fontWeight: 400, color: '#c4c7cf', background: 'transparent', cursor: 'not-allowed', opacity: 0.82,
-    }}>
-      <Icon size={16} strokeWidth={1.8} style={{ flexShrink: 0 }} />
-      {!collapsed && <span style={{ whiteSpace: 'nowrap' }}>{label}</span>}
-    </div>
-  )
-
-  const navBtn = (icon, label, onClick) => (
-    <button onClick={onClick} title={collapsed ? label : undefined} style={{
-      display: 'flex', alignItems: 'center',
-      gap: 10, padding: collapsed ? '8px 0' : '6px 12px',
-      justifyContent: collapsed ? 'center' : 'flex-start',
-      background: 'none', border: 'none', cursor: 'pointer',
-      width: '100%', borderRadius: 7, color: SB_TEXT,
-      fontSize: 13, fontWeight: 400, fontFamily: 'var(--font)',
-    }}
-      onMouseEnter={e => e.currentTarget.style.background = SB_HOVER}
-      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-    >
-      {React.createElement(icon, { size: 16, strokeWidth: 1.8, style: { flexShrink: 0 } })}
-      {!collapsed && <span style={{ whiteSpace: 'nowrap' }}>{label}</span>}
-    </button>
-  )
+  const visibleGroups = NAV_GROUPS.map(group => ({
+    ...group,
+    items: group.items.filter(item => can(userRole, item.module, 'view')),
+  })).filter(group => group.items.length > 0)
 
   return (
     <>
@@ -170,7 +147,7 @@ export default function Sidebar({ onOpenDeadlines }) {
 
         {/* Nav */}
         <nav className="app-sidebar-nav" style={{ flex: 1, padding: '8px 8px 4px', overflowY: 'auto', overflowX: 'hidden', minHeight: 0 }}>
-          <NavLink to="/dashboard" title={collapsed ? 'Dashboard' : undefined} style={({ isActive }) => ({
+          {can(userRole, 'dashboard') && <NavLink to="/dashboard" title={collapsed ? 'Dashboard' : undefined} style={({ isActive }) => ({
             display: 'flex', alignItems: 'center',
             gap: 10, padding: collapsed ? '8px 0' : '6px 12px',
             justifyContent: collapsed ? 'center' : 'flex-start',
@@ -189,9 +166,9 @@ export default function Sidebar({ onOpenDeadlines }) {
                 {!collapsed && <span style={{ whiteSpace: 'nowrap' }}>Dashboard</span>}
               </>
             )}
-          </NavLink>
+          </NavLink>}
 
-          {NAV_GROUPS.map(group => (
+          {visibleGroups.map(group => (
             <div key={group.heading} style={{ marginBottom: collapsed ? 2 : 4 }}>
               {!collapsed && (
                 <div style={{
@@ -203,14 +180,7 @@ export default function Sidebar({ onOpenDeadlines }) {
                 </div>
               )}
 
-              {group.items.map(({ to, action, icon: Icon, label, module }) => {
-                const allowed = !module || can(userRole, module, 'view')
-
-                if (action === 'tools') {
-                  return allowed ? navBtn(Icon, label, () => navigate('/features')) : disabledItem(Icon, label)
-                }
-
-                return allowed ? (
+              {group.items.map(({ to, icon: Icon, label }) => (
                   <NavLink key={to} to={to} title={collapsed ? label : undefined} style={({ isActive }) => ({
                     display: 'flex', alignItems: 'center',
                     gap: 10, padding: collapsed ? '8px 0' : '6px 12px',
@@ -231,8 +201,7 @@ export default function Sidebar({ onOpenDeadlines }) {
                       </>
                     )}
                   </NavLink>
-                ) : disabledItem(Icon, label, to)
-              })}
+              ))}
             </div>
           ))}
         </nav>
@@ -264,9 +233,10 @@ export default function Sidebar({ onOpenDeadlines }) {
               {[
                 { icon: CalendarDays, label: 'Deadlines', action: onOpenDeadlines },
                 { icon: Settings, label: 'Settings', action: () => navigate('/settings'), module: 'settings' },
-                { icon: Blocks, label: 'Features', action: () => navigate('/features') },
+                { icon: Blocks, label: 'Features', module: 'features', action: () => navigate('/features') },
               ].map(({ icon: Icon, label, action, module }) => {
                 const allowed = !module || can(userRole, module, 'view')
+                if (!allowed) return null
                 return (
                   <button key={label} title={allowed ? label : 'No permission'} onClick={allowed ? action : undefined} disabled={!allowed} style={{
                     background: 'none', border: 'none', cursor: allowed ? 'pointer' : 'not-allowed',
@@ -288,10 +258,11 @@ export default function Sidebar({ onOpenDeadlines }) {
               {[
                 { icon: CalendarDays, label: 'Deadlines', action: onOpenDeadlines },
                 { icon: Settings, label: 'Settings', action: () => navigate('/settings'), module: 'settings' },
-                { icon: Blocks, label: 'Features', action: () => navigate('/features') },
+                { icon: Blocks, label: 'Features', module: 'features', action: () => navigate('/features') },
                 { icon: LogOut, label: 'Logout', action: logout },
               ].map(({ icon: Icon, label, action, module }) => {
                 const allowed = !module || can(userRole, module, 'view')
+                if (!allowed) return null
                 return (
                   <button key={label} title={allowed ? label : 'No permission'} onClick={allowed ? action : undefined} disabled={!allowed} style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'center',

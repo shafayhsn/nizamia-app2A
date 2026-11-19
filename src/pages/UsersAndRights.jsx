@@ -3,7 +3,6 @@ import { formatDate as appFormatDate } from '../lib/utils'
 // App-2A Users Management — simple app users + role assignment
 
 import React, { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
 import { accountRequest } from '../lib/accounts'
 import { useAuth } from '../lib/authContext'
 import { Plus, KeyRound, Ban } from 'lucide-react'
@@ -54,8 +53,7 @@ function UsersAndRights() {
   }
 
   const fetchRoles = async () => {
-    const { data, error } = await supabase.from('roles').select('id, name').order('name')
-    if (error) throw error
+    const { data } = await accountRequest('accountRoles')
     setRoles(data || [])
     if (!newRoleId) setNewRoleId((data || []).find(r => r.name === 'merchandiser')?.id || (data || [])[0]?.id || '')
     return data || []

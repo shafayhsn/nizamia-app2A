@@ -53,6 +53,7 @@ export default function RolesPermissions() {
     }
     const next = blankPerms(false)
     ;(data || []).forEach(row => {
+      if (row.module === 'settings') return
       next[row.module] = {
         view: !!row.can_view,
         create: !!row.can_create,
@@ -145,7 +146,7 @@ export default function RolesPermissions() {
         <div style={{ height: 50, padding: '0 14px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontWeight: 700, color: '#111827' }}>{selectedRole?.name || 'Select role'}</div>
-            <div style={{ fontSize: 11, color: '#6b7280' }}>{adminLocked ? 'Admin always has full access and cannot be edited.' : 'Tick permissions for this role.'}</div>
+            <div style={{ fontSize: 11, color: '#6b7280' }}>{adminLocked ? 'Admin always has full access and cannot be edited.' : 'Clear View to hide a page for everyone with this role.'}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {saved && <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 700 }}>Saved</span>}
@@ -165,7 +166,7 @@ export default function RolesPermissions() {
                 <td style={{ ...styles.td, fontWeight: 700 }}>{m.label}</td>
                 {ACTIONS.map(a => (
                   <td key={a} style={{ ...styles.td, textAlign: 'center' }}>
-                    <input type="checkbox" checked={!!perms[m.key]?.[a]} disabled={adminLocked} onChange={() => toggle(m.key, a)} />
+                    <input type="checkbox" checked={!!perms[m.key]?.[a]} disabled={adminLocked || m.key === 'settings'} onChange={() => toggle(m.key, a)} />
                   </td>
                 ))}
               </tr>

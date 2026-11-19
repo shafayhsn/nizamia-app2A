@@ -1,3 +1,4 @@
+import {purchasingLookup} from './poReview'
 import { supabase } from './supabase'
 
 const TABLES = [
@@ -57,7 +58,7 @@ export async function loadDeadlineEvents() {
   const events = []
   for (const cfg of TABLES) {
     try {
-      const { data, error } = await supabase.from(cfg.table).select('*')
+      const { data, error } = await (cfg.table==='purchase_orders' ? purchasingLookup(supabase.from(cfg.table).select('*')) : supabase.from(cfg.table).select('*'))
       if (error || !Array.isArray(data)) continue
       for (const row of data) {
         const fieldMap = cfg.fields || {}

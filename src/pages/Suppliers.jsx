@@ -1,3 +1,4 @@
+import {relatedPurchaseOrders} from '../lib/poReview'
 import MinimizableModal from '../components/ui/MinimizableModal'
 import React, { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
@@ -81,7 +82,7 @@ export default function Suppliers() {
   async function load() {
     const [{ data: sups }, { data: pos }, { data: wos }] = await Promise.all([
       supabase.from('suppliers').select('*').order('name'),
-      supabase.from('purchase_orders').select('supplier_id,status'),
+      location.protocol==='app2a:' ? supabase.from('purchase_orders').select('supplier_id,status') : relatedPurchaseOrders().then(data=>({data})),
       supabase.from('work_orders').select('vendor_id,status'),
     ])
     setSuppliers(sups || [])

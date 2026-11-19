@@ -1,3 +1,5 @@
+import {purchasingLookup} from '../lib/poReview'
+import { can } from '../lib/permissions'
 import {useLocation} from 'react-router-dom'
 import BookingRecords from './BookingRecords'
 import DirectShipment from './DirectShipment'
@@ -121,7 +123,6 @@ function OverrideReset({ show, onReset, label='Manual override' }) { if (!show) 
 function weekBounds(d=new Date()) { const x=new Date(d.getFullYear(), d.getMonth(), d.getDate()); const day=(x.getDay()+6)%7; const start=new Date(x); start.setDate(x.getDate()-day); const end=new Date(start); end.setDate(start.getDate()+6); return [start,end] }
 function monthBounds(d=new Date()) { return [new Date(d.getFullYear(), d.getMonth(), 1), new Date(d.getFullYear(), d.getMonth()+1, 0)] }
 function dateInRange(v, a, b) { const d=parseDateLoose(v); if(!d) return false; const x=new Date(d.getFullYear(), d.getMonth(), d.getDate()); return x>=a && x<=b }
-function safeRoleIsAdmin(roleName) { return String(roleName || '').toLowerCase() === 'admin' }
 function safeDateOnly(v) { return v ? String(v).slice(0,10) : '' }
 
 function parseDateLoose(v) {
@@ -1111,9 +1112,8 @@ export default function Shipping() {
   const [showModal, setShowModal] = useState(false)
   const [editDraft, setEditDraft] = useState(null)
   const [pastDraft, setPastDraft] = useState(undefined)
-  const { user, userRole } = useAuth()
-  const roleName = userRole?.role || userRole?.name || user?.role || ''
-  const isAdmin = safeRoleIsAdmin(roleName)
+  const { userRole } = useAuth()
+  const isAdmin = can(userRole, 'shipping.payments')
 
   useEffect(() => { load() }, [])
   useEffect(() => { if (!isAdmin && activeTab === 'payments') setActiveTab('create') }, [isAdmin, activeTab])
@@ -1123,7 +1123,7 @@ export default function Shipping() {
       supabase.from('order_queues').select('*').order('created_at', { ascending:true }),
       supabase.from('orders').select('*'),
       supabase.from('buyers').select('*'),
-      supabase.from('purchase_orders').select('id,order_id,notes,purchase_order_items(amount)'),
+      purchasingLookup(supabase.from('purchase_orders').select('id,order_id,notes,purchase_order_items(amount)')),
       supabase.from('size_groups').select('*'),
       supabase.from('size_group_breakdown').select('size_group_id,qty'),
       supabase.from('shipments').select('*').order('shipment_date', { ascending:false }),

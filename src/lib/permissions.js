@@ -13,6 +13,11 @@ export const MODULES = [
   { key: 'library', label: 'Library' },
   { key: 'reports', label: 'Reports' },
   { key: 'tasks', label: 'Tasks' },
+  { key: 'production', label: 'Production' },
+  { key: 'features', label: 'Features' },
+  { key: 'features/costing', label: 'Costing Sheet' },
+  { key: 'reports/pp-meeting', label: 'PP Meeting' },
+  { key: 'reports/custom', label: 'Custom Report Builder' },
   { key: 'settings', label: 'Settings' },
 ]
 
@@ -63,6 +68,7 @@ export function can(user, module, action = 'view') {
   const role = getRole(user)
   if (role === 'admin') return true
   const key = normalizeModule(module)
+  if (key === 'settings' || key === 'shipping.payments') return false
   const act = String(action || 'view').toLowerCase()
 
   const map = getPermissionMap(user)
@@ -84,16 +90,16 @@ export const access = {
   canCreatePO: (user) => can(user, 'purchasing', 'create'),
   canEditPO: (user) => can(user, 'purchasing', 'edit'),
   canPrintPO: (user) => can(user, 'reports', 'view'),
-  canApprovePO: (user) => can(user, 'purchasing', 'edit'),
+  canApprovePO: (user) => getRole(user) === 'admin',
   canViewQueues: (user) => can(user, 'dashboard', 'view'),
   canDownloadBackup: (user) => can(user, 'settings', 'view'),
-  canManageUsers: (user) => getRole(user) === 'admin' || can(user, 'settings', 'edit'),
+  canManageUsers: (user) => getRole(user) === 'admin',
 }
 
 export const poWorkflow = {
   canCreateDraft: (user) => can(user, 'purchasing', 'create'),
   canEditDraft: (user) => can(user, 'purchasing', 'edit'),
-  canApprovePO: (user) => can(user, 'purchasing', 'edit'),
+  canApprovePO: (user) => getRole(user) === 'admin',
   isDraft: (po) => po?.status === 'draft',
   isApproved: (po) => po?.status === 'approved',
 }
