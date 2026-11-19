@@ -2,6 +2,7 @@
 const fs=require('node:fs')
 const path=require('node:path')
 const crypto=require('node:crypto')
+const {hasUnresolvedUploads}=require('./snapshotReplaceGuard.cjs')
 const initSqlJs=require('sql.js')
 const filename='nizamia-app2a.sqlite'
 const maxBytes=1024*1024*1024
@@ -35,8 +36,8 @@ async function verifyDatabase(bytes,{compatible=false,rejectPending=false}={}){
    if(db.exec("SELECT value FROM app_metadata WHERE key='schema_version'")[0]?.values?.[0]?.[0]!=='1')
     throw Error('Unsupported backup schema version')
   }
-  if(rejectPending&&['standalone_records','snapshot_edits','offline_draft_journal'].some(name=>
-   tables.has(name)&&db.exec('SELECT 1 FROM '+name+' LIMIT 1').length))
+  if(rejectPending&&(hasUnresolvedUploads(db)||['standalone_records','snapshot_edits','offline_draft_journal'].some(name=>
+   tables.has(name)&&db.exec('SELECT 1 FROM '+name+' LIMIT 1').length)))
    throw Error('The active database contains local work. Restore the backup into a separate folder.')
  }finally{db.close()}
 }

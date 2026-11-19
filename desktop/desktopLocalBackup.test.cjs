@@ -34,6 +34,16 @@ async function main(){
   await assert.rejects(()=>backupDatabaseToFile({directory:live,destination}),/already exists/)
   await assert.rejects(()=>backupDatabaseToFile({directory:live,destination:path.join(live,'unsafe.sqlite')}),/outside/)
   assert.deepEqual(fs.readFileSync(source),before,'Backup must never modify live database')
+  for(const state of ['pending','conflict']){
+   const queued=new SQL.Database(Buffer.from(before))
+   queued.run('CREATE TABLE offline_mutation_outbox(state TEXT, intent_json TEXT)')
+   queued.run('INSERT INTO offline_mutation_outbox VALUES (?,?)',[state,'saved edit'])
+   const active=Buffer.from(queued.export())
+   queued.close()
+   fs.writeFileSync(source,active)
+   await assert.rejects(restoreDatabaseFromFile({directory:live,source:destination}),/contains local work/)
+   assert.deepEqual(fs.readFileSync(source),active)
+  }
   const withPending=new SQL.Database(Buffer.from(before))
   withPending.run('CREATE TABLE offline_draft_journal (state TEXT)')
   withPending.run("INSERT INTO offline_draft_journal VALUES ('pending')")

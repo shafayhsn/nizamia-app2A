@@ -1,6 +1,11 @@
 'use strict'
 // Never replace an imported snapshot while unsynchronized local work exists.
 // This runs before import begins and again immediately before atomic replacement.
+function hasUnresolvedUploads(db) {
+  const table = db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'")
+  return table.length > 0 && db.exec("SELECT 1 FROM offline_mutation_outbox WHERE state IS NOT 'applied' LIMIT 1").length > 0
+}
+
 function assertSnapshotReplaceSafe(db) {
   if (!db || typeof db.exec !== 'function') throw new Error('SQLite database required')
   const exists = db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_draft_journal'")
@@ -16,10 +21,11 @@ function assertSnapshotReplaceSafe(db) {
     if (!Number.isSafeInteger(count) || count < 0) throw new Error('Invalid imported-record edit state')
     if (count > 0) throw new Error('Snapshot import blocked: '+count+' locally edited or deleted imported record(s) would be lost. Back up or migrate these changes first. No data was replaced.')
   }
+  if (hasUnresolvedUploads(db)) throw new Error('Snapshot import blocked: unresolved local uploads must be preserved.')
   if (!exists.length) return
   const result = db.exec("SELECT COUNT(*) FROM offline_draft_journal WHERE state IN ('pending', 'conflict')")
   const count = result[0]?.values?.[0]?.[0]
   if (!Number.isSafeInteger(count) || count < 0) throw new Error('Invalid draft journal state')
   if (count > 0) throw new Error('Snapshot import blocked: ' + count + ' unsynchronized or conflicted local draft(s) must be safely resolved first. No data was replaced.')
 }
-module.exports = { assertSnapshotReplaceSafe }
+module.exports = { assertSnapshotReplaceSafe, hasUnresolvedUploads }

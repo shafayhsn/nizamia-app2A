@@ -28,6 +28,13 @@ async function main() {
     assert.throws(()=>assertSnapshotReplaceSafe(db),/locally edited or deleted imported record/)
     db.run('DELETE FROM snapshot_edits')
     assert.doesNotThrow(()=>assertSnapshotReplaceSafe(db))
+    db.run('CREATE TABLE offline_mutation_outbox (state TEXT)')
+    db.run("INSERT INTO offline_mutation_outbox VALUES ('applied')")
+    assert.doesNotThrow(()=>assertSnapshotReplaceSafe(db))
+    for(const state of ['pending','conflict']){
+      db.run('UPDATE offline_mutation_outbox SET state=?',[state])
+      assert.throws(()=>assertSnapshotReplaceSafe(db),/unresolved local uploads/)
+    }
     process.stdout.write('Snapshot replacement guard tests passed: pending/conflict edits block import.\n')
   } finally { db.close() }
 }
