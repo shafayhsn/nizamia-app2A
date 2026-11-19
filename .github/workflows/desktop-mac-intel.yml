@@ -357,6 +357,7 @@ jobs:
 
           (cd desktop/release && shasum -a 256 "$(basename "$dmg")" > "$(basename "$dmg").sha256")
       - name: Verify installed 0.1.9 upgrade with pending offline work
+        timeout-minutes: 9
         if: github.ref == 'refs/heads/feature/desktop-release-acceptance'
         env:
           GH_TOKEN: ${{ github.token }}
