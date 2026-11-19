@@ -1218,7 +1218,7 @@ export default function PrintPopup({ selectedOrders, onClose, onCreateProforma }
       else if (reportId === 'embellishment') html = await buildEmbellishmentPlan(selectedOrders)
       else if (reportId === 'finishing') html = await buildFinishingPlan(selectedOrders)
       else if (reportId === 'samples') html = await buildSampleCards(selectedOrders)
-      printHTML(html, targetWindow)
+      printHTML(html, targetWindow, REPORTS.find(report=>report.id===reportId)?.label || 'Order Report')
     } catch(e) {
       console.error(e)
       targetWindow.document.open()

@@ -379,6 +379,18 @@ jobs:
           expected="$(gh api repos/{owner}/{repo}/releases/tags/v0.1.11 --jq '.assets[] | select(.name=="Nizamia-App-2A-0.1.11.dmg") | .digest')"
           test "sha256:$(shasum -a 256 "$old" | cut -d' ' -f1)" = "$expected"
           node desktop/intelUpdateAcceptance.cjs "$old" desktop/compat/*.dmg
+      - name: Assemble owner source from the exact tested revision
+        run: |
+          mkdir -p "$RUNNER_TEMP/nzos-owner"
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/nzos-owner"
+          cp desktop/package-lock.json "$RUNNER_TEMP/nzos-owner/desktop/package-lock.json"
+          echo "$GITHUB_SHA" > "$RUNNER_TEMP/nzos-owner/SOURCE-REVISION"
+          (cd "$RUNNER_TEMP/nzos-owner" && zip -q -r "$GITHUB_WORKSPACE/NZOS-1.0.0-Source.zip" .)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: NZOS-owner-source
+          path: NZOS-1.0.0-Source.zip
+          retention-days: 14
       - name: Upload unsigned Intel Mac DMG
         uses: actions/upload-artifact@v7
         with:

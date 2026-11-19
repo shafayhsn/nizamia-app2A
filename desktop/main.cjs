@@ -1,7 +1,7 @@
 'use strict'
 const path = require('node:path')
 const { app, BrowserWindow, shell, dialog, Menu, protocol, net, safeStorage } = require('electron')
-const { chooseDatabaseFolder, showDatabaseLocation, getDatabaseDirectory, initializeDatabase } = require('./localDatabase.cjs')
+const { getDatabaseDirectory, initializeDatabase } = require('./localDatabase.cjs')
 const { importBackup } = require('./snapshotImport.cjs')
 const { inspectSnapshot } = require('./snapshotInspect.cjs')
 const { showLocalSnapshot } = require('./snapshotViewer.cjs')
@@ -158,12 +158,17 @@ async function openLocalData() {
     showLocalSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null, getDatabaseDirectory,enforceLocalDataScope)
   } catch (error) { dialog.showErrorBox('Local SQLite viewer', error.message) }
 }
+let initializing=null
+function ensureDesktop(){
+  if(!initializing)initializing=startDesktop().finally(()=>{initializing=null})
+  return initializing
+}
 async function startDesktop() {
   try {
     let directory=getDatabaseDirectory()
     if (!readSettings().workspaceRoot) {
       let selected=app.getPath('documents')
-      if (!directory && app.isPackaged) {
+      if (app.isPackaged && !fs.existsSync(path.join(app.getPath('userData'),'desktop-update-pending.json'))) {
         const choice=await dialog.showOpenDialog({title:'Choose NZOS Location',defaultPath:selected,properties:['openDirectory','createDirectory']})
         if(choice.canceled){app.quit();return}
         selected=choice.filePaths[0]
@@ -202,7 +207,7 @@ async function startDesktop() {
     // Confirm only after the local database passed startup verification.
     try{require('./desktopUpdateLaunch.cjs').confirmSuccessfulStartup({userData:app.getPath('userData'),version:app.getVersion()})}catch(error){console.error('Update startup confirmation failed:',error)}
   } catch(error) {
-    dialog.showErrorBox('Standalone startup failed',error.message+'\n\nChoose a database folder from the Database menu to recover. The cloud app will not open automatically.')
+    dialog.showErrorBox('Standalone startup failed',error.message+'\n\nKeep your existing database and backups. Close NZOS before recovering the workspace.')
   }
 }
 // The original App-2A React entry is bundled with the DMG. This opens that
@@ -368,7 +373,7 @@ app.whenReady().then(async () => {
         if(typeof input.html!=='string'||!input.html.startsWith('<html')||input.html.length>3000000)return Response.json({error:'Invalid report HTML'},{status:400})
         const filename=String(input.filename||'Nizamia Report').replace(/[^a-zA-Z0-9 _.-]/g,'').slice(0,100)||'Nizamia Report'
         pdfWindow=new BrowserWindow({show:false,width:1123,height:794,webPreferences:{sandbox:true,nodeIntegration:false,contextIsolation:true,webSecurity:true}})
-        await pdfWindow.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(input.html.replace(/<head[^>]*>/i,head=>head+'<meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; style-src &apos;unsafe-inline&apos;; img-src data:; font-src data:">')))
+        await pdfWindow.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(input.html.replace(/<head[^>]*>/i,head=>head+'<meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; style-src &apos;unsafe-inline&apos;; img-src data: https:; font-src data:">')))
         await pdfWindow.webContents.executeJavaScript('document.fonts.ready.then(()=>Promise.all([...document.images].map(i=>i.complete?Promise.resolve():new Promise(r=>{i.onload=r;i.onerror=r}))))')
         const pdf=await pdfWindow.webContents.printToPDF({printBackground:true,preferCSSPageSize:true})
         const owner=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows().find(w=>w!==pdfWindow)
@@ -763,24 +768,34 @@ app.whenReady().then(async () => {
           const directory=getDatabaseDirectory()
           if(!directory)throw Error('Choose a database folder before backing up.')
           const filename='nizamia-app2a-local-'+new Date().toISOString().replace(/[:.]/g,'-')+'.sqlite'
-          const selection=await dialog.showSaveDialog(owner,{title:'Back Up Local SQLite Database',defaultPath:path.join(privateFolder(readSettings().workspaceRoot,'Backups'),filename),buttonLabel:'Save Verified Backup',filters:[{name:'SQLite Database',extensions:['sqlite']}]})
-          if(selection.canceled||!selection.filePath)return
+          const destination=path.join(privateFolder(readSettings().workspaceRoot,'Backups'),filename)
           const {backupDatabaseToFile}=require('./desktopLocalBackup.cjs')
-          const result=await backupDatabaseToFile({directory,destination:selection.filePath})
+          const result=await backupDatabaseToFile({directory,destination})
           await dialog.showMessageBox(owner,{type:'info',title:'Local backup complete',message:'SQLite backup saved and verified',detail:'File: '+result.file+'\\nSHA-256: '+result.sha256+'\\n\\nThis backs up the Mac SQLite snapshot, not the Supabase cloud database.',buttons:['OK']})
         }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Local backup failed',message:'The local backup was not completed',detail:error.message,buttons:['OK']})}
       } },
       { label: 'Restore Backup to a New Folder…', click: async () => {
         const owner=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows()[0]
         try {
-          const selection=await dialog.showOpenDialog(owner,{
-            title:'Select an NZOS SQLite backup',defaultPath:privateFolder(readSettings().workspaceRoot,'Backups'),properties:['openFile'],
-            filters:[{name:'SQLite database',extensions:['sqlite']}]
-          })
-          if(selection.canceled||!selection.filePaths[0])return
+          const backups=privateFolder(readSettings().workspaceRoot,'Backups')
+          const candidates=fs.readdirSync(backups,{withFileTypes:true})
+            .filter(entry=>entry.isFile() && entry.name.endsWith('.sqlite'))
+            .map(entry=>({file:path.join(backups,entry.name),time:fs.statSync(path.join(backups,entry.name)).mtimeMs}))
+            .sort((a,b)=>b.time-a.time)
+          let source=candidates[0]?.file
+          if(source){
+            const answer=await dialog.showMessageBox(owner,{type:'question',message:'Recover the newest backup?',detail:path.basename(source),buttons:['Recover This Copy','Choose Another…','Cancel'],defaultId:0,cancelId:2})
+            if(answer.response===2)return
+            if(answer.response===1)source=null
+          }
+          if(!source){
+            const choice=await dialog.showOpenDialog(owner,{title:'Select an NZOS SQLite backup',defaultPath:backups,properties:['openFile'],filters:[{name:'SQLite database',extensions:['sqlite']}]})
+            if(choice.canceled)return
+            source=choice.filePaths[0]
+          }
           const directory=fs.mkdtempSync(path.join(app.getPath('userData'),'Recovered Database-'))
           const {restoreDatabaseFromFile}=require('./desktopLocalBackup.cjs')
-          const result=await restoreDatabaseFromFile({directory,source:selection.filePaths[0],separate:true})
+          const result=await restoreDatabaseFromFile({directory,source,separate:true})
           const answer=await dialog.showMessageBox(owner,{
             type:'info',title:'Verified database recovery',message:'The backup was restored to a separate folder.',
             detail:'The active database and its pending edits are still in their original folder. Recovered copy: '+result.file,
@@ -810,20 +825,6 @@ app.whenReady().then(async () => {
           await dialog.showMessageBox(parent,{type:'info',message:'Saved changes queued',
             detail:'App-2A will upload them when the cloud connection is available.'})
         }catch(error){await dialog.showMessageBox(parent,{type:'warning',message:'Saved changes could not be queued',detail:error.message})}
-      } },
-      { label: 'Refresh Snapshot from Cloud…', click: async () => {
-        const owner=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows()[0]
-        try{
-          if(!desktopAuth?.isAuthenticated())throw Error('Sign in to the desktop app first')
-          if(!onlineSnapshotToken)throw Error('Online enrollment required. Sign out, then sign in while connected to the internet to obtain a fresh cloud session.')
-          const result=await refreshCloudSnapshot(onlineSnapshotToken)
-          const message=result.status==='updated'?result.tables+' tables refreshed':
-           result.status==='current'?'Local cloud data is up to date':'A cloud refresh is already running or the session has ended'
-          const detail=result.unresolved?.length
-            ? result.unresolved.length+' records still need review. Their local edits are preserved.'
-            : undefined
-          await dialog.showMessageBox(owner,{type:'info',title:'Cloud snapshot',message,detail})
-        }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Cloud refresh not completed',message:'Your local database was not intentionally replaced',detail:error.message})}
       } },
       { label: 'Import Read-Only Snapshot…', click: () => importBackup(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },
       { label: 'Verify Local Snapshot…', click: () => inspectSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },
@@ -882,7 +883,7 @@ app.whenReady().then(async () => {
   rebuildMenu=()=>{
     const user=desktopAuth?.status().user
     const admin=user?.role==='admin'
-    const tools=maintenance.filter(item=>!item.label.startsWith('Refresh Snapshot')).map(item=>({...item,click:()=>{
+    const tools=maintenance.map(item=>({...item,click:()=>{
       if(desktopAuth?.status().user?.role==='admin')return item.click()
     }}))
     const submenu=[{role:'about'},update]
@@ -899,9 +900,9 @@ app.whenReady().then(async () => {
       {label:'Window',submenu:[{role:'minimize'},{role:'close'}]}]))
   }
   rebuildMenu()
-  startDesktop().catch(error => dialog.showErrorBox('Desktop startup', error.message))
+  ensureDesktop().catch(error => dialog.showErrorBox('Desktop startup', error.message))
   // Open the bundled original UI by default; the SQLite viewer remains in the menu.
   // Offline authentication and complete feature coverage still require integration.
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) startDesktop().catch(error => dialog.showErrorBox('Desktop startup', error.message)) })
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) ensureDesktop().catch(error => dialog.showErrorBox('Desktop startup', error.message)) })
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

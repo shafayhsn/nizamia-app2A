@@ -227,6 +227,8 @@ async function check(){
  assert.equal((await request(win,'/api/offline/pdf',{html:'<html><body>Area 3 offline print</body></html>',
   filename:'Area 3 offline print'})).ok,true)
  assert.equal(fs.readFileSync(pdfPath).subarray(0,5).toString(),'%PDF-')
+ const archiveFolder=path.join(profile,'NZOS','Downloads','Reports')
+ assert.ok(fs.readdirSync(archiveFolder).some(name=>fs.readFileSync(path.join(archiveFolder,name)).equals(fs.readFileSync(pdfPath))))
  assert.equal(uploads,0)
  online=true
  assert.equal((await login(win)).data.authenticated,true)
