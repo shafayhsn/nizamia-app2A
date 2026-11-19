@@ -1,0 +1,30 @@
+name: Publish verified Intel Mac 0.1.10 test update
+on:
+  push:
+    branches: [release/0.1.10]
+    paths: ['.github/workflows/publish-tested-mac-0.1.10.yml']
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SOURCE_SHA: 196969c602483945d386bf1cd00907559fb496db
+    steps:
+      - name: Verify and publish accepted installer
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GH_REPO/actions/runs/44465883453 --jq '.conclusion + ":" + .head_sha')" = "success:$SOURCE_SHA"
+          gh api repos/$GH_REPO/actions/artifacts/14501829189/zip > verified.zip
+          echo 'd0358e29b267b816541ea628cdefb917505708abcb7b6d517ed0ede04e524d3e  verified.zip' | sha256sum -c -
+          unzip -q verified.zip
+          sha256sum -c "Nizamia App-2A-0.1.10.dmg.sha256"
+          mv "Nizamia App-2A-0.1.10.dmg" Nizamia-App-2A-0.1.10.dmg
+          sha256sum Nizamia-App-2A-0.1.10.dmg > Nizamia-App-2A-0.1.10.dmg.sha256
+          gh release create v0.1.10 --draft --prerelease --target "$SOURCE_SHA" --title 'Nizamia App-2A 0.1.10 (Intel Mac test update)' --notes 'Unsigned Intel Mac test update. Includes the redesigned versioned sign-in screen and offline Order Metadata purchase-order lookup. The installed update from 0.1.9 was verified with pending offline work. Please verify two-way sync on your Mac before team rollout.' Nizamia-App-2A-0.1.10.dmg Nizamia-App-2A-0.1.10.dmg.sha256
+          test "$(gh release view v0.1.10 --json assets --jq '.assets[] | select(.name=="Nizamia-App-2A-0.1.10.dmg") | .digest')" = "sha256:$(cut -d' ' -f1 Nizamia-App-2A-0.1.10.dmg.sha256)"
+          gh release edit v0.1.10 --draft=false --prerelease
