@@ -21,10 +21,23 @@ function recordFailure(input,method,status,message){
   lastFailure={area,action,status:status||null,message:String(message||'Database request failed').slice(0,300),time:new Date().toISOString()}
   failed=true
 }
+const readCache=new Map()
+let cacheBytes=0
+let versionRequest=null
+function clearReadCache(){readCache.clear();cacheBytes=0;versionRequest=null}
+async function currentVersion(origin,headers){
+ if(versionRequest)return versionRequest
+ const proofHeaders=new Headers({'Content-Type':'application/json','Accept':'application/json'})
+ for(const name of ['apikey','authorization','x-nzos-edit-proof'])if(headers.has(name))proofHeaders.set(name,headers.get(name))
+ const pending=fetch(new URL('/rest/v1/rpc/nzos_read_versions',origin),{method:'POST',headers:proofHeaders,body:'{}',redirect:'error',cache:'no-store'})
+   .then(async response=>response.ok?await response.json():null)
+ versionRequest=pending
+ try{return await pending}finally{if(versionRequest===pending)versionRequest=null}
+}
 let proofInFlight=null
 let cachedProof=null
 let generation=0
-export function resetEditSession(){generation++;cachedProof=null;proofInFlight=null}
+export function resetEditSession(){generation++;clearReadCache();cachedProof=null;proofInFlight=null}
 async function sessionProof(){
   if(cachedProof && cachedProof.until>Date.now())return cachedProof.token
   if(proofInFlight)return proofInFlight
@@ -42,18 +55,40 @@ async function sessionProof(){
 }
 export async function trackedFetch(input,init={}) {
  const method=String(init?.method||'GET').toUpperCase()
- const isWrite=['POST','PATCH','PUT','DELETE'].includes(method)&&!String(typeof input==='string'?input:input?.url||input).includes('/auth/v1/')
+ const isSummary=String(input?.url||input).split('?')[0].endsWith('/rpc/nzos_dashboard_summary')
+ const isWrite=!isSummary&&['POST','PATCH','PUT','DELETE'].includes(method)&&!String(typeof input==='string'?input:input?.url||input).includes('/auth/v1/')
  if(isWrite){pending++;emit()}
  try {
    const target=new URL(typeof input==='string'?input:input?.url||String(input),location.href)
    const database=import.meta.env.VITE_SUPABASE_URL
+   let readKey=null,version=null
+   const epoch=generation
    if(database && target.origin===new URL(database).origin && target.pathname.startsWith('/rest/v1/')){
      const token=await sessionProof()
      const headers=new Headers(init.headers||input?.headers)
      headers.set('x-nzos-edit-proof',token)
      init={...init,headers,redirect:'error'}
+     // Only cache ordinary list reads from business tables covered by the journal.
+     const name=target.pathname.split('/').pop()
+     if(method==='GET' && !/[(!]/.test(target.searchParams.get('select')||'') && /^(orders|buyers|suppliers|samples|sample_comments|bom_items|fitting_blocks|parcels|shipment_lines|size_groups|size_group_colors|order_queues)$/.test(name)){
+       version=(await currentVersion(target.origin,headers))?.[name]
+       if(typeof version==='string'&&epoch===generation){
+         readKey=JSON.stringify([target.href,headers.get('range'),headers.get('range-unit'),headers.get('accept'),headers.get('prefer'),headers.get('accept-profile')])
+         const entry=readCache.get(readKey)
+         if(entry&&entry.version===version)return new Response(entry.bytes.slice(0),entry.init)
+       }
+     }else if(isWrite){versionRequest=null}
    }
    const response=await fetch(input,init)
+   if(readKey&&response.ok&&epoch===generation){
+     const bytes=await response.clone().arrayBuffer()
+     if(bytes.byteLength<=1024*1024 && epoch===generation){
+       if(cacheBytes+bytes.byteLength>8*1024*1024||readCache.size>=128)clearReadCache()
+       cacheBytes-=readCache.get(readKey)?.bytes.byteLength||0
+       readCache.set(readKey,{version,bytes,init:{status:response.status,headers:response.headers}})
+       cacheBytes+=bytes.byteLength
+     }
+   }
    if(isWrite){
      if(!response.ok){
        let detail=''
@@ -62,7 +97,7 @@ export async function trackedFetch(input,init={}) {
          detail=body?.message||body?.error_description||body?.error||body?.details||''
        }catch{}
        recordFailure(input,method,response.status,detail||response.statusText||'Database rejected the request')
-     }else lastSaved=new Date().toISOString()
+     }else{versionRequest=null;lastSaved=new Date().toISOString()}
    }
    return response
  }catch(err){

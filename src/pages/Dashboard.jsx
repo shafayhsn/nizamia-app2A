@@ -15,11 +15,8 @@ const statusBg    = { Draft: '#fff7ed', Confirmed: '#f0fdf4', Cancelled: '#fef2f
 export default function Dashboard() {
   const { user, userRole } = useAuth()
   const displayName = user?.username || user?.displayName || user?.email || 'there'
-  const [orders, setOrders]   = useState([])
-  const [loading, setLoading] = useState(true)
-  const [samples, setSamples] = useState([])
-  const [shipments, setShipments] = useState([])
-  const [shipmentLines, setShipmentLines] = useState([])
+  const [summary,setSummary]=useState({})
+  const [loading,setLoading]=useState(true)
   const [chartYear, setChartYear] = useState(new Date().getFullYear())
   const [monthlyTarget,setMonthlyTarget] = useState(25000)
   const [targetDraft,setTargetDraft] = useState('25000')
@@ -31,7 +28,7 @@ export default function Dashboard() {
   const [dataError, setDataError] = useState('')
   const navigate = useNavigate()
 
-  useEffect(() => { loadData(); loadMonthlyTarget() }, [])
+  useEffect(() => { loadMonthlyTarget() }, [])
 
   async function loadMonthlyTarget() {
     const {data,error}=await supabase.from('app_settings').select('value').eq('key','dashboard_monthly_shipment_target').maybeSingle()
@@ -52,80 +49,29 @@ export default function Dashboard() {
     setMonthlyTarget(n);setEditingTarget(false)
   }
 
-  async function loadData() {
+  useEffect(()=>{
+    let active=true
+    const now=new Date(), year=now.getFullYear(), month=now.getMonth()
+    const iso=date=>[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-')
+    const bounds=period=>{
+      if(period==='all')return ['0001-01-01','9999-12-31']
+      const y=period==='last'?year-1:year
+      const start=period==='month'?month:period==='quarter'?3*Math.floor(month/3):0
+      const length=period==='month'?1:period==='quarter'?3:12
+      return [iso(new Date(y,start,1)),iso(new Date(y,start+length,0))]
+    }
+    const [buyer_start,buyer_end]=bounds(buyerPeriod),[ots_start,ots_end]=bounds(otdPeriod)
     setLoading(true)
-    const [orderResult, sampleResult, shipmentResult, lineResult] = await Promise.all([
-      // Only fetch fields used by dashboard KPIs and charts; avoid transferring full order documents.
-      supabase.from('orders').select('id,status,ship_date,planned_date,po_date,total_qty,total_value_usd,buyer_name').order('created_at', {ascending:false}).range(0, 9999),
-      supabase.from('samples').select('id,order_id,due_date,status,approval_status').range(0,9999),
-      supabase.from('shipments').select('id,shipment_date,etd,notes').range(0,9999),
-      supabase.from('shipment_lines').select('shipment_id,order_id,shipped_qty').range(0,9999)
-    ])
-    setDataError(orderResult.error?.message || sampleResult.error?.message || '')
-    setOrders(orderResult.data || [])
-    setSamples(sampleResult.data || [])
-    setShipments(shipmentResult.data || [])
-    setShipmentLines(lineResult.data || [])
-    setLoading(false)
-  }
-
-  const today = new Date(); today.setHours(0,0,0,0)
-  const in21 = new Date(today); in21.setDate(today.getDate()+21)
-  const weekEnd = new Date(today); weekEnd.setDate(today.getDate()+7)
-  const monEnd = new Date(today.getFullYear(),today.getMonth()+1,0)
-  const active = orders.filter(o => !['Cancelled','Shipped','Completed'].includes(o.status))
-  const samplesWeek = samples.filter(s => s.due_date && new Date(s.due_date) >= today && new Date(s.due_date) <= weekEnd && !['completed','approved','cancelled'].includes(String(s.status||s.approval_status||'').toLowerCase()))
-  const shipmentsWeek = active.filter(o => o.ship_date && new Date(o.ship_date) >= today && new Date(o.ship_date) <= weekEnd)
-  const overdue = samples.filter(s => s.due_date && new Date(s.due_date) < today && !['completed','approved','cancelled'].includes(String(s.status||s.approval_status||'').toLowerCase()))
-  const totalQty = active.reduce((sum,o)=>sum+(Number(o.total_qty)||0),0)
-  const totalValue = active.reduce((sum,o)=>sum+(Number(o.total_value_usd)||0),0)
-
-  const inPeriod=(value,period)=>{
-    if(!value)return false
-    const d=new Date(String(value).slice(0,10)+'T12:00:00')
-    if(isNaN(d))return false
-    if(period==='all')return true
-    if(period==='last')return d.getFullYear()===today.getFullYear()-1
-    if(d.getFullYear()!==today.getFullYear())return false
-    if(period==='month')return d.getMonth()===today.getMonth()
-    if(period==='quarter')return Math.floor(d.getMonth()/3)===Math.floor(today.getMonth()/3)
-    return true
-  }
+    supabase.rpc('nzos_dashboard_summary',{day:iso(now),chart_year:chartYear,buyer_start,buyer_end,ots_start,ots_end}).then(({data,error})=>{
+      if(!active)return
+      setSummary(data||{});setDataError(error?.message||(!data?'Dashboard unavailable':''));setLoading(false)
+    })
+    return ()=>{active=false}
+  },[chartYear,buyerPeriod,otdPeriod,user?.id])
+  const totalQty=summary.totalQty||0,topBuyers=summary.buyers||[],maxBuyerVal=topBuyers[0]?.[1]||1
   const periodSelect=(value,onChange)=><select value={value} onChange={e=>onChange(e.target.value)} style={{border:'1px solid var(--border)',borderRadius:6,padding:'4px 5px',fontSize:10,background:'#fff',maxWidth:105}}>
     <option value="month">This Month</option><option value="quarter">This Quarter</option><option value="year">This Year</option><option value="last">Last Year</option><option value="all">All Time</option>
   </select>
-  const buyerMap = {}
-  orders.filter(o=>o.status!=='Cancelled' && inPeriod(o.po_date || o.ship_date || o.planned_date,buyerPeriod)).forEach(o=>{
-    if(!o.buyer_name)return
-    const buyer=o.buyer_name.trim()
-    buyerMap[buyer]=(buyerMap[buyer]||0)+(Number(o.total_value_usd)||0)
-  })
-  // OTS: one result per shipment/order pair. Standalone historical shipments
-  // have no committed order date and cannot be classified reliably.
-  const orderById=Object.fromEntries(orders.map(o=>[o.id,o]))
-  const shipmentById=Object.fromEntries(shipments.map(sh=>[sh.id,sh]))
-  const otsPairs=new Set()
-  const otsRecords=[]
-  shipmentLines.forEach(line=>{
-    if(!line.order_id || !line.shipment_id)return
-    const key=line.shipment_id+':'+line.order_id
-    if(otsPairs.has(key))return
-    otsPairs.add(key)
-    const sh=shipmentById[line.shipment_id],order=orderById[line.order_id]
-    if(!sh?.shipment_date || !order?.ship_date || order.status==='Cancelled')return
-    otsRecords.push({actual:sh.shipment_date,committed:order.ship_date,delay:Math.max(0,Math.round((new Date(sh.shipment_date+'T12:00:00')-new Date(order.ship_date+'T12:00:00'))/86400000))})
-  })
-  const topBuyers=Object.entries(buyerMap).sort((a,b)=>b[1]-a[1]).slice(0,5)
-  const maxBuyerVal=topBuyers[0]?.[1]||1
-
-  function fmtDate(d) { return appFormatDate(d) }
-  function dateColor(d) {
-    if (!d) return undefined
-    const dt = new Date(d)
-    if (dt < today) return '#dc2626'
-    if (dt <= in21) return '#d97706'
-    return undefined
-  }
   function fmtK(v) {
     if (v >= 1000000) return `$${(v / 1000000).toFixed(1)}M`
     if (v >= 1000) return `$${Math.round(v / 1000)}k`
@@ -134,7 +80,7 @@ export default function Dashboard() {
 
   const STATS = [
     {
-      label: 'Active Orders', value: active.length,
+      label: 'Active Orders', value: summary.active||0,
       sub: 'Excludes shipped and cancelled orders',
       icon: ClipboardList, iconColor: '#3b82f6', iconBg: '#eff6ff',
     },
@@ -144,19 +90,19 @@ export default function Dashboard() {
       icon: Layers, iconColor: '#8b5cf6', iconBg: '#f5f3ff',
     },
     {
-      label: 'Shipments Due (Week)', value: shipmentsWeek.length,
-      sub: `${active.filter(o => o.ship_date && new Date(o.ship_date) >= today && new Date(o.ship_date) <= monEnd).length} remaining this month`,
+      label: 'Shipments Due (Week)', value: summary.shipsWeek||0,
+      sub: `${summary.shipsMonth||0} remaining this month`,
       icon: Ship, iconColor: '#10b981', iconBg: '#ecfdf5',
     },
     {
-      label: 'Sample Room WIP', value: String(samples.filter(x=>['requested','pending'].includes(String(x.status||'').toLowerCase())).length).padStart(2,'0'),
+      label: 'Sample Room WIP', value: String(summary.wip||0).padStart(2,'0'),
       sub: 'Requested + pending samples',
       icon: Scissors, iconColor: '#ef4444', iconBg: '#fff0ed',
     },
     {
-      label: 'Samples Due (Week)', value: samplesWeek.length,
-      sub: overdue.length > 0 ? `${overdue.length} overdue` : 'On track',
-      subColor: overdue.length > 0 ? '#d97706' : undefined,
+      label: 'Samples Due (Week)', value: summary.samplesWeek||0,
+      sub: (summary.overdue||0) > 0 ? `${(summary.overdue||0)} overdue` : 'On track',
+      subColor: (summary.overdue||0) > 0 ? '#d97706' : undefined,
       icon: AlertTriangle, iconColor: '#f59e0b', iconBg: '#fffbeb',
     },
   ]
@@ -172,34 +118,7 @@ export default function Dashboard() {
 
   // Closed months show actual shipments; open months show actual + remaining scheduled.
   const monthlyShipments = Array.from({length:12},(_,month)=>({month,actual:0,remaining:0}))
-  const shippedByOrder = {}
-  const linesByShipment = {}
-  shipmentLines.forEach(line=>{
-    const qty = Math.max(0,Number(line.shipped_qty)||0)
-    linesByShipment[line.shipment_id]=(linesByShipment[line.shipment_id]||0)+qty
-    if(line.order_id) shippedByOrder[line.order_id]=(shippedByOrder[line.order_id]||0)+qty
-  })
-  shipments.forEach(sh=>{
-    let historical = {}
-    try {
-      const match = String(sh.notes||'').match(/\[\[APP2A_SHIPPING_META:([A-Za-z0-9+/=]+)\]\]/)
-      historical = match ? (JSON.parse(atob(match[1])).historical || {}) : (JSON.parse(sh.notes||'{}').historical || {})
-    } catch {}
-    const dateString = sh.etd || historical.etd || sh.shipment_date
-    const date = dateString ? new Date(String(dateString).slice(0,10)+'T12:00:00') : null
-    if(!date || isNaN(date) || date.getFullYear()!==chartYear) return
-    const lineQty = linesByShipment[sh.id] || 0
-    const historicalQty = Number(historical.qty)||0
-    monthlyShipments[date.getMonth()].actual += historicalQty || lineQty
-  })
-  orders.forEach(order=>{
-    if(['Cancelled','Shipped','Completed'].includes(order.status)) return
-    const dateString=order.ship_date || order.planned_date
-    const date=dateString ? new Date(dateString+'T12:00:00') : null
-    if(!date || isNaN(date) || date.getFullYear()!==chartYear) return
-    const remaining=Math.max(0,(Number(order.total_qty)||0)-(shippedByOrder[order.id]||0))
-    monthlyShipments[date.getMonth()].remaining+=remaining
-  })
+  for(const row of summary.months||[])monthlyShipments[row.month]=row
   const now=new Date()
   const isClosedMonth=month=>chartYear<now.getFullYear() || (chartYear===now.getFullYear() && month<now.getMonth())
   const chartMax=Math.max(1,monthlyTarget,...monthlyShipments.map(d=>isClosedMonth(d.month)?d.actual:d.actual+d.remaining))
@@ -330,11 +249,8 @@ export default function Dashboard() {
             {periodSelect(otdPeriod,setOtdPeriod)}
           </div>
           {(() => {
-            const periodRecords = otsRecords.filter(rec=>inPeriod(rec.actual,otdPeriod))
-            const onTime = periodRecords.filter(rec=>rec.delay===0).length
-            const pct = periodRecords.length ? Math.round(100*onTime/periodRecords.length) : 0
-            const late = periodRecords.filter(rec=>rec.delay>0)
-            const averageDelay = late.length ? (late.reduce((sum,rec)=>sum+rec.delay,0)/late.length).toFixed(1) : '0'
+            const count=summary.ots?.count||0,onTime=summary.ots?.onTime||0
+            const pct=count?Math.round(100*onTime/count):0,averageDelay=Number(summary.ots?.average||0).toFixed(1)
             const r = 40, circ = 2 * Math.PI * r
             const dash = (pct / 100) * circ
             return (
@@ -347,16 +263,16 @@ export default function Dashboard() {
                       transform="rotate(-90 50 50)" />
                   </svg>
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ fontSize: 24, fontWeight: 700 }}>{periodRecords.length ? pct+'%' : '—'}</span>
-                    <span style={{ fontSize: 9, color: 'var(--text-light)' }}>{periodRecords.length ? 'ON TIME' : 'NO DATA'}</span>
+                    <span style={{ fontSize: 24, fontWeight: 700 }}>{count ? pct+'%' : '—'}</span>
+                    <span style={{ fontSize: 9, color: 'var(--text-light)' }}>{count ? 'ON TIME' : 'NO DATA'}</span>
                   </div>
                 </div>
                 <div style={{ width: '100%', fontSize: 11 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                     <span style={{ color: 'var(--text-light)' }}>On-time shipments</span>
-                    <span style={{ fontWeight: 600 }}>{onTime} / {periodRecords.length}</span>
+                    <span style={{ fontWeight: 600 }}>{onTime} / {count}</span>
                   </div>
-                  {periodRecords.length > 0 && (
+                  {count > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: 'var(--text-light)' }}>Avg. late dispatch</span>
                       <span style={{ fontWeight: 600, color: '#d97706' }}>{averageDelay} days</span>

@@ -370,12 +370,45 @@ export default function SamplingApprovals() {
     setSelectedIds([]);setViewTab(next)
   }
 
-  useEffect(() => { load() }, [refreshKey])
+  useEffect(()=>{
+    let active=true,busy=false,checkpoint=null
+    const page=async after=>{
+      const response=await fetch('/api/oms',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'samplingChanges',after})})
+      if([401,403].includes(response.status)){if(active)location.reload();throw Error('Session changed')}
+      if(!response.ok)throw Error('Refresh unavailable')
+      return response.json()
+    }
+    const refresh=async()=>{
+      if(!active||busy||document.hidden)return
+      busy=true
+      try{
+        let result=await page(checkpoint)
+        if(!active)return
+        if(checkpoint===null||result.reset||result.refreshRelated){
+          if(!await load(()=>active))return
+        }else{
+          for(const [table,setRows] of [['samples',setSamples],['sample_comments',setSampleComments]]){
+            const ids=new Set(result.changes.filter(([t])=>t===table).map(([,id])=>id))
+            if(!ids.size)continue
+            const {data,error}=await supabase.from(table).select('*').in('id',[...ids])
+            if(error||!active)return
+            setRows(rows=>[...rows.filter(r=>!ids.has(String(r.id))),...data].sort((a,b)=>table==='samples'?String(b.created_at).localeCompare(String(a.created_at)):String(a.comment_date).localeCompare(String(b.comment_date))))
+          }
+        }
+        checkpoint=result.revision
+        if(result.more&&active)setTimeout(refresh,0)
+      }catch{if(checkpoint===null&&active)await load(()=>active)}finally{busy=false}
+    }
+    refresh()
+    const timer=setInterval(refresh,300000)
+    document.addEventListener('visibilitychange',refresh)
+    return ()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',refresh)}
+  },[refreshKey])
   useEffect(() => {
     try { sessionStorage.setItem(SETTINGS_KEY,JSON.stringify({...tabSettings,[viewTab]:{groupBy,sortBy,filterBuyer,filterType,filterStage,filterApproval,query}})) } catch {}
   },[groupBy,sortBy,filterBuyer,filterType,filterStage,filterApproval,query,viewTab])
 
-  async function load() {
+  async function load(isCurrent) {
     const [{ data: s }, { data: o }, { data: b }, {data: bom}, {data: blocks}, {data: comments}, {data: parcels}] = await Promise.all([
       supabase.from('samples').select('*').order('created_at', { ascending:false }),
       supabase.from('orders').select('id,buyer_id,buyer_name,job_number,style_number,description,factory_ref,merchandiser_name,style_image_url').order('created_at', { ascending:false }),
@@ -385,6 +418,7 @@ export default function SamplingApprovals() {
       supabase.from('sample_comments').select('*').order('comment_date'),
       supabase.from('parcels').select('id,items,custom_items,status,courier,tracking_no,created_at,dispatch_date,dispatched_at,delivered_at,received_by'),
     ])
+    if(!isCurrent()||![s,o,b,bom,blocks,comments,parcels].every(Array.isArray))return false
     setSamples(s || [])
     setOrders(o || [])
     setBuyers(b || [])
@@ -392,6 +426,7 @@ export default function SamplingApprovals() {
     setFittingBlocks(blocks || [])
     setSampleComments(comments || [])
     setParcelItems(parcels || [])
+    return true
   }
 
   const orderMap = useMemo(() => Object.fromEntries(orders.map(o => [o.id, o])), [orders])
@@ -490,14 +525,14 @@ export default function SamplingApprovals() {
     const previous=sample.stage||'Not Started'
     const {error:stageError}=await supabase.from('samples').update({stage}).eq('id',sampleId)
     if(stageError){alert(stageError.message,{title:'Stage Save Failed'});return}
-    const {error:logError}=await supabase.from('sample_comments').insert({sample_id:sampleId,root_sample_id:sample.root_sample_id||sampleId,sam_number:sample.sample_number,version_label:sample.version_label||'V1',comment_type:'Stage',comment_text:previous+' → '+stage,comment_date:new Date().toISOString(),is_internal:true})
+    const {data:savedComment,error:logError}=await supabase.from('sample_comments').insert({sample_id:sampleId,root_sample_id:sample.root_sample_id||sampleId,sam_number:sample.sample_number,version_label:sample.version_label||'V1',comment_type:'Stage',comment_text:previous+' → '+stage,comment_date:new Date().toISOString(),is_internal:true}).select('*').single()
+    if(savedComment)setSampleComments(rows=>[...rows,savedComment])
     if(logError)alert('Stage saved, but history log failed: '+logError.message,{title:'History Warning'})
     setSamples(v=>v.map(x=>x.id===sampleId?{...x,stage}:x))
     const meta = loadSamplingStore().sampleMeta[sampleId] || {}
     const stageDates = { ...(meta.stageDates || {}) }
     stageDates[stage] = new Date().toISOString().slice(0,10)
     updateSampleMeta(sampleId, { stage, stageDates })
-    setRefreshKey(x => x + 1)
   }
 
   async function saveComment(sample, payload) {

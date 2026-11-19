@@ -1,3 +1,4 @@
+import {useOrderImageLoader,VisibleOrderImage} from '../lib/orderImage'
 import {reviewRequest,purchasingLookup} from '../lib/poReview'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { buildOrderCuttingPlanHTML } from '../lib/orderCuttingPlanPrint.js'
@@ -4065,6 +4066,7 @@ export default function Orders() {
   })()
   const [tab, setTab]               = useState(new URLSearchParams(window.location.search).get('tab') || viewPrefs.tab || 'orders')
   const [orders, setOrders]         = useState([])
+  const loadImage=useOrderImageLoader(user?.id,setOrders)
   const [batches, setBatches] = useState([])
   const [batchMembership, setBatchMembership] = useState({})
   const [batchReady, setBatchReady] = useState(false)
@@ -4216,10 +4218,16 @@ export default function Orders() {
     finally { setBatchSaving(false) }
   }
 
+  useEffect(()=>{
+    if(metadataOrder){
+      const row=orders.find(r=>r.id===metadataOrder.id&&r.nzos_image_version)||orders.find(r=>r.buyer_id===metadataOrder.buyer_id&&r.style_number===metadataOrder.style_number&&r.nzos_image_version)
+      if(row)loadImage(row)
+    }
+  },[metadataOrder,orders])
   async function loadOrders() {
     setLoading(true)
     const [{ data }, { data: shipmentRows }, { data: queueRows }] = await Promise.all([
-      supabase.from('orders').select('id,job_id,job_number,buyer_name,buyer_id,style_number,po_number,po_date,ship_date,planned_date,status,total_qty,total_value_usd,factory_ref,brand_name,store_name,merchandiser_name,description,queue_split_rule,excess_cutting_pct,style_image_url,created_at').order('ship_date', { ascending: true, nullsLast: true }),
+      supabase.from('orders').select('id,job_id,job_number,buyer_name,buyer_id,style_number,po_number,po_date,ship_date,planned_date,status,total_qty,total_value_usd,factory_ref,brand_name,store_name,merchandiser_name,description,queue_split_rule,excess_cutting_pct,style_image_url,nzos_image_version,created_at').order('ship_date', { ascending: true, nullsLast: true }),
       supabase.from('shipment_lines').select('order_id,shipped_qty'),
       supabase.from('order_queues').select('order_id'),
     ])
@@ -4251,23 +4259,7 @@ export default function Orders() {
           setOrders(prev=>prev.map(o=>({...o,variant_count:counts.get(o.id)||0})))
         }).catch(()=>{})
     }
-    // Large inline image payloads must not block the primary Orders table.
-    // Fetch them after the rows are visible and enrich only matching records.
-    if (mapped.length) {
-      // Fetch only images needed by the current table, in bounded batches.
-      // Orders with a URL already have an immediately usable thumbnail.
-      const missingImageIds = mapped.filter(o => !o.style_image_url).map(o => o.id)
-      const batches = Array.from({length:Math.ceil(missingImageIds.length/20)},(_,i)=>missingImageIds.slice(i*20,(i+1)*20))
-      batches.forEach(batch => {
-        supabase.from('orders').select('id,style_image_base64').in('id',batch).not('style_image_base64','is',null)
-          .then(({data:imageRows,error:imageError}) => {
-            if (imageError || !imageRows?.length) return
-            const images = new Map(imageRows.map(r=>[r.id,r.style_image_base64]))
-            setOrders(previous=>previous.map(o=>images.has(o.id)
-              ? {...o,style_image_base64:images.get(o.id)} : o))
-          }).catch(()=>{})
-      })
-    }
+
   }
 
   function openNew()    { window.dispatchEvent(new CustomEvent('app2a-open-order-window',{detail:{order:null,initialStep:1}})) }
@@ -4961,11 +4953,12 @@ export default function Orders() {
                           {(() => {
                             const sibling = orders.find(x => x.buyer_id === o.buyer_id && x.style_number === o.style_number && (x.style_image_base64 || x.style_image_url))
                             const src = o.style_image_base64 || o.style_image_url || sibling?.style_image_base64 || sibling?.style_image_url
-                            return src ? (
+                            const source=o.nzos_image_version?o:orders.find(r=>r.buyer_id===o.buyer_id&&r.style_number===o.style_number&&r.nzos_image_version)
+                            return <VisibleOrderImage row={source} load={loadImage}>{src ? (
                               <div style={{position:'relative',width:40,height:40}} onMouseEnter={e=>{const r=e.currentTarget.getBoundingClientRect(); setHoverImage({src,label:o.style_number||'Style',left:Math.min(window.innerWidth-260,r.right+10),top:Math.max(12,Math.min(window.innerHeight-252,r.top-100))})}} onMouseLeave={()=>setHoverImage(null)}>
                                 <img src={src} alt={o.style_number || 'Style'} style={{width:40,height:40,objectFit:'contain',display:'block',background:'#fff',border:'1px solid #e5e7eb',borderRadius:5}} />
                               </div>
-                            ) : <div style={{ width: 40, height: 40, background: '#f3f4f6', borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Layers size={13} color="#9ca3af" /></div>
+                            ) : <div style={{ width: 40, height: 40, background: '#f3f4f6', borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Layers size={13} color="#9ca3af" /></div>}</VisibleOrderImage>
                           })()}
                         </td>}
                         <td style={{ padding: '9px 12px', borderBottom: '1px solid #f9fafb' }}>
@@ -5010,7 +5003,7 @@ export default function Orders() {
 
       {hoverImage && createPortal(<div style={{position:'fixed',left:hoverImage.left,top:hoverImage.top,width:240,height:240,background:'#fff',border:'1px solid #d1d5db',borderRadius:9,boxShadow:'0 12px 30px rgba(0,0,0,.18)',zIndex:3000,display:'flex',alignItems:'center',justifyContent:'center',padding:8,pointerEvents:'none'}}><img src={hoverImage.src} alt={hoverImage.label} style={{width:'100%',height:'100%',objectFit:'contain',display:'block'}} /></div>, document.body)}
 
-      {metadataOrder && createPortal(<OrderMetadataModal order={metadataOrder} orders={orders} onClose={() => setMetadataOrder(null)} onEdit={editFromMetadata} />, document.body)}
+      {metadataOrder && createPortal(<OrderMetadataModal order={orders.find(r=>r.id===metadataOrder.id)||metadataOrder} orders={orders} onClose={() => setMetadataOrder(null)} onEdit={editFromMetadata} />, document.body)}
       {/* Order Wizard is hosted in Layout so it survives page navigation while minimized. */}
       {showChangeStatus && (
         <ChangeStatusModal

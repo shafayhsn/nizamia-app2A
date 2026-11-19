@@ -70,6 +70,16 @@ export default async function handler(req,res){
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
  db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{'x-nzos-actor':user.id,'x-nzos-source':user.channel}}})
+ if(action==='samplingChanges'&&req.method==='POST'){
+   if(!await hasGrant('sampling','view'))return err(res,403,'Sampling access required')
+   const after=req.body.after
+   if(after!==null&&(!Number.isSafeInteger(after)||after<0))return err(res,400,'Invalid checkpoint')
+   const {data,error}=await db.rpc('nzos_sampling_keys',{after_revision:after})
+   if(error)return err(res,503,'Sampling refresh unavailable')
+   // Only return IDs from Sampling. Related tables are invalidated by name, without disclosing their records.
+   const changes=data.changes.filter(([t])=>['samples','sample_comments'].includes(t))
+   return res.json({...data,changes,refreshRelated:data.changes.some(([t])=>!['samples','sample_comments'].includes(t))})
+ }
  if(action==='editSession' && req.method==='POST'){
    const token=proof()
    const {error}=await db.rpc('open_edit_session',{actor:user.id,proof:token,expiry:new Date(user.expires).toISOString()})
