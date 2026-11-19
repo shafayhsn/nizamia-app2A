@@ -78,7 +78,7 @@ export default async function handler(req,res){
    if(!admin&&user.role_id){
      const {data:perms,error:pe}=await db.from('permissions').select('can_view,can_create,can_edit').eq('role_id',user.role_id).eq('module','features/costing').maybeSingle()
      if(pe)return err(res,500,'Cannot check feature permissions')
-     canView=!!perms?.can_view;canEdit=!!(perms?.can_create||perms?.can_edit)
+     canView=!!perms?.can_view;canEdit=!!perms?.[(action==='saveCostingBatch'||action==='previewProformaNumber'||(['saveCosting','saveProforma'].includes(action)&&!req.body?.id))?'can_create':'can_edit']
    }
    if(!canView)return err(res,403,'Features access required')
    if(action==='listCostings'&&req.method==='GET'){
@@ -137,7 +137,7 @@ export default async function handler(req,res){
    if(!admin&&user.role_id){
      const {data:perms,error:pe}=await db.from('permissions').select('can_view,can_create,can_edit').eq('role_id',user.role_id).eq('module','reports').maybeSingle()
      if(pe)return err(res,500,'Cannot check report permissions')
-     canView=!!perms?.can_view;canEdit=!!(perms?.can_create||perms?.can_edit)
+     canView=!!perms?.can_view;canEdit=!!perms?.[(action==='saveCostingBatch'||action==='previewProformaNumber'||(['saveCosting','saveProforma'].includes(action)&&!req.body?.id))?'can_create':'can_edit']
    }
 
    if(!canView)return err(res,403,'Reports access required')

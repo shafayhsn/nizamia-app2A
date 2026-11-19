@@ -6,7 +6,7 @@ const fixed={
  'job-create':['orders','edit'],'parcel-create':['parcels','create'],'parcel-transition':['parcels','edit'],
  'sample-stage':['sampling','edit']
 }
-const modules={orders:'orders',suppliers:'suppliers',buyers:'buyers',samples:'sampling',sample_comments:'sampling',parcels:'parcels',
+const modules={app_tasks:'tasks',app_task_comments:'tasks',orders:'orders',suppliers:'suppliers',buyers:'buyers',samples:'sampling',sample_comments:'sampling',parcels:'parcels',
  production_daily_entries:'production',shipments:'shipping',booking:'shipping',shipment:'shipping',batch:'production',
  library_items:'library',size_group_templates:'library',trimPackage:'library',meeting:'reports/pp-meeting',pp_meetings:'reports/pp-meeting',
  costing:'features/costing',costingAssignment:'features/costing',costing_batches:'features/costing'}
@@ -27,6 +27,17 @@ function right(route,body){
  return []
 }
 async function staffRequestAllowed(user,path,request){
+ if(path==='/api/oms'){
+   const query=new URL(request.url).searchParams
+   const input=request.method==='POST'?await request.clone().json().catch(()=>({})):Object.fromEntries(query)
+   if(!input || typeof input!=='object')return false
+   const reads={listCostings:'features/costing',listCostingBatches:'features/costing',costingHistory:'features/costing',ppmList:'reports/pp-meeting',testing:'purchasing'}
+   const writes={saveCosting:['features/costing',input.id?'edit':'create'],assignCostingBatch:['features/costing','edit'],saveCostingBatch:['features/costing','create'],ppmCreate:['reports/pp-meeting','create'],ppmDelete:['reports/pp-meeting','delete'],ppmSave:['reports/pp-meeting','edit']}
+   const detail={addresses:'buyers',contacts:'buyers',snapshots:'parcels'}
+   const [module,action]=request.method==='GET'?[input.action==='list'?detail[input.type]:reads[input.action],'view']:writes[input.action]||[]
+   const grant=user.permissions?.[module]
+   return !!(user.role_id && grant?.view===true && grant[action]===true)
+ }
  if(!path.startsWith('/api/offline/'))return false
  const route=path.slice('/api/offline/'.length)
  if(commonReads.has(route))return true

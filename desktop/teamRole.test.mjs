@@ -21,3 +21,21 @@ test('future roles, removed grants and unassigned users need no name-specific ru
   assert.equal(desktopHome({...newRole,role_id:null}),null)
   assert.equal(desktopHome({role:'admin'}),'/dashboard')
 })
+
+import staffOperations from './staffOperations.cjs'
+
+test('staff routes distinguish view, create and edit and reserve account management for Admin',async()=>{
+  const member={role_id:'future-role',permissions:{buyers:{view:true},tasks:{view:true,create:true},'features/costing':{view:true,create:true}}}
+  const allowed=(path,body)=>{
+    const url=new URL(path,'https://app.local')
+    const request=new Request(url,body?{method:'POST',body:JSON.stringify(body)}:{})
+    return staffOperations.staffRequestAllowed(member,url.pathname,request)
+  }
+  assert.equal(await allowed('/api/oms?action=list&type=contacts'),true)
+  assert.equal(await allowed('/api/oms?action=ppmList'),false)
+  assert.equal(await allowed('/api/oms',{action:'saveCosting'}),true)
+  assert.equal(await allowed('/api/oms',{action:'saveCosting',id:'existing'}),false)
+  assert.equal(await allowed('/api/offline/operational-record',{kind:'app_tasks',action:'save'}),true)
+  assert.equal(await allowed('/api/offline/operational-record',{kind:'app_tasks',action:'save',id:'existing'}),false)
+  assert.equal(await allowed('/api/offline/accounts',{action:'accountDelete'}),false)
+})
