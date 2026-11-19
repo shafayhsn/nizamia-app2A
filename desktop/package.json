@@ -1,6 +1,6 @@
 {
   "name": "nizamia-app2a-desktop",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "description": "NZOS desktop for Mac and Windows",
   "main": "main.cjs",

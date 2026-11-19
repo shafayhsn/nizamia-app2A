@@ -36,7 +36,7 @@ function isInternalUserFolder(directory) {
   const home = fs.realpathSync(os.homedir())
   // Scope the first implementation to the user's internal home directory.
   // This rejects /Volumes (external drives) and symlink escapes.
-  return real === home || real.startsWith(home + path.sep)
+  return require('./nzosWorkspace.cjs').isWithinHome(real, home)
 }
 
 async function openSqlite(bytes) {
@@ -59,7 +59,7 @@ function persistDatabase(db, destination) {
 }
 
 async function initializeDatabase(directory) {
-  if (!isInternalUserFolder(directory)) throw new Error('Choose a folder inside your user account on the internal drive.')
+  if (process.platform!=='win32' && !isInternalUserFolder(directory)) throw new Error('Choose a folder inside your user account on the internal drive.')
   const target = path.join(fs.realpathSync(directory), DB_NAME)
   const existed = fs.existsSync(target)
   const db = await openSqlite(existed ? fs.readFileSync(target) : null)

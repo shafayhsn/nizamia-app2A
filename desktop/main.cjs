@@ -218,14 +218,30 @@ async function startDesktop() {
       const saved=readSettings()
       // The old helper waits for startup. Migrate beside its verified database without a new Documents permission prompt.
       const upgrading=fs.existsSync(path.join(app.getPath('userData'),'desktop-update-pending.json'))
+      const home=fs.realpathSync(require('node:os').homedir())
       let selected=saved.workspaceParent||(upgrading&&directory?path.dirname(directory):app.getPath('documents'))
-      if (!saved.workspaceParent && app.isPackaged && !upgrading) {
-        const choice=await dialog.showOpenDialog({title:'Choose NZOS Location',defaultPath:selected,properties:['openDirectory','createDirectory']})
-        if(choice.canceled){app.quit();return}
-        selected=choice.filePaths[0]
-        saveSettings({...saved,workspaceParent:selected})
-      } else if(!app.isPackaged) selected=app.getPath('userData')
-      const settings=await prepareWorkspace(selected,directory,fs.realpathSync(require('node:os').homedir()),initializeDatabase)
+      let pickFolder=app.isPackaged && !saved.workspaceParent && !upgrading
+      if(!app.isPackaged) selected=app.getPath('userData')
+      let settings
+      while(!settings){
+        if(pickFolder){
+          const choice=await dialog.showOpenDialog({title:'Choose NZOS Data Folder',defaultPath:selected,properties:['openDirectory','createDirectory']})
+          if(choice.canceled){app.quit();return}
+          selected=choice.filePaths[0]
+        }
+        try{
+          settings=await prepareWorkspace(selected,directory,home,initializeDatabase)
+        }catch(error){
+          if(process.platform!=='win32' || !app.isPackaged)throw error
+          const choice=await dialog.showMessageBox({
+            type:'warning',title:'NZOS data folder',message:'NZOS could not use this folder.',
+            detail:selected+'\n\n'+error.message,buttons:['Choose Another Folder','Quit'],cancelId:1
+          })
+          if(choice.response!==0){app.quit();return}
+          selected=home
+          pickFolder=true
+        }
+      }
       saveSettings(settings)
       directory=settings.databaseDirectory
     }

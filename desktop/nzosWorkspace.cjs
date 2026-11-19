@@ -7,15 +7,20 @@ const { backupDatabaseToFile, restoreDatabaseFromFile } = require('./desktopLoca
 function privateFolder(parent, name) {
   const folder = path.join(parent, name)
   try { fs.mkdirSync(folder, {mode:0o700}) } catch (e) { if (e.code !== 'EEXIST') throw e }
-  if (!fs.lstatSync(folder).isDirectory() || fs.realpathSync(folder) !== folder)
+  if (!fs.lstatSync(folder).isDirectory() || path.relative(folder, fs.realpathSync(folder)) !== '')
     throw Error('Choose a local folder without aliases: ' + folder)
   return folder
 }
+function isWithinHome(directory, home) {
+  const relative = path.relative(home, directory)
+  return relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)
+}
 function timestamp() { return new Date().toISOString().replace(/[:.]/g,'-') }
-async function prepareWorkspace(selected, previous, home, initialize) {
+async function prepareWorkspace(selected, previous, home, initialize, platform=process.platform) {
   const parent = fs.realpathSync(selected)
-  if (parent !== home && !parent.startsWith(home + path.sep)) throw Error('Choose a folder in your home directory.')
-  const root = path.basename(parent) === 'NZOS' ? parent : privateFolder(parent,'NZOS')
+  if (platform!=='win32' && !isWithinHome(parent, home)) throw Error('Choose a folder in your home directory.')
+  const name = path.basename(parent)
+  const root = (platform==='win32' ? name.toUpperCase() : name) === 'NZOS' ? parent : privateFolder(parent,'NZOS')
   const database = privateFolder(root,'Database')
   const backups = privateFolder(root,'Backups')
   for (const name of ['Downloads','App Assets','Source Code']) privateFolder(root,name)
@@ -37,4 +42,4 @@ function archivePdf(root, filename, bytes) {
   fs.writeFileSync(target,bytes,{flag:'wx',mode:0o600})
   return target
 }
-module.exports = { prepareWorkspace, archivePdf, timestamp, privateFolder }
+module.exports = { prepareWorkspace, archivePdf, timestamp, privateFolder, isWithinHome }

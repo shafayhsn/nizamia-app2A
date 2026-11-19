@@ -29,9 +29,12 @@ function fetchLatestRelease(){
 async function checkForDesktopRelease({currentVersion,fetchRelease=fetchLatestRelease,platform=process.platform}){
  const fetched=await fetchRelease()
  const candidates=Array.isArray(fetched)?fetched:[fetched].filter(Boolean)
- const release=candidates.filter(r=>r&&!r.draft&&parseVersion(r.tag_name)&&r.html_url?.startsWith('https://github.com/shafayhsn/nizamia-app2A/releases/')).sort((a,b)=>isNewer(a.tag_name,b.tag_name)?-1:isNewer(b.tag_name,a.tag_name)?1:0)[0]
+ const releaseVersion=r=>String(r.tag_name||'').replace(platform==='win32'?/^(?:windows-)?v/i:/^v/i,'')
+ const release=candidates
+  .filter(r=>r&&!r.draft&&parseVersion(releaseVersion(r))&&r.html_url?.startsWith('https://github.com/shafayhsn/nizamia-app2A/releases/')&&(platform!=='win32'||trustedAsset(r,platform)))
+  .sort((a,b)=>isNewer(releaseVersion(a),releaseVersion(b))?-1:isNewer(releaseVersion(b),releaseVersion(a))?1:0)[0]
  if(!release)return {status:'unpublished'}
- const version=String(release.tag_name||'').replace(/^v/i,'')
+ const version=releaseVersion(release)
  const url=String(release.html_url||'')
  if(!parseVersion(version)||!url.startsWith('https://github.com/shafayhsn/nizamia-app2A/releases/'))return {status:'unpublished'}
  return isNewer(version,currentVersion)?{status:'newer',version,url,asset:trustedAsset(release,platform)}:{status:'current',version,url}

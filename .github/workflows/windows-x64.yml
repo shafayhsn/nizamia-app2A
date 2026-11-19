@@ -34,7 +34,7 @@ jobs:
           if-no-files-found: error
   publish:
     needs: installer
-    if: github.event.head_commit.message == 'Release NZOS 1.0.3 for Windows x64'
+    if: github.event.head_commit.message == 'Fix NZOS Windows startup in 1.0.4'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -42,12 +42,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: Windows-x64-installer
-      - name: Attach tested Windows installer to NZOS 1.0.3
+      - name: Publish tested Windows startup fix
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -eu
-          file=NZOS-1.0.3-Windows-x64-Setup.exe
+          file=NZOS-1.0.4-Windows-x64-Setup.exe
           sha256sum "$file" > "$file.sha256"
-          gh release upload v1.0.3 "$file" "$file.sha256"
+          gh release create windows-v1.0.4 "$file" "$file.sha256" --target "$GITHUB_SHA" --latest=false --title 'NZOS 1.0.4 for Windows' --notes 'Allows choosing writable data folders on other Windows drives. Install over the previous Windows version.'
