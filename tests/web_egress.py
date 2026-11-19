@@ -1,9 +1,9 @@
 from playwright.sync_api import sync_playwright
 from urllib.parse import urlparse,parse_qs
 from collections import Counter
-import json, base64
+import json, shutil
 with sync_playwright() as pw:
- b=pw.chromium.launch(args=['--no-sandbox'])
+ b=pw.chromium.launch(executable_path=shutil.which('google-chrome') or shutil.which('chromium'),args=['--no-sandbox'])
  page=b.new_page()
  counts=Counter(); errors=[]
  def fixture(r):
@@ -23,7 +23,7 @@ with sync_playwright() as pw:
    elif t=='sample_comments' and req.method=='POST':obj={**req.post_data_json,'id':'comment1'}
    else:obj=[]
   elif u.hostname=='127.0.0.1' and not u.path.startswith('/api/'):return r.continue_()
-  r.fulfill(status=200,content_type='application/json',body=json.dumps(obj))
+  r.fulfill(status=200,headers={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'*','Access-Control-Allow-Methods':'GET,PATCH,POST,OPTIONS'},content_type='application/json',body=json.dumps(obj))
  page.route('**/*',fixture);page.on('pageerror',lambda e:errors.append(str(e)))
  page.goto('http://127.0.0.1:5099/orders');page.wait_for_timeout(1800)
  def check(flag,why):
