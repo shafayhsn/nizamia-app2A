@@ -359,6 +359,8 @@ jobs:
           NODE
 
           (cd desktop/release && shasum -a 256 "$(basename "$dmg")" > "$(basename "$dmg").sha256")
+      - name: Launch fresh Intel installation and reopen its workspace
+        run: node desktop/intelFreshAcceptance.cjs desktop/release/*.dmg
       - name: Package legacy-compatible updater image
         working-directory: desktop
         env:

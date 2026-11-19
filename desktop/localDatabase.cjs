@@ -16,7 +16,7 @@ function settingsFile() { return path.join(app.getPath('userData'), CONFIG_NAME)
 function readSettings() {
   try {
     const data = JSON.parse(fs.readFileSync(settingsFile(), 'utf8'))
-    return typeof data.databaseDirectory === 'string' ? data : {}
+    return typeof data.databaseDirectory === 'string' || typeof data.workspaceParent === 'string' ? data : {}
   } catch (error) {
     if (error.code === 'ENOENT') return {}
     throw error

@@ -8,9 +8,12 @@ const { showLocalSnapshot } = require('./snapshotViewer.cjs')
 const fs = require('node:fs')
 const {createLocalAuth}=require('./localDesktopAuth.cjs')
 const {readSettings,saveSettings}=require('./localDatabase.cjs')
-const {prepareWorkspace,archivePdf,timestamp,privateFolder}=require('./nzosWorkspace.cjs')
+const {prepareWorkspace,archivePdf,privateFolder}=require('./nzosWorkspace.cjs')
 if(app.isPackaged && process.platform==='darwin') {
-  app.setPath('userData',path.join(app.getPath('appData'),'Nizamia App-2A'))
+  const profile=app.commandLine.getSwitchValue('user-data-dir') || path.join(app.getPath('appData'),'Nizamia App-2A')
+  fs.mkdirSync(profile,{recursive:true,mode:0o700})
+  app.setPath('userData',profile)
+  if(!app.requestSingleInstanceLock())app.exit(0)
   app.setName('NZOS')
 }
 let rebuildMenu=()=>{}
@@ -167,11 +170,13 @@ async function startDesktop() {
   try {
     let directory=getDatabaseDirectory()
     if (!readSettings().workspaceRoot) {
-      let selected=app.getPath('documents')
-      if (app.isPackaged && !fs.existsSync(path.join(app.getPath('userData'),'desktop-update-pending.json'))) {
+      const saved=readSettings()
+      let selected=saved.workspaceParent||app.getPath('documents')
+      if (!saved.workspaceParent && app.isPackaged && !fs.existsSync(path.join(app.getPath('userData'),'desktop-update-pending.json'))) {
         const choice=await dialog.showOpenDialog({title:'Choose NZOS Location',defaultPath:selected,properties:['openDirectory','createDirectory']})
         if(choice.canceled){app.quit();return}
         selected=choice.filePaths[0]
+        saveSettings({...saved,workspaceParent:selected})
       } else if(!app.isPackaged) selected=app.getPath('userData')
       const settings=await prepareWorkspace(selected,directory,fs.realpathSync(require('node:os').homedir()),initializeDatabase)
       saveSettings(settings)

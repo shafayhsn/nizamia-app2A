@@ -39,7 +39,7 @@ async function main(){
  const asar=require('@electron/asar')
  const legacyFolder=path.join(root,'legacy-helper')
  fs.mkdirSync(legacyFolder)
- for(const name of ['desktopUpdateLaunch.cjs','desktopDmgPreflight.cjs','desktopInstallGuard.cjs','desktopMacUpdateHelper.sh'])
+ for(const name of ['desktopUpdateLaunch.cjs','desktopDmgPreflight.cjs','desktopInstallGuard.cjs','desktopMacUpdateHelper.sh','snapshotStartup.cjs'])
    fs.writeFileSync(path.join(legacyFolder,name),asar.extractFile(path.join(target,'Contents/Resources/app.asar'),name))
  await require(path.join(legacyFolder,'desktopUpdateLaunch.cjs')).stageMacUpdate({appPath:target,resourcesPath:path.join(target,'Contents/Resources'),dmgPath,version,
   asset:{size:bytes.length,digest:createHash('sha256').update(bytes).digest('hex')},userData:profile,pid:old.pid})
@@ -56,6 +56,14 @@ async function main(){
  assert.equal(restored.exec('pragma integrity_check')[0].values[0][0],'ok')
  const [[state,intent]]=restored.exec('select state,intent_json from offline_mutation_outbox where owner_id=? and record_id=?',[owner,id])[0].values
  assert.equal(state,'pending');assert.equal(JSON.parse(intent).changes.notes,'Intel update acceptance');restored.close()
+ // Recover separately and validate the restored database using the checkpoint's reader.
+ const recovery=path.join(root,'recovery')
+ fs.mkdirSync(recovery)
+ const recovered=await require('./desktopLocalBackup.cjs').restoreDatabaseFromFile({directory:recovery,source:backup.file,separate:true})
+ assert.deepEqual(fs.readFileSync(recovered.file),before)
+ const legacySnapshot=path.join(legacyFolder,'snapshotStartup.cjs')
+ fs.symlinkSync(path.resolve(__dirname,'node_modules'),path.join(legacyFolder,'node_modules'),'dir')
+ assert.ok(await require(legacySnapshot).snapshotReady(recovery))
  console.log('Verified 0.1.11 to '+version+' replacement, relaunch, pending SQLite edit and verified backup.')
 }
 main().catch(e=>{console.error(e);process.exit(1)})
