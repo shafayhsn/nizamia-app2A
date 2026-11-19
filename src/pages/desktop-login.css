@@ -1,30 +1,30 @@
-.desktop-login { min-height: 100vh; padding: 12px; display: grid; place-items: center; background: white; font-family: Arial, sans-serif; color: #111827; }
-.dl-card { width: min(96vw, 165vh, 1600px); container-type: inline-size; background: #e8e9ea; border-radius: 2vw; display: grid; grid-template-columns: 61% 39%; align-items: center; }
+.desktop-login { box-sizing: border-box; height: 100vh; height: 100dvh; overflow: auto; padding: clamp(12px, 3vw, 40px); display: flex; background: white; font-family: Arial, sans-serif; color: #111827; }
+.dl-card { width: min(100%, max(840px, 153vh), 1160px); margin: auto; flex: none; container-type: inline-size; background: #e8e9ea; border-radius: 24px; display: grid; grid-template-columns: 61% 39%; align-items: center; }
 .dl-denim { width: 98.25%; margin: 1.5% 0 1.5% 1.6%; display: block; border-radius: 1.6cqw; }
-.dl-form { width: 73%; margin: 3cqw auto; font-size: max(12px, 1.23cqw); }
+.dl-form { width: 78%; max-width: 345px; min-width: 0; margin: 3cqw auto; font-size: clamp(14px, 1.23cqw, 16px); }
 .dl-mark { display: block; width: 22%; margin: 0 auto 4cqw; }
 .dl-form h1 { margin: 0; font: bold max(24px, 2.52cqw)/1.1 Arial,sans-serif; letter-spacing: -.04em; }
 .dl-intro { color: #667185; margin: .4cqw 0 2.25cqw; }
 .dl-form label, .dl-form button { font: inherit; font-weight: 700; }
 .dl-form button { cursor: pointer; background: transparent; border: 0; padding: 0; color: inherit; }
 .dl-row, .dl-form footer { display: flex; justify-content: space-between; align-items: center; }
-.dl-input { display: flex; align-items: center; gap: .5em; margin: .65cqw 0 1.15cqw; height: max(36px,3.5cqw); background: white; border-radius: .8cqw; padding: 0 1.15cqw; border: 1px solid #e5e7eb; color: #9ca3af; }
+.dl-input { display: flex; align-items: center; gap: .5em; margin: .65cqw 0 1.15cqw; height: max(40px,3.5cqw); background: white; border-radius: .8cqw; padding: 0 1.15cqw; border: 1px solid #e5e7eb; color: #9ca3af; }
 .dl-input:focus-within { outline: 2px solid #526477; }
 .dl-input input { background: transparent; color: #374151; flex: 1; min-width: 0; padding: 0; outline: none; border: 0; font: inherit; }
 .dl-input svg { width: 1.18em; height: 1.18em; }
 .dl-input button { display: flex; }
 .dl-form .dl-remember { display: flex; align-items: center; gap: .55em; margin: 1.65cqw 0; font-weight: normal; }
 .dl-remember input { width: 1.2em; height: 1.2em; margin: 0; accent-color: #313131; }
-.dl-form .dl-submit { width: 100%; background: #313131; color: white; border-radius: .8cqw; min-height: max(40px,3.9cqw); }
+.dl-form .dl-submit { width: 100%; background: #313131; color: white; border-radius: .8cqw; min-height: max(44px,3.9cqw); }
 .dl-submit:disabled { opacity: .65; }
 .dl-form [role=alert] { color: #922525; margin: .7em 0; }
 .dl-notice { margin: 1.9cqw 0 2.2cqw; color: #637084; font-size: max(10px,.88cqw); line-height: 1.23; }
 .dl-form footer img { width: 80%; }
 .dl-form footer span { color: #687383; font-size: max(9px,.74cqw); }
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   .dl-card { width: min(100%, 460px); display: block; border-radius: 18px; }
   .dl-denim { display: none; }
-  .dl-form { width: auto; margin: 0; padding: 28px; font-size: 15px; }
+  .dl-form { width: auto; max-width: none; margin: 0; padding: clamp(18px, 6vw, 28px); font-size: 16px; }
   .dl-mark { margin-bottom: 24px; }
   .dl-intro, .dl-notice { margin: 12px 0 20px; }
   .dl-input { margin: 8px 0 16px; padding: 0 12px; height: 42px; }

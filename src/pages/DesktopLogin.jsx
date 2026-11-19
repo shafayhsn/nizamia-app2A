@@ -3,11 +3,10 @@ import { Eye, EyeOff, Lock, UserRound } from 'lucide-react'
 import denim from '../assets/login-denim.svg'
 import mark from '../assets/login-mark.svg'
 import footer from '../assets/login-footer.svg'
-import { version } from '../../desktop/package.json'
 import './desktop-login.css'
 
-export default function DesktopLogin({ identifier, setIdentifier, password, setPassword, remember, setRemember,
-  showPassword, setShowPassword, busy, error, setError, handleSubmit, offlineSetupRequired }) {
+export default function LoginForm({ identifier, setIdentifier, password, setPassword, remember, setRemember,
+  showPassword, setShowPassword, busy, error, setError, handleSubmit, offlineSetupRequired = false, version }) {
   return <main className="desktop-login">
     <div className="dl-card">
       <img className="dl-denim" src={denim} alt="Nizamia Apparels. From tech-packs to shipments, faster. www.nizamia.com" />
