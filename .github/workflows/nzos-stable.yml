@@ -23,7 +23,8 @@ jobs:
       - name: Validate tested revision and release inputs
         run: |
           set -euo pipefail
-          test "$(gh api "repos/$GH_REPO/commits/$GITHUB_SHA" --jq '.parents[0].sha')" = "$TESTED_SHA"
+          comparison="$(gh api "repos/$GH_REPO/compare/$TESTED_SHA...$GITHUB_SHA")"
+          jq -e '.status=="ahead" and ([.files[].filename]==[".github/workflows/nzos-stable.yml"])' <<< "$comparison"
           run="$(gh api "repos/$GH_REPO/actions/runs/$VERIFIED_RUN")"
           jq -e --arg sha "$TESTED_SHA" '.conclusion=="success" and .head_sha==$sha and .head_branch=="feature/nzos-1.0" and .path==".github/workflows/desktop-mac-intel.yml"' <<< "$run"
           gh run download "$VERIFIED_RUN" -n app2a-mac-intel-unsigned -D installers
@@ -32,7 +33,7 @@ jobs:
       - name: Publish the two verified installers at the tested source revision
         run: |
           set -euo pipefail
-          gh release create v1.0.1 --repo "$GH_REPO" --target "$TESTED_SHA" --title 'NZOS 1.0.1 for Intel Mac' --draft \
+          gh release create v1.0.1 --repo "$GH_REPO" --target "$GITHUB_SHA" --title 'NZOS 1.0.1 for Intel Mac' --draft \
             --notes 'Mac patch for online currency and cotton rates, external tracking links, and macOS app registration. In NZOS, choose Check for App Updates. The installer is unsigned.' \
             installers/release/*.dmg installers/release/*.sha256 installers/compat/*.dmg installers/compat/*.sha256
           gh release edit v1.0.1 --repo "$GH_REPO" --draft=false --latest
