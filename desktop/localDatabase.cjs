@@ -32,8 +32,8 @@ function saveSettings(data) {
 }
 
 function isInternalUserFolder(directory) {
-  const real = fs.realpathSync(directory)
-  const home = fs.realpathSync(os.homedir())
+  const real = fs.realpathSync.native(directory)
+  const home = fs.realpathSync.native(os.homedir())
   // Scope the first implementation to the user's internal home directory.
   // This rejects /Volumes (external drives) and symlink escapes.
   return require('./nzosWorkspace.cjs').isWithinHome(real, home)
@@ -60,7 +60,7 @@ function persistDatabase(db, destination) {
 
 async function initializeDatabase(directory) {
   if (process.platform!=='win32' && !isInternalUserFolder(directory)) throw new Error('Choose a folder inside your user account on the internal drive.')
-  const target = path.join(fs.realpathSync(directory), DB_NAME)
+  const target = path.join(fs.realpathSync.native(directory), DB_NAME)
   const existed = fs.existsSync(target)
   const db = await openSqlite(existed ? fs.readFileSync(target) : null)
   try {
@@ -90,7 +90,7 @@ async function chooseDatabaseFolder(parent) {
   const directory = selection.filePaths[0]
   try {
     const old = current.databaseDirectory
-    if (old && fs.realpathSync(old) !== fs.realpathSync(directory)) {
+    if (old && fs.realpathSync.native(old) !== fs.realpathSync.native(directory)) {
       await dialog.showMessageBox(parent, {
         type: 'info',
         title: 'Database relocation is not yet available',
@@ -100,7 +100,7 @@ async function chooseDatabaseFolder(parent) {
       return false
     }
     const target = await initializeDatabase(directory)
-    saveSettings({ databaseDirectory: fs.realpathSync(directory) })
+    saveSettings({ databaseDirectory: fs.realpathSync.native(directory) })
     await dialog.showMessageBox(parent, {
       type: 'info', title: 'Local database ready',
       message: 'SQLite database initialized successfully.',

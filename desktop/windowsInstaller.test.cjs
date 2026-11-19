@@ -34,8 +34,8 @@ test('Windows accepts a writable workspace outside the user profile',async t=>{
   const root=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'nzos-folders-'))
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}))
   const {prepareWorkspace}=require('./nzosWorkspace.cjs')
-  const home=fs.realpathSync(fs.mkdirSync(path.join(root,'home'),{recursive:true}))
-  const external=fs.realpathSync(fs.mkdirSync(path.join(root,'other folder'),{recursive:true}))
+  const home=fs.realpathSync.native(fs.mkdirSync(path.join(root,'home'),{recursive:true}))
+  const external=fs.realpathSync.native(fs.mkdirSync(path.join(root,'other folder'),{recursive:true}))
   const file='nizamia-app2a.sqlite'
   const initialize=async directory=>fs.writeFileSync(path.join(directory,file),'existing',{flag:'wx'})
   await assert.rejects(prepareWorkspace(external,null,home,initialize,'darwin'),/home directory/)

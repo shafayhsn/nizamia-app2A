@@ -218,7 +218,7 @@ async function startDesktop() {
       const saved=readSettings()
       // The old helper waits for startup. Migrate beside its verified database without a new Documents permission prompt.
       const upgrading=fs.existsSync(path.join(app.getPath('userData'),'desktop-update-pending.json'))
-      const home=fs.realpathSync(require('node:os').homedir())
+      const home=fs.realpathSync.native(require('node:os').homedir())
       let selected=saved.workspaceParent||(upgrading&&directory?path.dirname(directory):app.getPath('documents'))
       let pickFolder=app.isPackaged && !saved.workspaceParent && !upgrading
       if(!app.isPackaged) selected=app.getPath('userData')

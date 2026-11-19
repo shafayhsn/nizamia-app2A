@@ -7,7 +7,7 @@ const { backupDatabaseToFile, restoreDatabaseFromFile } = require('./desktopLoca
 function privateFolder(parent, name) {
   const folder = path.join(parent, name)
   try { fs.mkdirSync(folder, {mode:0o700}) } catch (e) { if (e.code !== 'EEXIST') throw e }
-  if (!fs.lstatSync(folder).isDirectory() || path.relative(folder, fs.realpathSync(folder)) !== '')
+  if (!fs.lstatSync(folder).isDirectory() || path.relative(folder, fs.realpathSync.native(folder)) !== '')
     throw Error('Choose a local folder without aliases: ' + folder)
   return folder
 }
@@ -17,7 +17,7 @@ function isWithinHome(directory, home) {
 }
 function timestamp() { return new Date().toISOString().replace(/[:.]/g,'-') }
 async function prepareWorkspace(selected, previous, home, initialize, platform=process.platform) {
-  const parent = fs.realpathSync(selected)
+  const parent = fs.realpathSync.native(selected)
   if (platform!=='win32' && !isWithinHome(parent, home)) throw Error('Choose a folder in your home directory.')
   const name = path.basename(parent)
   const root = (platform==='win32' ? name.toUpperCase() : name) === 'NZOS' ? parent : privateFolder(parent,'NZOS')
