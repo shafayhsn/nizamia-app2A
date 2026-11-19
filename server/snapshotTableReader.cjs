@@ -8,12 +8,19 @@ const primaryKeys=Object.freeze({
 })
 
 async function readSnapshotTable(db,table,{pageSize=1000,maxRows=100000}={}){
+ const directory=table==='desktop_task_assignees'
+ const source=directory?'users':table
+ const fields=directory?'id,username':'*'
+ const select=(fields,options)=>{
+  const q=db.from(source).select(fields,options)
+  return directory?q.eq('is_active',true):q
+ }
  const key=primaryKeys[table]||'id'
  const rows=[]
  const seen=new Set()
  let cursor,total
  do{
-  let query=db.from(table).select('*',{count:'exact'}).order(key,{ascending:true}).limit(pageSize)
+  let query=select(fields,{count:'exact'}).order(key,{ascending:true}).limit(pageSize)
   if(cursor!==undefined)query=query.gt(key,cursor)
   const {data,count,error}=await query
   if(error||!Array.isArray(data)||!Number.isSafeInteger(count)||count<0||
@@ -32,7 +39,7 @@ async function readSnapshotTable(db,table,{pageSize=1000,maxRows=100000}={}){
   }
  }while(rows.length<total)
  // A new row before the cursor can evade a remaining-row count check.
- const {count,error}=await db.from(table).select(key,{count:'exact',head:true})
+ const {count,error}=await select(key,{count:'exact',head:true})
  if(error||count!==total)throw Error('Cloud snapshot count changed')
  return rows
 }
