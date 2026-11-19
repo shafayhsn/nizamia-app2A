@@ -9,7 +9,7 @@ export default function LoginForm({ identifier, setIdentifier, password, setPass
   showPassword, setShowPassword, busy, error, setError, handleSubmit, offlineSetupRequired = false, version }) {
   return <main className="desktop-login">
     <div className="dl-card">
-      <img className="dl-denim" src={denim} alt="Nizamia Apparels. From tech-packs to shipments, faster. www.nizamia.com" />
+      <div className="dl-denim"><img src={denim} alt="Nizamia Apparels. From tech-packs to shipments, faster. www.nizamia.com" /></div>
       <form className="dl-form" onSubmit={handleSubmit}>
         <img className="dl-mark" src={mark} alt="Nizamia" />
         <h1>{offlineSetupRequired ? 'Set Up Offline Account' : 'Let’s get to work'}</h1>
