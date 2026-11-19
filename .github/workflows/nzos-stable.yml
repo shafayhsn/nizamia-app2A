@@ -1,14 +1,14 @@
-name: Publish verified NZOS 1.0.1
+name: Publish verified NZOS 1.0.3
 on:
   push:
-    branches: [feature/nzos-1.0]
+    branches: [nzos/admin-only-settings-payments]
     paths: [.github/workflows/nzos-stable.yml]
 permissions:
   contents: read
 concurrency: nzos-stable-1-0
 jobs:
   publish:
-    if: github.event.head_commit.message == 'Publish verified NZOS 1.0.1 Intel patch'
+    if: github.event.head_commit.message == 'Publish verified NZOS 1.0.3 Intel patch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -17,8 +17,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      TESTED_SHA: 8abab1caf904ea669a82480b091ab703c958f43b
-      VERIFIED_RUN: 44497876007
+      TESTED_SHA: 61fc6e288445a6b9deca90b670ce6c3ee6b3fb38
+      VERIFIED_RUN: 44534392401
     steps:
       - name: Validate tested revision and release inputs
         run: |
@@ -26,15 +26,16 @@ jobs:
           comparison="$(gh api "repos/$GH_REPO/compare/$TESTED_SHA...$GITHUB_SHA")"
           jq -e '.status=="ahead" and ([.files[].filename]==[".github/workflows/nzos-stable.yml"])' <<< "$comparison"
           run="$(gh api "repos/$GH_REPO/actions/runs/$VERIFIED_RUN")"
-          jq -e --arg sha "$TESTED_SHA" '.conclusion=="success" and .head_sha==$sha and .head_branch=="feature/nzos-1.0" and .path==".github/workflows/desktop-mac-intel.yml"' <<< "$run"
+          jq -e --arg sha "$TESTED_SHA" '.conclusion=="success" and .head_sha==$sha and .head_branch=="nzos/admin-only-settings-payments" and .path==".github/workflows/desktop-mac-intel.yml"' <<< "$run"
           gh run download "$VERIFIED_RUN" -n app2a-mac-intel-unsigned -D installers
-          (cd installers/release && sha256sum -c NZOS-1.0.1-Intel.dmg.sha256)
-          (cd installers/compat && sha256sum -c Nizamia-NZOS-1.0.1-Intel.dmg.sha256)
+          gh run download "$VERIFIED_RUN" -n NZOS-owner-source -D owner
+          (cd installers/release && sha256sum -c NZOS-1.0.3-Intel.dmg.sha256)
+          (cd installers/compat && sha256sum -c Nizamia-NZOS-1.0.3-Intel.dmg.sha256)
       - name: Publish the two verified installers at the tested source revision
         run: |
           set -euo pipefail
-          gh release create v1.0.1 --repo "$GH_REPO" --target "$GITHUB_SHA" --title 'NZOS 1.0.1 for Intel Mac' --draft \
-            --notes 'Mac patch for online currency and cotton rates, external tracking links, and macOS app registration. In NZOS, choose Check for App Updates. The installer is unsigned.' \
-            installers/release/*.dmg installers/release/*.sha256 installers/compat/*.dmg installers/compat/*.sha256
-          gh release edit v1.0.1 --repo "$GH_REPO" --draft=false --latest
-          gh release view v1.0.1 --repo "$GH_REPO" --json tagName,isDraft,assets --jq 'select(.tagName=="v1.0.1" and .isDraft==false and (.assets|length)==4) | .tagName' | grep -Fx v1.0.1
+          gh release create v1.0.3 --repo "$GH_REPO" --target "$GITHUB_SHA" --title 'NZOS 1.0.3 for Intel Mac' --draft \
+            --notes 'Team testing release with incremental sync, role permissions, custom purchase-order approval and edit history. In NZOS, choose Check for App Updates. The installer is unsigned.' \
+            installers/release/*.dmg installers/release/*.sha256 installers/compat/*.dmg installers/compat/*.sha256 owner/NZOS-1.0.3-Source.zip
+          gh release edit v1.0.3 --repo "$GH_REPO" --draft=false --latest
+          gh release view v1.0.3 --repo "$GH_REPO" --json tagName,isDraft,assets --jq 'select(.tagName=="v1.0.3" and .isDraft==false and (.assets|length)==5) | .tagName' | grep -Fx v1.0.3
