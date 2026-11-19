@@ -6,7 +6,7 @@ function validateMacInstallTarget({appPath,resourcesPath,platform=process.platfo
  if(platform!=='darwin')throw Error('Mac updater can only run on macOS')
  if(typeof appPath!=='string'||!path.isAbsolute(appPath))throw Error('App path must be absolute')
  const normalized=path.resolve(appPath)
- if(path.basename(normalized)!==APP_NAME)throw Error('Unexpected application name')
+ if(![APP_NAME,'NZOS.app'].includes(path.basename(normalized)))throw Error('Unexpected application name')
  if(!fs.existsSync(normalized))throw Error('Installed application was not found')
  const stat=fs.lstatSync(normalized)
  if(!stat.isDirectory()||stat.isSymbolicLink())throw Error('Application must be a real directory')

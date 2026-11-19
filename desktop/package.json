@@ -1,8 +1,8 @@
 {
   "name": "nizamia-app2a-desktop",
-  "version": "0.1.11",
+  "version": "1.0.0",
   "private": true,
-  "description": "Nizamia App-2A desktop CP-18 SQLite foundation (online app with local metadata database)",
+  "description": "NZOS for Intel Mac",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
@@ -15,7 +15,7 @@
   },
   "build": {
     "appId": "com.nizamia.app2a.desktop",
-    "productName": "Nizamia App-2A",
+    "productName": "NZOS",
     "directories": {
       "output": "release"
     },
@@ -98,7 +98,9 @@
       "desktopCloudSession.cjs",
       "snapshotDownloadClient.cjs",
       "applyCloudSnapshot.cjs",
-      "snapshotMerge.cjs"
+      "snapshotMerge.cjs",
+      "nzosWorkspace.cjs",
+      "permissions.mjs"
     ],
     "mac": {
       "category": "public.app-category.business",
@@ -110,7 +112,8 @@
           ]
         }
       ],
-      "icon": "assets/Nizamia-App-2A.icns"
+      "icon": "assets/Nizamia-App-2A.icns",
+      "artifactName": "NZOS-${version}-Intel.${ext}"
     },
     "win": {
       "target": [
@@ -133,6 +136,14 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "../src/assets",
+        "to": "brand-assets"
+      },
+      {
+        "from": "../QMS Excel formats.zip",
+        "to": "brand-assets/QMS Excel formats.zip"
       }
     ]
   },

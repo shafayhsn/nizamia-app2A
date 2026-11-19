@@ -1,3 +1,4 @@
+import { saveDesktopPdf } from './saveDesktopPdf.mjs'
 import {supabase} from './supabase'
 import {usageObject,usageNumber} from './usageMath'
 const safeText=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
@@ -129,8 +130,7 @@ export async function buildSampleProgramHTML(row, {bomItems=[],fittingBlocks=[],
     return html
   }
 
-export function printSamplingHTML(html,title,existingWindow=null){const w=existingWindow||window.open('','_blank','width=1000,height=800');if(!w){alert('Please allow popups to print this document.');return}
-  w.document.write(`<!doctype html><html><head><title>${title}</title><style>
+export function printSamplingHTML(html,title,existingWindow=null){const markup=`<!doctype html><html><head><title>${title}</title><style>
     body{font-family:Arial,sans-serif;color:#111;padding:18px}
     h1,h2,h3{margin:0}
     .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:14px}
@@ -172,5 +172,7 @@ export function printSamplingHTML(html,title,existingWindow=null){const w=existi
       .bom tr,.history{break-inside:avoid;page-break-inside:avoid}
     }
 
-  </style></head><body>${html}</body></html>`)
-w.document.close();w.focus();setTimeout(()=>w.print(),450)}
+  </style></head><body>${html}</body></html>`
+if(location.protocol==='app2a:')return saveDesktopPdf(markup,title).catch(e=>alert(e.message))
+  const w=existingWindow||window.open('','_blank','width=1000,height=800');if(!w){alert('Please allow popups to print this document.');return}
+  w.document.write(markup);w.document.close();w.focus();setTimeout(()=>w.print(),450)}

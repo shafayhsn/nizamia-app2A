@@ -132,4 +132,4 @@ async function showDatabaseLocation(parent) {
 
 function getDatabaseDirectory() { return readSettings().databaseDirectory || null }
 
-module.exports = { chooseDatabaseFolder, showDatabaseLocation, getDatabaseDirectory, initializeDatabase, saveSettings }
+module.exports = { chooseDatabaseFolder, showDatabaseLocation, getDatabaseDirectory, initializeDatabase, saveSettings, readSettings }

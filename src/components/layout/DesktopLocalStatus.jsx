@@ -77,7 +77,7 @@ export default function DesktopLocalStatus() {
       </>:'Checking desktop database…'}
     </div>
     <div style={{display:'flex',gap:8}}>
-    <button type="button" onClick={()=>setRefresh(v=>v+1)} style={{fontSize:11,border:'1px solid #cbd5e1',borderRadius:4,padding:'1px 7px',background:'white',cursor:'pointer'}}>Refresh</button>
+    <button type="button" onClick={async()=>{try{const r=await fetch("/api/offline/refresh",{method:"POST"});const data=await r.json();if(!r.ok)throw Error(data.error);setRefresh(v=>v+1)}catch(e){window.alert(e.message)}}} style={{fontSize:11,border:'1px solid #cbd5e1',borderRadius:4,padding:'1px 7px',background:'white',cursor:'pointer'}}>Refresh from Cloud</button>
     <button type="button" onClick={()=>setDetailsOpen(v=>!v)} style={{fontSize:11,border:'1px solid #cbd5e1',borderRadius:4,padding:'1px 7px',background:'white',cursor:'pointer'}}>{detailsOpen?'Hide drafts':'View drafts'}</button>
     </div>
     {detailsOpen&&<DesktopDraftDetails onClose={()=>setDetailsOpen(false)} />}

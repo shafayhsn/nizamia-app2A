@@ -10,6 +10,7 @@ on:
       - feature/box-4-validation
       - feature/box-5-validation
       - feature/desktop-release-acceptance
+      - feature/nzos-1.0
     paths:
       - 'api/**'
       - 'desktop/**'
@@ -81,6 +82,8 @@ jobs:
       - name: Install desktop dependencies
         working-directory: desktop
         run: npm install --no-audit --no-fund
+      - name: Verify NZOS workspace, archive and database migration
+        run: node --test desktop/nzosWorkspace.test.cjs
       - name: Test linked desktop sync workflows
         run: node --test server/desktopOrderDetails.test.cjs server/desktopOrderRemoval.test.cjs server/desktopOrderSectionCopy.test.cjs server/desktopPoMatrix.test.cjs server/desktopBuyer.test.cjs server/desktopSupplier.test.cjs server/desktopParcelTransition.test.cjs server/desktopArea3.test.cjs server/desktopPurchasingCreate.test.cjs server/desktopOperationalRecords.test.cjs src/lib/offlineProjection.test.cjs
       - name: Check desktop entry syntax
@@ -314,7 +317,7 @@ jobs:
         working-directory: desktop
         run: node --test desktopLocalBackup.test.cjs snapshotMerge.test.cjs localDesktopAuth.test.cjs
       - name: Verify Areas 2 to 6 inside Intel Electron
-        if: github.ref == 'refs/heads/feature/box-5-validation' || github.ref == 'refs/heads/feature/desktop-release-acceptance'
+        if: github.ref == 'refs/heads/feature/box-5-validation' || (github.ref == 'refs/heads/feature/desktop-release-acceptance' || github.ref == 'refs/heads/feature/nzos-1.0')
         timeout-minutes: 7
         run: |
           set -euo pipefail
@@ -340,8 +343,8 @@ jobs:
           mount_path="$(mktemp -d)"
           trap 'hdiutil detach "$mount_path" -quiet || true; rmdir "$mount_path" || true' EXIT
           hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mount_path" "$dmg"
-          bundle="$mount_path/Nizamia App-2A.app/Contents"
-          test "$(lipo -archs "$bundle/MacOS/Nizamia App-2A")" = x86_64
+          bundle="$mount_path/NZOS.app/Contents"
+          test "$(lipo -archs "$bundle/MacOS/NZOS")" = x86_64
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$bundle/Info.plist")" = com.nizamia.app2a.desktop
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$bundle/Info.plist")" = "$(node -p "require('./desktop/package.json').version")"
           test -s "$bundle/Resources/web/index.html"
@@ -356,18 +359,26 @@ jobs:
           NODE
 
           (cd desktop/release && shasum -a 256 "$(basename "$dmg")" > "$(basename "$dmg").sha256")
-      - name: Verify installed 0.1.10 upgrade with pending offline work
+      - name: Package legacy-compatible updater image
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          node_modules/.bin/electron-builder --mac dmg --x64 -c.productName='Nizamia App-2A' -c.directories.output=compat -c.mac.artifactName='Nizamia-NZOS-${version}-Intel.dmg'
+          cd compat
+          shasum -a 256 *.dmg > Nizamia-NZOS-1.0.0-Intel.dmg.sha256
+      - name: Verify installed 0.1.11 upgrade with pending offline work
         timeout-minutes: 9
-        if: github.ref == 'refs/heads/feature/desktop-release-acceptance'
+        if: (github.ref == 'refs/heads/feature/desktop-release-acceptance' || github.ref == 'refs/heads/feature/nzos-1.0')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          old="$RUNNER_TEMP/Nizamia-App-2A-0.1.10.dmg"
-          gh release download v0.1.10 --pattern "$(basename "$old")" --dir "$RUNNER_TEMP"
-          expected="$(gh api repos/{owner}/{repo}/releases/tags/v0.1.10 --jq '.assets[] | select(.name=="Nizamia-App-2A-0.1.10.dmg") | .digest')"
+          old="$RUNNER_TEMP/Nizamia-App-2A-0.1.11.dmg"
+          gh release download v0.1.11 --pattern "$(basename "$old")" --dir "$RUNNER_TEMP"
+          expected="$(gh api repos/{owner}/{repo}/releases/tags/v0.1.11 --jq '.assets[] | select(.name=="Nizamia-App-2A-0.1.11.dmg") | .digest')"
           test "sha256:$(shasum -a 256 "$old" | cut -d' ' -f1)" = "$expected"
-          node desktop/intelUpdateAcceptance.cjs "$old" desktop/release/*.dmg
+          node desktop/intelUpdateAcceptance.cjs "$old" desktop/compat/*.dmg
       - name: Upload unsigned Intel Mac DMG
         uses: actions/upload-artifact@v7
         with:
@@ -375,5 +386,7 @@ jobs:
           path: |
             desktop/release/*.dmg
             desktop/release/*.dmg.sha256
+            desktop/compat/*.dmg
+            desktop/compat/*.dmg.sha256
           if-no-files-found: error
           retention-days: 14

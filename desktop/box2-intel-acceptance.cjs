@@ -204,7 +204,7 @@ async function check(){
  const footer=await until(()=>win.webContents.executeJavaScript(
   "document.querySelector('.dl-form footer span')?.textContent"
  ),'Mac login version did not appear')
- assert.equal(footer,'V '+require('./package.json').version)
+ assert.equal(footer,'V '+require('./package.json').version.replace(/^(\d+\.\d+)\.0$/,'$1'))
  console.log('Verified rendered Mac login version:',footer)
  assert.equal((await login(win)).data.authenticated,true)
  await until(async()=> (await records(win,'orders')).some(row=>row.id===target),'Initial cloud snapshot did not arrive')
@@ -343,8 +343,9 @@ async function check(){
  await until(async()=>await displayedStage()==='Stitching','Initial sample stage was not rendered')
  await db.query("update samples set stage='Washing' where id=$1",[stageSample])
  const menu=require('electron').Menu.getApplicationMenu()
- const refresh=menu.items.find(item=>item.label==='Database').submenu.items.find(item=>item.label.startsWith('Refresh Snapshot from Cloud'))
- await refresh.click()
+ assert.ok(menu.items.some(item=>item.label==='Reports'))
+ assert.ok(!menu.items.some(item=>item.label==='Database'))
+ await request(win,'/api/offline/refresh',{})
  await until(async()=>await displayedStage()==='Washing','Open Sampling page missed the downloaded stage')
  console.log('Verified cloud stage change in the open Sampling page on Intel.')
  console.log('Intel Electron verified Areas 2 to 6.')

@@ -165,12 +165,12 @@ export default function Reports() {
   const navigate = useNavigate()
   const location = useLocation()
   const incomingPI = location.state?.proformaOrderIds?.length ? location.state : null
-  const [active,setActive] = useState(()=>incomingPI ? {title:'Proforma Invoice',proforma:true} : null)
+  const [active,setActive] = useState(()=>incomingPI ? {title:'Proforma Invoice',proforma:true} : window.location.protocol==='app2a:' && location.search==='?open=active'?flatten.find(isActiveOrders):null)
   const [catalogSearch,setCatalogSearch] = useState('')
   const [favorites,setFavorites] = useState(()=>{try{return JSON.parse(window.localStorage.getItem('app2a-report-favorites')||'[]')}catch{return []}})
   const favoriteKey=r=>`${r.category}:${r.title}`
   const toggleFavorite=r=>setFavorites(old=>{const key=favoriteKey(r);const next=old.includes(key)?old.filter(x=>x!==key):[...old,key];try{window.localStorage.setItem('app2a-report-favorites',JSON.stringify(next))}catch(_){}return next})
-  const [category,setCategory] = useState('All')
+  const [category,setCategory] = useState(window.location.protocol==='app2a:' && location.search==='?open=formats'?'Production Formats':'All')
   const [catalogSort,setCatalogSort] = useState('name')
   const [rows,setRows] = useState([])
   const [columns,setColumns] = useState([])

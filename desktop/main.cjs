@@ -7,6 +7,13 @@ const { inspectSnapshot } = require('./snapshotInspect.cjs')
 const { showLocalSnapshot } = require('./snapshotViewer.cjs')
 const fs = require('node:fs')
 const {createLocalAuth}=require('./localDesktopAuth.cjs')
+const {readSettings,saveSettings}=require('./localDatabase.cjs')
+const {prepareWorkspace,archivePdf,timestamp,privateFolder}=require('./nzosWorkspace.cjs')
+if(app.isPackaged && process.platform==='darwin') {
+  app.setPath('userData',path.join(app.getPath('appData'),'Nizamia App-2A'))
+  app.setName('NZOS')
+}
+let rebuildMenu=()=>{}
 let desktopAuth,cloudSessionStore
 let onlineSnapshotToken=null
 const { snapshotReady } = require('./snapshotStartup.cjs')
@@ -154,14 +161,27 @@ async function openLocalData() {
 async function startDesktop() {
   try {
     let directory=getDatabaseDirectory()
-    if (!directory) {
-      directory=path.join(app.getPath('userData'),'Standalone Database')
-      fs.mkdirSync(directory,{recursive:true,mode:0o700})
-      await initializeDatabase(directory)
-      // Persist the default folder without prompting on every offline launch.
-      require('./localDatabase.cjs').saveSettings({databaseDirectory:fs.realpathSync(directory)})
-    } else if (!fs.existsSync(path.join(directory,'nizamia-app2a.sqlite'))) {
-      await initializeDatabase(directory)
+    if (!readSettings().workspaceRoot) {
+      let selected=app.getPath('documents')
+      if (!directory && app.isPackaged) {
+        const choice=await dialog.showOpenDialog({title:'Choose NZOS Location',defaultPath:selected,properties:['openDirectory','createDirectory']})
+        if(choice.canceled){app.quit();return}
+        selected=choice.filePaths[0]
+      } else if(!app.isPackaged) selected=app.getPath('userData')
+      const settings=await prepareWorkspace(selected,directory,fs.realpathSync(require('node:os').homedir()),initializeDatabase)
+      saveSettings(settings)
+      directory=settings.databaseDirectory
+    }
+    if (!fs.existsSync(path.join(directory,'nizamia-app2a.sqlite'))) throw Error('The configured NZOS database is missing.')
+    const assets=path.join(process.resourcesPath,'brand-assets')
+    if(fs.existsSync(assets)){
+      const folder=privateFolder(privateFolder(readSettings().workspaceRoot,'App Assets'),app.getVersion())
+      for(const entry of fs.readdirSync(assets,{withFileTypes:true})){
+        if(entry.isFile()) {
+          try{fs.copyFileSync(path.join(assets,entry.name),path.join(folder,entry.name),fs.constants.COPYFILE_EXCL)}
+          catch(error){if(error.code!=='EEXIST')throw error}
+        }
+      }
     }
     if (!await snapshotReady(directory)) throw new Error('Local SQLite database could not be verified')
     // Align only explicitly reviewed business tables, after SQLite verification.
@@ -196,13 +216,14 @@ function openBundledWebApp() {
   }
   const win=new BrowserWindow({
     width:1360,height:900,minWidth:960,minHeight:650,
-    title:'Nizamia App-2A',
+    title:'NZOS',
     webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}
   })
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}))
   win.webContents.on('will-navigate',(event,url)=>{
     if(!url.startsWith('app2a://local/'))event.preventDefault()
   })
+  win.on('page-title-updated',event=>event.preventDefault())
   win.loadURL('app2a://local/').catch(error=>dialog.showErrorBox('App-2A web interface',error.message))
 }
 
@@ -281,7 +302,7 @@ function createWindow() {
   win.loadURL(APP_URL)
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   const refreshInterval=setInterval(()=>{
    if(net.isOnline()&&onlineSnapshotToken)
     refreshCloudSnapshot(onlineSnapshotToken).catch(()=>{})
@@ -314,7 +335,7 @@ app.whenReady().then(() => {
             }).catch(error=>{
               console.warn('Automatic cloud refresh skipped; local data preserved:',error.message)
               const owner=BrowserWindow.getAllWindows().find(w=>!w.isDestroyed())
-              if(owner)dialog.showMessageBox(owner,{type:'warning',title:'Cloud data not refreshed',message:'Your offline work is safe, but cloud data was not updated.',detail:error.message+'\\n\\nUse Database → Refresh Snapshot from Cloud after resolving the issue.',buttons:['OK']}).catch(()=>{})
+              if(owner)dialog.showMessageBox(owner,{type:'warning',title:'Cloud data not refreshed',message:'Your offline work is safe, but cloud data was not updated.',detail:error.message+'\\n\\nUse Connected → Refresh from Cloud after resolving the issue.',buttons:['OK']}).catch(()=>{})
             }))
           }
         }catch(error){
@@ -325,11 +346,15 @@ app.whenReady().then(() => {
           data=desktopAuth.login(input.username,input.password)
           if(data.user?.role==='admin')activateOnlineSession(data.user,cloudSessionStore?.read(data.user.id))
         }
-      }else if(input.action==='logout'){const user=desktopAuth.status().user;if(user)cloudSessionStore?.clear(user.id);clearOnlineSession();data=desktopAuth.logout();}else return Response.json({error:'Unknown action'},{status:400});return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
+      }else if(input.action==='logout'){const user=desktopAuth.status().user;if(user)cloudSessionStore?.clear(user.id);clearOnlineSession();data=desktopAuth.logout();}else return Response.json({error:'Unknown action'},{status:400});rebuildMenu();return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
     }
     if(url.pathname.startsWith('/api/')&&desktopAuth?.isAuthenticated()){
       try{await enforceLocalDataScope()}
       catch(error){return Response.json({error:error.message},{status:403})}
+    }
+    if(url.pathname==='/api/offline/refresh' && request.method==='POST'){
+      if(!desktopAuth?.isAuthenticated()||!onlineSnapshotToken)return Response.json({error:'Sign in online to refresh.'},{status:401})
+      try{return Response.json(await refreshCloudSnapshot(onlineSnapshotToken))}catch(error){return Response.json({error:error.message},{status:503})}
     }
     if(url.pathname==='/api/offline/version')return Response.json({version:app.getVersion(),platform:process.platform,pdf:'native',updates:'manual'})
     if(url.pathname==='/api/offline/pdf'){
@@ -343,13 +368,14 @@ app.whenReady().then(() => {
         if(typeof input.html!=='string'||!input.html.startsWith('<html')||input.html.length>3000000)return Response.json({error:'Invalid report HTML'},{status:400})
         const filename=String(input.filename||'Nizamia Report').replace(/[^a-zA-Z0-9 _.-]/g,'').slice(0,100)||'Nizamia Report'
         pdfWindow=new BrowserWindow({show:false,width:1123,height:794,webPreferences:{sandbox:true,nodeIntegration:false,contextIsolation:true,webSecurity:true}})
-        await pdfWindow.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(input.html))
+        await pdfWindow.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(input.html.replace(/<head[^>]*>/i,head=>head+'<meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; style-src &apos;unsafe-inline&apos;; img-src data:; font-src data:">')))
         await pdfWindow.webContents.executeJavaScript('document.fonts.ready.then(()=>Promise.all([...document.images].map(i=>i.complete?Promise.resolve():new Promise(r=>{i.onload=r;i.onerror=r}))))')
         const pdf=await pdfWindow.webContents.printToPDF({printBackground:true,preferCSSPageSize:true})
         const owner=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows().find(w=>w!==pdfWindow)
         const choice=await dialog.showSaveDialog(owner,{title:'Save Nizamia Report PDF',defaultPath:filename.replace(/\.pdf$/i,'')+'.pdf',filters:[{name:'PDF',extensions:['pdf']}]})
         if(choice.canceled||!choice.filePath)return Response.json({cancelled:true})
-        fs.writeFileSync(choice.filePath,pdf,{flag:'w'})
+        fs.writeFileSync(choice.filePath,pdf,{flag:'w',mode:0o600})
+        try{archivePdf(readSettings().workspaceRoot,filename,pdf)}catch(error){return Response.json({error:'Your selected PDF was saved. The NZOS archive copy failed: '+error.message},{status:500})}
         return Response.json({ok:true})
       }catch(error){return Response.json({error:'PDF generation failed: '+error.message},{status:500})}
       finally{if(pdfWindow&&!pdfWindow.isDestroyed())pdfWindow.destroy()}
@@ -730,18 +756,14 @@ app.whenReady().then(() => {
     const target=fs.existsSync(candidate)&&fs.statSync(candidate).isFile()?candidate:path.join(root,'index.html')
     return net.fetch(require('node:url').pathToFileURL(target).toString())
   })
-  const menu = Menu.buildFromTemplate([
-    ...(process.platform === 'darwin' ? [{ label: app.name, submenu: [{ role: 'about' }, { role: 'quit' }] }] : []),
-    { label: 'Database', submenu: [
-      { label: 'Choose Database Folder…', click: () => chooseDatabaseFolder(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]) },
-      { label: 'Show Database Location', click: () => showDatabaseLocation(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]) },
+  const maintenance = [
       { label: 'Back Up Local Database…', click: async () => {
         const owner=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows()[0]
         try {
           const directory=getDatabaseDirectory()
           if(!directory)throw Error('Choose a database folder before backing up.')
           const filename='nizamia-app2a-local-'+new Date().toISOString().replace(/[:.]/g,'-')+'.sqlite'
-          const selection=await dialog.showSaveDialog(owner,{title:'Back Up Local SQLite Database',defaultPath:path.join(app.getPath('documents'),filename),buttonLabel:'Save Verified Backup',filters:[{name:'SQLite Database',extensions:['sqlite']}]})
+          const selection=await dialog.showSaveDialog(owner,{title:'Back Up Local SQLite Database',defaultPath:path.join(privateFolder(readSettings().workspaceRoot,'Backups'),filename),buttonLabel:'Save Verified Backup',filters:[{name:'SQLite Database',extensions:['sqlite']}]})
           if(selection.canceled||!selection.filePath)return
           const {backupDatabaseToFile}=require('./desktopLocalBackup.cjs')
           const result=await backupDatabaseToFile({directory,destination:selection.filePath})
@@ -752,7 +774,7 @@ app.whenReady().then(() => {
         const owner=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows()[0]
         try {
           const selection=await dialog.showOpenDialog(owner,{
-            title:'Select an App-2A SQLite backup',properties:['openFile'],
+            title:'Select an NZOS SQLite backup',defaultPath:privateFolder(readSettings().workspaceRoot,'Backups'),properties:['openFile'],
             filters:[{name:'SQLite database',extensions:['sqlite']}]
           })
           if(selection.canceled||!selection.filePaths[0])return
@@ -806,12 +828,8 @@ app.whenReady().then(() => {
       { label: 'Import Read-Only Snapshot…', click: () => importBackup(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },
       { label: 'Verify Local Snapshot…', click: () => inspectSnapshot(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0], getDatabaseDirectory()) },
       { label: 'Browse Local Data (Read Only)…', click: openLocalData }
-    ] },
-    { label: 'App', submenu: [
-      { label: 'Open Offline Desktop', click: openLocalData },
-      { label: 'Open App-2A Interface', click: openBundledWebApp },
-      { label: 'Open Cloud App', click: createWindow },
-      { type:'separator' },
+  ]
+  const update =
       { label: 'Check for App Updates…', click: async()=>{
         const {checkForDesktopRelease,downloadVerifiedInstaller}=require('./desktopUpdates.cjs')
         const owner=BrowserWindow.getFocusedWindow()||BrowserWindow.getAllWindows()[0]
@@ -838,7 +856,7 @@ app.whenReady().then(() => {
                   const {stageMacUpdate}=require('./desktopUpdateLaunch.cjs')
                   const directory=getDatabaseDirectory()
                   if(!directory)throw Error('No local database folder configured')
-                  const backup=await backupDatabaseBeforeUpdate({directory,backupRoot:path.join(app.getPath('userData'),'Pre-Update Backups')})
+                  const backup=await backupDatabaseBeforeUpdate({directory,backupRoot:privateFolder(readSettings().workspaceRoot,'Backups')})
                   await stageMacUpdate({appPath:path.resolve(process.resourcesPath,'..','..'),resourcesPath:process.resourcesPath,dmgPath:target.filePath,version:result.version,asset,userData:app.getPath('userData'),pid:process.pid})
                   await dialog.showMessageBox(owner,{type:'info',title:'Update started',message:'Verified backup saved; installation will begin when App-2A closes',detail:'Backup: '+backup.file+'\\n\\nThe previous application will be kept for rollback.',buttons:['Close App and Install']})
                   app.quit()
@@ -854,11 +872,33 @@ app.whenReady().then(() => {
           }
         }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Update check failed',message:'The update could not be downloaded or verified',detail:error.message+'\n\nYour installed app and local database have not been changed.',buttons:['OK']})}
       } }
-    ] },
-    { label: 'View', submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }] },
-    { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'close' }] }
-  ])
-  Menu.setApplicationMenu(menu)
+  const destinations = [
+    ['Orders','orders',[['Buyer Purchase Orders','/orders?tab=orders'],['Queues','/orders?tab=queues']]],
+    ['Parcels','parcels',[['Ready for Dispatch','/parcels?tab=ready'],['Dispatched Parcels','/parcels?tab=dispatched']]],
+    ['Shipments','shipping',[['Booking & Shipping','/shipping']]],
+    ['Reports','reports',[['Active Orders Report','/reports?open=active'],['Production Formats','/reports?open=formats']]]
+  ]
+  const {can}=await import('./permissions.mjs')
+  rebuildMenu=()=>{
+    const user=desktopAuth?.status().user
+    const admin=user?.role==='admin'
+    const tools=maintenance.filter(item=>!item.label.startsWith('Refresh Snapshot')).map(item=>({...item,click:()=>{
+      if(desktopAuth?.status().user?.role==='admin')return item.click()
+    }}))
+    const submenu=[{role:'about'},update]
+    if(user)submenu.push({label:'Open Downloads Folder',click:()=>shell.openPath(privateFolder(readSettings().workspaceRoot,'Downloads'))})
+    if(admin)submenu.push({label:'Mac Maintenance',submenu:tools})
+    submenu.push({type:'separator'},{role:'quit'})
+    const menus=destinations.filter(([,module])=>can(user,module)).map(([label,module,items])=>({label,submenu:items.map(([label,route])=>({label,click:()=>{
+      if(!can(desktopAuth?.status().user,module))return
+      const win=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().startsWith('app2a://local/'))
+      if(win){win.focus();win.webContents.executeJavaScript('window.dispatchEvent(new CustomEvent("nzos-navigate",{detail:'+JSON.stringify(route)+'}))')}
+    }}))}))
+    Menu.setApplicationMenu(Menu.buildFromTemplate([{label:'NZOS',submenu},...menus,
+      {label:'View',submenu:[{role:'reload'},{role:'togglefullscreen'}]},
+      {label:'Window',submenu:[{role:'minimize'},{role:'close'}]}]))
+  }
+  rebuildMenu()
   startDesktop().catch(error => dialog.showErrorBox('Desktop startup', error.message))
   // Open the bundled original UI by default; the SQLite viewer remains in the menu.
   // Offline authentication and complete feature coverage still require integration.

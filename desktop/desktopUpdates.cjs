@@ -44,7 +44,7 @@ const {pipeline}=require('node:stream/promises')
 const {Transform}=require('node:stream')
 const MAX_INSTALLER_BYTES=800*1024*1024
 function trustedAsset(release){
- const asset=(release.assets||[]).find(a=>typeof a.name==='string'&&/^Nizamia.*\.dmg$/i.test(a.name)&&/^sha256:[a-f0-9]{64}$/i.test(a.digest||'')&&a.size>1000000&&a.size<MAX_INSTALLER_BYTES&&/^https:\/\/github\.com\/shafayhsn\/nizamia-app2A\/releases\/download\//.test(a.browser_download_url||''))
+ const asset=[...(release.assets||[])].sort((a,b)=>Number(/^NZOS-/.test(b.name))-Number(/^NZOS-/.test(a.name))).find(a=>typeof a.name==='string'&&/^(?:NZOS|Nizamia).*\.dmg$/i.test(a.name)&&/^sha256:[a-f0-9]{64}$/i.test(a.digest||'')&&a.size>1000000&&a.size<MAX_INSTALLER_BYTES&&/^https:\/\/github\.com\/shafayhsn\/nizamia-app2A\/releases\/download\//.test(a.browser_download_url||''))
  return asset?{name:asset.name,url:asset.browser_download_url,digest:asset.digest.slice(7).toLowerCase(),size:asset.size}:null
 }
 function requestInstaller(url,redirects=0){
@@ -66,7 +66,7 @@ function requestInstaller(url,redirects=0){
  })
 }
 async function downloadVerifiedInstaller({asset,destination,requestStream=requestInstaller}){
- if(!asset||!/^Nizamia.*\.dmg$/i.test(asset.name)||!/^https:\/\/github\.com\/shafayhsn\/nizamia-app2A\/releases\/download\//.test(asset.url)||!/^([a-f0-9]{64})$/.test(asset.digest)||!Number.isSafeInteger(asset.size)||asset.size<1000000||asset.size>MAX_INSTALLER_BYTES)throw Error('Release is missing a trusted SHA-256 installer')
+ if(!asset||!/^(?:NZOS|Nizamia).*\.dmg$/i.test(asset.name)||!/^https:\/\/github\.com\/shafayhsn\/nizamia-app2A\/releases\/download\//.test(asset.url)||!/^([a-f0-9]{64})$/.test(asset.digest)||!Number.isSafeInteger(asset.size)||asset.size<1000000||asset.size>MAX_INSTALLER_BYTES)throw Error('Release is missing a trusted SHA-256 installer')
  const dest=path.resolve(destination)
  if(path.extname(dest).toLowerCase()!=='.dmg')throw Error('Choose a .dmg destination')
  const temp=dest+'.partial'

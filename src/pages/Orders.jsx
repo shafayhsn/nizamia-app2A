@@ -1,3 +1,4 @@
+import { saveDesktopPdf } from '../lib/saveDesktopPdf.mjs'
 import {saveOfflineOperation,usesOfflineOperations} from '../lib/offlineOperations'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { buildOrderCuttingPlanHTML } from '../lib/orderCuttingPlanPrint.js'
@@ -3762,6 +3763,7 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
     if (failedSources.some(s=>['Size groups','Colours','Size breakdown','BOM','Washing','Embellishment'].includes(s))) {
       window.alert('Some cutting-plan data could not be loaded. Please refresh before printing.'); return
     }
+    if(location.protocol==='app2a:')return saveDesktopPdf(buildOrderCuttingPlanHTML(order,data),'Cutting Plan '+(order.po_number||'')).catch(e=>window.alert(e.message))
     const win = window.open('', '_blank', 'width=980,height=850')
     if (!win) { window.alert('Please allow popups to print the Cutting Plan.'); return }
     win.document.open(); win.document.write(buildOrderCuttingPlanHTML(order,data)); win.document.close(); win.focus()
@@ -3771,6 +3773,7 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
     if (failedSources.some(s=>['Size groups','Colours','Size breakdown','Finishing','Finishing packs','Washing'].includes(s))) {
       window.alert('Some finishing-plan data could not be loaded. Please refresh before printing.'); return
     }
+    if(location.protocol==='app2a:')return saveDesktopPdf(buildFinishingPlanHTML(order,data,data.finishingPacks||[]),'Finishing Plan '+(order.po_number||'')).catch(e=>window.alert(e.message))
     const win = window.open('', '_blank', 'width=980,height=850')
     if (!win) { window.alert('Please allow popups to print the Finishing Plan.'); return }
     const html = buildFinishingPlanHTML(order, data, data.finishingPacks || [])
@@ -3784,9 +3787,9 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
   async function printCombinedSamplingPlan(){
     const chosen=(data?.samples||[]).filter(s=>samplePlanIds.includes(s.id)).sort((a,b)=>String(a.sample_number||'').localeCompare(String(b.sample_number||''),undefined,{numeric:true}))
     if(!chosen.length)return
-    const printWindow=window.open('','_blank','width=1000,height=800')
-    if(!printWindow){window.alert('Please allow popups to print the Sampling Plan.');return}
-    printWindow.document.write('<p style="font:14px Arial;padding:20px">Preparing Sampling Plan…</p>')
+    const printWindow=location.protocol==='app2a:'?null:window.open('','_blank','width=1000,height=800')
+    if(!printWindow && location.protocol!=='app2a:'){window.alert('Please allow popups to print the Sampling Plan.');return}
+    printWindow?.document.write('<p style="font:14px Arial;padding:20px">Preparing Sampling Plan…</p>')
     setReportBusy('samples')
     try{
       const ids=chosen.map(s=>s.id)
@@ -3814,7 +3817,7 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
       const html=`<style>@media print{.sample-index{break-after:page;page-break-after:always;min-height:275mm}.program{break-before:page;page-break-before:always;min-height:0!important}.sample-index+.program{break-before:auto;page-break-before:auto}}.sample-index{font-size:12px}.sample-index .bom th{width:auto}.sample-index .bom td{font-size:11px}</style>${index}${programs.join('')}`
       printSamplingHTML(html,`${order.job_number||'Order'} Sampling Plan`,printWindow)
       setSamplePlanOpen(false)
-    }catch(err){printWindow.close();console.error('Combined Sampling Plan failed',err);window.alert(`Unable to generate Sampling Plan: ${err.message||err}`)}finally{setReportBusy(null)}
+    }catch(err){printWindow?.close();console.error('Combined Sampling Plan failed',err);window.alert(`Unable to generate Sampling Plan: ${err.message||err}`)}finally{setReportBusy(null)}
   }
   async function runReport(type) {
     const win = openPrintWindow()
@@ -3822,7 +3825,7 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
     setReportBusy(type)
     try {
       const builder = type === 'fabric' ? buildFabricPlan : type === 'trims' ? buildTrimsPlan : buildSampleCards
-      printHTML(await builder([order]),win)
+      printHTML(await builder([order]),win,type+' plan '+(order.po_number||''))
     } catch (err) {
       console.error('Order metadata report failed',err)
       win.document.open();win.document.write('<p style="font-family:sans-serif;padding:24px">Unable to generate this report. Please try Print Reports.</p>');win.document.close()

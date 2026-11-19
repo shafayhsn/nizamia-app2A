@@ -4,7 +4,8 @@
 set -euo pipefail
 if [[ $# -ne 7 ]]; then echo "Usage: helper DMG TARGET VERSION EXPECTED_SHA APP_PID READY_FILE READY_TOKEN" >&2; exit 64; fi
 DMG="$1"; TARGET="$2"; VERSION="$3"; EXPECTED_SHA="$4"; APP_PID="$5"; READY_FILE="$6"; READY_TOKEN="$7"
-APP_NAME="Nizamia App-2A.app"
+APP_NAME="${TARGET##*/}"
+[[ "$APP_NAME" == "NZOS.app" || "$APP_NAME" == "Nizamia App-2A.app" ]] || exit 65
 BUNDLE_ID="com.nizamia.app2a.desktop"
 [[ "$TARGET" == */"$APP_NAME" && "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$EXPECTED_SHA" =~ ^[a-f0-9]{64}$ && "$APP_PID" =~ ^[0-9]+$ && "$READY_TOKEN" =~ ^[a-f0-9]{40}$ ]] || exit 65
 [[ -f "$DMG" && -d "$TARGET" && ! -L "$TARGET" ]] || exit 66
@@ -37,7 +38,8 @@ trap 'restore; cleanup' EXIT
 [[ ! -e "$ROLLBACK" && ! -e "$STAGING" && -w "$PARENT" ]] || exit 70
 /usr/bin/hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$MOUNT" "$DMG" -quiet
 MOUNTED=1
-SOURCE="$MOUNT/$APP_NAME"
+SOURCE="$MOUNT/NZOS.app"
+if [[ ! -d "$SOURCE" ]]; then SOURCE="$MOUNT/$APP_NAME"; fi
 [[ -d "$SOURCE" && ! -L "$SOURCE" ]] || exit 71
 PLIST="$SOURCE/Contents/Info.plist"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")" == "$BUNDLE_ID" ]] || exit 72

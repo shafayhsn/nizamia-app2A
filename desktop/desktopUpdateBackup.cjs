@@ -11,7 +11,7 @@ async function backupDatabaseBeforeUpdate({directory,backupRoot}){
  const backup=fs.realpathSync(backupRoot)
  if(backup===live||backup.startsWith(live+path.sep)||live.startsWith(backup+path.sep))
   throw Error('Backup must be outside the live database folder')
- const destination=path.join(backup,'nizamia-app2a-pre-update-'+crypto.randomUUID()+'.sqlite')
+ const destination=path.join(backup,'nizamia-app2a-pre-update-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+crypto.randomUUID()+'.sqlite')
  return backupDatabaseToFile({directory:live,destination})
 }
 module.exports={backupDatabaseBeforeUpdate}

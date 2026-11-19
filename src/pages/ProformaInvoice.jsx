@@ -1,3 +1,4 @@
+import { saveDesktopPdf } from '../lib/saveDesktopPdf.mjs'
 import React,{useEffect,useMemo,useState} from 'react'
 import {supabase} from '../lib/supabase'
 import {openPrintWindow} from '../components/PrintReports'
@@ -140,6 +141,7 @@ export default function ProformaInvoice({onBack,initialSelection}){
   <div class="binding">This Sales Confirmation is legally binding unless written objection is received within 7 working days.<br/>System-generated document, no signature required.</div></section>
   ${detail?`<section class="annex"><div class="annex-head"><div class="left">PI# ${esc(form.number)}</div><div class="middle"><b>${esc(form.seller)}</b><p>PROFORMA INVOICE AND SALES CONFIRMATION CONTRACT</p></div><div class="right">Status: ${esc(invoice?.status||"Draft")}</div></div><h2 class="annex-title">ANNEXURE A - DETAILED ORDER SCHEDULE</h2>${annexTables}<div class="sign"><b>This Sales Confirmation is legally binding unless written objection is received within 7 working days.<br/>System-generated document, no signature required.</b></div></section>`:""}
   </body></html>`
+  if(location.protocol==='app2a:')return saveDesktopPdf(html,'Proforma Invoice '+form.number).catch(e=>alert(e.message))
   w.document.open();w.document.write(html);w.document.close();setTimeout(()=>{try{w.focus();w.print()}catch(e){alert('Print preview unavailable: '+e.message)}},350)
  }
  const panel={background:'#fff',border:'1px solid #e2e8f0',borderRadius:12,padding:22}

@@ -1,5 +1,5 @@
 import React, { useEffect, lazy, Suspense } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/authContext'
 import { can } from './lib/permissions'
 import Layout from './components/layout/Layout'
@@ -66,6 +66,17 @@ function PageLoader() {
   return <div role="status" aria-live="polite" style={{ padding: 24, fontSize: 12, color: '#64748b' }}>Loading page…</div>
 }
 
+function DesktopDestination({ children }) {
+  const navigate=useNavigate()
+  const location=useLocation()
+  useEffect(()=>{
+    if(window.location.protocol!=='app2a:')return
+    const follow=event=>navigate(event.detail)
+    window.addEventListener('nzos-navigate',follow)
+    return ()=>window.removeEventListener('nzos-navigate',follow)
+  },[navigate])
+  return <React.Fragment key={window.location.protocol==='app2a:'?location.search:''}>{children}</React.Fragment>
+}
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
   if (loading) return <FullScreenLoader />
@@ -100,7 +111,7 @@ export default function App() {
       <ErrorBoundary>
         <Suspense fallback={<PageLoader />}><Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+          <Route path="/" element={<ProtectedRoute><DesktopDestination><Layout /></DesktopDestination></ProtectedRoute>}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="orders/*" element={<RequireRight module="orders"><Orders /></RequireRight>} />

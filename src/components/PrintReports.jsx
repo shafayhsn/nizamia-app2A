@@ -314,6 +314,10 @@ export function openPrintWindow(message = 'Preparing document…') {
 }
 
 export function printHTML(html, targetWindow = null, documentName = 'Nizamia Report') {
+  if(location.protocol==='app2a:'){
+    if(targetWindow)cleanupPrintTarget(targetWindow)
+    return printPurchasingDocument(html,null,documentName).catch(e=>window.alert(e.message))
+  }
   const w = targetWindow || createPrintFrame('Preparing print…')
   if (!w) {
     window.alert('Could not prepare print preview.')

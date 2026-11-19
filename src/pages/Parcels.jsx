@@ -255,7 +255,7 @@ export default function Parcels() {
     handledGlobalSearch.current=globalLocation.key
   },[globalLocation.key,parcels])
 
-  const [tab, setTab] = useState('ready')
+  const [tab, setTab] = useState(window.location.protocol==='app2a:' && new URLSearchParams(window.location.search).get('tab')==='dispatched'?'dispatched':'ready')
   const [search, setSearch] = useState('')
   const [selectedSamples, setSelectedSamples] = useState([])
 

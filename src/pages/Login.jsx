@@ -63,7 +63,7 @@ export default function Login() {
       showPassword={showPassword} setShowPassword={setShowPassword}
       busy={busy} error={error} setError={setError} handleSubmit={handleSubmit}
       offlineSetupRequired={offlineSetupRequired}
-      version={location.protocol === 'app2a:' ? macVersion : webVersion}
+      version={location.protocol === 'app2a:' ? macVersion.replace(/^(\d+\.\d+)\.0$/, "$1") : webVersion}
     />
   )
 }

@@ -9,11 +9,12 @@ const ID='com.nizamia.app2a.desktop'
 function validateMountedBundle({mountPath,version}){
  if(!/^\d+\.\d+\.\d+$/.test(String(version)))throw Error('Invalid expected version')
  const root=fs.realpathSync(mountPath)
- const app=path.join(root,APP)
+ const name=fs.existsSync(path.join(root,'NZOS.app'))?'NZOS.app':APP
+ const app=path.join(root,name)
  if(!fs.existsSync(app)||fs.lstatSync(app).isSymbolicLink()||!fs.lstatSync(app).isDirectory())throw Error('Expected application bundle not found')
  if(fs.realpathSync(app)!==app)throw Error('Bundle path contains symlinks')
  const plist=path.join(app,'Contents','Info.plist')
- const executable=path.join(app,'Contents','MacOS','Nizamia App-2A')
+ const executable=path.join(app,'Contents','MacOS',name.slice(0,-4))
  if(!fs.existsSync(plist)||!fs.existsSync(executable))throw Error('Incomplete application bundle')
  return {app,plist}
 }
