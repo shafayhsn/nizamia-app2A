@@ -1,7 +1,7 @@
 import React, { useEffect, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/authContext'
-import { can } from './lib/permissions'
+import { can, desktopHome } from './lib/permissions'
 import Layout from './components/layout/Layout'
 import WindowManager from './components/ui/WindowManager'
 const Login = lazy(() => import('./pages/Login'))
@@ -84,6 +84,15 @@ function ProtectedRoute({ children }) {
   return children
 }
 
+function DashboardEntry() {
+  const {userRole,loading}=useAuth()
+  if(window.location.protocol!=='app2a:')return <Dashboard />
+  if(loading)return <FullScreenLoader />
+  const home=desktopHome(userRole)
+  if(home && home!=='/dashboard')return <Navigate to={home} replace />
+  return <RequireRight module="dashboard"><Dashboard /></RequireRight>
+}
+
 function RequireRight({ module, action = 'view', children }) {
   const { userRole, loading } = useAuth()
   if (loading) return <FullScreenLoader />
@@ -113,7 +122,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<ProtectedRoute><DesktopDestination><Layout /></DesktopDestination></ProtectedRoute>}>
             <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="dashboard" element={<Dashboard />} />
+            <Route path="dashboard" element={<DashboardEntry />} />
             <Route path="orders/*" element={<RequireRight module="orders"><Orders /></RequireRight>} />
             <Route path="purchasing/*" element={<RequireRight module="purchasing"><Purchasing /></RequireRight>} />
             <Route path="buyers" element={<RequireRight module="buyers">{null}</RequireRight>} />

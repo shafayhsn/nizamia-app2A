@@ -75,6 +75,23 @@ export function can(user, module, action = 'view') {
   return legacy.includes(act)
 }
 
+// Expand the server-supplied role matrix before handing a desktop identity to
+// shared UI helpers. A missing row means that module has no grant.
+export function desktopRole(user) {
+  if (!user || user.role === 'admin') return user
+  const grants = user.role_id ? user.permissions : null
+  const permissions = Object.fromEntries(MODULES.map(({key}) => [
+    key, Object.fromEntries(ACTIONS.map(action => [action, grants?.[key]?.[action] === true]))
+  ]))
+  return {...user, permissions}
+}
+
+export function desktopHome(user) {
+  const role = desktopRole(user)
+  const first = MODULES.find(({key}) => can(role, key))
+  return first ? '/' + first.key : null
+}
+
 export const access = {
   canViewDashboard: (user) => can(user, 'dashboard', 'view'),
   canViewOrders: (user) => can(user, 'orders', 'view'),

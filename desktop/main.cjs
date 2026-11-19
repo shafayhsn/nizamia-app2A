@@ -899,7 +899,7 @@ app.whenReady().then(async () => {
     ['Shipments','shipping',[['Booking & Shipping','/shipping']]],
     ['Reports','reports',[['Active Orders Report','/reports?open=active'],['Production Formats','/reports?open=formats']]]
   ]
-  const {can}=await import('./permissions.mjs')
+  const {can,desktopRole}=await import('./permissions.mjs')
   rebuildMenu=()=>{
     const user=desktopAuth?.status().user
     const admin=user?.role==='admin'
@@ -910,8 +910,8 @@ app.whenReady().then(async () => {
     if(user)submenu.push({label:'Open Downloads Folder',click:()=>shell.openPath(privateFolder(readSettings().workspaceRoot,'Downloads'))})
     if(admin)submenu.push({label:'Mac Maintenance',submenu:tools})
     submenu.push({type:'separator'},{role:'quit'})
-    const menus=destinations.filter(([,module])=>can(user,module)).map(([label,module,items])=>({label,submenu:items.map(([label,route])=>({label,click:()=>{
-      if(!can(desktopAuth?.status().user,module))return
+    const menus=destinations.filter(([,module])=>can(desktopRole(user),module)).map(([label,module,items])=>({label,submenu:items.map(([label,route])=>({label,click:()=>{
+      if(!can(desktopRole(desktopAuth?.status().user),module))return
       const win=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().startsWith('app2a://local/'))
       if(win){win.focus();win.webContents.executeJavaScript('window.dispatchEvent(new CustomEvent("nzos-navigate",{detail:'+JSON.stringify(route)+'}))')}
     }}))}))

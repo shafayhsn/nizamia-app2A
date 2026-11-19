@@ -3,7 +3,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { supabase } from './supabase'
-import { MODULES } from './permissions'
+import { desktopRole, MODULES } from './permissions'
 
 const AuthContext = createContext(null)
 const IS_DESKTOP = typeof location !== 'undefined' && location.protocol === 'app2a:'
@@ -132,7 +132,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   const refreshUser = useCallback(async () => {
-    if(IS_DESKTOP){const result=await desktopRequest('status');setOfflineSetupRequired(result.setupRequired);setUser(result.user);setUserRole(result.user);return result.user}
+    if(IS_DESKTOP){const result=await desktopRequest('status');setOfflineSetupRequired(result.setupRequired);setUser(result.user);setUserRole(desktopRole(result.user));return result.user}
     const saved = safeReadSession()
     if (!saved?.id) return null
     const { data, error } = await fetchUserById(saved.id)
@@ -167,7 +167,7 @@ export function AuthProvider({ children }) {
   }, [refreshUser])
 
   const login = async (identifier, password) => {
-    if(IS_DESKTOP){try{const result=await desktopRequest('login',{username:identifier,password});setUser(result.user);setUserRole(result.user);setOfflineSetupRequired(false);return {user:result.user,error:null}}catch(error){return {user:null,error}}}
+    if(IS_DESKTOP){try{const result=await desktopRequest('login',{username:identifier,password});setUser(result.user);setUserRole(desktopRole(result.user));setOfflineSetupRequired(false);return {user:result.user,error:null}}catch(error){return {user:null,error}}}
     const cleanIdentifier = String(identifier || '').trim()
     const cleanPassword = String(password || '')
     if (!cleanIdentifier || !cleanPassword) return { user: null, error: new Error('Username/email and password are required.') }
