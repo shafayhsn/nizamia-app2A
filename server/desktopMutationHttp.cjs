@@ -21,14 +21,32 @@ function createDesktopMutationHttp({db,key}){
    return {status:400,body:{error:'Invalid sync batch'}}
   const results=[]
   for(const {operationId,intent} of operations){
-   if(intent?.operation!=='create'||intent?.table!=='production_daily_entries'||
-      !intent.fields||typeof intent.fields!=='object'||Array.isArray(intent.fields)){
+   let rpc,args
+   const sampling=['samples','sample_comments'].includes(intent?.table)
+   // A client already open during rollout keeps its pre-rollout queue for review.
+   if(sampling&&!claim.samplingUploads){
+    results.push({operationId,outcome:'retry'})
+    continue
+   }
+   if(intent?.operation==='create'&&intent.table==='production_daily_entries'&&intent.fields&&
+       typeof intent.fields==='object'&&!Array.isArray(intent.fields)){
+    rpc='desktop_create_production_entry'
+    args={payload:Object.fromEntries(productionFields.filter(key=>Object.hasOwn(intent.fields,key)).map(key=>[key,intent.fields[key]]))}
+   }else if(intent?.table==='samples'&&intent.operation==='update'&&uuid.test(intent.id)&&
+       Object.keys(intent.changes||{}).join()==='stage'&&Object.keys(intent.expected||{}).join()==='stage'){
+    rpc='desktop_update_sample_stage'
+    args={target_sample:intent.id,previous_stage:intent.expected.stage,new_stage:intent.changes.stage}
+   }else if(sampling&&uuid.test(intent.id)&&['create','update','delete'].includes(intent.operation)&&
+       (intent.fields?.area3||intent.changes?.area3||intent.expected?.area3)){
+    rpc='desktop_change_sampling_parcel'
+    args={kind:intent.table,verb:intent.operation,target:intent.id,
+      patch:intent.fields?.area3||intent.changes?.area3||null,expected:intent.expected?.area3||null}
+   }else{
     results.push({operationId,outcome:'unsupported'})
     continue
    }
-   const payload=Object.fromEntries(productionFields.filter(key=>Object.hasOwn(intent.fields,key)).map(key=>[key,intent.fields[key]]))
    try{
-    const {data,error}=await db.rpc('desktop_create_production_entry',{actor:claim.userId,operation:operationId,payload})
+    const {data,error}=await db.rpc(rpc,{actor:claim.userId,operation:operationId,...args})
     results.push({operationId,outcome:!error&&['applied','already-applied','conflict','unauthorized','invalid'].includes(data)?data:'retry'})
    }catch{results.push({operationId,outcome:'retry'})}
   }

@@ -182,16 +182,18 @@ export default function Topbar({onOpenDeadlines}) {
   const week = getWeekNumber(now)
   const {status:syncStatus,snapshot:syncInfo} = useSyncStatus()
   const [globalSave,setGlobalSave]=useState(null)
+  const [macUploads,setMacUploads]=useState(null)
   const [globalSaveError,setGlobalSaveError]=useState(false)
   useEffect(()=>{
     let active=true
     const load=async()=>{
       if(!navigator.onLine)return
-      const {data,error}=await supabase.from('app_database_sync_status').select('last_saved_at').eq('id',1).maybeSingle()
+      const {data,error}=await supabase.from('app_database_sync_status').select('last_saved_at,last_mac_upload_at,mac_upload_count').eq('id',1).maybeSingle()
       if(!active)return
       if(error){setGlobalSaveError(true);return}
       setGlobalSaveError(false)
       setGlobalSave(data?.last_saved_at||null)
+      setMacUploads(data||null)
     }
     load()
     const timer=setInterval(load,30000)
@@ -279,6 +281,16 @@ export default function Topbar({onOpenDeadlines}) {
               <div style={{color:'#64748b',fontSize:11,marginBottom:4}}>Last database update · All users</div>
               <div style={{fontSize:15,fontWeight:750}}>{globalSaveError?'Unavailable':globalSave?(()=>{const secs=Math.max(0,Math.floor((syncNow-new Date(globalSave).getTime())/1000));return secs<60?'Just now':secs<3600?`${Math.floor(secs/60)} min ago`:`${Math.floor(secs/3600)} hr ago`})():'No save recorded yet'}</div>
               {globalSave&&!globalSaveError&&<div style={{fontSize:10,color:'#64748b',marginTop:4}}>{new Date(globalSave).toLocaleTimeString()}</div>}
+            </div>
+            <div style={{borderTop:'1px solid #e5e7eb',marginTop:12,paddingTop:12}}>
+              <div style={{color:'#64748b',fontSize:11}}>Confirmed Mac uploads · All users</div>
+              <strong>{globalSaveError?'Unavailable':macUploads?macUploads.mac_upload_count:'Loading…'}</strong>
+              {macUploads&&!globalSaveError&&<div style={{fontSize:12}}>
+                {macUploads.last_mac_upload_at ? (() => {
+                  const mins=Math.max(0,Math.floor((syncNow-Date.parse(macUploads.last_mac_upload_at))/60000))
+                  return mins===0?'Last upload just now':mins<60?`Last upload ${mins} min ago`:`Last upload ${Math.floor(mins/60)} hr ago`
+                })() : 'No Mac uploads recorded yet'}
+              </div>}
             </div>
             {syncStatus==='error'&&<div style={{marginTop:10}}>
               <div style={{fontSize:11,color:'#475569',lineHeight:1.5,marginBottom:8}}>

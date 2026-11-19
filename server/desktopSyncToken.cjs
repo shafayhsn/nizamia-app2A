@@ -4,7 +4,7 @@ const scope='desktop-sync'
 const lifetime=8*60*60*1000
 const signature=(key,payload)=>createHmac('sha256',key).update(scope+':'+payload).digest()
 function issueDesktopSyncToken(key,id,now=Date.now()){
- const payload=Buffer.from(JSON.stringify({id,scope,exp:now+lifetime})).toString('base64url')
+ const payload=Buffer.from(JSON.stringify({id,scope,samplingUploads:true,exp:now+lifetime})).toString('base64url')
  return payload+'.'+signature(key,payload).toString('base64url')
 }
 function verifyDesktopSyncToken(key,token,now=Date.now()){
@@ -15,7 +15,7 @@ function verifyDesktopSyncToken(key,token,now=Date.now()){
  try{
   const claim=JSON.parse(Buffer.from(payload,'base64url').toString('utf8'))
   if(claim.scope===scope&&typeof claim.id==='string'&&claim.id&&
-     Number.isSafeInteger(claim.exp)&&claim.exp>now&&claim.exp<=now+lifetime)return {userId:claim.id}
+     Number.isSafeInteger(claim.exp)&&claim.exp>now&&claim.exp<=now+lifetime)return {userId:claim.id,samplingUploads:claim.samplingUploads===true}
  }catch{}
  return null
 }
