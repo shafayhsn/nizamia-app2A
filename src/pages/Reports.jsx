@@ -1,3 +1,4 @@
+import { saveDesktopPdf } from '../lib/saveDesktopPdf.mjs'
 import ProductionFormats from './ProductionFormats'
 import ProformaInvoice from './ProformaInvoice'
 import { formatDate as appFormatDate } from '../lib/utils'
@@ -624,9 +625,7 @@ export default function Reports() {
     </style></head><body>${pageHTML}</body></html>`
     if(outputMode==='pdf'&&location.protocol==='app2a:'){
       try{
-        const response=await fetch('/api/offline/pdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({html,filename:filename()})})
-        const result=await response.json()
-        if(!response.ok)throw Error(result.error||'Could not save PDF')
+        await saveDesktopPdf(html,filename())
       }catch(error){window.alert('PDF download failed: '+error.message)}
       return
     }

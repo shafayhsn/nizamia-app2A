@@ -7,6 +7,30 @@ async function handleOfflineOms(directory,url,request,{queueParcelInvoice}={}){
  const action=request.method==='GET'?url.searchParams.get('action'):input.action
  const type=request.method==='GET'?url.searchParams.get('type'):input.type
  const get=table=>listCombinedRecords(directory,table)
+ if(request.method==='GET'){
+  const newest=(rows,key)=>rows.sort((a,b)=>String(b[key]||'').localeCompare(String(a[key]||'')))
+  if(action==='listCostings')return json({costings:newest(await get('costing_sheets'),'updated_at').slice(0,500)})
+  if(action==='listCostingBatches')return json({batches:newest(await get('costing_batches'),'created_at')})
+  if(action==='listProformas')return json({invoices:newest(await get('proforma_invoices'),'updated_at').slice(0,200)})
+  if(action==='ppmList'){
+   const orderId=url.searchParams.get('orderId')
+   const rows=(await get('pp_meetings')).filter(row=>!orderId||row.order_id===orderId)
+   return json({data:newest(rows,'created_at').slice(0,200)})
+  }
+  if(action==='costingHistory'||action==='getProforma'){
+   const id=url.searchParams.get('id')
+   if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id||''))return json({error:'Invalid document ID'},400)
+   if(action==='costingHistory'){
+    const rows=(await get('costing_sheet_versions')).filter(row=>row.costing_id===id)
+    return json({history:rows.sort((a,b)=>b.version-a.version).map(({version,document,created_at})=>({version,document,created_at}))})
+   }
+   const invoice=(await get('proforma_invoices')).find(row=>row.id===id)
+   if(!invoice)return json({error:'Invoice not found'},404)
+   const rows=(await get('proforma_invoice_revisions')).filter(row=>row.invoice_id===id)
+   const history=rows.sort((a,b)=>b.revision-a.revision).map(({revision,action,actor_id,created_at})=>({revision,action,actor_id,created_at}))
+   return json({invoice,history})
+  }
+ }
  if(action==='testing'&&request.method==='GET'){
   const [requirements,testingOrders,suppliers,orders]=await Promise.all(['testing_requirements','testing_orders','suppliers','orders'].map(get))
   return json({requirements,testingOrders,suppliers:suppliers.filter(x=>String(x.category||'').toLowerCase().includes('testing')),orders})

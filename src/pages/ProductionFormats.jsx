@@ -1,3 +1,4 @@
+import { saveDesktopPdf } from '../lib/saveDesktopPdf.mjs'
 import React,{useState} from 'react'
 import JSZip from 'jszip'
 import bundledQmsExcelZipUrl from '../../QMS Excel formats.zip?url'
@@ -172,6 +173,7 @@ async function printCustomized(form,date,visible,rows){
  const rowHtml=entries.filter(r=>+r.getAttribute('r')>=10&&+r.getAttribute('r')<10+rows).map(row=>'<tr>'+shown.map(c=>'<td>'+esc(cellText(cellAt(row,c.index)))+'</td>').join('')+'</tr>').join('')
  const footer=entries.filter(r=>+r.getAttribute('r')>=30+rows-20).map(r=>esc(cellText(cellAt(r,1)))).filter(Boolean)
  const html='<!doctype html><html><head><meta charset="utf-8"><title>'+esc(form.name)+'</title><style>@page{size:A4 landscape;margin:12mm}body{font-family:Arial,sans-serif;color:#172033;font-size:11px}h1{font-size:19px;margin:6px 0}header{border-bottom:2px solid #1d2939;padding-bottom:12px;margin-bottom:16px}.meta{color:#475569;font-size:10px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #7b8794;padding:6px 4px;overflow-wrap:anywhere}th{background:#e9edf2;font-size:9px}td{height:21px}.footer{margin-top:22px;border-top:1px solid #cbd5e1;padding-top:9px;font-size:10px}</style></head><body><header><b>NIZAMIA APPARELS</b><h1>'+esc(cellText(cellAt(title,1))||form.name)+'</h1><div class="meta">'+esc(cellText(cellAt(meta,1)))+'</div><div class="meta">Date: '+esc(date||'____________')+'</div></header><table><thead><tr>'+shown.map(c=>'<th>'+esc(c.label)+'</th>').join('')+'</tr></thead><tbody>'+rowHtml+'</tbody></table><div class="footer">'+footer.map(x=>'<p>'+x+'</p>').join('')+'</div></body></html>'
+ if(location.protocol==='app2a:') return saveDesktopPdf(html,form.name)
  const frame=document.createElement('iframe')
  frame.style.cssText='position:fixed;width:0;height:0;border:0;visibility:hidden'
  document.body.appendChild(frame)

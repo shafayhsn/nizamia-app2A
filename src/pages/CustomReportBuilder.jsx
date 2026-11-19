@@ -1,3 +1,4 @@
+import { saveDesktopPdf } from '../lib/saveDesktopPdf.mjs'
 import React,{useEffect,useMemo,useState} from 'react'
 import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
@@ -180,11 +181,14 @@ export default function CustomReportBuilder(){
    link.href=url;link.download=`${name.replace(/[^a-z0-9_-]+/gi,'-')||'Custom-Report'}.xlsx`;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)
   }catch(e){setError('Excel export failed: '+(e.message||String(e)))}
  }
- const print=()=>{
+ const print=async()=>{
   if(!preview)return
   const headers=outputFields.map(k=>'<th>'+esc(FIELDS.find(f=>f[0]===k)?.[1]||k)+'</th>').join('')
   const body=preview.rows.map((r,i)=>'<tr'+(isGroupStart(preview.rows,i,groups)?' style="background:'+esc(groupColor)+';font-weight:600"':'')+'>'+outputFields.map(k=>'<td>'+(k==='picture'&&/^https:\/\//.test(r[k]||'')?'<img width="65" src="'+esc(r[k])+'"/>':esc(r[k]))+'</td>').join('')+'</tr>').join('')
-  printHTML(`<!doctype html><html><head><title>${esc(name)}</title><style>@page{size:A4 landscape;margin:12mm}body{font:11px Arial;color:#111}h1{font-size:19px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:6px;text-align:left}th{background:#eee}tr{break-inside:avoid}tfoot{font-weight:bold}</style></head><body><h1>${esc(name)}</h1><p>Buyer: ${esc(buyer)} · Orders: ${preview.sourceOrders} · Quantity: ${money(preview.qty)}</p><table><thead><tr>${headers}</tr></thead><tbody>${body}</tbody></table><p>Total Quantity: ${money(preview.qty)} · Total Value: ${money(preview.value)}</p></body></html>`)
+  const html=`<!doctype html><html><head><title>${esc(name)}</title><style>@page{size:A4 landscape;margin:12mm}body{font:11px Arial;color:#111}h1{font-size:19px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:6px;text-align:left}th{background:#eee}tr{break-inside:avoid}tfoot{font-weight:bold}</style></head><body><h1>${esc(name)}</h1><p>Buyer: ${esc(buyer)} · Orders: ${preview.sourceOrders} · Quantity: ${money(preview.qty)}</p><table><thead><tr>${headers}</tr></thead><tbody>${body}</tbody></table><p>Total Quantity: ${money(preview.qty)} · Total Value: ${money(preview.value)}</p></body></html>`
+  if(location.protocol==='app2a:'){
+   try{await saveDesktopPdf(html,name)}catch(e){setError(e.message)}
+  }else printHTML(html)
  }
  const changeBuyer=v=>{setBuyer(v);setStore('All');setStyles([]);setPreview(null)}
  return <div style={{height:'100%',overflow:'auto',padding:'20px 28px',background:'#f8f9fb',fontFamily:'var(--font,Arial,sans-serif)',color:'#202633'}}>

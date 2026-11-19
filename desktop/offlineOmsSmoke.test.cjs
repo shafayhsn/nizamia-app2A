@@ -13,6 +13,13 @@ async function main(){
   const db=new SQL.Database()
   db.run('CREATE TABLE snapshot_manifest (table_name TEXT,row_count INTEGER)')
   db.run('CREATE TABLE snapshot_rows (table_name TEXT,row_index INTEGER,row_json TEXT)')
+  const docId='9f68988c-0843-409b-b3b3-667a66730a32'
+  const insert=(table,index,row)=>db.run('insert into snapshot_rows values(?,?,?)',[table,index,JSON.stringify(row)])
+  insert('proforma_invoices',0,{id:docId,pi_number:'PI-1'})
+  insert('proforma_invoice_revisions',0,{invoice_id:docId,revision:2})
+  insert('proforma_invoice_revisions',1,{invoice_id:'other',revision:3})
+  insert('costing_sheet_versions',0,{costing_id:docId,version:4,document:{style:'QA'}})
+  insert('pp_meetings',0,{id:docId,order_id:'target'})
   const file=path.join(directory,'nizamia-app2a.sqlite')
   fs.writeFileSync(file,Buffer.from(db.export()))
   db.close()
@@ -20,6 +27,16 @@ async function main(){
    const url=new URL('https://local.invalid/api/oms?action='+encodeURIComponent(action))
    return handleOfflineOms(directory,url,new Request(url,{method,...(method==='POST'?{headers:{'content-type':'application/json'},body:JSON.stringify({action,...payload})}:{})}))
   }
+  const query=async params=>{
+   const url=new URL('https://local.invalid/api/oms?'+new URLSearchParams(params))
+   return handleOfflineOms(directory,url,new Request(url))
+  }
+  const invoice=await (await query({action:'getProforma',id:docId})).json()
+  assert.equal(invoice.invoice.pi_number,'PI-1')
+  assert.deepEqual(invoice.history,[{revision:2}])
+  assert.deepEqual((await (await query({action:'costingHistory',id:docId})).json()).history,[{version:4,document:{style:'QA'}}])
+  assert.deepEqual((await (await query({action:'ppmList',orderId:'other'})).json()).data,[])
+  assert.equal((await query({action:'getProforma',id:'missing'})).status,400)
   let response=await invoke('testing')
   assert.equal(response.status,200)
   let result=await response.json()
