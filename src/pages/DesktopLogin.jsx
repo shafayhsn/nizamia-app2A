@@ -13,7 +13,7 @@ export default function LoginForm({ identifier, setIdentifier, password, setPass
       <form className="dl-form" onSubmit={handleSubmit}>
         <img className="dl-mark" src={mark} alt="Nizamia" />
         <h1>{offlineSetupRequired ? 'Set Up Offline Account' : 'Let’s get to work'}</h1>
-        <p className="dl-intro">{offlineSetupRequired ? 'Create a local account for this Mac. Use a password of at least 12 characters. This account does not access Supabase.' : 'Speed up your work with NZOS'}</p>
+        <p className="dl-intro">{offlineSetupRequired ? 'Create a local account for this computer. Use a password of at least 12 characters. This account does not access Supabase.' : 'Speed up your work with NZOS'}</p>
         <label htmlFor="dl-user">Username</label>
         <div className="dl-input"><UserRound /><input id="dl-user" autoComplete="username" value={identifier} onChange={e => setIdentifier(e.target.value)} /></div>
         <div className="dl-row"><label htmlFor="dl-pass">Password</label>

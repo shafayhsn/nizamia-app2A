@@ -2,7 +2,7 @@
   "name": "nizamia-app2a-desktop",
   "version": "1.0.3",
   "private": true,
-  "description": "NZOS for Intel Mac",
+  "description": "NZOS desktop for Mac and Windows",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
@@ -126,7 +126,8 @@
           ]
         }
       ],
-      "icon": "assets/Nizamia-App-2A.ico"
+      "icon": "assets/Nizamia-App-2A.ico",
+      "artifactName": "NZOS-${version}-Windows-x64-Setup.${ext}"
     },
     "asarUnpack": [
       "node_modules/sql.js/dist/sql-wasm.wasm"
@@ -147,7 +148,15 @@
         "from": "../QMS Excel formats.zip",
         "to": "brand-assets/QMS Excel formats.zip"
       }
-    ]
+    ],
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "createStartMenuShortcut": true,
+      "shortcutName": "NZOS",
+      "deleteAppDataOnUninstall": false
+    }
   },
   "dependencies": {
     "sql.js": "1.13.0",

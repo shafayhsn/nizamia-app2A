@@ -59,7 +59,7 @@ function persistDatabase(db, destination) {
 }
 
 async function initializeDatabase(directory) {
-  if (!isInternalUserFolder(directory)) throw new Error('Choose a folder inside your Mac user account on the internal drive.')
+  if (!isInternalUserFolder(directory)) throw new Error('Choose a folder inside your user account on the internal drive.')
   const target = path.join(fs.realpathSync(directory), DB_NAME)
   const existed = fs.existsSync(target)
   const db = await openSqlite(existed ? fs.readFileSync(target) : null)
@@ -104,7 +104,7 @@ async function chooseDatabaseFolder(parent) {
     await dialog.showMessageBox(parent, {
       type: 'info', title: 'Local database ready',
       message: 'SQLite database initialized successfully.',
-      detail: target + '\n\nYour standalone offline database is ready. Local records remain on this Mac and are not synchronized to Supabase.'
+      detail: target + '\n\nYour standalone offline database is ready. Local records remain on this computer and are not synchronized to Supabase.'
     })
     return true
   } catch (error) {

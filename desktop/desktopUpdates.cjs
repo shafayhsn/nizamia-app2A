@@ -26,7 +26,7 @@ function fetchLatestRelease(){
   req.on('error',reject)
  })
 }
-async function checkForDesktopRelease({currentVersion,fetchRelease=fetchLatestRelease}){
+async function checkForDesktopRelease({currentVersion,fetchRelease=fetchLatestRelease,platform=process.platform}){
  const fetched=await fetchRelease()
  const candidates=Array.isArray(fetched)?fetched:[fetched].filter(Boolean)
  const release=candidates.filter(r=>r&&!r.draft&&parseVersion(r.tag_name)&&r.html_url?.startsWith('https://github.com/shafayhsn/nizamia-app2A/releases/')).sort((a,b)=>isNewer(a.tag_name,b.tag_name)?-1:isNewer(b.tag_name,a.tag_name)?1:0)[0]
@@ -34,7 +34,7 @@ async function checkForDesktopRelease({currentVersion,fetchRelease=fetchLatestRe
  const version=String(release.tag_name||'').replace(/^v/i,'')
  const url=String(release.html_url||'')
  if(!parseVersion(version)||!url.startsWith('https://github.com/shafayhsn/nizamia-app2A/releases/'))return {status:'unpublished'}
- return isNewer(version,currentVersion)?{status:'newer',version,url,asset:trustedAsset(release)}:{status:'current',version,url}
+ return isNewer(version,currentVersion)?{status:'newer',version,url,asset:trustedAsset(release,platform)}:{status:'current',version,url}
 }
 
 const fs=require('node:fs')
@@ -43,8 +43,11 @@ const crypto=require('node:crypto')
 const {pipeline}=require('node:stream/promises')
 const {Transform}=require('node:stream')
 const MAX_INSTALLER_BYTES=800*1024*1024
-function trustedAsset(release){
- const asset=[...(release.assets||[])].sort((a,b)=>Number(/^NZOS-/.test(b.name))-Number(/^NZOS-/.test(a.name))).find(a=>typeof a.name==='string'&&/^(?:NZOS|Nizamia).*\.dmg$/i.test(a.name)&&/^sha256:[a-f0-9]{64}$/i.test(a.digest||'')&&a.size>1000000&&a.size<MAX_INSTALLER_BYTES&&/^https:\/\/github\.com\/shafayhsn\/nizamia-app2A\/releases\/download\//.test(a.browser_download_url||''))
+function installerPattern(platform){
+ return platform==='win32'?/^NZOS-\d+\.\d+\.\d+-Windows-x64-Setup\.exe$/i:/^(?:NZOS|Nizamia).*\.dmg$/i
+}
+function trustedAsset(release,platform=process.platform){
+ const asset=[...(release.assets||[])].sort((a,b)=>Number(/^NZOS-/.test(b.name))-Number(/^NZOS-/.test(a.name))).find(a=>typeof a.name==='string'&&installerPattern(platform).test(a.name)&&/^sha256:[a-f0-9]{64}$/i.test(a.digest||'')&&a.size>1000000&&a.size<MAX_INSTALLER_BYTES&&/^https:\/\/github\.com\/shafayhsn\/nizamia-app2A\/releases\/download\//.test(a.browser_download_url||''))
  return asset?{name:asset.name,url:asset.browser_download_url,digest:asset.digest.slice(7).toLowerCase(),size:asset.size}:null
 }
 function requestInstaller(url,redirects=0){
@@ -65,10 +68,10 @@ function requestInstaller(url,redirects=0){
   req.on('error',reject)
  })
 }
-async function downloadVerifiedInstaller({asset,destination,requestStream=requestInstaller}){
- if(!asset||!/^(?:NZOS|Nizamia).*\.dmg$/i.test(asset.name)||!/^https:\/\/github\.com\/shafayhsn\/nizamia-app2A\/releases\/download\//.test(asset.url)||!/^([a-f0-9]{64})$/.test(asset.digest)||!Number.isSafeInteger(asset.size)||asset.size<1000000||asset.size>MAX_INSTALLER_BYTES)throw Error('Release is missing a trusted SHA-256 installer')
+async function downloadVerifiedInstaller({asset,destination,requestStream=requestInstaller,platform=process.platform}){
+ if(!asset||!installerPattern(platform).test(asset.name)||!/^https:\/\/github\.com\/shafayhsn\/nizamia-app2A\/releases\/download\//.test(asset.url)||!/^([a-f0-9]{64})$/.test(asset.digest)||!Number.isSafeInteger(asset.size)||asset.size<1000000||asset.size>MAX_INSTALLER_BYTES)throw Error('Release is missing a trusted SHA-256 installer')
  const dest=path.resolve(destination)
- if(path.extname(dest).toLowerCase()!=='.dmg')throw Error('Choose a .dmg destination')
+ if(path.extname(dest).toLowerCase()!==path.extname(asset.name).toLowerCase())throw Error('Choose the correct installer extension')
  const temp=dest+'.partial'
  let bytes=0
  const hash=crypto.createHash('sha256')

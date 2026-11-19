@@ -1,0 +1,53 @@
+name: NZOS Windows x64 installer
+on:
+  push:
+    branches: [nzos/windows-x64]
+permissions:
+  contents: read
+jobs:
+  installer:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+      - run: npm install --no-audit --no-fund
+        working-directory: desktop
+      - name: Check Windows update selection, SQLite queue and sync
+        run: node --test desktop/windowsInstaller.test.cjs desktop/desktopOrderNoteRoundTrip.test.cjs desktop/desktopSyncLoop.test.cjs server/snapshotDelta.test.cjs
+      - run: npm run build
+        env:
+          APP2A_DESKTOP_BUILD: '1'
+      - run: npm run dist:win -- --publish never
+        working-directory: desktop
+      - name: Install, open, reinstall and check the saved database
+        run: ./.github/scripts/windows-smoke.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Windows-x64-installer
+          path: desktop/release/*-Windows-x64-Setup.exe
+          if-no-files-found: error
+  publish:
+    needs: installer
+    if: github.event.head_commit.message == 'Release NZOS 1.0.3 for Windows x64'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Windows-x64-installer
+      - name: Attach tested Windows installer to NZOS 1.0.3
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          file=NZOS-1.0.3-Windows-x64-Setup.exe
+          sha256sum "$file" > "$file.sha256"
+          gh release upload v1.0.3 "$file" "$file.sha256"

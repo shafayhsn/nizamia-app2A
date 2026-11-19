@@ -10,7 +10,7 @@ const fs = require('node:fs')
 const {createLocalAuth}=require('./localDesktopAuth.cjs')
 const {readSettings,saveSettings}=require('./localDatabase.cjs')
 const {prepareWorkspace,archivePdf,privateFolder}=require('./nzosWorkspace.cjs')
-if(app.isPackaged && process.platform==='darwin') {
+if(app.isPackaged && ['darwin','win32'].includes(process.platform)) {
   const support=app.getPath('appData')
   const profiles=[app.getPath('userData'),path.join(support,'nizamia-app2a-desktop'),path.join(support,'Nizamia App-2A')]
   const pending=profiles.find(dir=>fs.existsSync(path.join(dir,'desktop-update-pending.json')))
@@ -195,7 +195,7 @@ async function enforceLocalDataScope(directory=getDatabaseDirectory()){
  if(!directory||!fs.existsSync(path.join(directory,'nizamia-app2a.sqlite')))return
  const {hasAdminCloudSnapshot}=require('./applyCloudSnapshot.cjs')
  if(await hasAdminCloudSnapshot(directory))
-  throw Error('This Mac contains an administrator-only cloud snapshot. Sign in as an administrator or use the web app.')
+  throw Error('This computer contains an administrator-only cloud snapshot. Sign in as an administrator or use the web app.')
 }
 async function openLocalData() {
   try {
@@ -250,7 +250,7 @@ async function startDesktop() {
       throw new Error('Migrated local SQLite database failed startup verification; pre-change backup retained')
     }
     desktopAuth=createLocalAuth(app.getPath('userData'))
-    if(process.platform==='darwin'){
+    if(['darwin','win32'].includes(process.platform)){
       const {createDesktopCloudSessionStore}=require('./desktopCloudSession.cjs')
       cloudSessionStore=createDesktopCloudSessionStore({directory:app.getPath('userData'),safeStorage})
     }
@@ -870,7 +870,7 @@ app.whenReady().then(async () => {
           const destination=path.join(privateFolder(readSettings().workspaceRoot,'Backups'),filename)
           const {backupDatabaseToFile}=require('./desktopLocalBackup.cjs')
           const result=await backupDatabaseToFile({directory,destination})
-          await dialog.showMessageBox(owner,{type:'info',title:'Local backup complete',message:'SQLite backup saved and verified',detail:'File: '+result.file+'\\nSHA-256: '+result.sha256+'\\n\\nThis backs up the Mac SQLite snapshot, not the Supabase cloud database.',buttons:['OK']})
+          await dialog.showMessageBox(owner,{type:'info',title:'Local backup complete',message:'SQLite backup saved and verified',detail:'File: '+result.file+'\\nSHA-256: '+result.sha256+'\\n\\nThis backs up the local SQLite snapshot, not the Supabase cloud database.',buttons:['OK']})
         }catch(error){await dialog.showMessageBox(owner,{type:'warning',title:'Local backup failed',message:'The local backup was not completed',detail:error.message,buttons:['OK']})}
       } },
       { label: 'Restore Backup to a New Folder…', click: async () => {
@@ -936,11 +936,12 @@ app.whenReady().then(async () => {
         try{
           const result=await checkForDesktopRelease({currentVersion:app.getVersion()})
           if(result.status==='newer'){
+            const windows=process.platform==='win32'
             const asset=result.asset
-            const detail='Installed: '+app.getVersion()+'\nAvailable: '+result.version+'\n\n'+(asset?'Verified installer available ('+Math.round(asset.size/1048576)+' MB).':'No SHA-256-verified macOS installer is attached to this release.')
-            const answer=await dialog.showMessageBox(owner,{type:'info',title:'Nizamia App-2A updates',message:'New desktop version available',detail,buttons:asset?['Download Verified DMG','Open Release Page','Later']:['Open Release Page','Later'],defaultId:0,cancelId:asset?2:1})
+            const detail='Installed: '+app.getVersion()+'\nAvailable: '+result.version+'\n\n'+(asset?'Verified installer available ('+Math.round(asset.size/1048576)+' MB).':'No SHA-256-verified installer for this computer is attached to this release.')
+            const answer=await dialog.showMessageBox(owner,{type:'info',title:'Nizamia App-2A updates',message:'New desktop version available',detail,buttons:asset?[windows?'Download Windows Installer':'Download Verified DMG','Open Release Page','Later']:['Open Release Page','Later'],defaultId:0,cancelId:asset?2:1})
             if(asset&&answer.response===0){
-              const target=await dialog.showSaveDialog(owner,{title:'Save Nizamia App-2A update',defaultPath:path.join(app.getPath('downloads'),asset.name),buttonLabel:'Download',filters:[{name:'Mac Installer',extensions:['dmg']}]})
+              const target=await dialog.showSaveDialog(owner,{title:'Save Nizamia App-2A update',defaultPath:path.join(app.getPath('downloads'),asset.name),buttonLabel:'Download',filters:[{name:'NZOS Installer',extensions:[windows?'exe':'dmg']}]})
               if(target.canceled||!target.filePath)return
               const progress=new BrowserWindow({parent:owner,modal:true,width:410,height:170,resizable:false,minimizable:false,maximizable:false,title:'Downloading App Update',webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}})
               progress.setMenuBarVisibility(false)
@@ -948,6 +949,16 @@ app.whenReady().then(async () => {
               try{
                 await downloadVerifiedInstaller({asset,destination:target.filePath})
                 progress.close()
+                if(windows){
+                  const answer=await dialog.showMessageBox(owner,{type:'info',title:'Install NZOS update',message:'Back up your database and open the Windows installer?',detail:'Save any open edits before continuing.',buttons:['Back Up and Install','Later'],defaultId:1,cancelId:1})
+                  if(answer.response===0){
+                    await require('./desktopUpdateBackup.cjs').backupDatabaseBeforeUpdate({directory:getDatabaseDirectory(),backupRoot:privateFolder(readSettings().workspaceRoot,'Backups')})
+                    const error=await shell.openPath(target.filePath)
+                    if(error)throw Error(error)
+                    app.quit()
+                  }
+                  return
+                }
                 const ready=await dialog.showMessageBox(owner,{type:'info',title:'Update downloaded',message:'Installer downloaded and SHA-256 verified',detail:'File: '+target.filePath+'\\n\\nAutomatic installation requires a backup and may request manual permission on unsigned builds.',buttons:['Install and Restart','Open DMG Manually','Later'],defaultId:0,cancelId:2})
                 if(ready.response===0){
                   const confirm=await dialog.showMessageBox(owner,{type:'warning',title:'Install verified update',message:'Back up local data, close App-2A and install version '+result.version+'?',detail:'Your existing application will be retained for rollback. Save any unfinished work first. Automatic installation works only from /Applications or ~/Applications when writable.',buttons:['Back Up and Install','Cancel'],defaultId:1,cancelId:1})
@@ -964,7 +975,7 @@ app.whenReady().then(async () => {
                   const openError=await shell.openPath(target.filePath)
                   if(openError)throw Error(openError)
                 }
-              }catch(error){progress.close();throw error}
+              }catch(error){if(!progress.isDestroyed())progress.close();throw error}
             }else if(answer.response===(asset?1:0))await shell.openExternal(result.url)
           }else{
             const answer=await dialog.showMessageBox(owner,{type:'info',title:'Nizamia App-2A updates',message:result.status==='current'?'No newer published release':'No published desktop release yet',detail:'Installed: '+app.getVersion()+'\n\nTest builds from GitHub Actions are separate from published update releases.',buttons:['OK','View Test Builds'],defaultId:0,cancelId:0})
@@ -987,7 +998,7 @@ app.whenReady().then(async () => {
     }}))
     const submenu=[{role:'about'},update]
     if(user)submenu.push({label:'Open Downloads Folder',click:()=>shell.openPath(privateFolder(readSettings().workspaceRoot,'Downloads'))})
-    if(admin)submenu.push({label:'Mac Maintenance',submenu:tools})
+    if(admin)submenu.push({label:process.platform==='win32'?'Maintenance':'Mac Maintenance',submenu:tools})
     submenu.push({type:'separator'},{role:'quit'})
     const menus=destinations.filter(([,module])=>can(desktopRole(user),module)).map(([label,module,items])=>({label,submenu:items.map(([label,route])=>({label,click:()=>{
       if(!can(desktopRole(desktopAuth?.status().user),module))return

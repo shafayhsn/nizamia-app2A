@@ -14,7 +14,7 @@ function privateFolder(parent, name) {
 function timestamp() { return new Date().toISOString().replace(/[:.]/g,'-') }
 async function prepareWorkspace(selected, previous, home, initialize) {
   const parent = fs.realpathSync(selected)
-  if (parent !== home && !parent.startsWith(home + path.sep)) throw Error('Choose a folder in your Mac home directory.')
+  if (parent !== home && !parent.startsWith(home + path.sep)) throw Error('Choose a folder in your home directory.')
   const root = path.basename(parent) === 'NZOS' ? parent : privateFolder(parent,'NZOS')
   const database = privateFolder(root,'Database')
   const backups = privateFolder(root,'Backups')
