@@ -1,3 +1,4 @@
+import {downloadPrivateAttachment} from '../lib/offlineOperations'
 import React,{useEffect,useState} from 'react'
 import {useSearchParams,useNavigate} from 'react-router-dom'
 import {supabase} from '../lib/supabase'
@@ -39,7 +40,7 @@ export default function PPMeeting(){
   const result=await api('ppmAttachmentSave',{id:current.id,path:signed.path})
   setCurrent(result.data);setUploadFile(null);setNotice('Signed meeting sheet uploaded');await loadMeetings()
  }catch(e){setError(e.message)}finally{setBusy(false)}}
- const viewAttachment=async(m)=>{try{const res=await fetch('/api/oms?action=ppmAttachmentView&id='+encodeURIComponent(m.id),{credentials:'same-origin'});const result=await res.json();if(!res.ok)throw Error(result.error||'Cannot open attachment');window.open(result.url,'_blank','noopener,noreferrer')}catch(e){setError(e.message)}}
+ const viewAttachment=async(m)=>{try{if(desktop){await downloadPrivateAttachment('meeting',m.id,m.attachment_path.split('/').pop());return}const res=await fetch('/api/oms?action=ppmAttachmentView&id='+encodeURIComponent(m.id),{credentials:'same-origin'});const result=await res.json();if(!res.ok)throw Error(result.error||'Cannot open attachment');window.open(result.url,'_blank','noopener,noreferrer')}catch(e){setError(e.message)}}
  const create=async()=>{if(!orderId)return;setBusy(true);setError('');try{const result=await api('ppmCreate',{orderId});setCurrent(result.data);setShowCreate(false);setNotice('PP Meeting created');await loadMeetings()}catch(e){setError(e.message)}finally{setBusy(false)}}
  const save=async()=>{if(!current)return;setBusy(true);setError('');try{
   const payload={meeting_date:current.meeting_date||null,status:current.status,decision:current.decision||null,technical_checks:current.technical_checks||{},fit_approved:current.fit_approved,department_notes:current.department_notes||{},outstanding_actions:current.outstanding_actions||'',signatures:current.signatures||{}}

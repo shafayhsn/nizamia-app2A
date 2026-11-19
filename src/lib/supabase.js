@@ -43,6 +43,20 @@ function offlineQuery(table) {
   const run=async()=>{
     try{
       if(!operation){const {rows,total}=await load();if(strictSingle&&rows.length!==1)return {data:null,error:new Error('Expected exactly one record; found '+rows.length),count:countRequested?total:null};return {data:headOnly?null:single?(rows[0]||null):rows,error:null,count:countRequested?total:null}}
+      if(['library_items','size_group_templates','app_tasks','app_task_comments'].includes(table)){
+        if(upsert||!['create','update'].includes(operation))throw Error('Unsupported record action')
+        const id=operation==='update'&&filters.length===1&&filters[0][0]==='id'&&filters[0][1]==='eq'?filters[0][2]:null
+        if(operation==='update'&&!id||Array.isArray(payload)&&payload.length!==1)throw Error('Choose one record to save')
+        const fields=Array.isArray(payload)?payload[0]:payload
+        const response=await fetch('/api/offline/operational-record',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({kind:table,action:'save',id,fields})})
+        const result=await response.json()
+        if(!response.ok)throw Error(result.error||'Could not save changes')
+        notifyOfflineWrite()
+        if(!returnRows)return {data:null,error:null}
+        const rows=(await readOfflineRows(table)).filter(row=>row.id===result.data.id)
+        return {data:single?rows[0]:rows,error:null}
+      }
       if(!offlineTables.has(table))throw Error('This table is not available offline')
       const previousColumns=columns,previousOffset=offset,previousLimit=limit
       columns='*';offset=0;limit=null

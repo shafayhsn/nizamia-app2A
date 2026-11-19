@@ -17,3 +17,16 @@ export function offlineShipmentHeader(header,notes,meta){
  const encoded=btoa(content.replace(/[\u007f-\uffff]/g,ch=>'\\u'+ch.charCodeAt(0).toString(16).padStart(4,'0')))
  return {...header,status:storedStatus,notes:String(notes||'').trim()+'\n\n[[APP2A_SHIPPING_META:'+encoded+']]'}
 }
+
+export async function downloadPrivateAttachment(kind,id,name){
+ const response=await fetch('/api/offline/private-download?'+new URLSearchParams({kind,id}))
+ if(!response.ok)throw Error((await response.json()).error||'Download failed')
+ const url=URL.createObjectURL(await response.blob())
+ const link=document.createElement('a')
+ link.href=url
+ link.download=name||'Attachment'
+ document.body.appendChild(link)
+ link.click()
+ link.remove()
+ setTimeout(()=>URL.revokeObjectURL(url),15000)
+}

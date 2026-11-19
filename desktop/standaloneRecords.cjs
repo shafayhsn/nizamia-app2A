@@ -125,7 +125,7 @@ function assertNoChildren(db,table,id){
  }
 }
 function read(db,table){
- validateTable(table)
+ if(!Object.hasOwn(require('./catalogRecords.cjs').fields,table)&&!require('./businessDocuments.cjs').readableTables.has(table))validateTable(table)
  if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='standalone_records'").length)return []
  const stmt=db.prepare('SELECT id,fields_json,updated_at FROM standalone_records WHERE table_name=? ORDER BY created_at DESC')
  const rows=[]
@@ -136,7 +136,7 @@ async function listCombinedRecords(directory,table){
  const file=assertFile(directory),SQL=await sql(),db=new SQL.Database(fs.readFileSync(file))
  try{
   if(db.exec('PRAGMA integrity_check')[0]?.values?.[0]?.[0]!=='ok')throw Error('Database integrity failure')
-  const local=TABLES.has(table)?read(db,table):[]
+  const local=TABLES.has(table)||Object.hasOwn(require('./catalogRecords.cjs').fields,table)||require('./businessDocuments.cjs').readableTables.has(table)?read(db,table):[]
   // Imported Supabase business rows are available to the original UI, but
   // remain immutable. Standalone records are stored in a separate table.
   const snapshot=[]
@@ -1357,7 +1357,8 @@ async function queueOperationalChange(directory,{input,ownerId,isCurrent}){
     return all
    }
    const editedAt=new Date().toISOString()
-   const {table,target,edits,dependencies,payload,expected}=build(input,rows,editedAt)
+   const {table,target,edits,dependencies,payload,expected}=require('./businessDocuments.cjs').types.has(input.kind)?require('./businessDocuments.cjs').buildDocument(input,rows,editedAt,ownerId):Object.hasOwn(require('./catalogRecords.cjs').fields,input.kind)
+    ?require('./catalogRecords.cjs').catalogChange(input,rows,editedAt,ownerId):build(input,rows,editedAt)
    if(!edits.length)return {id:target}
    const pending=new Map()
    if(db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length){
@@ -1372,7 +1373,7 @@ async function queueOperationalChange(directory,{input,ownerId,isCurrent}){
     if(linked)afterOperations.add(linked.op)
    }
    const operationalEdits=[]
-   for(const {table,id,before,after} of edits){
+   for(const {table,id,before,after,ignore=[]} of edits){
     assertUnqueued(db,table,id)
     if(before&&db.exec('SELECT 1 FROM standalone_records WHERE table_name=? AND id=?',[table,id]).length||
      db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id]).length)
@@ -1382,7 +1383,7 @@ async function queueOperationalChange(directory,{input,ownerId,isCurrent}){
      db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(fields),editedAt,editedAt])
     }else db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',[table,id,after?JSON.stringify(after):null,editedAt])
     const changed=after?Object.fromEntries(Object.entries(after).filter(([key,value])=>
-     !['created_at','updated_at','assigned_at'].includes(key)&&(!before||!equal(before[key],value)))):null
+     !ignore.includes(key)&&!['created_at','updated_at','assigned_at'].includes(key)&&(!before||!equal(before[key],value)))):null
     operationalEdits.push({table,id,created:!before,after:changed})
    }
    for(const header of [payload.header,expected.header]){

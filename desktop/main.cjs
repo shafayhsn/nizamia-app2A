@@ -357,6 +357,15 @@ app.whenReady().then(() => {
     if(url.pathname==='/api/oms'){
       if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})
       try{const directory=getDatabaseDirectory();if(!directory)return Response.json({error:'Local database unavailable'},{status:503});return await require('./offlineOms.cjs').handleOfflineOms(directory,url,request,{
+        saveCatalog:async input=>{
+         const ownerId=productionSyncOwner()
+         if(!ownerId)throw Error('Administrator access required')
+         const records=require('./standaloneRecords.cjs')
+         const {id}=await records.queueOperationalChange(directory,{input,ownerId,isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
+         const table={costing:'costing_sheets',proforma:'proforma_invoices',meeting:'pp_meetings'}[input.kind]||input.kind
+         if(input.kind==='costingAssignment'||input.action==='delete')return {id}
+         return (await records.listCombinedRecords(directory,table)).find(row=>row.id===id)
+        },
         queueParcelInvoice: input=>{
          const ownerId=productionSyncOwner()
          const {queueParcelInvoice}=require('./standaloneRecords.cjs')
@@ -585,6 +594,20 @@ app.whenReady().then(() => {
         const data=await queueNewJob(directory,{orderIds,ownerId,
           isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
         return Response.json({data},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:400})}
+    }
+    if(url.pathname==='/api/offline/private-download'){
+      if(request.method!=='GET')return new Response('Method not allowed',{status:405})
+      const owner=productionSyncOwner(),directory=getDatabaseDirectory(),kind=url.searchParams.get('kind'),id=url.searchParams.get('id')
+      if(!owner||!directory)return Response.json({error:'Sign in required'},{status:403})
+      if(!['meeting','asset'].includes(kind)||!/^[a-f0-9-]{36}$/i.test(id||''))return Response.json({error:'Invalid attachment'},{status:400})
+      try{
+        const isCurrent=()=>owner===productionSyncOwner()&&directory===getDatabaseDirectory()
+        const rows=await require('./standaloneRecords.cjs').listCombinedRecords(directory,kind==='asset'?'feature_assets':'pp_meetings')
+        const bytes=await require('./privateDownload.cjs').privateDownload({directory,owner,kind,id,record:rows.find(row=>row.id===id),
+         online:net.isOnline(),token:onlineSnapshotToken,origin:APP_URL,isCurrent})
+        if(!isCurrent())throw Error('Sign-in changed.')
+        return new Response(bytes,{headers:{'Content-Type':'application/octet-stream','Cache-Control':'no-store','Content-Disposition':'attachment'}})
       }catch(error){return Response.json({error:error.message},{status:400})}
     }
     if(url.pathname==='/api/offline/operational-record'){

@@ -2,7 +2,7 @@
 const {listCombinedRecords,mutateLocalRecord}=require('./standaloneRecords.cjs')
 const TYPES={addresses:'buyer_addresses',contacts:'buyer_contacts',snapshots:'parcel_invoice_snapshots'}
 const json=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}})
-async function handleOfflineOms(directory,url,request,{queueParcelInvoice}={}){
+async function handleOfflineOms(directory,url,request,{queueParcelInvoice,saveCatalog}={}){
  const input=request.method==='POST'?JSON.parse(await request.text()):{}
  const action=request.method==='GET'?url.searchParams.get('action'):input.action
  const type=request.method==='GET'?url.searchParams.get('type'):input.type
@@ -31,6 +31,18 @@ async function handleOfflineOms(directory,url,request,{queueParcelInvoice}={}){
    return json({invoice,history})
   }
  }
+ if(request.method==='POST'){
+  if(action==='previewProformaNumber')return json({number:'Pending sync'})
+  if(action==='saveProforma'||action==='transitionProforma')return json({invoice:await saveCatalog({...input,kind:'proforma',action:'save'})})
+  if(action==='saveCosting')return json({costing:await saveCatalog({...input,kind:'costing',action:'save'})})
+  if(action==='assignCostingBatch'){await saveCatalog({...input,kind:'costingAssignment',action:'save'});return json({updated:input.ids.length})}
+  if(action==='ppmCreate')return json({data:await saveCatalog({...input,kind:'meeting',action:'save'})})
+  if(action==='ppmDelete'){await saveCatalog({...input,kind:'meeting',action:'delete'});return json({ok:true})}
+ }
+ if(request.method==='POST'&&action==='ppmSave')
+  return json({data:await saveCatalog({kind:'pp_meetings',action:'save',id:input.id,fields:input.data})})
+ if(request.method==='POST'&&action==='saveCostingBatch')
+  return json({batch:await saveCatalog({kind:'costing_batches',action:'save',fields:{name:String(input.name||'').trim()}})})
  if(action==='testing'&&request.method==='GET'){
   const [requirements,testingOrders,suppliers,orders]=await Promise.all(['testing_requirements','testing_orders','suppliers','orders'].map(get))
   return json({requirements,testingOrders,suppliers:suppliers.filter(x=>String(x.category||'').toLowerCase().includes('testing')),orders})

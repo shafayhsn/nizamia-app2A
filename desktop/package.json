@@ -1,6 +1,6 @@
 {
   "name": "nizamia-app2a-desktop",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "description": "Nizamia App-2A desktop CP-18 SQLite foundation (online app with local metadata database)",
   "main": "main.cjs",
@@ -74,6 +74,9 @@
       "orderSectionCopy.cjs",
       "area3Mutation.cjs",
       "operationalRecords.cjs",
+      "catalogRecords.cjs",
+      "businessDocuments.cjs",
+      "privateDownload.cjs",
       "poMatrixSync.cjs",
       "standaloneForms.cjs",
       "localDesktopAuth.cjs",

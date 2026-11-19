@@ -18,6 +18,7 @@ test('booking and shipment transactions preserve balances and reject concurrent 
    create role anon; create role authenticated; create role service_role;
    create table users(id uuid primary key,role text,is_active bool,is_restricted bool);
    create table orders(id uuid primary key,total_qty numeric);
+   create table library_items(id uuid primary key,name text not null,category text,is_active boolean default true);
    ${schema}
    insert into users values('${owner.ownerId}','admin',true,false);
    insert into orders values('${order}',100);
@@ -25,17 +26,22 @@ test('booking and shipment transactions preserve balances and reject concurrent 
    grant select,insert,update,delete on all tables in schema public to service_role;
   `)
   await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261118_desktop_operational_records.sql'),'utf8'))
+  await db.exec(fs.readFileSync(path.join(__dirname,'migrations/20261119_desktop_catalog_records.sql'),'utf8'))
   await db.exec('set role service_role')
   const SQLite=await init(),local=new SQLite.Database()
   fs.writeFileSync(path.join(directory,'nizamia-app2a.sqlite'),Buffer.from(local.export()))
   local.close()
-  const pull=async()=>Object.fromEntries(await Promise.all(['orders','order_queues',...tables].map(async name=>[
+  const pull=async()=>Object.fromEntries(await Promise.all(['orders','order_queues','library_items',...tables].map(async name=>[
    name,(await db.query('select to_jsonb(t) as row from '+name+' t')).rows.map(({row})=>row)
   ])))
   const refresh=async()=>applyCloudSnapshot({directory,tables:await pull()})
   const read=name=>listCombinedRecords(directory,name)
   const change=input=>queueOperationalChange(directory,{...owner,input})
   const endpoint=createDesktopMutationHttp({key:secret,db:{async rpc(name,args){
+   if(name==='desktop_save_catalog_record'){
+    const values=['actor','operation','kind','verb','target','payload','expected'].map(k=>typeof args[k]==='object'?JSON.stringify(args[k]):args[k])
+    return {data:(await db.query('select desktop_save_catalog_record($1,$2,$3,$4,$5,$6,$7) as outcome',values)).rows[0].outcome}
+   }
    assert.equal(name,'desktop_save_operational_record')
    return applyOperation(db,args)
   }}})
@@ -47,6 +53,15 @@ test('booking and shipment transactions preserve balances and reject concurrent 
    return result
   }})
   await refresh()
+  const fabric=await change({kind:'library_items',action:'save',fields:{name:'QA denim',category:'Fabric'}})
+  assert.equal((await read('library_items'))[0].name,'QA denim')
+  assert.equal((await flush()).archived,1)
+  await refresh()
+  assert.equal((await read('library_items'))[0]._local_only,false)
+  await change({kind:'library_items',action:'save',id:fabric.id,fields:{name:'Desktop revision'}})
+  await db.query('update library_items set name=$1 where id=$2',['Cloud revision',fabric.id])
+  assert.equal((await flush()).conflicts,1)
+  assert.equal((await pull()).library_items[0].name,'Cloud revision')
   const batch=await change({kind:'batch',action:'save',name:'QA batch',orderIds:[order]})
   const bookingHeader={booking_no:'QA booking',booking_date:'2026-11-18',status:'Confirmed'}
   const booking=await change({kind:'booking',action:'save',header:bookingHeader,lines:[{order_id:order,queue_id:queue,qty:75}]})

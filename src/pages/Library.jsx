@@ -1,3 +1,4 @@
+import {usesOfflineOperations,saveOfflineOperation} from '../lib/offlineOperations'
 import MinimizableModal from '../components/ui/MinimizableModal'
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
@@ -364,9 +365,13 @@ function TrimPackagesTab({ libraryItems }) {
   async function load(){ const {data}=await supabase.from('bom_presets').select('*, bom_preset_items(id,library_item_id)').order('name'); setPackages(data||[]) }
   const openNew=()=>{setEditing(null);setName('');setBuyerId('');setSelected(new Set());setTrimSearch({'Stitching Trim':'','Packing Trim':''});setModal(true)}
   const openEdit=(p)=>{setEditing(p);setName(p.name||'');setBuyerId(p.buyer_id||'');setSelected(new Set((p.bom_preset_items||[]).map(x=>x.library_item_id)));setTrimSearch({'Stitching Trim':'','Packing Trim':''});setModal(true)}
-  async function save(){ if(!name.trim()||!buyerId||!selected.size) return; setSaving(true); let presetId=editing?.id; if(editing){await supabase.from('bom_presets').update({name:name.trim(),buyer_id:buyerId}).eq('id',presetId);await supabase.from('bom_preset_items').delete().eq('preset_id',presetId)}else{const {data,error}=await supabase.from('bom_presets').insert([{name:name.trim(),buyer_id:buyerId}]).select().single();if(error){setSaving(false);await alert(error.message,{title:'Save Failed'});return}presetId=data.id} const rows=[...selected].map(id=>({preset_id:presetId,library_item_id:id})); const {error}=await supabase.from('bom_preset_items').insert(rows);setSaving(false);if(error){await alert(error.message,{title:'Save Failed'});return}setModal(false);load() }
+  async function save(){ if(!name.trim()||!buyerId||!selected.size) return; setSaving(true); if(usesOfflineOperations()){
+   try{await saveOfflineOperation({kind:'trimPackage',action:'save',id:editing?.id,name,buyer_id:buyerId,items:[...selected]});setModal(false);await load()}
+   catch(e){await alert(e.message,{title:'Save Failed'})}finally{setSaving(false)}
+   return
+  } let presetId=editing?.id; if(editing){await supabase.from('bom_presets').update({name:name.trim(),buyer_id:buyerId}).eq('id',presetId);await supabase.from('bom_preset_items').delete().eq('preset_id',presetId)}else{const {data,error}=await supabase.from('bom_presets').insert([{name:name.trim(),buyer_id:buyerId}]).select().single();if(error){setSaving(false);await alert(error.message,{title:'Save Failed'});return}presetId=data.id} const rows=[...selected].map(id=>({preset_id:presetId,library_item_id:id})); const {error}=await supabase.from('bom_preset_items').insert(rows);setSaving(false);if(error){await alert(error.message,{title:'Save Failed'});return}setModal(false);load() }
   const duplicate=(p)=>{setEditing(null);setName(`${p.name} Copy`);setBuyerId(p.buyer_id||'');setSelected(new Set((p.bom_preset_items||[]).map(x=>x.library_item_id)));setTrimSearch({'Stitching Trim':'','Packing Trim':''});setModal(true)}
-  async function remove(p){if(!await confirm(`Delete trim package “${p.name}”?`,{title:'Delete Trim Package',confirmText:'Delete',tone:'danger'}))return;await supabase.from('bom_preset_items').delete().eq('preset_id',p.id);await supabase.from('bom_presets').delete().eq('id',p.id);load()}
+  async function remove(p){if(!await confirm(`Delete trim package “${p.name}”?`,{title:'Delete Trim Package',confirmText:'Delete',tone:'danger'}))return;if(usesOfflineOperations()){try{await saveOfflineOperation({kind:'trimPackage',action:'delete',id:p.id});await load()}catch(e){await alert(e.message)}return}await supabase.from('bom_preset_items').delete().eq('preset_id',p.id);await supabase.from('bom_presets').delete().eq('id',p.id);load()}
   const buyerName=id=>buyers.find(b=>b.id===id)?.name||'—'
   const toggle=id=>setSelected(x=>{const n=new Set(x);n.has(id)?n.delete(id):n.add(id);return n})
   return <><div className="section-header"><div style={{fontSize:13,color:'var(--text-mid)'}}>{packages.length} packages</div><button className="btn btn-primary" onClick={openNew}><Plus size={14}/> Add Trim Package</button></div><div className="card"><div className="table-wrap"><table><thead><tr><th>Package Name</th><th>Buyer</th><th>Stitching Trims</th><th>Packing Trims</th><th style={{textAlign:'right'}}>Actions</th></tr></thead><tbody>{packages.map(p=>{const ids=new Set((p.bom_preset_items||[]).map(x=>x.library_item_id));const st=trims.filter(x=>ids.has(x.id)&&x.category==='Stitching Trim').length,pk=trims.filter(x=>ids.has(x.id)&&x.category==='Packing Trim').length;return <tr key={p.id}><td style={{fontWeight:600}}>{p.name}</td><td>{buyerName(p.buyer_id)}</td><td>{st}</td><td>{pk}</td><td style={{textAlign:'right',whiteSpace:'nowrap'}}><button className="btn btn-ghost btn-sm" onClick={()=>openEdit(p)}><Edit2 size={13}/></button><button className="btn btn-ghost btn-sm" onClick={()=>duplicate(p)} title="Duplicate"><Layers size={13}/></button><button className="btn btn-ghost btn-sm" onClick={()=>remove(p)}><Trash2 size={13}/></button></td></tr>})}</tbody></table>{!packages.length&&<div className="empty-state"><BookOpen size={32}/><p>No trim packages yet.</p></div>}</div></div>
@@ -416,14 +421,14 @@ export default function Library() {
     if (!form.name?.trim()) return
     setSaving(true)
     const payload = { ...form, category: form.category || activeTab }
-    if (editing) await supabase.from('library_items').update(payload).eq('id', editing.id)
-    else          await supabase.from('library_items').insert([payload])
+    const {error}=editing?await supabase.from('library_items').update(payload).eq('id',editing.id):await supabase.from('library_items').insert([payload])
+    if(error){setSaving(false);await alert(error.message);return}
     setSaving(false); setModal(false); load()
   }
 
   const handleDelete = async (id) => {
     if (!await confirm('Library items cannot be deleted. Deactivate this item instead?', { title:'Remove Library Item', confirmText:'Deactivate', tone:'danger' })) return
-    await supabase.from('library_items').update({ is_active: false }).eq('id', id); load()
+    const {error}=await supabase.from('library_items').update({is_active:false}).eq('id',id);if(error){await alert(error.message);return}load()
   }
 
   const ALL_TABS = [...BOM_CATEGORIES, 'Size Groups', 'Trim Packages']

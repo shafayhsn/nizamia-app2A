@@ -27,7 +27,7 @@ const snapshotToken=Buffer.from(JSON.stringify({
 })).toString('base64url')+'.fixture'
 const names=['orders','buyers','suppliers','size_groups','size_group_colors','order_queues','bom_items','samples','sample_comments','parcels','parcel_status_history',
  'order_processes','purchase_orders','purchase_order_items','purchase_order_changelog',
- 'work_orders','work_order_items','work_order_changelog','production_daily_entries',...operationalTables]
+ 'work_orders','work_order_items','work_order_changelog','production_daily_entries',...operationalTables,'costing_batches','costing_sheets','costing_sheet_versions','proforma_invoices','proforma_invoice_revisions','pp_meetings']
 let online=true
 let uploads=0
 let failure
@@ -86,7 +86,9 @@ const fixture=(async()=>{
  await db.exec(fs.readFileSync(path.join(__dirname,'../server/migrations/20261118_desktop_order_section_copy.sql'),'utf8'))
  for(const name of ['parcel_transition','sampling_parcels','purchasing_create','purchasing_edit','purchase_approval','purchasing_remove','operational_records','production_create'])
   await db.exec(fs.readFileSync(path.join(__dirname,'../server/migrations/20261118_desktop_'+name+'.sql'),'utf8'))
- await db.exec('set role service_role')
+ await db.exec(fs.readFileSync(path.join(__dirname,'../server/fixtures/desktopBusinessDocuments.sql'),'utf8'))
+ for(const name of ['catalog_records','business_documents'])await db.exec(fs.readFileSync(path.join(__dirname,'../server/migrations/20261119_desktop_'+name+'.sql'),'utf8'))
+ await db.exec('grant select,insert,update,delete on all tables in schema public to service_role; grant usage on all sequences in schema public to service_role; set role service_role')
  await db.query("insert into users values($1,'admin',true,false)",[actor])
  await db.query("insert into buyers values($1,'Intel QA buyer')",[buyer])
  await db.query("insert into orders(id,buyer_id,style_number,step_bom) values($1,$3,'Intel QA style',true),($2,$3,'Intel QA style',false)",[source,target,buyer])
@@ -131,6 +133,10 @@ const mutations=createDesktopMutationHttp({key,db:{async rpc(name,args){
   const {rows}=await db.query('select desktop_remove_purchasing_document($1,$2,$3,$4,$5::jsonb) as outcome',
    [args.actor,args.operation,args.kind,args.target,JSON.stringify(args.expected)])
   return {data:rows[0].outcome}
+ }
+ if(['desktop_save_business_document','desktop_save_catalog_record'].includes(name)){
+  const values=['actor','operation','kind','verb','target','payload','expected'].map(k=>typeof args[k]==='object'?JSON.stringify(args[k]):args[k])
+  return {data:(await db.query('select '+name+'($1,$2,$3,$4,$5,$6,$7) as outcome',values)).rows[0].outcome}
  }
  if(name==='desktop_save_operational_record')return applyOperation(db,args)
  if(name==='desktop_create_production_entry'){
@@ -313,7 +319,16 @@ async function check(){
  await login(win)
  await until(async()=> (await records(win,'shipping_bookings')).some(row=>row.id===booking.id&&row.notes==='Intel cloud update'),
   'Cloud booking edit did not reach the Mac')
- console.log('Intel Electron verified Areas 2 to 5 and production, bookings and shipment balances.')
+ online=false
+ const {costing}=await request(win,'/api/oms',{action:'saveCosting',document:{type:'woven',style:'Intel denim',customer:'Intel QA'}})
+ assert.equal(costing._local_only,true)
+ online=true
+ await login(win)
+ await until(async()=> (await records(win,'costing_sheets')).some(row=>row.id===costing.id&&row._local_only===false),'Costing did not sync')
+ await db.query('update costing_sheets set customer=$1 where id=$2',['Cloud QA',costing.id])
+ await login(win)
+ await until(async()=> (await records(win,'costing_sheets')).some(row=>row.id===costing.id&&row.customer==='Cloud QA'),'Cloud costing edit did not reach SQLite')
+ console.log('Intel Electron verified Areas 2 to 6.')
 
 }
 check().then(async()=>{

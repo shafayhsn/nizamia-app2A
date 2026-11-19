@@ -30,11 +30,13 @@ function createDesktopMutationHttp({db,key}){
     args={payload:Object.fromEntries(productionFields.filter(key=>Object.hasOwn(intent.fields,key)).map(key=>[key,intent.fields[key]]))}
    }else if(uuid.test(intent?.id||'')&&intent?.changes?.operational){
     const {kind,action,payload,expected}=intent.changes.operational
-    if(!['booking','shipment','settlement','batch'].includes(kind)||!['save','delete'].includes(action)){
+    const catalog=Object.hasOwn(require('../desktop/catalogRecords.cjs').fields,kind)
+    const document=require('../desktop/businessDocuments.cjs').types.has(kind)
+    if(!document&&!catalog&&!['booking','shipment','settlement','batch'].includes(kind)||!['save','delete'].includes(action)){
      results.push({operationId,outcome:'invalid'})
      continue
     }
-    rpc='desktop_save_operational_record'
+    rpc=document?'desktop_save_business_document':catalog?'desktop_save_catalog_record':'desktop_save_operational_record'
     args={kind,verb:action,target:intent.id,payload,expected}
    }else if(intent?.operation==='update'&&intent.table==='orders'&&uuid.test(intent.id||'')&&
       Object.keys(intent.changes||{}).join()==='status'&&Object.keys(intent.expected||{}).join()==='status'&&
