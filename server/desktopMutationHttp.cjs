@@ -5,7 +5,7 @@ const {isShipmentStatusChange}=require('../desktop/shipmentStatusMutation.cjs')
 const uuid=/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i
 const productionFields=['order_id','size_group_id','color_id','department','movement','production_date','production_at','quantity']
 
-function createDesktopMutationHttp({db,key}){
+function createDesktopMutationHttp({db,key,actorDb=()=>db}){
  return async function handle({method,headers,body}){
   const header=headers?.authorization
   const claim=typeof header==='string'&&header.startsWith('Bearer ')&&verifyDesktopSyncToken(key,header.slice(7))
@@ -172,7 +172,7 @@ function createDesktopMutationHttp({db,key}){
     continue
    }
    try{
-    const {data,error}=await db.rpc(rpc,{actor:claim.userId,operation:operationId,...args})
+    const {data,error}=await actorDb(claim.userId).rpc(rpc,{actor:claim.userId,operation:operationId,...args})
     const outcome=typeof data==='object'&&data!==null?data.outcome:data
     const resourceId=rpc==='desktop_create_parcel'&&typeof data?.resourceId==='string'&&
      /^[a-z0-9_-]{1,128}$/i.test(data.resourceId)?data.resourceId:null

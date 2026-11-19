@@ -1,4 +1,19 @@
 export async function poReview(req,res,db,user,action){
+  if(action==='assignedPOReviews' && req.method==='GET'){
+    if(user.role!=='admin')return res.status(403).json({error:'Admin access required'})
+    const rows=[]
+    let cursor=null
+    for(;;){
+      let page=db.from('app_tasks').select('*').eq('assignee_id',user.id).like('related_record','PO approval: %').order('id').limit(100)
+      if(cursor)page=page.gt('id',cursor)
+      const {data,error}=await page
+      if(error)return res.status(503).json({error:'Could not refresh PO approval tasks'})
+      rows.push(...data)
+      if(data.length<100)break
+      cursor=data.at(-1).id
+    }
+    return res.json({data:rows})
+  }
   if(action==='poApprovers' && req.method==='GET'){
     if(user.role!=='admin'){
       const {data,error}=await db.from('permissions').select('can_view,can_create')
@@ -34,7 +49,11 @@ export async function poReview(req,res,db,user,action){
     const {operation,poId,header,lines,expected}=req.body
     const args={actor:user.id,operation,kind:'purchase_orders',header,lines}
     if(poId){args.target=poId;args.expected=expected}
-    const {data,error}=await db.rpc(poId?'desktop_edit_purchasing_document':'desktop_create_purchasing_document',args)
+    const needsReviewer=!poId && user.role!=='admin'
+    if(needsReviewer && !req.body.approver)return res.status(400).json({error:'Choose an approving Admin'})
+    if(needsReviewer)args.approver=req.body.approver
+    const command=poId?'desktop_edit_purchasing_document':needsReviewer?'create_assigned_po':'desktop_create_purchasing_document'
+    const {data,error}=await db.rpc(command,args)
     if(error)return res.status(503).json({error:'Could not confirm the save. Retry the same change.'})
     if(data==='unauthorized')return res.status(403).json({error:'Purchasing permission required.'})
     if(data==='conflict')return res.status(409).json({error:'The PO or its source records changed. Reopen the PO before editing.'})

@@ -1,6 +1,7 @@
 import { can } from '../lib/permissions'
 import React, { useEffect, useMemo, useState } from 'react'
 import { Building2, Calculator, FileText, Users, ShieldCheck, Hash, Ruler, SlidersHorizontal, Download, X, Palette, Briefcase } from 'lucide-react'
+import EditHistory from './EditHistory'
 import UsersAndRights from './UsersAndRights'
 import {SHORTCUT_CATALOG,DEFAULT_SHORTCUTS,TOPBAR_SHORTCUTS_KEY} from '../lib/topbarShortcuts'
 import {useAuth} from '../lib/authContext'
@@ -103,6 +104,7 @@ export default function Settings() {
     { id: 'company', title: 'Company Info', desc: 'PO header company details', icon: Building2, status: 'Active' },
     { id: 'tax', title: 'Tax', desc: 'Default tax, refund and rebate rates', icon: Calculator, status: 'Active' },
     { id: 'terms', title: 'Terms', desc: 'PO terms & conditions', icon: FileText, status: 'Active' },
+    { id: 'history', title: 'Edit History', desc: 'Who changed a record and when', icon: ShieldCheck, status:'Active' },
     { id: 'users', title: 'User Management', desc: 'Users, roles, restrictions and passwords', icon: Users, status: 'Active' },
     { id: 'roles', title: 'Roles & Permissions', desc: 'Structured permission matrix', icon: ShieldCheck, status: 'Active' },
     { id: 'backup', title: 'Backup & Export', desc: 'Download and restore complete app data', icon: Download, status: 'Active' },
@@ -117,6 +119,7 @@ export default function Settings() {
     if (active === 'company') return <CompanyInfo companyInfo={companyInfo} setCompanyField={setCompanyField} companyUnlocked={companyUnlocked} companyError={companyError} onUnlock={() => unlock('Company Information', () => setCompanyUnlocked(true), setCompanyError)} onSave={saveCompany} onCancel={() => { try { setCompanyInfo({ ...DEFAULT_COMPANY_INFO, ...JSON.parse(localStorage.getItem(COMPANY_INFO_KEY) || '{}') }) } catch { setCompanyInfo(DEFAULT_COMPANY_INFO) } setCompanyUnlocked(false) }} />
     if (active === 'tax') return <Tax tax={taxSettings} poTaxRate={poTaxRate} setPoTaxRate={setPoTaxRate} setTax={setTaxSettings} onSave={saveTaxRate} onSaveAll={saveTaxFull} />
     if (active === 'terms') return <Terms poTerms={poTerms} setPOTerms={setPOTerms} termsUnlocked={termsUnlocked} termsError={termsError} onUnlock={() => unlock('PO Terms & Conditions', () => setTermsUnlocked(true), setTermsError)} onSave={saveTerms} onCancel={() => { setPOTerms(localStorage.getItem(PO_TERMS_KEY) || DEFAULT_PO_TERMS); setTermsUnlocked(false) }} />
+    if (active === 'history') return <EditHistory />
     if (active === 'users') return <div><div style={{display:'flex',gap:8,marginBottom:12}}><button className={'btn btn-sm '+(usersTab==='users'?'btn-primary':'btn-secondary')} onClick={()=>setUsersTab('users')}>Users & Rights</button><button className={'btn btn-sm '+(usersTab==='roles'?'btn-primary':'btn-secondary')} onClick={()=>setUsersTab('roles')}>Roles & Permissions</button></div>{usersTab==='users'?<div style={{margin:'-8px'}}><UsersAndRights /></div>:<RolesPermissions />}</div>
     if (active === 'roles') return <RolesPermissions />
     if (active === 'backup') return <BackupExport />

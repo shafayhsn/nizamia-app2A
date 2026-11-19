@@ -6,7 +6,7 @@ const url=process.env.SUPABASE_URL||process.env.VITE_SUPABASE_URL
 const db=process.env.DESKTOP_MUTATION_SYNC_ENABLED==='true'&&key&&url
  ?createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}})
  :null
-const handle=db&&desktopMutationHttp.createDesktopMutationHttp({db,key})
+const handle=db&&desktopMutationHttp.createDesktopMutationHttp({db,key,actorDb:actor=>createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{'x-nzos-actor':actor,'x-nzos-source':'Mac'}}})})
 
 export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store')

@@ -330,6 +330,15 @@ jobs:
           node --test server/desktopBusinessDocuments.test.cjs desktop/privateDownload.test.cjs src/lib/desktopReportExport.test.cjs
           desktop/node_modules/.bin/electron desktop/box2-intel-acceptance.cjs
 
+      - name: Exercise staff and Admin PO screens on Intel Electron
+        if: github.ref == 'refs/heads/nzos/admin-only-settings-payments'
+        timeout-minutes: 5
+        run: |
+          dest="desktop/node_modules/electron/dist/Electron.app/Contents/Resources/web"
+          test ! -e "$dest"
+          cp -R dist "$dest"
+          trap 'rm -rf "$dest"' EXIT
+          desktop/node_modules/.bin/electron desktop/teamPOAcceptance.cjs
       - name: Build Intel macOS DMG
         working-directory: desktop
         env:

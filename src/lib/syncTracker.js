@@ -26,6 +26,16 @@ export async function trackedFetch(input,init={}) {
  const isWrite=['POST','PATCH','PUT','DELETE'].includes(method)&&!String(typeof input==='string'?input:input?.url||input).includes('/auth/v1/')
  if(isWrite){pending++;emit()}
  try {
+   const target=new URL(typeof input==='string'?input:input?.url||String(input),location.href)
+   const database=import.meta.env.VITE_SUPABASE_URL
+   if((isWrite || target.pathname==='/rest/v1/payment_settlements') && database && target.origin===new URL(database).origin && target.pathname.startsWith('/rest/v1/')){
+     const proof=await fetch('/api/oms',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'editSession'})})
+     if(!proof.ok)throw Error('Your edit could not be verified. Sign in again and retry.')
+     const {token}=await proof.json()
+     const headers=new Headers(init.headers||input?.headers)
+     headers.set('x-nzos-edit-proof',token)
+     init={...init,headers,redirect:'error'}
+   }
    const response=await fetch(input,init)
    if(isWrite){
      if(!response.ok){

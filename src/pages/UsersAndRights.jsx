@@ -105,6 +105,12 @@ function UsersAndRights() {
     fetchUsers()
   }
 
+  const handleDelete = async target => {
+    if(target.id===user?.id || !window.confirm('Delete '+target.username+'? Their login will close and their edit history will be kept.'))return
+    try { await accountRequest('accountDelete',{id:target.id}); await fetchUsers() }
+    catch(error){ alert(error.message) }
+  }
+
   const handleChangePassword = async (targetUser) => {
     if (!isAdmin) return alert('Only admins can change passwords.')
     const pw1 = window.prompt(`New password for ${targetUser.username || targetUser.email}:`)
@@ -205,7 +211,7 @@ function UsersAndRights() {
               <td style={styles.td}><select value={u.role_id || roles.find(r => r.name === u.roleName)?.id || ''} onChange={(e) => handleChangeRole(u, e.target.value)} style={styles.selectRole}>{roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></td>
               <td style={styles.td}><span style={getBadgeStyle(u.roleName)}>{u.is_restricted ? 'Restricted' : (u.is_active ? 'Active' : 'Inactive')}</span>{u.is_restricted && <div style={{ fontSize:10, color:'#b91c1c', marginTop:4 }}>{u.restricted_reason || 'Restricted'}</div>}</td>
               <td style={styles.td}>{u.created_at ? appFormatDate(u.created_at) : '—'}</td>
-              <td style={styles.td}><div style={{ display:'flex', gap:6, flexWrap:'wrap' }}><button title="Change Password" style={{ ...styles.button, ...styles.buttonSecondary, padding:'7px 9px' }} onClick={() => handleChangePassword(u)}><KeyRound size={14} /></button><button title={u.is_restricted ? 'Unrestrict User' : 'Restrict User'} style={{ ...styles.button, ...styles.buttonSecondary, padding:'7px 9px' }} onClick={() => handleToggleRestrict(u)}><Ban size={14} /></button><button style={{ ...styles.button, ...styles.buttonSecondary }} onClick={() => handleToggleActive(u.id, u.is_active)}>{u.is_active ? 'Deactivate' : 'Activate'}</button></div></td>
+              <td style={styles.td}><div style={{ display:'flex', gap:6, flexWrap:'wrap' }}><button title="Change Password" style={{ ...styles.button, ...styles.buttonSecondary, padding:'7px 9px' }} onClick={() => handleChangePassword(u)}><KeyRound size={14} /></button><button title={u.is_restricted ? 'Unrestrict User' : 'Restrict User'} style={{ ...styles.button, ...styles.buttonSecondary, padding:'7px 9px' }} onClick={() => handleToggleRestrict(u)}><Ban size={14} /></button><button style={{ ...styles.button, ...styles.buttonSecondary }} onClick={() => handleToggleActive(u.id, u.is_active)}>{u.is_active ? 'Deactivate' : 'Activate'}</button><button style={styles.buttonSecondary} disabled={u.id===user?.id} onClick={()=>handleDelete(u)}>Delete</button></div></td>
             </tr>))}</tbody>
         </table>
 

@@ -2,7 +2,7 @@
 const {marketRates,handleWebLink,registerInstalledMacApp}=require('./desktopOnline.cjs')
 const path = require('node:path')
 const { app, BrowserWindow, shell, dialog, Menu, protocol, net, safeStorage } = require('electron')
-const { getDatabaseDirectory, initializeDatabase } = require('./localDatabase.cjs')
+const { getDatabaseDirectory: baseDirectory, initializeDatabase } = require('./localDatabase.cjs')
 const { importBackup } = require('./snapshotImport.cjs')
 const { inspectSnapshot } = require('./snapshotInspect.cjs')
 const { showLocalSnapshot } = require('./snapshotViewer.cjs')
@@ -23,7 +23,18 @@ if(app.isPackaged && process.platform==='darwin') {
 }
 let rebuildMenu=()=>{}
 let desktopAuth,cloudSessionStore
+let staffDirectory=null
+function getDatabaseDirectory(){
+ const user=desktopAuth?.status().user
+ return user && user.role!=='admin'?staffDirectory:baseDirectory()
+}
 let onlineSnapshotToken=null
+const {createHash}=require('node:crypto')
+function scopeKey(user){
+ const grants=Object.entries(user.permissions||{}).filter(([,v])=>v.view).map(([k])=>k).sort()
+ return createHash('sha256').update(JSON.stringify([user.id,user.role_id,grants])).digest('hex')
+}
+
 const { snapshotReady } = require('./snapshotStartup.cjs')
 
 // Serve the bundled web SPA under a proper origin so BrowserRouter routes and
@@ -46,7 +57,7 @@ const syncCoordinator=createOfflineSyncCoordinator({
 })
 function productionSyncOwner(){
  const user=desktopAuth?.status().user
- return user?.role==='admin'?user.id:null
+ return user?.role==='admin' || (staffDirectory && user?.permissions?.sampling?.view && user.permissions.sampling.edit)?user.id:null
 }
 
 async function synchronizeDesktopChanges(){
@@ -140,7 +151,9 @@ async function refreshCloudSnapshot(token){
    if(fs.statSync(file).mtimeMs===lastSnapshot.mtime)return {status:'current',unresolved:lastSnapshot.unresolved}
   }
   const {applyCloudSnapshot}=require('./applyCloudSnapshot.cjs')
-  const result=await applyCloudSnapshot({directory,tables,adminScope:true})
+  const user=desktopAuth.status().user
+  if(user.role!=='admin' && (payload.backup_metadata.staff_scope!==scopeKey(user)||directory!==staffDirectory))throw Error('Permissions changed. Sign in again before refreshing.')
+  const result=await applyCloudSnapshot({directory,tables,adminScope:user.role==='admin'})
   lastSnapshot={directory,digest,unresolved:result.unresolved,mtime:fs.statSync(path.join(directory,'nizamia-app2a.sqlite')).mtimeMs}
   announceCloudRefresh()
   return {status:'updated',tables:result.updatedTables,unresolved:result.unresolved}
@@ -153,7 +166,9 @@ function allowedNavigation(url) {
 }
 
 async function enforceLocalDataScope(directory=getDatabaseDirectory()){
- if(desktopAuth?.status().user?.role==='admin')return
+ const user=desktopAuth?.status().user
+ if(user?.role==='admin')return
+ if(user && staffDirectory && directory===staffDirectory)return
  if(!directory||!fs.existsSync(path.join(directory,'nizamia-app2a.sqlite')))return
  const {hasAdminCloudSnapshot}=require('./applyCloudSnapshot.cjs')
  if(await hasAdminCloudSnapshot(directory))
@@ -341,18 +356,26 @@ app.whenReady().then(async () => {
     if(url.pathname==='/api/offline/auth'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})
       try{const raw=await request.text();if(raw.length>2048)return Response.json({error:'Request too large'},{status:413});const input=JSON.parse(raw);if(!desktopAuth)return Response.json({error:'Local account not ready'},{status:503});let data;if(input.action==='status')data=desktopAuth.status();else if(input.action==='login'){
-        clearOnlineSession()
+        desktopAuth.logout();staffDirectory=null;clearOnlineSession()
         let networkUnavailable=false
         try{
           const response=await fetch(APP_URL+'/api/oms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'login',identifier:input.username,password:input.password,desktopEnrollment:true}),signal:AbortSignal.timeout(10000)})
-          if(!response.ok)throw Error('Online credentials rejected or account unavailable')
+          if(response.status===401||response.status===403){
+            desktopAuth.forget(input.username)
+            throw Error('Online credentials rejected or account unavailable')
+          }
+          if(!response.ok)throw Error('Cloud login temporarily unavailable')
           const verified=await response.json()
           if(!verified.ok||!verified.desktopUser)throw Error('Online enrollment response invalid')
           data=desktopAuth.enroll(input.username,input.password,verified.desktopUser)
           const tokens={snapshotToken:verified.desktopSnapshotToken,syncToken:verified.desktopSyncToken}
           const cookie=response.headers.get('set-cookie')?.match(/(?:^|,\s*)(nizamia_backend_session=[A-Za-z0-9_.-]+);/)?.[1]
            if(cookie)onlineWebSession={id:data.user.id,cookie}
-          if(data.user?.role==='admin'){
+          if(data.user.role!=='admin'){
+            staffDirectory=privateFolder(privateFolder(baseDirectory(),'Team'),scopeKey(data.user))
+            await initializeDatabase(staffDirectory)
+          }
+          {
            const fallback={snapshot:tokens.snapshotToken?{token:tokens.snapshotToken}:null,
             sync:tokens.syncToken?{token:tokens.syncToken,expiresAt:Date.now()+8*60*60*1000}:null}
            activateOnlineSession(data.user,cloudSessionStore?.save(data.user.id,tokens)||fallback)
@@ -369,15 +392,23 @@ app.whenReady().then(async () => {
           }
         }catch(error){
           if(error.message==='Online credentials rejected or account unavailable'||error.message==='Online enrollment response invalid')throw error
+          if(desktopAuth.isAuthenticated()){desktopAuth.logout();staffDirectory=null;clearOnlineSession();throw error}
           networkUnavailable=true
         }
         if(networkUnavailable){
           data=desktopAuth.login(input.username,input.password)
-          if(data.user?.role==='admin')activateOnlineSession(data.user,cloudSessionStore?.read(data.user.id))
+          if(data.user.role!=='admin'){
+            staffDirectory=privateFolder(privateFolder(baseDirectory(),'Team'),scopeKey(data.user))
+            await initializeDatabase(staffDirectory)
+          }
+          activateOnlineSession(data.user,cloudSessionStore?.read(data.user.id))
         }
       }else if(input.action==='logout'){const user=desktopAuth.status().user;if(user)cloudSessionStore?.clear(user.id);clearOnlineSession();data=desktopAuth.logout();}else return Response.json({error:'Unknown action'},{status:400});rebuildMenu();return Response.json({data},{headers:{'Cache-Control':'no-store'}})}catch(error){return Response.json({error:error.message},{status:401})}
     }
     if(url.pathname.startsWith('/api/')&&desktopAuth?.isAuthenticated()){
+      const member=desktopAuth.status().user
+      if(member.role!=='admin' && !['/api/offline/records','/api/offline/pending-status','/api/offline/version','/api/offline/refresh','/api/offline/po-review','/api/offline/pdf','/api/offline/sample-stage','/api/offline/drafts'].includes(url.pathname))
+        return Response.json({error:'This offline operation requires additional authorization.'},{status:403})
       try{await enforceLocalDataScope()}
       catch(error){return Response.json({error:error.message},{status:403})}
     }
@@ -417,7 +448,7 @@ app.whenReady().then(async () => {
       try{
         const body=request.method==='POST'?await request.json():null
         const action=body?.action||url.searchParams.get('action')
-        const permitted=review?(request.method==='GET'?['poApprovers']:['savePurchaseOrder','readPOHistory','setPOStage','readPOPage','requestPOReview','approveAssignedPO']):request.method==='GET'?['accountList','accountRoles']:['accountCreate','accountPassword','accountRole','accountActive','accountRestriction']
+        const permitted=review?(request.method==='GET'?['poApprovers','assignedPOReviews']:['savePurchaseOrder','readPOHistory','setPOStage','readPOPage','requestPOReview','approveAssignedPO']):request.method==='GET'?['accountList','accountRoles']:['accountDelete','accountHistory','accountCreate','accountPassword','accountRole','accountActive','accountRestriction']
         if(!['GET','POST'].includes(request.method)||!permitted.includes(action))
           return Response.json({error:'Unknown account request'},{status:400})
         const endpoint=new URL('/api/oms',APP_URL)

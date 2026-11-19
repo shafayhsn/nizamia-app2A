@@ -7,7 +7,7 @@ import desktopSyncToken from '../server/desktopSyncToken.cjs'
 
 const key=process.env.SUPABASE_SERVICE_ROLE_KEY
 const url=process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
-const db=key&&url?createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}}):null
+const baseDb=key&&url?createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}}):null
 const cookieName='nizamia_backend_session'
 const sign=payload=>createHmac('sha256',key).update(payload).digest('base64url')
 const readCookie=req=>String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(cookieName+'='))?.slice(cookieName.length+1)
@@ -20,13 +20,14 @@ const session=async req=>{
  if(mac.length!==expected.length||!timingSafeEqual(Buffer.from(mac),Buffer.from(expected)))return null
  let info;try{info=JSON.parse(Buffer.from(payload,'base64url').toString())}catch{return null}
  if(!info.id||!info.exp||Date.now()>info.exp)return null
- const {data,error}=await db.from('users').select('id,role,role_id,is_active,is_restricted').eq('id',info.id).maybeSingle()
+ const {data,error}=await baseDb.from('users').select('id,role,role_id,is_active,is_restricted').eq('id',info.id).maybeSingle()
  if(error||!data||data.is_active===false||data.is_restricted===true)return null
- return data
+ return {...data,channel:info.channel==='Mac'?'Mac':'Web',expires:info.exp}
 }
 const err=(res,code,message)=>res.status(code).json({error:message})
 const tables={addresses:'buyer_addresses',contacts:'buyer_contacts',snapshots:'parcel_invoice_snapshots',testing_orders:'testing_orders',testing_requirements:'testing_requirements',costing_batches:'costing_batches',costing_sheets:'costing_sheets',costing_sheet_versions:'costing_sheet_versions',parcel_status_history:'parcel_status_history',pp_meetings:'pp_meetings',proforma_invoices:'proforma_invoices',proforma_invoice_revisions:'proforma_invoice_revisions'}
 export default async function handler(req,res){
+ let db=baseDb
  res.setHeader('Cache-Control','no-store')
  if(!db)return err(res,503,'Backend Supabase configuration missing')
  if(!['POST','GET'].includes(req.method))return err(res,405,'Method not allowed')
@@ -39,7 +40,7 @@ export default async function handler(req,res){
    const {data,error}=await db.from('users').select('id,username,email,role,role_id,password_hash,is_active,is_restricted').eq(field,identifier).maybeSingle()
    if(error||!data||data.is_active===false||data.is_restricted===true)return err(res,401,'Invalid credentials')
    if(!await passwordTools.verifyPassword(password,data.password_hash))return err(res,401,'Invalid credentials')
-   const payload=Buffer.from(JSON.stringify({id:data.id,exp:Date.now()+8*60*60*1000})).toString('base64url')
+   const payload=Buffer.from(JSON.stringify({id:data.id,channel:req.body?.desktopEnrollment===true?'Mac':'Web',exp:Date.now()+8*60*60*1000})).toString('base64url')
    res.setHeader('Set-Cookie',cookieName+'='+payload+'.'+sign(payload)+'; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=28800')
    if(req.body?.desktopEnrollment===true){
      let permissions=null
@@ -51,14 +52,25 @@ export default async function handler(req,res){
    }
    return res.json({ok:true})
  }
+ const proof=()=>createHmac('sha256',key).update('audit-proof:'+readCookie(req)).digest('hex')
  if(action==='logout'&&req.method==='POST'){
+   if(readCookie(req)){
+     const {error}=await db.rpc('close_edit_session',{proof:proof()})
+     if(error)return err(res,503,'Could not close the session. Please retry.')
+   }
    res.setHeader('Set-Cookie',cookieName+'=; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=0')
    return res.json({ok:true})
  }
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
- if(['setPOStage','deletePORecords','readPOHistory','savePurchaseOrder','readPOPage','poApprovers','requestPOReview','approveAssignedPO'].includes(action))return poReview(req,res,db,user,action)
- if(['accountDirectory','accountRoles','accountList','accountCreate','accountPassword','accountActive','accountRestriction','accountRole'].includes(action))return accountAction(req,res,db,user,action)
+ db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{'x-nzos-actor':user.id,'x-nzos-source':user.channel}}})
+ if(action==='editSession' && req.method==='POST'){
+   const token=proof()
+   const {error}=await db.rpc('open_edit_session',{actor:user.id,proof:token,expiry:new Date(user.expires).toISOString()})
+   return error?err(res,503,'Could not verify the editor'):res.json({token})
+ }
+ if(['setPOStage','deletePORecords','readPOHistory','savePurchaseOrder','readPOPage','assignedPOReviews','poApprovers','requestPOReview','approveAssignedPO'].includes(action))return poReview(req,res,db,user,action)
+ if(['accountHistory','accountDelete','accountDirectory','accountRoles','accountList','accountCreate','accountPassword','accountActive','accountRestriction','accountRole'].includes(action))return accountAction(req,res,db,user,action)
  if(action==='session')return res.json({ok:true})
  if(['listCostings','saveCosting','costingHistory','listCostingBatches','saveCostingBatch','assignCostingBatch'].includes(action)){
    const admin=String(user.role||'').toLowerCase()==='admin'

@@ -13,6 +13,8 @@ function createLocalAuth(directory){
   if(!entry)throw Error('First sign in online on this computer to enable offline login')
   const supplied=crypto.scryptSync(password,Buffer.from(entry.salt,'hex'),64),expected=Buffer.from(entry.hash,'hex')
   if(expected.length!==supplied.length||!crypto.timingSafeEqual(expected,supplied)){if(++failures>=5){lockedUntil=Date.now()+60000;failures=0}throw Error('Invalid credentials')}
+  if(entry.user.role!=='admin' && (!entry.verifiedAt || Date.now()-entry.verifiedAt>8*60*60*1000))
+    throw Error('Sign in online to verify your team permissions again.')
   if(entry.user.is_active===false||entry.user.is_restricted===true)throw Error('Account access denied')
   failures=0;active=entry.user;return status()
  }
@@ -21,10 +23,16 @@ function createLocalAuth(directory){
   const salt=crypto.randomBytes(32),hash=crypto.scryptSync(password,salt,64)
   const identifiers=[identifier,user.username,user.email].filter(Boolean).map(v=>String(v).trim().toLowerCase())
   const rows=read().filter(row=>row.user.id!==user.id)
-  rows.push({user,identifiers:[...new Set(identifiers)],salt:salt.toString('hex'),hash:hash.toString('hex')})
+  rows.push({user,verifiedAt:Date.now(),identifiers:[...new Set(identifiers)],salt:salt.toString('hex'),hash:hash.toString('hex')})
   save(rows);active=user;failures=0;return status()
  }
+ function forget(identifier){
+  const value=String(identifier).trim().toLowerCase()
+  const rows=read(),remaining=rows.filter(row=>!row.identifiers.includes(value))
+  if(remaining.length!==rows.length)save(remaining)
+  active=null
+ }
  const logout=()=>{active=null;return status()}
- return {status,login,enroll,logout,isAuthenticated:()=>!!active}
+ return {status,login,enroll,forget,logout,isAuthenticated:()=>!!active}
 }
 module.exports={createLocalAuth}
