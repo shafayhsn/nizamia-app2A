@@ -201,6 +201,11 @@ const records=async(win,table)=>(await request(win,'/api/offline/records?table='
 async function check(){
  await fixture
  let win=await until(findWindow,'App-2A renderer did not launch')
+ const footer=await until(()=>win.webContents.executeJavaScript(
+  "document.querySelector('.dl-form footer span')?.textContent"
+ ),'Mac login version did not appear')
+ assert.equal(footer,'V '+require('./package.json').version)
+ console.log('Verified rendered Mac login version:',footer)
  assert.equal((await login(win)).data.authenticated,true)
  await until(async()=> (await records(win,'orders')).some(row=>row.id===target),'Initial cloud snapshot did not arrive')
  online=false
