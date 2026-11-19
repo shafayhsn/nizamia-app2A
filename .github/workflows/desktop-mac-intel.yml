@@ -8,6 +8,7 @@ on:
       - feature/desktop-two-way-sync
       - feature/box-2-validation
       - feature/box-4-validation
+      - feature/box-5-validation
     paths:
       - 'api/**'
       - 'desktop/**'
@@ -80,7 +81,7 @@ jobs:
         working-directory: desktop
         run: npm install --no-audit --no-fund
       - name: Test linked desktop sync workflows
-        run: node --test server/desktopOrderDetails.test.cjs server/desktopOrderRemoval.test.cjs server/desktopOrderSectionCopy.test.cjs server/desktopPoMatrix.test.cjs server/desktopBuyer.test.cjs server/desktopSupplier.test.cjs server/desktopParcelTransition.test.cjs server/desktopArea3.test.cjs server/desktopPurchasingCreate.test.cjs src/lib/offlineProjection.test.cjs
+        run: node --test server/desktopOrderDetails.test.cjs server/desktopOrderRemoval.test.cjs server/desktopOrderSectionCopy.test.cjs server/desktopPoMatrix.test.cjs server/desktopBuyer.test.cjs server/desktopSupplier.test.cjs server/desktopParcelTransition.test.cjs server/desktopArea3.test.cjs server/desktopPurchasingCreate.test.cjs server/desktopOperationalRecords.test.cjs src/lib/offlineProjection.test.cjs
       - name: Check desktop entry syntax
         working-directory: desktop
         run: |
@@ -311,8 +312,8 @@ jobs:
       - name: Test local SQLite backup, snapshot merge and offline reopen
         working-directory: desktop
         run: node --test desktopLocalBackup.test.cjs snapshotMerge.test.cjs localDesktopAuth.test.cjs
-      - name: Verify Areas 2 to 4 inside Intel Electron
-        if: github.ref == 'refs/heads/feature/box-4-validation'
+      - name: Verify Areas 2 to 5 inside Intel Electron
+        if: github.ref == 'refs/heads/feature/box-5-validation'
         timeout-minutes: 7
         run: |
           set -euo pipefail
@@ -346,7 +347,7 @@ jobs:
           node - "$bundle/Resources/app.asar" <<'NODE'
           const asar = require('./desktop/node_modules/@electron/asar')
           const archive = process.argv[2]
-          const expected = ['main.cjs', 'snapshotDownloadClient.cjs', 'applyCloudSnapshot.cjs', 'snapshotMerge.cjs', 'offlineDraftJournal.cjs', 'offlineSyncCoordinator.cjs', 'desktopCloudSession.cjs', 'desktopLocalBackup.cjs', 'desktopMacUpdateHelper.sh']
+          const expected = ['main.cjs', 'snapshotDownloadClient.cjs', 'applyCloudSnapshot.cjs', 'snapshotMerge.cjs', 'offlineDraftJournal.cjs', 'offlineSyncCoordinator.cjs', 'desktopCloudSession.cjs', 'desktopLocalBackup.cjs', 'desktopMacUpdateHelper.sh', 'operationalRecords.cjs']
           for (const file of expected) {
             if (!asar.statFile(archive, file)) throw Error('Missing packaged file ' + file)
           }

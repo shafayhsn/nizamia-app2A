@@ -28,6 +28,14 @@ function createDesktopMutationHttp({db,key}){
       intent.fields&&typeof intent.fields==='object'&&!Array.isArray(intent.fields)){
     rpc='desktop_create_production_entry'
     args={payload:Object.fromEntries(productionFields.filter(key=>Object.hasOwn(intent.fields,key)).map(key=>[key,intent.fields[key]]))}
+   }else if(uuid.test(intent?.id||'')&&intent?.changes?.operational){
+    const {kind,action,payload,expected}=intent.changes.operational
+    if(!['booking','shipment','settlement','batch'].includes(kind)||!['save','delete'].includes(action)){
+     results.push({operationId,outcome:'invalid'})
+     continue
+    }
+    rpc='desktop_save_operational_record'
+    args={kind,verb:action,target:intent.id,payload,expected}
    }else if(intent?.operation==='update'&&intent.table==='orders'&&uuid.test(intent.id||'')&&
       Object.keys(intent.changes||{}).join()==='status'&&Object.keys(intent.expected||{}).join()==='status'&&
       typeof intent.changes.status==='string'&&(intent.expected.status===null||typeof intent.expected.status==='string')){

@@ -147,7 +147,7 @@ async function listCombinedRecords(directory,table){
       stmt.bind([table])
       while(stmt.step()){
         const row=JSON.parse(stmt.get()[0])
-        if(row&&typeof row==='object'&&!Array.isArray(row))snapshot.push({...row,_local_only:false})
+        if(row&&typeof row==='object'&&!Array.isArray(row))snapshot.push({...row,...(table==='production_batch_orders'?{id:row.order_id}:{}),_local_only:false})
       }
     }finally{stmt.free()}
   }
@@ -1330,6 +1330,83 @@ async function queueNewJob(directory,{orderIds,ownerId,isCurrent}){
  })
 }
 
+async function queueOperationalChange(directory,{input,ownerId,isCurrent}){
+ if(!ownerId||!input||typeof input!=='object')throw Error('Administrator session required.')
+ const {build,keyOf}=require('./operationalRecords.cjs')
+ const equal=require('node:util').isDeepStrictEqual
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('Administrator session required.')
+  const file=assertFile(directory),SQL=await sql(),previousFile=fs.readFileSync(file)
+  const db=new SQL.Database(Buffer.from(previousFile))
+  try{
+   schema(db)
+   db.run('CREATE TABLE IF NOT EXISTS snapshot_rows (table_name TEXT NOT NULL,row_index INTEGER NOT NULL,row_json TEXT NOT NULL,PRIMARY KEY(table_name,row_index))')
+   const cache=new Map()
+   const rows=table=>{
+    if(cache.has(table))return cache.get(table)
+    const entries=new Map((db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=?',[table])[0]?.values||[])
+     .map(([raw])=>{const row=JSON.parse(raw);return [keyOf(table,row),row]}))
+    for(const [id,raw] of db.exec('SELECT id,fields_json FROM standalone_records WHERE table_name=?',[table])[0]?.values||[])
+     entries.set(id,{...(table==='production_batch_orders'?{}:{id}),...JSON.parse(raw)})
+    for(const [id,raw] of db.exec('SELECT record_id,fields_json FROM snapshot_edits WHERE table_name=?',[table])[0]?.values||[]){
+     if(raw===null)entries.delete(id)
+     else entries.set(id,JSON.parse(raw))
+    }
+    const all=[...entries.values()]
+    cache.set(table,all)
+    return all
+   }
+   const editedAt=new Date().toISOString()
+   const {table,target,edits,dependencies,payload,expected}=build(input,rows,editedAt)
+   if(!edits.length)return {id:target}
+   const pending=new Map()
+   if(db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length){
+    for(const [op,state,raw] of db.exec("SELECT operation_id,state,intent_json FROM offline_mutation_outbox WHERE owner_id=? AND state<>'applied'",[ownerId])[0]?.values||[]){
+     for(const item of JSON.parse(raw).document?.operationalEdits||[])pending.set(item.table+':'+item.id,{op,state})
+    }
+   }
+   const afterOperations=new Set()
+   for(const [name,id] of dependencies){
+    const linked=pending.get(name+':'+id)
+    if(linked?.state==='conflict')throw Error('Review the linked record conflict first.')
+    if(linked)afterOperations.add(linked.op)
+   }
+   const operationalEdits=[]
+   for(const {table,id,before,after} of edits){
+    assertUnqueued(db,table,id)
+    if(before&&db.exec('SELECT 1 FROM standalone_records WHERE table_name=? AND id=?',[table,id]).length||
+     db.exec('SELECT 1 FROM snapshot_edits WHERE table_name=? AND record_id=?',[table,id]).length)
+     throw Error('Sync and refresh the earlier change before editing this record.')
+    if(after&&!before){
+     const {id:unused,...fields}=after
+     db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,table,JSON.stringify(fields),editedAt,editedAt])
+    }else db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',[table,id,after?JSON.stringify(after):null,editedAt])
+    const changed=after?Object.fromEntries(Object.entries(after).filter(([key,value])=>
+     !['created_at','updated_at','assigned_at'].includes(key)&&(!before||!equal(before[key],value)))):null
+    operationalEdits.push({table,id,created:!before,after:changed})
+   }
+   for(const header of [payload.header,expected.header]){
+    if(header?.notes!=null&&(typeof header.notes!=='string'||Buffer.byteLength(header.notes)>55000))throw Error('Document notes are too long.')
+   }
+   const payment=payload.payment?.payload
+   if(payment)validateFields({payment})
+   const operational={kind:input.kind,action:input.action,payload,expected}
+   const document={operationalEdits,afterOperations:[...afterOperations]}
+   const draft={operation:input.action==='delete'?'delete':'update',table,id:target,changes:{operational},editedAt,document}
+   const intent={...draft,fingerprint:require('./offlineMutationPlan.cjs').fingerprint(draft)}
+   if(Buffer.byteLength(JSON.stringify(intent))>116000||!stageMutation(db,ownerId,intent))
+    throw Error('This change is too large or already waiting to sync.')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(previousFile))throw Error('Database or sign-in changed during save.')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return {id:target}
+  }finally{db.close()}
+ })
+}
+
 async function queuePurchasingRemoval(directory,{table,id,ownerId,isCurrent}){
  if(!ownerId||!['purchase_orders','work_orders'].includes(table)||!cloudId.test(id||''))
   throw Error('A synchronized purchasing document is required.')
@@ -1489,4 +1566,4 @@ async function queueParcelCreate(directory,{items,customItems,addressId,contactI
  })
 }
 
-module.exports={queuePurchasingRemoval,queueParcelInvoice,queueArea3Records,queueOrderCopy,queueOrderRemoval,queueOrderImport,queueOrderSection,queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+module.exports={queueOperationalChange,queuePurchasingRemoval,queueParcelInvoice,queueArea3Records,queueOrderCopy,queueOrderRemoval,queueOrderImport,queueOrderSection,queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}

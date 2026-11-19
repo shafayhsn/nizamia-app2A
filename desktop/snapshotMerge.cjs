@@ -1,6 +1,6 @@
 'use strict'
 const {isDeepStrictEqual:equal}=require('node:util')
-const {reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers,reconcileOrderRemovals,reconcileOrderCopies,reconcileArea3Records,reconcilePurchasingRemovals}=require('./offlineMutationOutbox.cjs')
+const {reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers,reconcileOrderRemovals,reconcileOrderCopies,reconcileArea3Records,reconcilePurchasingRemovals,reconcileOperationalChanges}=require('./offlineMutationOutbox.cjs')
 const timestamp=value=>typeof value==='string'&&/(Z|[+-]\d\d:\d\d)$/i.test(value)?Date.parse(value):NaN
 
 function shipmentStatusTime(before,after){
@@ -18,6 +18,7 @@ function shipmentStatusTime(before,after){
 }
 
 function reconcileOverlays(db,tables,excluded,hold){
+ const key=(table,row)=>table==='production_batch_orders'?row.order_id:row.id
  const overlays=db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_edits'")
  if(!overlays.length)return {unresolved:[],rows:tables}
  const unresolved=[],rows={...tables},indexed=new Map()
@@ -28,8 +29,8 @@ function reconcileOverlays(db,tables,excluded,hold){
    rows[table]=[...tables[table]]
    const stored=db.exec('SELECT row_json FROM snapshot_rows WHERE table_name=?',[table])[0]?.values||[]
    indexed.set(table,{
-    stored:new Map(stored.map(([entry])=>{const row=JSON.parse(entry);return [String(row.id),row]})),
-    incoming:new Map(tables[table].map((row,index)=>[String(row.id),index]))
+    stored:new Map(stored.map(([entry])=>{const row=JSON.parse(entry);return [String(key(table,row)),row]})),
+    incoming:new Map(tables[table].map((row,index)=>[String(key(table,row)),index]))
    })
   }
   const {stored,incoming}=indexed.get(table)
@@ -105,6 +106,7 @@ function mergeSnapshotRows(db,tables,{excludedTables=[]}={}){
   reconcileOrderCopies(db,acceptedTables)
   reconcileArea3Records(db,acceptedTables,hold)
   reconcilePurchasingRemovals(db,acceptedTables,hold)
+  reconcileOperationalChanges(db,acceptedTables,hold)
   const reconciliation=reconcileOverlays(db,tables,excluded,hold)
   unresolved=reconciliation.unresolved
   const incoming=reconciliation.rows

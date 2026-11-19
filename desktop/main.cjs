@@ -587,6 +587,19 @@ app.whenReady().then(() => {
         return Response.json({data},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:400})}
     }
+    if(url.pathname==='/api/offline/operational-record'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
+      if(!ownerId||!directory)return Response.json({error:'Administrator access required for production and shipping sync'},{status:403})
+      try{
+        const raw=await request.text()
+        if(Buffer.byteLength(raw)>95000)return Response.json({error:'Too much data for one offline operation'},{status:413})
+        const {queueOperationalChange}=require('./standaloneRecords.cjs')
+        const data=await queueOperationalChange(directory,{input:JSON.parse(raw),ownerId,
+          isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
+        return Response.json({data},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:400})}
+    }
     if(url.pathname==='/api/offline/purchasing-remove'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})
       const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()

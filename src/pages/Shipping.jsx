@@ -1,3 +1,4 @@
+import {offlineShipmentHeader,saveOfflineOperation,usesOfflineOperations} from '../lib/offlineOperations'
 import {useLocation} from 'react-router-dom'
 import BookingRecords from './BookingRecords'
 import DirectShipment from './DirectShipment'
@@ -173,7 +174,7 @@ function splitShippingNotes(notes) {
   try { return { clean, meta: JSON.parse(atob(rest.slice(0, j))) || {} } } catch { return { clean, meta: {} } }
 }
 function packShippingNotes(clean, meta) {
-  const encoded = btoa(JSON.stringify(meta || {}))
+  const encoded = btoa(JSON.stringify(meta || {}).replace(/[\u007f-\uffff]/g,ch=>'\\u'+ch.charCodeAt(0).toString(16).padStart(4,'0')))
   return String(clean || '').trim() + SHIPPING_META_START + encoded + SHIPPING_META_END
 }
 function shipmentMeta(shipment) { return splitShippingNotes(shipment?.notes).meta || {} }
@@ -349,6 +350,17 @@ function ShipmentModal({ selectedQueues, shipments, onClose, onDone, draft }) {
     const meta = { container_no: header.container_no || '', cro_lp_no: header.cro_lp_no || '', gate_pass_no: header.gate_pass_no || '', delivery_challan_no: header.delivery_challan_no || '', gd_no: header.gd_no || '', hbl_hawb_no: header.hbl_hawb_no || '', fi_no: header.fi_no || '', lc_no: header.lc_no || '', tracking_url: header.tracking_url || '', currency: selectedQueues[0]?.currency || 'USD', lines: Object.fromEntries(selectedQueues.map(q => [q.id, { qty:num(lines[q.id]?.qty), cartons:num(lines[q.id]?.cartons), cbm:num(lines[q.id]?.cbm), value:num(lines[q.id]?.value), close_queue:!!lines[q.id]?.close_queue, close_reason:lines[q.id]?.close_reason || '' }])) }
     const packedNotes = packShippingNotes(header.notes, meta)
     const headerPayload = { shipment_no:header.shipment_no, shipment_date:header.shipment_date, container_no:header.container_no || null, container_number:header.container_no || null, cro_lp_no:header.cro_lp_no || null, booking_ref:header.cro_lp_no || null, gate_pass_no:header.gate_pass_no || null, delivery_challan_no:header.delivery_challan_no || null, gd_no:header.gd_no || null, hbl_hawb_no:header.hbl_hawb_no || null, fi_no:header.fi_no || null, lc_no:header.lc_no || null, tracking_url:header.tracking_url || null, etd:header.etd || null, eta:header.eta || null, notes:packedNotes || null, status }
+    if(usesOfflineOperations()){
+      try{
+        const saved=offlineShipmentHeader(headerPayload,header.notes,{...shipmentMeta(draft?.shipment),...meta})
+        const entries=selectedQueues.map(q=>({order_id:q.order_id,queue_id:q.id,shipped_qty:num(lines[q.id]?.qty),
+          close_queue:!!lines[q.id]?.close_queue,close_reason:lines[q.id]?.close_reason||null}))
+        await saveOfflineOperation({kind:'shipment',action:'save',mode:'queued',id:draft?.shipment?.id,
+          original:draft?.shipment,originalLines:draft?.lines,header:saved,lines:entries})
+        await onDone()
+      }catch(error){alert(error.message)}finally{setSaving(false)}
+      return
+    }
     let sh = draft?.shipment || null
     let error = null
     {
@@ -526,6 +538,21 @@ function HistoricalShipmentModal({ shipments, draft, onClose, onDone }) {
       container_no:form.container_no||null,etd:form.etd||null,eta:form.eta||null,
       tracking_url:form.tracking_url||null,notes:packShippingNotes(draft?shipmentCleanNotes(draft):'',meta),
       status:draft?.status||'Shipped'}
+    if(usesOfflineOperations()){
+      try{
+        const header=offlineShipmentHeader(payload,draft?shipmentCleanNotes(draft):'',meta)
+        const payment=!isEdit&&form.credit_date&&Number(form.received_pkr)>0?
+          {...settlementDefaults(header,{value:Number(form.value),currency:form.currency,today_pkr_rate:Number(form.fx_rate)}),
+            buyer_due_date:form.buyer_due_date||'',buyer_received_date:form.credit_date,
+            bank_realisation_rate:Number(form.fx_rate),received_pkr:Number(form.received_pkr),
+            buyer_received_fcy:Number(form.received_pkr)/Number(form.fx_rate),
+            buyer_done:Number(form.received_pkr)/Number(form.fx_rate)>=Number(form.value)-0.01}:undefined
+        await saveOfflineOperation({kind:'shipment',action:'save',mode:'historical',id:draft?.id,
+          original:draft&&{notes:draft.notes,shipment_no:draft.shipment_no},header,lines:[],payment})
+        await onDone()
+      }catch(error){setError(error.message)}finally{setSaving(false)}
+      return
+    }
     const {data,error:dbError}=await saveShipmentHeader(payload,isEdit,draft?.id)
     if(dbError){setError(dbError.message||'Could not save shipment');setSaving(false);return}
     // Historical records have no shipment_lines: this prevents changes to Orders' shipped quantities.
@@ -657,6 +684,14 @@ function ShipmentsTab({ shipments, shipmentLines, rows, onRefresh, onEdit, onPas
   function printList(list=filtered) { const head = visibleKeys.map(k=>`<th style="border:1px solid #ddd;padding:8px;background:#f5f5f5;text-align:left">${labels[k]}</th>`).join(''); const body = list.map(s=>`<tr>${visibleKeys.map(k=>`<td style="border:1px solid #ddd;padding:8px">${cellValue(s,k,false)}</td>`).join('')}</tr>`).join(''); printHTML(`<div style="font-family:Arial;padding:24px"><h2>Shipments</h2><table style="width:100%;border-collapse:collapse"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`) }
   async function deleteShipment(s) {
     if (!window.confirm(`Delete shipment ${s.shipment_no || ''}? This cannot be undone.`)) return
+    if(usesOfflineOperations()){
+      try{
+        await saveOfflineOperation({kind:'shipment',action:'delete',id:s.id,original:{notes:s.notes,shipment_no:s.shipment_no},
+          originalLines:shipmentLines.filter(line=>line.shipment_id===s.id)})
+        await onRefresh()
+      }catch(error){setStatusError(error.message)}
+      return
+    }
     await supabase.from('shipment_lines').delete().eq('shipment_id', s.id)
     const { error } = await supabase.from('shipments').delete().eq('id', s.id)
     if (error) { alert(error.message || 'Could not delete shipment.'); return }
@@ -890,15 +925,18 @@ function PaymentsTab({ shipments, shipmentLines, rows, isAdmin=false }) {
   const [editing, setEditing] = useState(null)
   const [showPaymentPicker,setShowPaymentPicker]=useState(false)
   useEffect(() => {
-    let cancelled = false
-    supabase.from('payment_settlements').select('shipment_id,payload').then(({ data, error }) => {
-      if (!cancelled && !error && data) {
-        const next = { ...loadPaymentSettlements() }
-        data.forEach(r => { if (r.shipment_id) next[r.shipment_id] = r.payload || {} })
-        setSettlements(next); savePaymentSettlements(next)
-      }
-    })
-    return () => { cancelled = true }
+    let cancelled=false
+    const reload=async()=>{
+      const {data,error}=await supabase.from('payment_settlements').select('shipment_id,payload')
+      if(cancelled||error||!data)return
+      const next=usesOfflineOperations()?{}:{...loadPaymentSettlements()}
+      data.forEach(row=>{if(row.shipment_id)next[row.shipment_id]=row.payload||{}})
+      setSettlements(next)
+      if(!usesOfflineOperations())savePaymentSettlements(next)
+    }
+    reload()
+    window.addEventListener('app2a-cloud-snapshot-updated',reload)
+    return()=>{cancelled=true;window.removeEventListener('app2a-cloud-snapshot-updated',reload)}
   }, [])
   const defaultCols = { shipment_no:true, buyer:true, ship_date:true, qty:true, invoice_value:true, buyer_due_date:true, received_pkr:true, fx_diff:true, tax_refund:true, rebate:true, net_pending:true, status:false }
   const labels = { shipment_no:'Shipment No', buyer:'Buyer', ship_date:'Ship Date', qty:'Quantity', invoice_value:'Invoice Value', buyer_due_date:'Payment Due', received_pkr:'Received (USD / PKR)', fx_diff:'FX Diff', tax_refund:'Tax Refund PKR', rebate:'Rebate PKR', net_pending:'PKR Pending', status:'Status' }
@@ -1002,7 +1040,9 @@ function PaymentsTab({ shipments, shipmentLines, rows, isAdmin=false }) {
   async function saveSettlement(form) {
     if(!editing||saving)return
     setSaving(true);setSaveError('')
-    const {error}=await supabase.from('payment_settlements').upsert({shipment_id:editing.id,payload:form,updated_at:new Date().toISOString()},{onConflict:'shipment_id'})
+    const {error}=usesOfflineOperations()
+      ? await saveOfflineOperation({kind:'settlement',action:'save',shipmentId:editing.id,payment:form}).then(()=>({error:null}),error=>({error}))
+      : await supabase.from('payment_settlements').upsert({shipment_id:editing.id,payload:form,updated_at:new Date().toISOString()},{onConflict:'shipment_id'})
     setSaving(false)
     if(error){setSaveError(error.message||'Payment save failed. No changes applied.');return}
     const next={...settlements,[editing.id]:form}
@@ -1016,7 +1056,9 @@ function PaymentsTab({ shipments, shipmentLines, rows, isAdmin=false }) {
     if(status==='Buyer Paid' && paymentStatus({...s,manual_payment_status:''})!=='Buyer Paid' && paymentStatus({...s,manual_payment_status:''})!=='Settled'){setSaveError('Record buyer receipts and approved invoice adjustments before marking Buyer Paid.');return}
     const next={...current,manual_payment_status:status}
     setSaving(true);setSaveError('')
-    const {error}=await supabase.from('payment_settlements').upsert({shipment_id:s.id,payload:next,updated_at:new Date().toISOString()},{onConflict:'shipment_id'})
+    const {error}=usesOfflineOperations()
+      ? await saveOfflineOperation({kind:'settlement',action:'save',shipmentId:s.id,payment:next}).then(()=>({error:null}),error=>({error}))
+      : await supabase.from('payment_settlements').upsert({shipment_id:s.id,payload:next,updated_at:new Date().toISOString()},{onConflict:'shipment_id'})
     setSaving(false)
     if(error){setSaveError(error.message||'Could not save payment status');return}
     const all={...settlements,[s.id]:next};setSettlements(all);savePaymentSettlements(all)
@@ -1115,7 +1157,11 @@ export default function Shipping() {
   const roleName = userRole?.role || userRole?.name || user?.role || ''
   const isAdmin = safeRoleIsAdmin(roleName)
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    window.addEventListener('app2a-cloud-snapshot-updated',load)
+    return ()=>window.removeEventListener('app2a-cloud-snapshot-updated',load)
+  }, [])
   useEffect(() => { if (!isAdmin && activeTab === 'payments') setActiveTab('create') }, [isAdmin, activeTab])
   async function load() {
     setLoading(true)

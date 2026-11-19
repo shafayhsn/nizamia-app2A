@@ -1,3 +1,4 @@
+import {saveOfflineOperation,usesOfflineOperations} from '../lib/offlineOperations'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { buildOrderCuttingPlanHTML } from '../lib/orderCuttingPlanPrint.js'
 import { Minus } from 'lucide-react'
@@ -4200,7 +4201,14 @@ export default function Orders() {
     const ids = [...selected]
     setBatchSaving(true)
     try {
-      if (showBatchDialog === 'new') {
+      if(usesOfflineOperations()){
+        const target=showBatchDialog==='unbatch'?null:showBatchDialog
+        if(target==='new'){
+          const name=await prompt('Production batch name:',{title:'New Production Batch',defaultValue:''})
+          if(!name?.trim())return
+          await saveOfflineOperation({kind:'batch',action:'save',orderIds:ids,name})
+        }else await saveOfflineOperation({kind:'batch',action:'save',orderIds:ids,batchId:target})
+      } else if (showBatchDialog === 'new') {
         const name = await prompt('Production batch name:', { title:'New Production Batch', defaultValue:'' })
         if (!name?.trim()) return
         const trimmed = name.trim()
@@ -4401,7 +4409,7 @@ export default function Orders() {
   useEffect(()=>{const handler=()=>{markTabUpdated('ordersPage','orders');loadOrders()};window.addEventListener('app2a-order-window-closed',handler);return()=>window.removeEventListener('app2a-order-window-closed',handler)},[])
   useEffect(()=>{
     if(window.location.protocol!=='app2a:')return
-    const reload=()=>loadOrders()
+    const reload=()=>{loadOrders();loadBatches()}
     window.addEventListener('app2a-cloud-snapshot-updated',reload)
     return ()=>window.removeEventListener('app2a-cloud-snapshot-updated',reload)
   },[])

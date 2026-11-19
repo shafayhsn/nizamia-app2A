@@ -2,6 +2,7 @@
 
 // Test-only Electron entry point. It is intentionally omitted from the DMG.
 const assert=require('node:assert/strict')
+const {schema:operationalSchema,tables:operationalTables,applyOperation}=require('../server/operationalQaFixture.cjs')
 const crypto=require('node:crypto')
 const fs=require('node:fs')
 const os=require('node:os')
@@ -18,7 +19,7 @@ assert.equal(app.isPackaged,false)
 const profile=fs.mkdtempSync(path.join(os.homedir(),'app2a-box2-ci-'))
 app.setPath('userData',profile)
 const db=new PGlite()
-const [actor,buyer,source,target,material]=Array.from({length:5},()=>crypto.randomUUID())
+const [actor,buyer,source,target,material,queue,group,color]=Array.from({length:8},()=>crypto.randomUUID())
 const key=crypto.randomBytes(32)
 const token=issueDesktopSyncToken(key,actor)
 const snapshotToken=Buffer.from(JSON.stringify({
@@ -26,7 +27,7 @@ const snapshotToken=Buffer.from(JSON.stringify({
 })).toString('base64url')+'.fixture'
 const names=['orders','buyers','suppliers','size_groups','size_group_colors','order_queues','bom_items','samples','sample_comments','parcels','parcel_status_history',
  'order_processes','purchase_orders','purchase_order_items','purchase_order_changelog',
- 'work_orders','work_order_items','work_order_changelog']
+ 'work_orders','work_order_items','work_order_changelog','production_daily_entries',...operationalTables]
 let online=true
 let uploads=0
 let failure
@@ -47,7 +48,7 @@ const fixture=(async()=>{
   create role anon; create role authenticated; create role service_role;
   create schema desktop_private; grant usage on schema desktop_private to service_role;
   create table users(id uuid primary key,role text,is_active bool,is_restricted bool);
-  create table orders(id uuid primary key,buyer_id uuid,style_number text,step_bom boolean,step_sampling boolean);
+  create table orders(id uuid primary key,buyer_id uuid,style_number text,step_bom boolean,step_sampling boolean,total_qty numeric,job_number text,buyer_name text,po_number text,store_name text,status text);
   create table buyers(id uuid primary key,name text);
    create table buyer_addresses(id uuid primary key,buyer_id uuid,recipient text,label text,address_line1 text,address_line2 text,city text,region text,postal_code text,country text,phone text,email text);
    create table buyer_contacts(id uuid primary key,buyer_id uuid,name text,phone text,email text);
@@ -55,7 +56,6 @@ const fixture=(async()=>{
   create table suppliers(id uuid primary key,name text);
   create table size_groups(id uuid primary key,order_id uuid,group_name text);
   create table size_group_colors(id uuid primary key,size_group_id uuid,color_name text);
-  create table order_queues(id uuid primary key,order_id uuid);
   create table bom_items(id uuid primary key,order_id uuid,name text);
   create table samples(id uuid primary key,order_id uuid,sample_number text unique,sample_type text,size_group_id uuid,
    parent_sample_id uuid,root_sample_id uuid,version_no int,version_label text,stage text,approval_status text,dispatch_status text,
@@ -77,15 +77,23 @@ const fixture=(async()=>{
     order_process_id uuid,process_name text not null,dept_info text,qty numeric,unit text,rate numeric,amount numeric,sort_order int);
    create table purchase_order_changelog(id uuid primary key,po_id uuid references purchase_orders(id),change_description text);
    create table work_order_changelog(id uuid primary key,wo_id uuid references work_orders(id),change_description text);
+  ${operationalSchema}
+  create table production_daily_entries(id uuid primary key,order_id uuid,size_group_id uuid,color_id uuid,
+   job_number text,buyer_name text,style_number text,po_number text,store_name text,wash_name text,size_group_name text,
+   department text,movement text,production_date date,production_at text,quantity int,created_by uuid,created_at timestamptz default now());
   grant select,insert,update,delete on all tables in schema public to service_role;
  `)
  await db.exec(fs.readFileSync(path.join(__dirname,'../server/migrations/20261118_desktop_order_section_copy.sql'),'utf8'))
- for(const name of ['parcel_transition','sampling_parcels','purchasing_create','purchasing_edit','purchase_approval','purchasing_remove'])
+ for(const name of ['parcel_transition','sampling_parcels','purchasing_create','purchasing_edit','purchase_approval','purchasing_remove','operational_records','production_create'])
   await db.exec(fs.readFileSync(path.join(__dirname,'../server/migrations/20261118_desktop_'+name+'.sql'),'utf8'))
  await db.exec('set role service_role')
  await db.query("insert into users values($1,'admin',true,false)",[actor])
  await db.query("insert into buyers values($1,'Intel QA buyer')",[buyer])
  await db.query("insert into orders(id,buyer_id,style_number,step_bom) values($1,$3,'Intel QA style',true),($2,$3,'Intel QA style',false)",[source,target,buyer])
+ await db.query("update orders set total_qty=100,job_number='QA Job',status='Active' where id=$1",[target])
+ await db.query("insert into order_queues values($1,$2,100,'Active')",[queue,target])
+ await db.query("insert into size_groups values($1,$2,'Intel QA group')",[group,target])
+ await db.query("insert into size_group_colors values($1,$2,'Intel QA wash')",[color,group])
  await db.query("insert into bom_items values($1,$2,'Intel QA denim')",[material,source])
  await db.query("insert into suppliers values($1,'Intel supplier')",[buyer])
  await db.query('insert into order_processes values($1,$2)',[material,target])
@@ -124,6 +132,12 @@ const mutations=createDesktopMutationHttp({key,db:{async rpc(name,args){
    [args.actor,args.operation,args.kind,args.target,JSON.stringify(args.expected)])
   return {data:rows[0].outcome}
  }
+ if(name==='desktop_save_operational_record')return applyOperation(db,args)
+ if(name==='desktop_create_production_entry'){
+  const {rows}=await db.query('select desktop_create_production_entry($1,$2,$3::jsonb) as outcome',
+   [args.actor,args.operation,JSON.stringify(args.payload)])
+  return {data:rows[0].outcome}
+ }
  assert.equal(name,'desktop_copy_order_sections')
  const {rows}=await db.query('select desktop_copy_order_sections($1,$2,$3,$4,$5::jsonb) as outcome',
   [args.actor,args.operation,args.source_order,args.target_order,JSON.stringify(args.sections)]).catch(error=>{console.error('QA PostgreSQL error',error.code,error.message);throw error})
@@ -145,7 +159,7 @@ global.fetch=async(url,options)=>{
   case '/api/desktop/snapshot': {
    assert.equal(options.headers.authorization,'Bearer '+snapshotToken)
    const tables=Object.fromEntries(await Promise.all(names.map(async name=>
-    [name,(await db.query('select to_jsonb(t) as row from '+name+' t order by id')).rows.map(row=>row.row)])))
+    [name,(await db.query('select to_jsonb(t) as row from '+name+' t order by '+(name==='production_batch_orders'?'order_id':'id'))).rows.map(row=>row.row)])))
    return Response.json({backup_metadata:{table_count:names.length,table_row_counts:
     Object.fromEntries(names.map(name=>[name,tables[name].length]))},tables})
   }
@@ -266,7 +280,41 @@ async function check(){
  await until(async()=> !(await db.query('select id from work_orders where id=$1',[wo.id])).rows.length,
   'Confirmed work order removal did not upload')
  assert.equal((await db.query('select count(*)::int as count from work_order_changelog where wo_id=$1',[wo.id])).rows[0].count,0)
- console.log('Intel Electron acceptance passed for offline PO and WO drafts, cloud numbering, approval, edit, history and guarded deletion.')
+ online=false
+ const ops=input=>request(win,'/api/offline/operational-record',input)
+ await request(win,'/api/offline/batch',{table:'production_daily_entries',rows:[{order_id:target,size_group_id:group,color_id:color,
+  department:'Cutting',movement:'completed',production_date:'2026-01-02',quantity:35}]})
+ const {data:batch}=await ops({kind:'batch',action:'save',name:'Intel production batch',orderIds:[target]})
+ const {data:booking}=await ops({kind:'booking',action:'save',
+  header:{booking_no:'Intel booking',booking_date:'2026-01-02',status:'Confirmed'},
+  lines:[{order_id:target,queue_id:queue,qty:75}]})
+ const bookingLine=(await records(win,'shipping_booking_lines')).find(line=>line.booking_id===booking.id)
+ const {data:shipping}=await ops({kind:'shipment',action:'save',mode:'booked',
+  header:{shipment_no:'Intel booked shipment',shipment_date:'2026-01-02',status:'Open'},
+  lines:[{order_id:target,queue_id:queue,booking_line_id:bookingLine.id,shipped_qty:35}]})
+ assert.equal((await records(win,'shipping_booking_shipments')).find(row=>row.shipment_id===shipping.id).qty,35)
+ assert.equal((await records(win,'production_daily_entries'))[0].quantity,35)
+ online=true
+ await login(win)
+ await until(async()=> (await records(win,'shipping_bookings')).some(row=>row.id===booking.id&&row._local_only===false),
+  'New booking did not sync')
+ await login(win)
+ await until(async()=> (await records(win,'shipping_booking_shipments')).some(row=>row.shipment_id===shipping.id&&row._local_only===false),
+  'Booking allocation did not upload after the booking')
+ const [entry]=(await records(win,'production_daily_entries'))
+ assert.equal(entry.quantity,35)
+ assert.equal(entry.wash_name,'Intel QA wash')
+ assert.equal(entry._local_only,false)
+ assert.equal((await records(win,'production_batch_orders')).find(row=>row.order_id===target).batch_id,batch.id)
+ const [line]= (await records(win,'shipment_lines')).filter(row=>row.shipment_id===shipping.id)
+ assert.equal(bookingLine.qty-line.shipped_qty,40)
+ assert.equal((await records(win,'order_queues')).find(row=>row.id===queue).qty-line.shipped_qty,65)
+ await db.query('update shipping_bookings set notes=$1 where id=$2',['Intel cloud update',booking.id])
+ await login(win)
+ await until(async()=> (await records(win,'shipping_bookings')).some(row=>row.id===booking.id&&row.notes==='Intel cloud update'),
+  'Cloud booking edit did not reach the Mac')
+ console.log('Intel Electron verified Areas 2 to 5 and production, bookings and shipment balances.')
+
 }
 check().then(async()=>{
  await db.close()

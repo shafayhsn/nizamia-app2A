@@ -41,8 +41,14 @@ function stageMutation(db,ownerId,intent){
 
 function pendingMutations(db,ownerId){
  initialize(db)
- const rows=db.exec("SELECT operation_id,intent_json FROM offline_mutation_outbox WHERE owner_id=? AND state='pending' AND (  json_extract(intent_json,'$.document.afterOperation') IS NULL OR EXISTS(  SELECT 1 FROM offline_mutation_outbox AS parent WHERE parent.operation_id=json_extract(offline_mutation_outbox.intent_json,'$.document.afterOperation')  AND parent.owner_id=offline_mutation_outbox.owner_id AND parent.state='applied'))  ORDER BY rowid LIMIT 20",
-  [ownerId])[0]?.values||[]
+ const rows=db.exec(`SELECT operation_id,intent_json FROM offline_mutation_outbox item
+  WHERE owner_id=? AND state='pending' AND NOT EXISTS(
+   SELECT 1 FROM json_each(COALESCE(json_extract(item.intent_json,'$.document.afterOperations'),
+    json_array(json_extract(item.intent_json,'$.document.afterOperation')))) dependency
+   WHERE dependency.value IS NOT NULL AND NOT EXISTS(
+    SELECT 1 FROM offline_mutation_outbox parent WHERE parent.operation_id=dependency.value
+     AND parent.owner_id=item.owner_id AND parent.state='applied'))
+  ORDER BY rowid LIMIT 20`,[ownerId])[0]?.values||[]
  return rows.map(([operationId,intent])=>({operationId,intent:JSON.parse(intent)}))
 }
 
@@ -57,7 +63,9 @@ function recordMutationOutcome(db,ownerId,operationId,outcome,resourceId){
   SELECT operation_id FROM offline_mutation_outbox WHERE owner_id=? AND operation_id=?
   UNION
   SELECT item.operation_id FROM offline_mutation_outbox item JOIN blocked
-   ON json_extract(item.intent_json,'$.document.afterOperation')=blocked.id WHERE item.owner_id=?
+   ON (json_extract(item.intent_json,'$.document.afterOperation')=blocked.id OR EXISTS(
+    SELECT 1 FROM json_each(item.intent_json,'$.document.afterOperations') dependency WHERE dependency.value=blocked.id))
+  WHERE item.owner_id=?
  ) UPDATE offline_mutation_outbox SET state='conflict' WHERE state='pending' AND operation_id IN (SELECT id FROM blocked)`,
  [ownerId,operationId,ownerId])
  return updated
@@ -94,6 +102,11 @@ function assertUnqueued(db,table,id){
   WHERE json_extract(box.intent_json,'$.document.finishingHeader.id')=?`,[id]).length)
   throw Error('This Finishing record has packing edits awaiting synchronization or review.')
  if(db.exec(`SELECT 1 FROM offline_mutation_outbox box
+  JOIN json_each(box.intent_json,'$.document.operationalEdits') edited
+  WHERE box.state IN ('pending','conflict') AND json_extract(edited.value,'$.table')=?
+   AND json_extract(edited.value,'$.id')=?`,[table,id]).length)
+  throw Error('This record has a production or shipping change awaiting synchronization or review.')
+ if(db.exec(`SELECT 1 FROM offline_mutation_outbox box
   JOIN json_each(box.intent_json,'$.expected.lines') target
   JOIN snapshot_edits edit ON edit.table_name=json_extract(box.intent_json,'$.document.childTable') AND edit.record_id=json_extract(target.value,'$.id')
    AND edit.updated_at=json_extract(box.intent_json,'$.editedAt')
@@ -123,6 +136,27 @@ function assertUnqueued(db,table,id){
    AND row.id=json_extract(child.value,'$.id') AND row.updated_at=json_extract(box.intent_json,'$.editedAt')
   WHERE row.table_name=? AND row.id=?`,[table,id]).length)
   throw Error('This copied record is awaiting synchronization or review.')
+}
+
+function reconcileOperationalChanges(db,tables,hold){
+ if(!db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length)return
+ const entries=db.exec("SELECT intent_json,state FROM offline_mutation_outbox WHERE json_type(intent_json,'$.document.operationalEdits')='array'")[0]?.values||[]
+ const {keyOf}=require('./operationalRecords.cjs')
+ const equal=require('node:util').isDeepStrictEqual
+ for(const [json,state] of entries){
+  const {operation,editedAt,document:{operationalEdits}}=JSON.parse(json)
+  const observed=state==='applied'&&operationalEdits.every(({table,id,after})=>{
+   if(!tables[table])return false
+   const row=tables[table].find(row=>keyOf(table,row)===id)
+   return after?row&&Object.entries(after).every(([key,value])=>equal(row[key],value)):!row
+  })
+  for(const {table,id,created} of operationalEdits){
+   if(observed&&created)db.run('DELETE FROM standalone_records WHERE table_name=? AND id=? AND updated_at=?',[table,id,editedAt])
+   if(observed||operation==='delete'&&state==='conflict')
+    db.run('DELETE FROM snapshot_edits WHERE table_name=? AND record_id=? AND updated_at=?',[table,id,editedAt])
+   else hold.add(table+':'+id)
+  }
+ }
 }
 
 function reconcilePurchasingRemovals(db,tables,hold){
@@ -332,6 +366,7 @@ function findQueuedRecords(db){
  return new Set((db.exec('SELECT table_name,record_id,intent_json FROM offline_mutation_outbox')[0]?.values||[]).flatMap(([table,id,json])=>{
   const intent=JSON.parse(json)
   return [table+':'+(intent.document?.independentOrderSection?intent.id:id),...(intent.document?.finishingHeader?['finishing:'+intent.document.finishingHeader.id]:[]),...(intent.historyRecord?['sample_comments:'+intent.historyRecord.id]:[]),...(intent.document?.localLines||[]).map(line=>line.table+':'+line.id),
+   ...(intent.document?.operationalEdits||[]).map(row=>row.table+':'+row.id),
    ...(intent.document?.purchasingTargets||[]).map(([name,id])=>name+':'+id),
    ...(intent.expected?.lines||[]).map(line=>(intent.document.childTable||intent.document.localLines[0].table)+':'+line.id),
    ...(table==='jobs'&&Array.isArray(intent.fields?.orders)?intent.fields.orders.map(order=>'orders:'+order.id):[]),
@@ -339,4 +374,4 @@ function findQueuedRecords(db){
  }))
 }
 
-module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,assertOrderSectionAvailable,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers,reconcileOrderRemovals,reconcileOrderCopies,reconcileArea3Records,reconcilePurchasingRemovals}
+module.exports={findQueuedRecords,stageMutation,pendingMutations,recordMutationOutcome,assertUnqueued,assertOrderSectionAvailable,reconcileUploadedCreates,reconcileDocumentEdits,holdOrderDetails,reconcileNewJobs,reconcilePoMatrices,holdSupplierEdits,reconcileBuyers,reconcileOrderRemovals,reconcileOrderCopies,reconcileArea3Records,reconcilePurchasingRemovals,reconcileOperationalChanges}
