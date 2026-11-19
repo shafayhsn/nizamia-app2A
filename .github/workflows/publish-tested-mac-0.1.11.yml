@@ -1,0 +1,30 @@
+name: Publish verified Intel Mac 0.1.11 test update
+on:
+  push:
+    branches: [release/0.1.11]
+    paths: ['.github/workflows/publish-tested-mac-0.1.11.yml']
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SOURCE_SHA: b6c446322a8f1c8576a19d0f121913143d1d0866
+    steps:
+      - name: Verify and publish accepted installer
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GH_REPO/actions/runs/44476342391 --jq '.conclusion + ":" + .head_sha')" = "success:$SOURCE_SHA"
+          gh api repos/$GH_REPO/actions/artifacts/14507165967/zip > verified.zip
+          echo '970d5c06ff7b6015e8311be7934c4da3ff10e1657aa62a8c6aa9ad290bb4fc18  verified.zip' | sha256sum -c -
+          unzip -q verified.zip
+          sha256sum -c "Nizamia App-2A-0.1.11.dmg.sha256"
+          mv "Nizamia App-2A-0.1.11.dmg" Nizamia-App-2A-0.1.11.dmg
+          sha256sum Nizamia-App-2A-0.1.11.dmg > Nizamia-App-2A-0.1.11.dmg.sha256
+          gh release create v0.1.11 --draft --prerelease --target "$SOURCE_SHA" --title 'Nizamia App-2A 0.1.11 (Intel Mac test update)' --notes 'Unsigned Intel Mac update. Sampling now displays downloaded stage changes after Refresh Snapshot from Cloud. Verified upgrade from 0.1.10 with a pending offline edit.' Nizamia-App-2A-0.1.11.dmg Nizamia-App-2A-0.1.11.dmg.sha256
+          test "$(gh release view v0.1.11 --json assets --jq '.assets[] | select(.name=="Nizamia-App-2A-0.1.11.dmg") | .digest')" = "sha256:$(cut -d' ' -f1 Nizamia-App-2A-0.1.11.dmg.sha256)"
+          gh release edit v0.1.11 --draft=false --prerelease
