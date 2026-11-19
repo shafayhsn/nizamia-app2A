@@ -22,6 +22,19 @@ function reconcileOverlays(db,tables,excluded,hold){
  const overlays=db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_edits'")
  if(!overlays.length)return {unresolved:[],rows:tables}
  const unresolved=[],rows={...tables},indexed=new Map()
+ // A Stage history entry is committed with the server update. The cloud may
+ // already have changed again before our first download after acknowledgement.
+ const appliedStages=new Map()
+ if(tables.sample_comments?.length && db.exec("SELECT 1 FROM sqlite_master WHERE type='table' AND name='offline_mutation_outbox'").length){
+  const history=new Map(tables.sample_comments.filter(row=>row.comment_type==='Stage').map(row=>[row.id,row.sample_id]))
+  const stages=db.exec(`SELECT b.operation_id,b.record_id,b.intent_json FROM offline_mutation_outbox b
+   JOIN snapshot_edits e ON e.table_name=b.table_name AND e.record_id=b.record_id
+    AND e.updated_at=json_extract(b.intent_json,'$.editedAt')
+   WHERE b.table_name='samples' AND b.state='applied' AND json_type(b.intent_json,'$.changes.stage')='text'`)[0]?.values||[]
+  for(const [op,id,json] of stages){
+   if(history.get(op)===id)appliedStages.set(id,JSON.parse(json).changes.stage)
+  }
+ }
  const edits=db.exec('SELECT table_name,record_id,fields_json,updated_at FROM snapshot_edits')[0]?.values||[]
  for(const [table,id,json,editedAt] of edits){
   if(!Object.hasOwn(tables,table)||excluded.has(table))continue
@@ -40,14 +53,15 @@ function reconcileOverlays(db,tables,excluded,hold){
    if(base&&!cloud)rows[table].push(base)
    continue
   }
-  if(equal(base,cloud))continue
+  const local=json===null?null:JSON.parse(json)
+  const stageAcknowledged=table==='samples'&&local&&appliedStages.has(id)&&local.stage===appliedStages.get(id)
+  if(equal(base,cloud)&&!stageAcknowledged)continue
   const flag=()=>{
    unresolved.push({table,recordId:id})
    if(base&&cloud)rows[table][index]=base
    if(base&&!cloud)rows[table].push(base)
   }
   if(!base||!cloud){flag();continue}
-  const local=json===null?null:JSON.parse(json)
   const localTime=timestamp(editedAt)
   if(local===null){
    const cloudTime=timestamp(cloud.updated_at)
@@ -58,6 +72,7 @@ function reconcileOverlays(db,tables,excluded,hold){
   const merged={...cloud}
   let needsReview=false
   for(const field of Object.keys(local)){
+   if(stageAcknowledged&&field==='stage')continue
    if(equal(local[field],base[field])||equal(local[field],cloud[field]))continue
    if(equal(base[field],cloud[field])){merged[field]=local[field];continue}
    const cloudTime=table==='shipments'&&field==='notes'

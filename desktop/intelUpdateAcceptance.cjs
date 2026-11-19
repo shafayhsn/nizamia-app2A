@@ -15,15 +15,15 @@ async function main(){
  const parent=path.join(os.homedir(),'Applications'),target=path.join(parent,'Nizamia App-2A.app')
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'nizamia-update-')),mount=path.join(root,'old')
  fs.mkdirSync(parent,{recursive:true});fs.mkdirSync(mount);assert.ok(!fs.existsSync(target))
- console.log('Mounting verified 0.1.9 installer')
+ console.log('Mounting verified 0.1.10 installer')
  execFileSync('hdiutil',['attach','-readonly','-nobrowse','-noautoopen','-mountpoint',mount,process.argv[2]],{timeout:90000})
  try{execFileSync('ditto',[path.join(mount,path.basename(target)),target],{timeout:120000})}finally{execFileSync('hdiutil',['detach',mount],{timeout:90000})}
  const binary=path.join(target,'Contents/MacOS/Nizamia App-2A'),support=path.join(os.homedir(),'Library/Application Support')
- console.log('Launching installed version 0.1.9')
+ console.log('Launching installed version 0.1.10')
  const old=spawn(binary,[],{stdio:'ignore'})
- const settings=await until(()=>fs.readdirSync(support).filter(n=>/nizamia/i.test(n)).map(n=>path.join(support,n,'local-database-settings.json')).find(p=>fs.existsSync(p)),'Installed 0.1.9 did not initialize its database')
+ const settings=await until(()=>fs.readdirSync(support).filter(n=>/nizamia/i.test(n)).map(n=>path.join(support,n,'local-database-settings.json')).find(p=>fs.existsSync(p)),'Installed 0.1.10 did not initialize its database')
  const profile=path.dirname(settings),directory=JSON.parse(fs.readFileSync(settings)).databaseDirectory,dbFile=path.join(directory,'nizamia-app2a.sqlite')
- console.log('Closing the CI copy of 0.1.9 before seeding its offline queue')
+ console.log('Closing the CI copy of 0.1.10 before seeding its offline queue')
  const stopped=()=>old.exitCode!==null||old.signalCode!==null
  old.kill('SIGTERM')
  try{await until(stopped,'Old process is still running',10000)}
@@ -48,6 +48,6 @@ async function main(){
  assert.equal(restored.exec('pragma integrity_check')[0].values[0][0],'ok')
  const [[state,intent]]=restored.exec('select state,intent_json from offline_mutation_outbox where owner_id=? and record_id=?',[owner,id])[0].values
  assert.equal(state,'pending');assert.equal(JSON.parse(intent).changes.notes,'Intel update acceptance');restored.close()
- console.log('Verified 0.1.9 to '+version+' replacement, relaunch, pending SQLite edit and verified backup.')
+ console.log('Verified 0.1.10 to '+version+' replacement, relaunch, pending SQLite edit and verified backup.')
 }
 main().catch(e=>{console.error(e);process.exit(1)})

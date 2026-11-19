@@ -356,16 +356,16 @@ jobs:
           NODE
 
           (cd desktop/release && shasum -a 256 "$(basename "$dmg")" > "$(basename "$dmg").sha256")
-      - name: Verify installed 0.1.9 upgrade with pending offline work
+      - name: Verify installed 0.1.10 upgrade with pending offline work
         timeout-minutes: 9
         if: github.ref == 'refs/heads/feature/desktop-release-acceptance'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          old="$RUNNER_TEMP/Nizamia-App-2A-0.1.9.dmg"
-          gh release download v0.1.9 --pattern "$(basename "$old")" --dir "$RUNNER_TEMP"
-          expected="$(gh api repos/{owner}/{repo}/releases/tags/v0.1.9 --jq '.assets[] | select(.name=="Nizamia-App-2A-0.1.9.dmg") | .digest')"
+          old="$RUNNER_TEMP/Nizamia-App-2A-0.1.10.dmg"
+          gh release download v0.1.10 --pattern "$(basename "$old")" --dir "$RUNNER_TEMP"
+          expected="$(gh api repos/{owner}/{repo}/releases/tags/v0.1.10 --jq '.assets[] | select(.name=="Nizamia-App-2A-0.1.10.dmg") | .digest')"
           test "sha256:$(shasum -a 256 "$old" | cut -d' ' -f1)" = "$expected"
           node desktop/intelUpdateAcceptance.cjs "$old" desktop/release/*.dmg
       - name: Upload unsigned Intel Mac DMG

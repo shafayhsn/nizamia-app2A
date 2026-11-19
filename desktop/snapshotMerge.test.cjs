@@ -26,6 +26,18 @@ async function main(){
   assert.equal(db.exec("SELECT COUNT(*) FROM snapshot_rows WHERE table_name='buyers'")[0].values[0][0],1)
 
   const older='2026-11-17T04:35:12Z', newer='2026-11-17T04:47:38Z'
+  const {stageMutation,recordMutationOutcome}=require('./offlineMutationOutbox.cjs')
+  const {updateMutationIntent}=require('./offlineMutationPlan.cjs')
+  const sample={id:'sample-13',stage:null,notes:null}
+  mergeSnapshotRows(db,{samples:[sample]})
+  const intent=updateMutationIntent('samples',sample.id,{stage:'Stitching'},{stage:null},older)
+  const op=stageMutation(db,'owner',intent)
+  db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',['samples',sample.id,JSON.stringify({...sample,stage:'Stitching',notes:'Keep offline'}),older])
+  recordMutationOutcome(db,'owner',op,'applied')
+  const next={samples:[{...sample,stage:'Washing'}],sample_comments:[{id:op,sample_id:sample.id,comment_type:'Stage'}]}
+  assert.deepEqual(mergeSnapshotRows(db,{...next,sample_comments:[]}).unresolved,[{table:'samples',recordId:sample.id}])
+  assert.deepEqual(mergeSnapshotRows(db,next).unresolved,[])
+  assert.deepEqual(JSON.parse(db.exec("SELECT fields_json FROM snapshot_edits WHERE table_name='samples'")[0].values[0][0]),{...sample,stage:'Washing',notes:'Keep offline'})
   const notes=(status,at)=>'\n[[APP2A_SHIPPING_META:'+Buffer.from(JSON.stringify({
    display_status:status,...(at?{status_history:[{to:status,at}]}:{})
   })).toString('base64')+']]'
