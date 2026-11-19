@@ -78,13 +78,17 @@ function useMarketQuotes(){
         if(!response.ok)throw Error('Quote service unavailable')
         const next=await response.json()
         const merged={fx:{...(stored?.fx||{}),...(next.fx||{})},cotton:next.cotton||stored?.cotton||null,checkedAt:Date.now()}
+        if(!active)return
         localStorage.setItem(MARKET_CACHE_KEY,JSON.stringify(merged))
         if(active)setMarket(merged)
       }catch{/* Keep last verified values; never block the topbar. */}
     }
     load()
+    const desktop=location.protocol==="app2a:"
+    const reconnect=()=>setRefreshToken(v=>v+1)
+    if(desktop)window.addEventListener("online",reconnect)
     const timer=setInterval(load,60*60*1000)
-    return()=>{active=false;clearInterval(timer)}
+    return()=>{active=false;clearInterval(timer);if(desktop)window.removeEventListener("online",reconnect)}
   },[refreshToken])
   return {...market,refresh:()=>setRefreshToken(v=>v+1)}
 }

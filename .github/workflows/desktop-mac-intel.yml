@@ -83,7 +83,7 @@ jobs:
         working-directory: desktop
         run: npm install --no-audit --no-fund
       - name: Verify NZOS workspace, archive and database migration
-        run: node --test desktop/nzosWorkspace.test.cjs
+        run: node --test desktop/nzosWorkspace.test.cjs desktop/desktopOnline.test.cjs
       - name: Test linked desktop sync workflows
         run: node --test server/desktopOrderDetails.test.cjs server/desktopOrderRemoval.test.cjs server/desktopOrderSectionCopy.test.cjs server/desktopPoMatrix.test.cjs server/desktopBuyer.test.cjs server/desktopSupplier.test.cjs server/desktopParcelTransition.test.cjs server/desktopArea3.test.cjs server/desktopPurchasingCreate.test.cjs server/desktopOperationalRecords.test.cjs src/lib/offlineProjection.test.cjs
       - name: Check desktop entry syntax
@@ -368,30 +368,30 @@ jobs:
         run: |
           node_modules/.bin/electron-builder --mac dmg --x64 -c.productName='Nizamia App-2A' -c.directories.output=compat -c.mac.artifactName='Nizamia-NZOS-${version}-Intel.dmg'
           cd compat
-          shasum -a 256 *.dmg > Nizamia-NZOS-1.0.0-Intel.dmg.sha256
-      - name: Verify installed 0.1.11 upgrade with pending offline work
+          shasum -a 256 *.dmg > Nizamia-NZOS-1.0.1-Intel.dmg.sha256
+      - name: Verify installed NZOS 1.0.0 upgrade with pending offline work
         timeout-minutes: 9
         if: (github.ref == 'refs/heads/feature/desktop-release-acceptance' || github.ref == 'refs/heads/feature/nzos-1.0')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          old="$RUNNER_TEMP/Nizamia-App-2A-0.1.11.dmg"
-          gh release download v0.1.11 --pattern "$(basename "$old")" --dir "$RUNNER_TEMP"
-          expected="$(gh api repos/{owner}/{repo}/releases/tags/v0.1.11 --jq '.assets[] | select(.name=="Nizamia-App-2A-0.1.11.dmg") | .digest')"
+          old="$RUNNER_TEMP/NZOS-1.0.0-Intel.dmg"
+          gh release download v1.0.0 --pattern "$(basename "$old")" --dir "$RUNNER_TEMP"
+          expected="$(gh api repos/{owner}/{repo}/releases/tags/v1.0.0 --jq '.assets[] | select(.name=="NZOS-1.0.0-Intel.dmg") | .digest')"
           test "sha256:$(shasum -a 256 "$old" | cut -d' ' -f1)" = "$expected"
-          node desktop/intelUpdateAcceptance.cjs "$old" desktop/compat/*.dmg
+          node desktop/intelUpdateAcceptance.cjs "$old" desktop/release/*.dmg
       - name: Assemble owner source from the exact tested revision
         run: |
           mkdir -p "$RUNNER_TEMP/nzos-owner"
           git archive HEAD | tar -x -C "$RUNNER_TEMP/nzos-owner"
           cp desktop/package-lock.json "$RUNNER_TEMP/nzos-owner/desktop/package-lock.json"
           echo "$GITHUB_SHA" > "$RUNNER_TEMP/nzos-owner/SOURCE-REVISION"
-          (cd "$RUNNER_TEMP/nzos-owner" && zip -q -r "$GITHUB_WORKSPACE/NZOS-1.0.0-Source.zip" .)
+          (cd "$RUNNER_TEMP/nzos-owner" && zip -q -r "$GITHUB_WORKSPACE/NZOS-1.0.1-Source.zip" .)
       - uses: actions/upload-artifact@v7
         with:
           name: NZOS-owner-source
-          path: NZOS-1.0.0-Source.zip
+          path: NZOS-1.0.1-Source.zip
           retention-days: 14
       - name: Upload unsigned Intel Mac DMG
         uses: actions/upload-artifact@v7

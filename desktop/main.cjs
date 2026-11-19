@@ -1,4 +1,5 @@
 'use strict'
+const {marketRates,handleWebLink,registerInstalledMacApp}=require('./desktopOnline.cjs')
 const path = require('node:path')
 const { app, BrowserWindow, shell, dialog, Menu, protocol, net, safeStorage } = require('electron')
 const { getDatabaseDirectory, initializeDatabase } = require('./localDatabase.cjs')
@@ -237,9 +238,13 @@ function openBundledWebApp() {
     title:'NZOS',
     webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}
   })
-  win.webContents.setWindowOpenHandler(()=>({action:'deny'}))
+  const openLink=url=>handleWebLink(url,href=>shell.openExternal(href),error=>dialog.showErrorBox('Could not open link',error.message))
+  win.webContents.setWindowOpenHandler(({url})=>{
+    openLink(url)
+    return {action:'deny'}
+  })
   win.webContents.on('will-navigate',(event,url)=>{
-    if(!url.startsWith('app2a://local/'))event.preventDefault()
+    if(!url.startsWith('app2a://local/')){event.preventDefault();openLink(url)}
   })
   win.on('page-title-updated',event=>event.preventDefault())
   win.loadURL('app2a://local/').catch(error=>dialog.showErrorBox('App-2A web interface',error.message))
@@ -321,6 +326,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  if(app.isPackaged && process.platform==='darwin')registerInstalledMacApp(process.resourcesPath)
   const refreshInterval=setInterval(()=>{
    if(net.isOnline()&&onlineSnapshotToken)
     refreshCloudSnapshot(onlineSnapshotToken).catch(()=>{})
@@ -329,6 +335,7 @@ app.whenReady().then(async () => {
   protocol.handle('app2a',async request=>{
     const url=new URL(request.url)
     if(url.hostname!=='local')return new Response('Not found',{status:404})
+    if(url.pathname==='/api/market-rates')return marketRates(request.method)
     if(url.pathname==='/api/offline/auth'){
       if(request.method!=='POST')return new Response('Method not allowed',{status:405})
       try{const raw=await request.text();if(raw.length>2048)return Response.json({error:'Request too large'},{status:413});const input=JSON.parse(raw);if(!desktopAuth)return Response.json({error:'Local account not ready'},{status:503});let data;if(input.action==='status')data=desktopAuth.status();else if(input.action==='login'){

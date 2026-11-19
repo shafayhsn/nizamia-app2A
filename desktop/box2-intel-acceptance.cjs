@@ -149,12 +149,14 @@ const mutations=createDesktopMutationHttp({key,db:{async rpc(name,args){
   [args.actor,args.operation,args.source_order,args.target_order,JSON.stringify(args.sections)]).catch(error=>{console.error('QA PostgreSQL error',error.code,error.message);throw error})
  return {data:rows[0].outcome}
 }}})
+const publicFetch=global.fetch
 global.fetch=async(url,options)=>{
  const route=new URL(url)
  assert.equal(route.origin,'https://app.nizamia.com')
  if(!online)throw Error('Acceptance transport disconnected')
  await fixture
  switch(route.pathname){
+  case '/api/market-rates': return publicFetch(url,options)
   case '/api/oms': {
    const login=JSON.parse(options.body)
    assert.equal(login.identifier,'box2-fixture')
@@ -350,6 +352,13 @@ async function check(){
  await request(win,'/api/offline/refresh',{})
  await until(async()=>await displayedStage()==='Washing','Open Sampling page missed the downloaded stage')
  console.log('Verified cloud stage change in the open Sampling page on Intel.')
+ const quotes=await request(win,'/api/market-rates')
+ assert.ok(quotes.fx.USD && quotes.fx.EUR && quotes.fx.GBP && quotes.cotton,'Expected dated FX and cotton from production')
+ console.log('Verified live public quote dates:',quotes.fx.USD.date,quotes.cotton.date)
+ let opened
+ require('electron').shell.openExternal=async url=>{opened=url}
+ await win.webContents.executeJavaScript(`const tracking=document.createElement('a');tracking.href='https://carrier.example/track?parcel=123';tracking.target='_blank';tracking.rel='noopener noreferrer';document.body.append(tracking);tracking.click();tracking.remove()`,true)
+ await until(()=>opened==='https://carrier.example/track?parcel=123','Tracking link did not reach the system browser handler')
  console.log('Intel Electron verified Areas 2 to 6.')
 
 }

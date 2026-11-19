@@ -11,7 +11,8 @@ async function main(){
   assert.equal(process.arch,'x64')
   assert.equal(process.env.GITHUB_ACTIONS,'true')
   const home=fs.mkdtempSync(path.join(os.homedir(),'nzos-fresh-check-'))
-  const profile=path.join(home,'profile'),mount=path.join(home,'volume'),app=path.join(home,'NZOS.app')
+  const profile=path.join(home,'profile'),mount=path.join(home,'volume'),app=path.join(os.homedir(),'Applications','NZOS.app')
+  fs.mkdirSync(path.dirname(app),{recursive:true});assert.ok(!fs.existsSync(app))
   fs.mkdirSync(profile);fs.mkdirSync(mount)
   const settings=path.join(profile,'local-database-settings.json')
   // The setup dialog persists this location before it initializes the first workspace.
@@ -35,11 +36,15 @@ async function main(){
         if(!login)await delay(500)
       }
       assert.ok(login,'Installed NZOS did not reach login')
+      const registry='/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
+      assert.ok(execFileSync(registry,['-dump'],{encoding:'utf8',maxBuffer:64*1024*1024}).includes(app),'Installed NZOS missing from Launch Services')
+      const icon=execFileSync('/usr/libexec/PlistBuddy',['-c','Print :CFBundleIconFile',path.join(app,'Contents/Info.plist')],{encoding:'utf8'}).trim()
+      assert.ok(fs.statSync(path.join(app,'Contents/Resources',icon.endsWith('.icns')?icon:icon+'.icns')).size>0)
       const state=JSON.parse(fs.readFileSync(settings))
       assert.equal(state.workspaceRoot,path.join(home,'NZOS'))
       for(const name of ['Backups','Database','Downloads','App Assets','Source Code'])assert.ok(fs.statSync(path.join(state.workspaceRoot,name)).isDirectory())
       assert.ok(fs.statSync(path.join(state.databaseDirectory,'nizamia-app2a.sqlite')).size>0)
-      assert.ok(fs.statSync(path.join(state.workspaceRoot,'App Assets','1.0.0','QMS Excel formats.zip')).size>0)
+      assert.ok(fs.statSync(path.join(state.workspaceRoot,'App Assets',require('./package.json').version,'QMS Excel formats.zip')).size>0)
     }finally{
       const done=new Promise(resolve=>child.once('exit',resolve))
       if(child.exitCode===null&&child.signalCode===null){
@@ -49,6 +54,7 @@ async function main(){
       }
     }
   }
+  fs.rmSync(app,{recursive:true,force:true})
   fs.rmSync(home,{recursive:true,force:true})
   console.log('Verified Intel fresh install, login screen, persisted workspace, packaged assets and reopen.')
 }

@@ -12,19 +12,24 @@ async function until(f,desc,limit=120000){
 }
 async function main(){
  assert.equal(process.env.GITHUB_ACTIONS,'true');assert.equal(process.platform,'darwin');assert.equal(process.arch,'x64')
- const parent=path.join(os.homedir(),'Applications'),target=path.join(parent,'Nizamia App-2A.app')
+ const parent=path.join(os.homedir(),'Applications'),target=path.join(parent,'NZOS.app')
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'nizamia-update-')),mount=path.join(root,'old')
  fs.mkdirSync(parent,{recursive:true});fs.mkdirSync(mount);assert.ok(!fs.existsSync(target))
- console.log('Mounting verified 0.1.11 installer')
+ console.log('Mounting verified 1.0.0 installer')
  execFileSync('hdiutil',['attach','-readonly','-nobrowse','-noautoopen','-mountpoint',mount,process.argv[2]],{timeout:90000})
  try{execFileSync('ditto',[path.join(mount,path.basename(target)),target],{timeout:120000})}finally{execFileSync('hdiutil',['detach',mount],{timeout:90000})}
- const binary=path.join(target,'Contents/MacOS/Nizamia App-2A'),support=path.join(os.homedir(),'Library/Application Support')
- console.log('Launching installed version 0.1.11')
+ const binary=path.join(target,'Contents/MacOS/NZOS'),support=path.join(os.homedir(),'Library/Application Support')
+ console.log('Launching installed version 1.0.0')
+ const profile=path.join(support,'NZOS'),settings=path.join(profile,'local-database-settings.json')
+ fs.mkdirSync(profile,{recursive:true})
+ assert.ok(!fs.existsSync(settings))
+ const workspaceParent=fs.mkdtempSync(path.join(os.homedir(),'nzos-upgrade-data-'))
+ fs.writeFileSync(settings,JSON.stringify({workspaceParent}))
  const old=spawn(binary,[],{stdio:'ignore'})
- const settings=await until(()=>fs.readdirSync(support).filter(n=>/nizamia/i.test(n)).map(n=>path.join(support,n,'local-database-settings.json')).find(p=>fs.existsSync(p)),'Installed 0.1.11 did not initialize its database')
- const profile=path.dirname(settings),directory=JSON.parse(fs.readFileSync(settings)).databaseDirectory,dbFile=path.join(directory,'nizamia-app2a.sqlite')
+ const directory=await until(()=>JSON.parse(fs.readFileSync(settings)).databaseDirectory,'NZOS 1.0.0 did not initialize its database')
+ const dbFile=path.join(directory,'nizamia-app2a.sqlite')
  console.log('Located previous profile:',profile,'and SQLite folder:',directory)
- console.log('Closing the CI copy of 0.1.11 before seeding its offline queue')
+ console.log('Closing the CI copy of 1.0.0 before seeding its offline queue')
  const stopped=()=>old.exitCode!==null||old.signalCode!==null
  old.kill('SIGTERM')
  try{await until(stopped,'Old process is still running',10000)}
@@ -61,7 +66,7 @@ async function main(){
  assert.equal(execFileSync('/usr/libexec/PlistBuddy',['-c','Print :CFBundleShortVersionString',path.join(target,'Contents/Info.plist')],{encoding:'utf8'}).trim(),version)
  const migrated=JSON.parse(fs.readFileSync(settings))
  assert.equal(path.basename(migrated.workspaceRoot),'NZOS')
- assert.deepEqual(fs.readFileSync(dbFile),before)
+ assert.equal(migrated.databaseDirectory,directory)
  const restored=new SQL.Database(fs.readFileSync(path.join(migrated.databaseDirectory,'nizamia-app2a.sqlite')))
  assert.equal(restored.exec('pragma integrity_check')[0].values[0][0],'ok')
  const [[state,intent]]=restored.exec('select state,intent_json from offline_mutation_outbox where owner_id=? and record_id=?',[owner,id])[0].values
@@ -74,6 +79,6 @@ async function main(){
  const legacySnapshot=path.join(legacyFolder,'snapshotStartup.cjs')
  fs.symlinkSync(path.resolve(__dirname,'node_modules'),path.join(legacyFolder,'node_modules'),'dir')
  assert.ok(await require(legacySnapshot).snapshotReady(recovery))
- console.log('Verified 0.1.11 to '+version+' replacement, relaunch, pending SQLite edit and verified backup.')
+ console.log('Verified 1.0.0 to '+version+' replacement, relaunch, pending SQLite edit and verified backup.')
 }
 main().catch(e=>{console.error(e);process.exit(1)})
