@@ -1,0 +1,127 @@
+name: Package NZOS desktop after web updates
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nzos-desktop-from-web
+  cancel-in-progress: false
+
+env:
+  # The live desktop window follows the hosted app. Keep the local React
+  # fallback and SQLite bridge together at the verified desktop source revision.
+  DESKTOP_SOURCE: c7f8e477628127769335dae11ba87025e3ef1e32
+  NZOS_VERSION: 1.1.${{ github.run_number }}
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: node --test server/fulfillment.test.cjs server/hrAttendance.test.cjs tests/page-visibility.test.mjs
+
+  desktop:
+    needs: web
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: mac
+            runner: macos-15-intel
+            asset: '*.dmg'
+          - platform: win
+            runner: windows-2022
+            asset: '*-Windows-x64-Setup.exe'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DESKTOP_SOURCE }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-audit --no-fund
+      - name: Set the installer version
+        run: npm pkg set "version=${{ env.NZOS_VERSION }}"
+        working-directory: desktop
+      - run: npm install --no-audit --no-fund
+        working-directory: desktop
+      - name: Test the update picker, offline workspace and feature access
+        run: node --test desktop/desktopUpdates.test.cjs desktop/windowsInstaller.test.cjs desktop/desktopOrderNoteRoundTrip.test.cjs desktop/desktopSyncLoop.test.cjs server/fulfillment.test.cjs server/hrAttendance.test.cjs tests/page-visibility.test.mjs
+      - name: Build the packaged desktop screens
+        run: npm run build
+        env:
+          APP2A_DESKTOP_BUILD: '1'
+      - name: Package the installer
+        run: npm run dist:${{ matrix.platform }} -- --publish never
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Verify the Intel DMG and open a fresh Mac workspace
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg="desktop/release/NZOS-${NZOS_VERSION}-Intel.dmg"
+          hdiutil verify "$dmg"
+          node desktop/intelFreshAcceptance.cjs "$dmg"
+      - name: Open and reinstall the Windows app without changing its database
+        if: matrix.platform == 'win'
+        run: ./.github/scripts/windows-smoke.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.platform }}
+          path: desktop/release/${{ matrix.asset }}
+          if-no-files-found: error
+
+  publish:
+    needs: desktop
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          merge-multiple: true
+          path: installers
+      - name: Publish both verified packages together
+        working-directory: installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mac="NZOS-${NZOS_VERSION}-Intel.dmg"
+          windows="NZOS-${NZOS_VERSION}-Windows-x64-Setup.exe"
+          test -s "$mac" && test -s "$windows"
+          sha256sum "$mac" > "$mac.sha256"
+          sha256sum "$windows" > "$windows.sha256"
+          tag="v$NZOS_VERSION"
+          if gh release view "$tag" --json isDraft --jq .isDraft | grep -qx true; then
+            gh release upload "$tag" "$mac" "$mac.sha256" "$windows" "$windows.sha256" --clobber
+          elif gh release view "$tag" >/dev/null 2>&1; then
+            exit 0
+          else
+            gh release create "$tag" --target "$GITHUB_SHA" --draft --title "NZOS $NZOS_VERSION" \
+              --notes "Intel Mac and Windows x64 packages for web revision $GITHUB_SHA. The packaged offline workspace uses desktop source $DESKTOP_SOURCE. Store Receipts, Work Order Tracking and HR & Attendance require an online connection." \
+              "$mac" "$mac.sha256" "$windows" "$windows.sha256"
+          fi
+          gh release edit "$tag" --draft=false --latest
