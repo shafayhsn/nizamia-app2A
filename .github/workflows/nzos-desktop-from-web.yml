@@ -15,7 +15,7 @@ concurrency:
 env:
   # The live desktop window follows the hosted app. Keep the local React
   # fallback and SQLite bridge together at the verified desktop source revision.
-  DESKTOP_SOURCE: f99642c67ac71eba523fc17973b5652457db5faa
+  DESKTOP_SOURCE: 5b33cddade636a2e71d6621d1a9ea56b363554de
   NZOS_VERSION: 1.1.${{ github.run_number }}
 
 jobs:
@@ -62,7 +62,7 @@ jobs:
       - run: npm install --no-audit --no-fund
         working-directory: desktop
       - name: Test the update picker, offline workspace and feature access
-        run: node --test desktop/teamRole.test.mjs desktop/desktopUpdates.test.cjs desktop/windowsInstaller.test.cjs desktop/desktopOrderNoteRoundTrip.test.cjs desktop/desktopSyncLoop.test.cjs server/fulfillment.test.cjs server/hrAttendance.test.cjs tests/page-visibility.test.mjs
+        run: node --test desktop/snapshotDownloadClient.test.cjs desktop/teamRole.test.mjs desktop/desktopUpdates.test.cjs desktop/windowsInstaller.test.cjs desktop/desktopOrderNoteRoundTrip.test.cjs desktop/desktopSyncLoop.test.cjs server/fulfillment.test.cjs server/hrAttendance.test.cjs tests/page-visibility.test.mjs
       - name: Build the packaged desktop screens
         run: npm run build
         env:

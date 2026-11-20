@@ -23,14 +23,18 @@ async function staffSnapshot(db,user,readTable){
  }
  const permissions=await load(),scope=scopeKey({...user,permissions})
  const tables={orders:[],suppliers:[],buyers:[]}
- for(const [module,group] of Object.entries(moduleTables)){
-   if(!permissions[module]?.view)continue
-   for(const table of group.split(' ')){
+ const allowedTables=Object.entries(moduleTables)
+   .filter(([module])=>permissions[module]?.view)
+   .flatMap(([,group])=>group.split(' '))
+ const concurrency=6
+ for(let offset=0;offset<allowedTables.length;offset+=concurrency){
+   const batch=await Promise.all(allowedTables.slice(offset,offset+concurrency).map(async table=>{
      const rows=await readTable(db,table)
-     tables[table]=rows.map(row=>Object.fromEntries(Object.entries(row).filter(([field])=>
+     return [table,rows.map(row=>Object.fromEntries(Object.entries(row).filter(([field])=>
        !/password|secret|token|api_key|private_key|session|credential|auth_hash|passkey|attachment_path|storage_path/i.test(field)
-       && !(table==='shipments' && /notes|payment|credit|receipt|settlement|bank/i.test(field)))))
-   }
+       && !(table==='shipments' && /notes|payment|credit|receipt|settlement|bank/i.test(field)))))]
+   }))
+   for(const [table,rows] of batch)tables[table]=rows
  }
  if(permissions.tasks?.view){
    const tasks=await readTable(db,'app_tasks')
