@@ -23,7 +23,7 @@ test('verified enrollment enables offline login after the app reopens',t=>{
  assert.equal(reopened.login(user.email,password).user.id,user.id)
  const file=path.join(directory,'desktop-web-users.json')
  assert.equal(fs.readFileSync(file,'utf8').includes(password),false)
- assert.equal(fs.statSync(file).mode&0o777,0o600)
+ if(process.platform!=='win32')assert.equal(fs.statSync(file).mode&0o777,0o600)
 })
 
 test('online-only workspace credentials replace stale offline access',t=>{
