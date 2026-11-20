@@ -206,10 +206,10 @@ const WO_TAX_RE = /\n?\[WO_TAX:(\{.*?\})\]\s*$/i
 function readWOTax(notes) {
   const m=String(notes||'').match(WO_TAX_RE)
   if (!m) return {notes:String(notes||''), enabled:false, rate:getSavedTaxRate()}
-  try {const data=JSON.parse(m[1]);return {notes:String(notes||'').replace(WO_TAX_RE,'').trim(),enabled:!!data.enabled,rate:Number(data.rate)||0}} catch {return {notes:String(notes||'').replace(WO_TAX_RE,'').trim(),enabled:false,rate:getSavedTaxRate()}}
+  try {const data=JSON.parse(m[1]);return {notes:String(notes||'').replace(WO_TAX_RE,'').trim(),enabled:!!data.enabled,rate:Number(data.rate)||0, deliveryDate: /^\d{4}-\d{2}-\d{2}$/.test(data.deliveryDate || '') ? data.deliveryDate : ''}} catch {return {notes:String(notes||'').replace(WO_TAX_RE,'').trim(),enabled:false,rate:getSavedTaxRate()}}
 }
-function writeWOTax(notes,enabled,rate) {
-  return `${String(notes||'').replace(WO_TAX_RE,'').trim()}\n[WO_TAX:${JSON.stringify({enabled:!!enabled,rate:Number(rate)||0})}]`.trim()
+function writeWOTax(notes,enabled,rate,deliveryDate) {
+  return `${String(notes||'').replace(WO_TAX_RE,'').trim()}\n[WO_TAX:${JSON.stringify({enabled:!!enabled,rate:Number(rate)||0,...(deliveryDate ? {deliveryDate} : {})})}]`.trim()
 }
 
 async function saveOfflinePurchasingDocument(table,fields,lines,documentId){
@@ -449,7 +449,9 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
 
 function WOModal({ wo, orders, suppliers, prefillProcessIds, prefillItems, onClose, onSaved }) {
   const isNew = !wo
+  const { user } = useAuth()
   const initialWOTax = readWOTax(wo?.notes)
+  const [deliveryDate,setDeliveryDate] = useState(initialWOTax.deliveryDate || '')
   const [taxEnabled,setTaxEnabled] = useState(initialWOTax.enabled)
   const [taxRate] = useState(initialWOTax.rate)
   const [form, setForm] = useState({
@@ -528,7 +530,7 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, prefillItems, onClo
     setSaving(true)
     try {
       if(window.location.protocol==='app2a:'){
-        const notes=writeWOTax(form.notes,taxEnabled,taxRate)
+        const notes=writeWOTax(form.notes,taxEnabled,taxRate,deliveryDate)
         const lines=items.filter(i=>i.process_name).map((i,sort_order)=>({
          order_process_id:i.order_process_id||null,process_name:i.process_name,dept_info:i.dept_info||null,
          qty:parseFloat(i.qty)||null,unit:i.unit||null,rate:parseFloat(i.rate)||null,
@@ -543,7 +545,7 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, prefillItems, onClo
         return
       }
       const woNum = form.wo_number || await generateWONumber()
-      const payload = { ...form, notes:writeWOTax(form.notes,taxEnabled,taxRate), wo_number:woNum, qty:parseInt(form.qty)||null, daily_output:parseInt(form.daily_output)||null }
+      const payload = { ...form, notes:writeWOTax(form.notes,taxEnabled,taxRate,deliveryDate), wo_number:woNum, qty:parseInt(form.qty)||null, daily_output:parseInt(form.daily_output)||null }
       const lineFields = (item, sort_order) => ({
         order_process_id: item.order_process_id || null, process_name: item.process_name,
         dept_info: item.dept_info || null, qty: parseFloat(item.qty) || null, unit: item.unit || null,
@@ -576,9 +578,10 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, prefillItems, onClo
 
   const handlePrint = async () => {
     if (!wo) return
-    const vendor=suppliers.find(s=>s.id===wo.vendor_id)
-    const order=orders.find(o=>o.id===wo.order_id)
-    await printWorkOrder({ ...wo, items }, vendor, order)
+    const vendor=suppliers.find(s=>s.id===form.vendor_id)
+    const order=orders.find(o=>o.id===form.order_id)
+    await printWorkOrder({ ...wo, ...form, items, delivery_date:deliveryDate,
+      notes:writeWOTax(form.notes,taxEnabled,taxRate,deliveryDate), printed_by:user?.username || user?.displayName }, vendor, order)
   }
 
   const handleDelete = async () => {
@@ -634,6 +637,7 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, prefillItems, onClo
             <div><label style={lbl}>Colour</label><input style={mkInp(locked)} value={form.color} onChange={set('color')} placeholder="e.g. Stone Blue" disabled={locked}/></div>
             <div><label style={lbl}>Qty (batch for this vendor)</label><input style={mkInp(locked)} type="number" value={form.qty} onChange={set('qty')} disabled={locked}/></div>
             <div><label style={lbl}>Issue Date</label><input style={mkInp(locked)} type="date" value={form.issue_date} onChange={set('issue_date')} disabled={locked}/></div>
+            <div><label style={lbl}>Delivery Date</label><input style={mkInp(locked)} type="date" value={deliveryDate} onChange={event=>setDeliveryDate(event.target.value)} disabled={locked}/></div>
             <div><label style={lbl}>Start Date</label><input style={mkInp(locked)} type="date" value={form.start_date} onChange={set('start_date')} disabled={locked}/></div>
             <div><label style={lbl}>Complete By</label><input style={mkInp(locked)} type="date" value={form.complete_by} onChange={set('complete_by')} disabled={locked}/></div>
             <div><label style={lbl}>Daily Output (pcs/day)</label><input style={mkInp(locked)} type="number" value={form.daily_output} onChange={set('daily_output')} disabled={locked}/></div>
@@ -1784,6 +1788,7 @@ function PurchaseOrdersTab({ orders, suppliers }) {
 
 // ── Tab 4: Work Orders ────────────────────────────────────────────────────────
 function WorkOrdersTab({ orders, suppliers }) {
+  const { user } = useAuth()
   const [wos, setWos] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -1807,7 +1812,7 @@ function WorkOrdersTab({ orders, suppliers }) {
 
   const handlePrint = async (w,e) => {
     e.stopPropagation()
-    await printWorkOrder({ ...w, items:w.work_order_items||[] }, suppliers.find(s=>s.id===w.vendor_id), orders.find(o=>o.id===w.order_id))
+    await printWorkOrder({ ...w, items:w.work_order_items||[], printed_by:user?.username || user?.displayName }, suppliers.find(s=>s.id===w.vendor_id), orders.find(o=>o.id===w.order_id))
   }
   const handleDeleteWO = async (w,e) => {
     e.stopPropagation()
