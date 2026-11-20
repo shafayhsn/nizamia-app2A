@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import './hrAttendance.css'
 
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date())
@@ -16,7 +18,8 @@ async function hrRequest(command, fields) {
   return result
 }
 
-export default function HrAttendance({ readOnly = false }) {
+export default function HrAttendance({ readOnly = false, fromSettings = false }) {
+  const [search, setSearch] = useState('')
   const [tab, setTab] = useState('employees')
   const [date, setDate] = useState(today)
   const [data, setData] = useState(null)
@@ -59,13 +62,21 @@ export default function HrAttendance({ readOnly = false }) {
     ...[...recorded.values()].filter(row => row.archived),
   ]
 
+  const matches = row => [row.employee_code,row.name,row.department].join(' ').toLowerCase().includes(search.trim().toLowerCase())
+  const displayed = (tab === 'employees' ? employees : attendance).filter(matches)
+
   return <section className="hr-page">
-    {!readOnly && <h1 className="app-page-title">HR &amp; Attendance</h1>}
-    <div className="hr-toolbar">
+    <header className="operations-heading">
+      {fromSettings && <Link to="/settings">Settings</Link>}
+      <h1 className="app-page-title">HR &amp; Attendance</h1>
+    </header>
+    <div className="operations-tray hr-toolbar">
       <button className="btn btn-secondary" aria-pressed={tab === 'employees'} disabled={busy} onClick={() => setTab('employees')}>Employees</button>
       <button className="btn btn-secondary" aria-pressed={tab === 'attendance'} disabled={busy} onClick={() => setTab('attendance')}>Attendance</button>
+      <label className="operations-search"><Search size={15}/><input type="search" aria-label="Search employees"
+        placeholder="Search name, employee number or department" value={search} onChange={event=>setSearch(event.target.value)}/></label>
       {tab === 'employees' && !readOnly && <button className="btn btn-primary" disabled={busy}
-        onClick={() => { setRemoval(null); setEmployee({ ...blankEmployee, id: crypto.randomUUID() }) }}>Add employee</button>}
+        onClick={() => { setRemoval(null); setEmployee({ ...blankEmployee, id: crypto.randomUUID() }) }}><Plus size={15}/> Add employee</button>}
       {tab === 'attendance' && <label>Date <input type="date" value={date} max={today()} disabled={busy} onChange={event => {
         if (!event.target.value) return
         setData(null)
@@ -112,16 +123,16 @@ export default function HrAttendance({ readOnly = false }) {
         ? ['Department', 'Shift', 'Overtime eligible', 'Monthly salary']
         : ['Shift', 'Clock in', 'Clock out', 'Arrival', 'Overtime']), ...(!readOnly ? ['Actions'] : [])]
         .map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
-      <tbody>{tab === 'employees' ? employees.map(row => <tr key={row.id}>
+      <tbody>{tab === 'employees' ? displayed.map(row => <tr key={row.id}>
         <td>{row.employee_code}</td><td>{row.name}</td><td>{row.department || '—'}</td>
         <td>{time(row.shift_start)}–{time(row.shift_end)}</td><td>{row.overtime_allowed ? 'Yes' : 'No'}</td>
         <td>{salary.format(row.monthly_salary)}</td>
         {!readOnly && <td><button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => {
           setRemoval(null)
           setEmployee({ ...row, shift_start: time(row.shift_start), shift_end: time(row.shift_end) })
-        }}>Edit</button><button className="btn btn-ghost btn-sm" disabled={busy}
-          onClick={() => { setEmployee(null); setRemoval(row) }}>Remove</button></td>}
-      </tr>) : attendance.map(row => <tr key={row.employee_id}>
+        }}><Pencil size={13}/> Edit</button><button className="btn btn-ghost btn-sm" disabled={busy}
+          onClick={() => { setEmployee(null); setRemoval(row) }}><Trash2 size={13}/> Delete</button></td>}
+      </tr>) : displayed.map(row => <tr key={row.employee_id}>
         <td>{row.employee_code}</td><td>{row.name}{row.archived && ' (removed)'}</td>
         <td>{time(row.shift_start)}–{time(row.shift_end)}</td><td>{time(row.clock_in) || '—'}</td><td>{time(row.clock_out) || '—'}</td>
         <td>{row.clock_in ? row.late ? 'Late' : 'On time' : 'Unrecorded'}</td>
@@ -131,7 +142,7 @@ export default function HrAttendance({ readOnly = false }) {
         }>{row.clock_in ? 'Edit' : 'Record'}</button>}</td>}
       </tr>)}</tbody>
     </table>
-    {(tab === 'employees' ? employees : attendance).length === 0 && <p>No employee records to show.</p>}
+    {displayed.length === 0 && <p>No employees match this view.</p>}
     </div>}
   </section>
 }

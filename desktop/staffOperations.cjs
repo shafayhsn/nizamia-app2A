@@ -14,7 +14,9 @@ function right(route,body){
  if(Object.hasOwn(fixed,route))return fixed[route]
  if(route==='fulfillment'){
    switch(body.action){
+    case 'readPoReceiving':
     case 'readStoreReceipts': return ['purchasing','view']
+    case 'postPoReceiving':
     case 'postStoreReceipt': return ['purchasing','create']
     case 'readWorkOrderTracking': return ['production','view']
     case 'postWorkOrderMovement': return ['production','create']

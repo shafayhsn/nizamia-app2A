@@ -13,3 +13,11 @@
 .hr-form input, .hr-toolbar input { border: 1px solid #d1d5db; border-radius: 5px; padding: 6px 8px; max-width: 175px; }
 .hr-table-wrap { overflow-x: auto; }
 .hr-error { color: #b91c1c; }
+
+.hr-page { min-height: 100%; background: #fff; }
+.hr-page .hr-toolbar { margin: 0; align-items: center; }
+.hr-page .hr-toolbar .btn-primary { margin-left: auto; }
+.hr-page .hr-form { margin: 14px 24px; }
+.hr-page > p, .hr-table-wrap > p { margin: 0; padding: 24px; color: #64748b; font-size: 12px; }
+.hr-page p.hr-error { color: #b91c1c; }
+.hr-table-wrap .fulfillment-table { min-width: 700px; }

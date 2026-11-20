@@ -489,7 +489,7 @@ app.whenReady().then(async () => {
       try{
         const body=request.method==='POST'?await request.json():null
         const action=body?.action||url.searchParams.get('action')
-        const permitted=hr?(request.method==='POST'?['hrAttendance']:[]):tracking?(request.method==='POST'?['readStoreReceipts','postStoreReceipt','readWorkOrderTracking','postWorkOrderMovement']:[]):review?(request.method==='GET'?['poApprovers','assignedPOReviews']:['savePurchaseOrder','readPOHistory','setPOStage','readPOPage','requestPOReview','approveAssignedPO']):request.method==='GET'?['accountList','accountRoles']:['accountRoleRights','accountSaveRights','accountDelete','accountHistory','accountCreate','accountPassword','accountRole','accountActive','accountRestriction']
+        const permitted=hr?(request.method==='POST'?['hrAttendance']:[]):tracking?(request.method==='POST'?['readStoreReceipts','postStoreReceipt','readPoReceiving','postPoReceiving','readWorkOrderTracking','postWorkOrderMovement']:[]):review?(request.method==='GET'?['poApprovers','assignedPOReviews']:['savePurchaseOrder','readPOHistory','setPOStage','readPOPage','requestPOReview','approveAssignedPO']):request.method==='GET'?['accountList','accountRoles']:['accountRoleRights','accountSaveRights','accountDelete','accountHistory','accountCreate','accountPassword','accountRole','accountActive','accountRestriction']
         if(!['GET','POST'].includes(request.method)||!permitted.includes(action))
           return Response.json({error:'Unknown account request'},{status:400})
         const endpoint=new URL('/api/oms',APP_URL)
