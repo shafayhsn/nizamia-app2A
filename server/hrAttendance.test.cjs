@@ -5,7 +5,7 @@ const { join } = require('node:path')
 const { PGlite } = require('@electric-sql/pglite')
 
 const id = n => '00000000-0000-4000-8000-' + String(n).padStart(12, '0')
-test('HR owns staff records, admin has view access, and attendance preserves shift and employee history', async t => {
+test('HR owns staff records, admin can manage records, and attendance preserves shift and employee history', async t => {
   const db = new PGlite()
   t.after(() => db.close())
   await db.exec(`
@@ -20,6 +20,9 @@ test('HR owns staff records, admin has view access, and attendance preserves shi
     GRANT SELECT,UPDATE ON users TO service_role;
   `)
   await db.exec(readFileSync(join(__dirname, 'migrations/20261120_z_hr_attendance.sql'), 'utf8'))
+  const revised = readFileSync(join(__dirname, 'migrations/20261120_zz_operations_workflows.sql'), 'utf8')
+  await db.exec(revised.slice(0,revised.indexOf('CREATE OR REPLACE FUNCTION public.read_work_order_tracking')))
+
   await db.exec("INSERT INTO permissions SELECT id,'orders' FROM roles WHERE name='hr'")
   assert.equal((await db.query('SELECT count(*) FROM permissions')).rows[0].count, 0)
   await db.exec('SET ROLE service_role')
@@ -29,7 +32,7 @@ test('HR owns staff records, admin has view access, and attendance preserves shi
     shift_start: '09:00', shift_end: '18:00', monthly_salary: 45000, overtime_allowed: true }
   const date = '2026-01-01'
   assert.equal((await action(1, 'saveEmployee', employee)).result, 'saved')
-  await assert.rejects(action(2, 'saveEmployee', employee), { code: '42501' })
+  assert.equal((await action(2, 'saveEmployee', { ...employee, name: 'Updated by admin' })).result, 'saved')
   await assert.rejects(action(3, 'list', { date }), { code: '42501' })
   await assert.rejects(action(4, 'list', { date }), { code: '42501' })
   assert.equal((await action(2, 'list', { date })).employees[0].monthly_salary, 45000)
@@ -45,7 +48,7 @@ test('HR owns staff records, admin has view access, and attendance preserves shi
   await action(1, 'saveAttendance', { id: id(11), date: nextDay, clock_in: '10:00', clock_out: '19:00' })
   assert.equal((await action(1, 'list', { date: nextDay })).attendance[0].overtime_minutes, 0)
   await assert.rejects(record('10:00', '09:59'), { code: '23514' })
-  await action(1, 'archiveEmployee', { id: id(11) })
+  await action(2, 'archiveEmployee', { id: id(11) })
   const archived = await action(2, 'list', { date })
   assert.equal(archived.employees.length, 0)
   assert.equal(archived.attendance[0].archived, true)

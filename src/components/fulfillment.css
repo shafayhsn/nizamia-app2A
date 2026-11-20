@@ -48,3 +48,33 @@
   flex-basis: 100%;
   color: #b91c1c;
 }
+
+.operations-register { flex: 1; min-height: 0; overflow: auto; }
+.operations-heading { padding: 18px 24px 0; }
+.operations-heading a { color: #64748b; font-size: 12px; }
+.operations-heading h1 { margin: 5px 0 12px; }
+.operations-tray { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 24px; border-bottom: 1px solid #eef0f4; }
+.operations-delivery-tools { padding: 0; border: 0; flex: 1; justify-content: flex-end; }
+.operations-search { display: flex; gap: 8px; align-items: center; min-width: 180px; flex: 1; max-width: 470px; padding: 0 10px; background: #fafafa; border: 1px solid #e5e7eb; border-radius: 7px; height: 32px; color: #8992a2; }
+.operations-search input { border: 0; outline: 0; background: transparent; width: 100%; min-width: 0; color: #111827; font: inherit; font-size: 12px; }
+.operations-tray select, .operations-dialog td input { height: 32px; background: #fff; border: 1px solid #e5e7eb; padding: 0 8px; border-radius: 7px; color: #111827; font: inherit; font-size: 12px; }
+.operations-dialog td input { width: 100%; min-width: 65px; max-width: 105px; }
+.operations-scroll { overflow-x: auto; }
+.operations-register .fulfillment-table { min-width: 650px; }
+.fulfillment-table th { color: #6b7280; text-transform: uppercase; font-size: 10px; letter-spacing: .35px; }
+.fulfillment-table tbody tr:hover { background: #fafbfc; }
+.operations-empty { text-align: center; padding: 38px 20px; color: #64748b; font-size: 12px; }
+.operations-error, .operations-message { padding: 8px 24px; font-size: 12px; }
+.operations-error { color: #b91c1c; }
+.operations-message { color: #166534; }
+.operations-more { margin: 12px 24px; }
+.operations-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 24px; background: rgba(15,23,42,.34); }
+.operations-dialog { background: #fff; width: min(100%,1050px); max-height: 88vh; overflow: auto; border: 1px solid #e5e7eb; border-radius: 16px; box-shadow: 0 20px 60px #15203532; }
+.operations-dialog header, .operations-dialog footer { position: sticky; background: #fff; z-index: 1; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; }
+.operations-dialog header { top: 0; border-bottom: 1px solid #eef0f4; }
+.operations-dialog header p { margin: 4px 0 0; color: #64748b; font-size: 12px; }
+.operations-dialog footer { bottom: 0; justify-content: flex-end; border-top: 1px solid #eef0f4; }
+.operations-dialog form > .fulfillment-form { margin: 14px 18px; }
+.operations-breakdown { padding: 12px 18px; }
+.operations-breakdown h3 { font-size: 14px; margin: 0 0 8px; }
+.operations-breakdown p { color: #64748b; font-size: 12px; }

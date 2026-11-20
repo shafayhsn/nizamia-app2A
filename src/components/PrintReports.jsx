@@ -61,8 +61,8 @@ function getPOVersion(notes) {
   if (!m) return 1
   try { return Math.max(1, parseInt(JSON.parse(m[1]).version, 10) || 1) } catch { return 1 }
 }
-function bumpPrintCount(poNumber) {
-  const key = `nizamia_po_print_count_${poNumber || 'unknown'}`
+function bumpPrintCount(documentNumber, type = 'po') {
+  const key = `nizamia_${type}_print_count_${documentNumber || 'unknown'}`
   const next = (parseInt(localStorage.getItem(key), 10) || 0) + 1
   localStorage.setItem(key, String(next))
   return next
@@ -1115,80 +1115,98 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
 
 export async function printWorkOrder(wo, vendor, order, targetWindow = null) {
   const items = wo.items || wo.work_order_items || []
-  const subtotal = items.reduce((s,i)=>s+(parseFloat(i.amount)||0),0)
-  const allProcesses = ['Cutting','Stitching','Kaj','Bartack','Press','Final Checking','Finishing','Packing','Heat Transfer','Screen Print','Embroidery','Wash','Paint Splatter','Rip & Repair','Cropping']
-  const ticked = wo.processes || []
-
-  const processGrid = allProcesses.map(p => `
-  <div class="process-item">
-    <div class="process-cb ${ticked.includes(p)?'checked':''}"></div>
-    <span>${p}</span>
-  </div>`).join('')
-
-  const itemRows = items.map(item => `<tr>
-    <td class="bold">${item.process_name||'—'}</td>
-    <td style="font-size:10px;color:#6b7280">${item.dept_info||'—'}</td>
-    <td class="right mono">${item.qty ? fmtNum(item.qty) : '—'}</td>
-    <td>${item.unit||'pc'}</td>
-    <td class="right mono">${item.rate ? fmtNum(item.rate,2) : '—'}</td>
-    <td class="right mono bold">${item.amount ? fmtNum(item.amount,0) : '—'}</td>
-  </tr>`).join('')
-
-  const html = `
-  <div class="page">
-    ${docHeader('Production Document', 'Work Order', `${wo.wo_number} · ${fmtDate(wo.issue_date)} · ORIGINAL`)}
-    <div class="po-header-box">
-      <div class="po-left">
-        <div class="po-number">${wo.wo_number}</div>
-        <div class="po-meta-row">
-          <div class="po-meta-item"><div class="lbl">Issue Date</div><div class="val">${fmtDate(wo.issue_date)}</div></div>
-          <div class="po-meta-item"><div class="lbl">Start Date</div><div class="val">${fmtDate(wo.start_date)}</div></div>
-        </div>
-        <div class="po-meta-row">
-          <div class="po-meta-item"><div class="lbl">Complete By</div><div class="val">${fmtDate(wo.complete_by)}</div></div>
-          <div class="po-meta-item"><div class="lbl">Daily Output</div><div class="val">${wo.daily_output ? wo.daily_output + ' pcs/day' : '—'}</div></div>
-        </div>
-        <div class="po-meta-row">
-          <div class="po-meta-item"><div class="lbl">Payment Terms</div><div class="val">${wo.payment_terms||'—'}</div></div>
-        </div>
-      </div>
-      <div class="po-right">
-        <div class="info-label">Contractor / Vendor</div>
-        <div class="po-supplier-name">${vendor?.name||'—'}</div>
-        <div class="po-supplier-addr">${[vendor?.address, vendor?.city, vendor?.phone].filter(Boolean).join('<br>') || ''}</div>
-        <hr class="po-divider" />
-        <div class="info-label" style="margin-bottom:4px">Order Reference</div>
-        <div style="font-size:10px;line-height:1.6">
-          Job: ${order?.job_number||'—'}<br>
-          Style: ${order?.style_number||'—'}<br>
-          ${wo.color ? 'Colour: ' + wo.color + '<br>' : ''}
-          ${wo.qty ? 'Qty: ' + parseInt(wo.qty).toLocaleString() + ' pcs' : ''}
-        </div>
-      </div>
+  const company = getCompanyInfo()
+  const count = bumpPrintCount(wo.wo_number, 'wo')
+  const n = value => Number(value) || 0
+  const amount = item => item.amount == null || item.amount === '' ? n(item.qty) * n(item.rate) : n(item.amount)
+  const subtotal = items.reduce((sum,item)=>sum+amount(item),0)
+  const quantities = new Map()
+  items.forEach(item => {
+    const unit = String(item.unit || 'pcs').trim().toLowerCase()
+    quantities.set(unit, (quantities.get(unit) || 0) + n(item.qty))
+  })
+  const displayQty = value => fmtNum(value, Number.isInteger(Number(value)) ? 0 : 3)
+  const totalQty = quantities.size > 1
+    ? [...quantities].map(([unit,qty])=>displayQty(qty)+' '+escapeHTML(unit)).join(' · ')
+    : displayQty([...quantities.values()][0] ?? 0)
+  const marker = String(wo.notes || '').match(/\n?\[WO_TAX:(\{.*?\})\]\s*$/i)
+  let metadata = {}
+  try { if (marker) metadata = JSON.parse(marker[1]) || {} } catch { /* Older notes remain printable. */ }
+  const notes = String(wo.notes || '').replace(marker?.[0] || /$^/, '').trim()
+  const tax = metadata.enabled ? subtotal * n(metadata.rate) / 100 : 0
+  const version = Math.max(1, parseInt(wo.version, 10) || 1)
+  const status = String(wo.status || 'Draft').toUpperCase()
+  const heading = (label,value) => '<div><span>'+label+'</span><strong>'+escapeHTML(value || '—')+'</strong></div>'
+  const vendorAddress = [vendor?.name,vendor?.address,vendor?.city,vendor?.phone || wo.vendor_phone]
+    .filter(Boolean).map(value=>escapeHTML(value).replace(/\r?\n/g,'<br>')).join('<br>') || '—'
+  const date = wo.delivery_date || metadata.deliveryDate
+  const header = `<div class="wo-heading">
+      <div><b>WORK ORDER</b><div class="wo-company">${escapeHTML(company.name)}</div>
+      <div class="wo-tagline">${escapeHTML(company.tagline)}</div><div class="wo-address">${companyAddressLine(company)}</div></div>
+      <div class="wo-status"><strong>V${version}</strong><div>Print Count: ${String(count).padStart(2,'0')}</div>
+      <span>${escapeHTML(status)}</span></div>
     </div>
-    <div class="section-title">Processes Authorised</div>
-    <div class="process-grid">${processGrid}</div>
-    <div class="section-title">Line Items</div>
-    <table>
-      <thead><tr><th>Process</th><th>Dept / Info</th><th class="right">Qty</th><th>Unit</th><th class="right">Rate (PKR)</th><th class="right">Amount (PKR)</th></tr></thead>
-      <tbody>${itemRows}</tbody>
-    </table>
-    <div class="po-totals">
-      <div class="po-total-row"><span>Subtotal</span><span>PKR ${fmtNum(subtotal,0)}</span></div>
-      ${wo.advance_pct ? `<div class="po-total-row"><span>Advance (${wo.advance_pct}%)</span><span>PKR ${fmtNum(subtotal*(wo.advance_pct/100),0)}</span></div><div class="po-total-row grand"><span>Final Payable</span><span>PKR ${fmtNum(subtotal*(1-wo.advance_pct/100),0)}</span></div>` : `<div class="po-total-row grand"><span>Total</span><span>PKR ${fmtNum(subtotal,0)}</span></div>`}
-    </div>
-    ${wo.notes ? `<div class="tc-box"><div class="tc-label">Special Instructions</div><div class="tc-text">${wo.notes}</div></div>` : ''}
-    <div class="sig-block">
-      <div><div class="sig-label">Issued By</div><div class="sig-line"></div><div class="sig-name">Merchandiser</div></div>
-      <div><div class="sig-label">Contractor Acknowledgement</div><div class="sig-line"></div></div>
-      <div><div class="sig-label">Date</div><div class="sig-line"></div><div class="sig-name">${today}</div></div>
-    </div>
-    <div class="doc-footer">
-      <span>Nizamia Apparels · Karachi, Pakistan — Work Order ${wo.wo_number} · Original</span>
-      <span>01 / 01</span>
-    </div>
-  </div>`
-  printHTML(html, targetWindow, wo.wo_number || 'Work Order')
+    <table class="wo-meta"><colgroup><col style="width:35%"><col style="width:26%"><col></colgroup><tbody><tr>
+      <td><b>CONTRACTOR/VENDOR</b><div class="wo-vendor">${vendorAddress}</div></td>
+      <td class="wo-meta-stack">${heading('JOB NUMBER',order?.job_number)}${heading('STYLE &amp; FTY NUMBER',
+        [order?.style_number,wo.factory_ref || order?.factory_ref].filter(Boolean).join(' / '))}</td>
+      <td class="wo-meta-stack wo-meta-inline">${heading('WO NUMBER',wo.wo_number)}${heading('ISSUE DATE',fmtDate(wo.issue_date))}
+        ${heading('DELIVERY DATE',fmtDate(date))}${heading('PAYMENT TERMS',wo.payment_terms)}</td>
+    </tr></tbody></table>
+    <div class="wo-schedule">${heading('START DATE',fmtDate(wo.start_date))}${heading('COMPLETE DATE',fmtDate(wo.complete_by))}
+      ${heading('PER DAY REQUIRED',wo.daily_output ? displayQty(wo.daily_output)+' pcs / day' : '')}${heading('USER',wo.printed_by || wo.created_by_name)}</div>`
+  const perPage = 9
+  const chunks = Array.from({length:Math.max(1,Math.ceil(items.length/perPage))},(_,index)=>items.slice(index*perPage,(index+1)*perPage))
+  const pages = chunks.map((chunk,index) => {
+    const final = index===chunks.length-1
+    const rows = chunk.map(item => `<tr>
+      <td>${escapeHTML(item.q_number || item.process_name || '—')}</td>
+      <td>${escapeHTML(item.dept_info || item.process_name || '—')}</td>
+      <td>${escapeHTML(item.unit || 'pcs')}</td><td class="wo-num">${displayQty(item.qty)}</td>
+      <td class="wo-num">${fmtNum(item.rate,2)}</td><td class="wo-num">${fmtNum(amount(item),2)}</td>
+    </tr>`).join('')
+    const blanks = '<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>'.repeat(perPage-chunk.length)
+    return `<section class="wo-page">${header}
+      <table class="wo-items"><colgroup><col style="width:11%"><col style="width:47%"><col style="width:10%"><col style="width:9%"><col style="width:11%"><col style="width:12%"></colgroup>
+        <thead><tr><th>Q #</th><th>PROCESS</th><th>UNIT</th><th>QTY</th><th>RATE</th><th>AMOUNT</th></tr></thead>
+        <tbody>${rows}${blanks}${final ? `<tr class="wo-total"><td colspan="3">TOTAL</td><td class="wo-num">${totalQty}</td><td></td><td class="wo-num">${fmtNum(subtotal,2)}</td></tr>` : ''}</tbody></table>
+      ${final ? `
+        ${tax || wo.advance_pct ? `<div class="wo-adjustments">
+          ${tax ? `<span>GST (${escapeHTML(metadata.rate)}%) ${fmtNum(tax,2)}</span><span>Grand total ${fmtNum(subtotal+tax,2)}</span>` : ''}
+          ${wo.advance_pct ? `<span>Advance (${escapeHTML(wo.advance_pct)}%) ${fmtNum(subtotal*n(wo.advance_pct)/100,2)}</span>
+            <span>Balance payable ${fmtNum(subtotal+tax-subtotal*n(wo.advance_pct)/100,2)}</span>` : ''}</div>` : ''}
+        <div class="wo-terms" dir="auto">${escapeHTML(notes).replace(/\r?\n/g,'<br>')}</div>
+        <table class="wo-sign"><tbody><tr>${['CONTRACTOR / VENDOR','MERCHANDISER','GENERAL MANAGER','CEO / DIRECTOR']
+          .map(label=>`<td>${label}</td>`).join('')}</tr></tbody></table>` : ''}
+      </section>`
+  }).join('')
+  printHTML(`<style>
+    @page{size:A4;margin:0}
+    html,body{width:210mm;margin:0;padding:0;background:#fff}
+    .wo-page{display:block;width:210mm;padding:7.5mm 6mm 9.5mm;box-sizing:border-box;background:#fff;color:#000;font:12px Arial,Helvetica,sans-serif;break-after:page;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+    .wo-page:last-child{break-after:auto}.wo-page *{box-sizing:border-box}
+    .wo-page table{border-collapse:collapse;table-layout:fixed;width:100%;margin:0}.wo-page tr{break-inside:avoid}
+    .wo-heading{display:grid;grid-template-columns:minmax(0,1fr) 35mm;gap:4mm;margin-bottom:3.4mm}
+    .wo-heading b{font-size:16px}.wo-company{font:700 47px/.86 Georgia,'Times New Roman',serif;letter-spacing:-.7px;margin-top:1mm}
+    .wo-tagline{font-size:11.5px;font-weight:700;font-style:italic;margin-top:1mm}.wo-address{font-size:9.5px;line-height:1.1;margin-top:1mm}
+    .wo-status{text-align:right;font-size:10px;font-weight:700}.wo-status strong{font-size:18px}.wo-status span{display:block;background:#000;color:#fff;font:700 24px Georgia,serif;text-align:center;margin-top:1.6mm;padding:1.6mm 1mm;min-height:10.5mm}
+    .wo-page .wo-meta td,.wo-page .wo-items td,.wo-page .wo-items th,.wo-page .wo-sign td{border:1px solid #000;color:#000}
+    .wo-page .wo-meta td{height:31.5mm;vertical-align:top;padding:2.6mm 3.4mm;font-size:12px;overflow-wrap:anywhere}
+    .wo-vendor{font-weight:700;font-size:13px;line-height:1.16;margin-top:2.3mm}
+    .wo-page .wo-meta td.wo-meta-stack{padding:0}
+    .wo-meta-stack>div{min-height:15.7mm;padding:2.4mm 3.4mm;border-bottom:1px solid #000}
+    .wo-meta-stack>div:last-child{border-bottom:0}.wo-meta-stack strong,.wo-schedule strong{display:block;margin-top:2mm;font-size:12px}
+    .wo-meta-stack span,.wo-schedule span{font-weight:700;font-size:11.5px}
+    .wo-meta-inline>div{display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:2mm;min-height:7.8mm;height:7.8mm;padding:1.2mm 3.4mm}
+    .wo-meta-inline strong{margin:0}
+    .wo-schedule{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid #000;margin:3.6mm 0 3mm;min-height:14.3mm}
+    .wo-schedule>div{padding:2mm 2.4mm;border-right:1px solid #000}.wo-schedule>div:last-child{border-right:0}
+    .wo-page .wo-items th{color:#fff;background:#000;text-align:left;letter-spacing:.2px;font-size:12px;padding:2mm 2.3mm}
+    .wo-page .wo-items td{height:8.1mm;padding:1.3mm 2.3mm;vertical-align:middle;font-size:10.7px;overflow-wrap:anywhere}
+    .wo-num{text-align:right;font-variant-numeric:tabular-nums}.wo-page .wo-items .wo-total td{background:#e8e8e8;font-size:12px;font-weight:700}
+    .wo-terms{width:100%;min-height:75.8mm;margin-top:3mm;font-size:13px;line-height:1.55;overflow-wrap:anywhere}.wo-adjustments{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:12px;margin-top:2mm;font-weight:700}
+    .wo-page .wo-sign{margin-top:3mm;break-inside:avoid}.wo-page .wo-sign td{height:24mm;text-align:center;vertical-align:bottom;padding:0 1.5mm 2mm;font-size:11px;font-weight:700}
+  </style>${pages}`, targetWindow, wo.wo_number || 'Work Order')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

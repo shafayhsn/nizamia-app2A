@@ -12,7 +12,7 @@ test('every signed-in page has its own role setting or an admin-only rule', () =
       assert.match(element, /<ProtectedRoute hr>/)
       continue
     }
-    const key = path === 'settings/users' ? 'settings' : path.replace(/\/\*$/, '')
+    const key = ['settings/users','settings/hr'].includes(path) ? 'settings' : path.replace(/\/\*$/, '')
     assert.ok(keys.has(key), path)
     if (path === 'dashboard') assert.match(element, /DashboardEntry/)
     else assert.ok(element.includes('RequireRight module="' + key + '"'), path)

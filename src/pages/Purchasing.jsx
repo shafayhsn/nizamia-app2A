@@ -1,4 +1,4 @@
-import FulfillmentRegister from '../components/FulfillmentRegister'
+import StoreReceipts, { PoReceivingDialog, RegisterSearch } from '../components/purchasing/StoreReceiving'
 import {reviewRequest,readPurchasingRegister,purchasingLookup} from '../lib/poReview'
 import useManagedPopup from '../components/ui/useManagedPopup'
 import TestingTab from '../components/purchasing/TestingTab'
@@ -206,10 +206,10 @@ const WO_TAX_RE = /\n?\[WO_TAX:(\{.*?\})\]\s*$/i
 function readWOTax(notes) {
   const m=String(notes||'').match(WO_TAX_RE)
   if (!m) return {notes:String(notes||''), enabled:false, rate:getSavedTaxRate()}
-  try {const data=JSON.parse(m[1]);return {notes:String(notes||'').replace(WO_TAX_RE,'').trim(),enabled:!!data.enabled,rate:Number(data.rate)||0}} catch {return {notes:String(notes||'').replace(WO_TAX_RE,'').trim(),enabled:false,rate:getSavedTaxRate()}}
+  try {const data=JSON.parse(m[1]);return {notes:String(notes||'').replace(WO_TAX_RE,'').trim(),enabled:!!data.enabled,rate:Number(data.rate)||0, deliveryDate: /^\d{4}-\d{2}-\d{2}$/.test(data.deliveryDate || '') ? data.deliveryDate : ''}} catch {return {notes:String(notes||'').replace(WO_TAX_RE,'').trim(),enabled:false,rate:getSavedTaxRate()}}
 }
-function writeWOTax(notes,enabled,rate) {
-  return `${String(notes||'').replace(WO_TAX_RE,'').trim()}\n[WO_TAX:${JSON.stringify({enabled:!!enabled,rate:Number(rate)||0})}]`.trim()
+function writeWOTax(notes,enabled,rate,deliveryDate) {
+  return `${String(notes||'').replace(WO_TAX_RE,'').trim()}\n[WO_TAX:${JSON.stringify({enabled:!!enabled,rate:Number(rate)||0,...(deliveryDate ? {deliveryDate} : {})})}]`.trim()
 }
 
 function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
@@ -408,7 +408,9 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
 
 function WOModal({ wo, orders, suppliers, prefillProcessIds, prefillItems, onClose, onSaved }) {
   const isNew = !wo
+  const { user } = useAuth()
   const initialWOTax = readWOTax(wo?.notes)
+  const [deliveryDate,setDeliveryDate] = useState(initialWOTax.deliveryDate || '')
   const [taxEnabled,setTaxEnabled] = useState(initialWOTax.enabled)
   const [taxRate] = useState(initialWOTax.rate)
   const [form, setForm] = useState({
@@ -487,7 +489,7 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, prefillItems, onClo
     setSaving(true)
     try {
       const woNum = form.wo_number || await generateWONumber()
-      const payload = { ...form, notes:writeWOTax(form.notes,taxEnabled,taxRate), wo_number:woNum, qty:parseInt(form.qty)||null, daily_output:parseInt(form.daily_output)||null }
+      const payload = { ...form, notes:writeWOTax(form.notes,taxEnabled,taxRate,deliveryDate), wo_number:woNum, qty:parseInt(form.qty)||null, daily_output:parseInt(form.daily_output)||null }
       const lineFields = (item, sort_order) => ({
         order_process_id: item.order_process_id || null, process_name: item.process_name,
         dept_info: item.dept_info || null, qty: parseFloat(item.qty) || null, unit: item.unit || null,
@@ -520,9 +522,10 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, prefillItems, onClo
 
   const handlePrint = async () => {
     if (!wo) return
-    const vendor=suppliers.find(s=>s.id===wo.vendor_id)
-    const order=orders.find(o=>o.id===wo.order_id)
-    await printWorkOrder({ ...wo, items }, vendor, order)
+    const vendor=suppliers.find(s=>s.id===form.vendor_id)
+    const order=orders.find(o=>o.id===form.order_id)
+    await printWorkOrder({ ...wo, ...form, items, delivery_date:deliveryDate,
+      notes:writeWOTax(form.notes,taxEnabled,taxRate,deliveryDate), printed_by:user?.username || user?.displayName }, vendor, order)
   }
 
   const handleDelete = async () => {
@@ -579,6 +582,7 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, prefillItems, onClo
             <div><label style={lbl}>Colour</label><input style={mkInp(locked)} value={form.color} onChange={set('color')} placeholder="e.g. Stone Blue" disabled={locked}/></div>
             <div><label style={lbl}>Qty (batch for this vendor)</label><input style={mkInp(locked)} type="number" value={form.qty} onChange={set('qty')} disabled={locked}/></div>
             <div><label style={lbl}>Issue Date</label><input style={mkInp(locked)} type="date" value={form.issue_date} onChange={set('issue_date')} disabled={locked}/></div>
+            <div><label style={lbl}>Delivery Date</label><input style={mkInp(locked)} type="date" value={deliveryDate} onChange={event=>setDeliveryDate(event.target.value)} disabled={locked}/></div>
             <div><label style={lbl}>Start Date</label><input style={mkInp(locked)} type="date" value={form.start_date} onChange={set('start_date')} disabled={locked}/></div>
             <div><label style={lbl}>Complete By</label><input style={mkInp(locked)} type="date" value={form.complete_by} onChange={set('complete_by')} disabled={locked}/></div>
             <div><label style={lbl}>Daily Output (pcs/day)</label><input style={mkInp(locked)} type="number" value={form.daily_output} onChange={set('daily_output')} disabled={locked}/></div>
@@ -1724,6 +1728,7 @@ function PurchaseOrdersTab({ orders, suppliers }) {
 
 // ── Tab 4: Work Orders ────────────────────────────────────────────────────────
 function WorkOrdersTab({ orders, suppliers }) {
+  const { user } = useAuth()
   const [wos, setWos] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -1743,7 +1748,7 @@ function WorkOrdersTab({ orders, suppliers }) {
 
   const handlePrint = async (w,e) => {
     e.stopPropagation()
-    await printWorkOrder({ ...w, items:w.work_order_items||[] }, suppliers.find(s=>s.id===w.vendor_id), orders.find(o=>o.id===w.order_id))
+    await printWorkOrder({ ...w, items:w.work_order_items||[], printed_by:user?.username || user?.displayName }, suppliers.find(s=>s.id===w.vendor_id), orders.find(o=>o.id===w.order_id))
   }
   const handleDeleteWO = async (w,e) => {
     e.stopPropagation()
@@ -1804,11 +1809,18 @@ function WorkOrdersTab({ orders, suppliers }) {
 
 // ── Tab 5: Expected Deliveries ────────────────────────────────────────────────
 function DeliveriesTab({ orders, suppliers }) {
-  const {user}=useAuth()
+  const {user,userRole}=useAuth()
   const [pos, setPos] = useState([])
   const [wos, setWos] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
+  const [type, setType] = useState('all')
+  const [party, setParty] = useState('')
+  const [search, setSearch] = useState('')
+  const [sort, setSort] = useState('due')
+  const [selected, setSelected] = useState(null)
+  const [receiving, setReceiving] = useState(null)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => { load() }, [])
   async function load() {
@@ -1835,10 +1847,33 @@ function DeliveriesTab({ orders, suppliers }) {
   }
   const stStyle = { Overdue:{color:'#dc2626',bg:'#fef2f2'}, 'This Week':{color:'#d97706',bg:'#fff7ed'}, 'This Month':{color:'#2563eb',bg:'#eff6ff'}, Upcoming:{color:'#6b7280',bg:'#f9fafb'}, Delivered:{color:'#16a34a',bg:'#f0fdf4'}, 'No Date':{color:'#9ca3af',bg:'#f9fafb'} }
 
-  const poRows=pos.map(p=>{ const supplier=suppliers.find(s=>s.id===p.supplier_id); const order=orders.find(o=>o.id===p.order_id); const items=p.purchase_order_items||[]; const total=items.reduce((s,i)=>s+(parseFloat(i.amount)||0),0); return { type:'PO', ref:p.po_number, date:p.delivery_date, party:supplier?.name||'—', order, summary:items.length+' lines', value:total?`${p.currency||'PKR'} ${fmtNum(total)}`:'—', urgency:urgencyOf(p.delivery_date,p.status) } })
-  const woRows=wos.map(w=>{ const order=orders.find(o=>o.id===w.order_id); const vendor=suppliers.find(s=>s.id===w.vendor_id); const items=w.work_order_items||[]; const total=items.reduce((s,i)=>s+(parseFloat(i.amount)||0),0); const procNames=items.map(i=>i.process_name).filter(Boolean); return { type:'WO', ref:w.wo_number, date:w.complete_by, party:vendor?.name||'—', order, summary:procNames.slice(0,3).join(', ')||'—', value:total?`PKR ${fmtNum(total)}`:'—', urgency:urgencyOf(w.complete_by,w.status) } })
-  const all=[...poRows,...woRows].sort((a,b)=>{ const p={Overdue:0,'This Week':1,'This Month':2,Upcoming:3,'No Date':4,Delivered:5}; return (p[a.urgency]??3)-(p[b.urgency]??3)||(a.date||'').localeCompare(b.date||'') })
-  const filtered=all.filter(r=>{ if (filter==='overdue') return r.urgency==='Overdue'; if (filter==='thisweek') return r.urgency==='This Week'; if (filter==='thismonth') return r.urgency==='This Month'; if (filter==='pending') return r.urgency!=='Delivered'; return true })
+  const poRows=pos.map(p=>{
+    const supplier=suppliers.find(s=>s.id===p.supplier_id), order=orders.find(o=>o.id===p.order_id)
+    return { id:p.id, type:'PO', ref:p.po_number, date:p.delivery_date, party:supplier?.name||'—', order,
+      summary:(p.purchase_order_items||[]).length+' lines', urgency:urgencyOf(p.delivery_date,p.status),
+      canReceive:access.canCreatePO(userRole) && !p.details_hidden && p.approval_verified!==false && ['issued','acknowledged','delivered'].includes(String(p.status).toLowerCase()) }
+  })
+  const woRows=wos.map(w=>{
+    const order=orders.find(o=>o.id===w.order_id), vendor=suppliers.find(s=>s.id===w.vendor_id)
+    return { id:w.id, type:'WO', ref:w.wo_number, date:w.complete_by, party:vendor?.name||'—', order,
+      summary:(w.work_order_items||[]).map(i=>i.process_name).filter(Boolean).join(', ')||'—', urgency:urgencyOf(w.complete_by,w.status) }
+  })
+  const all=[...poRows,...woRows]
+  const parties=[...new Set(all.map(row=>row.party).filter(name=>name!=='—'))].sort()
+  const urgencyOrder={Overdue:0,'This Week':1,'This Month':2,Upcoming:3,'No Date':4,Delivered:5}
+  const filtered=all.filter(row=>{
+    if(type!=='all' && row.type!==type || party && row.party!==party) return false
+    if(![row.ref,row.party,row.order?.style_number,row.order?.buyer_name,row.summary].join(' ').toLowerCase().includes(search.trim().toLowerCase())) return false
+    if(filter==='pending') return row.urgency!=='Delivered'
+    const urgency={overdue:'Overdue',thisweek:'This Week',thismonth:'This Month'}[filter]
+    return !urgency || row.urgency===urgency
+  }).sort((a,b)=>{
+    if(sort==='reference') return String(a.ref).localeCompare(String(b.ref))
+    if(sort==='party') return a.party.localeCompare(b.party)
+    if(sort==='latest') return (b.date||'').localeCompare(a.date||'')
+    return urgencyOrder[a.urgency]-urgencyOrder[b.urgency] || (a.date||'').localeCompare(b.date||'')
+  })
+  const selectedPO=filtered.find(row=>row.id===selected && row.canReceive)
   const counts={ overdue:all.filter(r=>r.urgency==='Overdue').length, thisweek:all.filter(r=>r.urgency==='This Week').length, thismonth:all.filter(r=>r.urgency==='This Month').length }
 
   return (
@@ -1851,32 +1886,47 @@ function DeliveriesTab({ orders, suppliers }) {
             <span style={{ fontSize:11, color:filter===k.f?k.color:'#6b7280', fontWeight:500 }}>{k.label}</span>
           </button>
         ))}
-        <div style={{ marginLeft:'auto' }}>
-          <select value={filter} onChange={e=>setFilter(e.target.value)} style={{ height:32, border:'1px solid #e5e7eb', borderRadius:7, fontSize:12, padding:'0 10px', background:'#fff', cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-            <option value="all">All</option><option value="pending">Pending only</option>
+        <div className="operations-tray operations-delivery-tools">
+          <RegisterSearch value={search} onChange={setSearch} placeholder="Search deliveries"/>
+          <select aria-label="Document type" value={type} onChange={e=>setType(e.target.value)}>
+            <option value="all">POs and WOs</option><option value="PO">Purchase orders</option><option value="WO">Work orders</option>
+          </select>
+          <select aria-label="Supplier or vendor" value={party} onChange={e=>setParty(e.target.value)}>
+            <option value="">All parties</option>{parties.map(name=><option key={name}>{name}</option>)}
+          </select>
+          <select aria-label="Urgency" value={filter} onChange={e=>setFilter(e.target.value)}>
+            <option value="all">All dates</option><option value="pending">Pending only</option>
             <option value="overdue">Overdue</option><option value="thisweek">This Week</option><option value="thismonth">This Month</option>
           </select>
+          <select aria-label="Sort deliveries" value={sort} onChange={e=>setSort(e.target.value)}>
+            <option value="due">Urgency / due date</option><option value="latest">Latest due date</option>
+            <option value="reference">Reference</option><option value="party">Party</option>
+          </select>
+          {access.canCreatePO(userRole) && <button className="btn btn-primary btn-sm" disabled={!selectedPO || loading}
+            onClick={()=>{setSaved(false);setReceiving(selectedPO.id)}}>Receive Selected</button>}
         </div>
       </div>
+      {saved && <p role="status" className="operations-message">Receipt posted to Store Receipts.</p>}
       <div style={{ flex:1, overflowY:'auto', overflowX:'auto' }}>
         {loading?<div style={{ padding:60, textAlign:'center', color:'#9ca3af', fontSize:12 }}>Loading...</div>
         :filtered.length===0?<div style={{ padding:60, textAlign:'center', color:'#9ca3af', fontSize:12 }}>No deliveries match this filter.</div>
         :(
           <table style={{ width:'100%', borderCollapse:'collapse', minWidth:800 }}>
             <thead><tr style={{ background:'#fafafa', position:'sticky', top:0, zIndex:10 }}>
-              <TH>Type</TH><TH>Reference</TH><TH>Party</TH><TH>Order / Style</TH><TH>Due Date</TH><TH>Summary</TH><TH>Value</TH><TH>Urgency</TH>
+              <TH>Select</TH><TH>Type</TH><TH>Reference</TH><TH>Party</TH><TH>Order / Style</TH><TH>Due Date</TH><TH>Summary</TH><TH>Urgency</TH>
             </tr></thead>
-            <tbody>{filtered.map((r,i)=>{
+            <tbody>{filtered.map(r=>{
               const ss=stStyle[r.urgency]||{}; const tc=r.type==='PO'?{color:'#2563eb',bg:'#eff6ff'}:{color:'#7c3aed',bg:'#f5f3ff'}
               return (
-                <tr key={i} onMouseEnter={e=>e.currentTarget.style.background='#fafafa'} onMouseLeave={e=>e.currentTarget.style.background=''}>
+                <tr key={r.type+r.id} onMouseEnter={e=>e.currentTarget.style.background='#fafafa'} onMouseLeave={e=>e.currentTarget.style.background=''}>
+                  <TD>{r.canReceive && <input type="checkbox" aria-label={'Select '+r.ref}
+                    checked={selected===r.id} onChange={e=>setSelected(e.target.checked?r.id:null)}/>}</TD>
                   <TD><span style={{ background:tc.bg, color:tc.color, fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:4 }}>{r.type}</span></TD>
                   <TD style={{ fontFamily:'monospace', fontWeight:700 }}>{r.ref}</TD>
                   <TD style={{ fontWeight:600 }}>{r.party}</TD>
                   <TD style={{ color:'#6b7280', fontSize:11 }}>{r.order?`${r.order.style_number} · ${r.order.buyer_name}`:'—'}</TD>
                   <TD style={{ fontWeight:r.urgency==='Overdue'?700:400, color:r.urgency==='Overdue'?'#dc2626':'#374151', whiteSpace:'nowrap', fontSize:11 }}>{r.date?fmtDate(r.date):'—'}{r.urgency==='Overdue'?' ▲':''}</TD>
                   <TD style={{ color:'#6b7280', fontSize:11, maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.summary}</TD>
-                  <TD style={{ fontFamily:'monospace', fontWeight:600, fontSize:11 }}>{r.value}</TD>
                   <TD><span style={{ background:ss.bg||'#f9fafb', color:ss.color||'#6b7280', fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:4 }}>{r.urgency}</span></TD>
                 </tr>
               )
@@ -1884,6 +1934,9 @@ function DeliveriesTab({ orders, suppliers }) {
           </table>
         )}
       </div>
+      {receiving && <PoReceivingDialog id={receiving} receiving onClose={()=>setReceiving(null)} onSaved={()=>{
+        setReceiving(null);setSelected(null);setSaved(true);load()
+      }}/>}
     </>
   )
 }
@@ -1923,7 +1976,7 @@ export default function Purchasing() {
       <div style={{ padding:'16px 24px 0', flexShrink:0 }}>
         <h1 style={{ fontSize:20, fontWeight:700, letterSpacing:'-0.4px', marginBottom:2 }}>Purchasing, Work Orders and Testing</h1>
 
-        <div style={{ display:'flex', borderBottom:'1px solid #e5e7eb', overflowX:'auto' }}>
+        <div style={{ display:'flex', borderBottom:'1px solid #e5e7eb', overflowX:'auto', overflowY:'hidden', scrollbarWidth:'none' }}>
           {TABS.map(t=><button key={t.id} style={tabStyle(t.id)} onClick={()=>setTab(t.id)}><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{t.label}{tabNotices[t.id] && tab !== t.id ? <span style={{ width:8, height:8, borderRadius:'50%', background:'#F59E0B', display:'inline-block' }} /> : null}</span></button>)}
         </div>
       </div>
@@ -1933,7 +1986,7 @@ export default function Purchasing() {
       {tab==='wos'        && <WorkOrdersTab     orders={orders} suppliers={suppliers}/>}
       {tab==='testing'    && <TestingTab/>}
       {tab==='deliveries' && <DeliveriesTab     orders={orders} suppliers={suppliers}/>}
-      {tab==='receipts' && <FulfillmentRegister/>}
+      {tab==='receipts' && <StoreReceipts/>}
     </div>
   )
 }
