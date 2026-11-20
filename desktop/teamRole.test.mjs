@@ -39,3 +39,18 @@ test('staff routes distinguish view, create and edit and reserve account managem
   assert.equal(await allowed('/api/offline/operational-record',{kind:'app_tasks',action:'save',id:'existing'}),false)
   assert.equal(await allowed('/api/offline/accounts',{action:'accountDelete'}),false)
 })
+
+test('desktop fulfillment forwards only the actions granted to staff', async () => {
+  const url = 'app2a://local/api/offline/fulfillment'
+  const member = { role_id: 'staff', permissions: {
+    purchasing: { view: true },
+    production: { view: true, create: true },
+  } }
+  const check = action => staffOperations.staffRequestAllowed(member, new URL(url).pathname,
+    new Request(url, { method: 'POST', body: JSON.stringify({ action }) }))
+  assert.equal(await check('readStoreReceipts'), true)
+  assert.equal(await check('postStoreReceipt'), false)
+  assert.equal(await check('readWorkOrderTracking'), true)
+  assert.equal(await check('postWorkOrderMovement'), true)
+  assert.equal(await check('hrAttendance'), false)
+})

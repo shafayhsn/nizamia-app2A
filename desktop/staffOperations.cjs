@@ -12,6 +12,15 @@ const modules={app_tasks:'tasks',app_task_comments:'tasks',orders:'orders',suppl
  costing:'features/costing',costingAssignment:'features/costing',costing_batches:'features/costing'}
 function right(route,body){
  if(Object.hasOwn(fixed,route))return fixed[route]
+ if(route==='fulfillment'){
+   switch(body.action){
+    case 'readStoreReceipts': return ['purchasing','view']
+    case 'postStoreReceipt': return ['purchasing','create']
+    case 'readWorkOrderTracking': return ['production','view']
+    case 'postWorkOrderMovement': return ['production','create']
+    default: return []
+   }
+ }
  if(route==='order-general')return ['orders',body.orderId?'edit':'create']
  if(route==='buyer')return ['buyers',body.buyerId?'edit':'create']
  if(route==='operational-record'){
@@ -50,6 +59,6 @@ async function staffRequestAllowed(user,path,request){
    if(!input||typeof input!=='object')return false
  }
  const [area,action]=right(route,input),grant=user.permissions?.[area]
- return !!(user.role_id && grant?.view===true && ['create','edit','delete'].includes(action) && grant[action]===true)
+ return !!(user.role_id && grant?.view===true && ['view','create','edit','delete'].includes(action) && grant[action]===true)
 }
 module.exports={staffRequestAllowed}
