@@ -15,7 +15,7 @@ concurrency:
 env:
   # The live desktop window follows the hosted app. Keep the local React
   # fallback and SQLite bridge together at the verified desktop source revision.
-  DESKTOP_SOURCE: 10e1cf4ebc8d74ce2090b6d8da039ed2fcf1c998
+  DESKTOP_SOURCE: 866c80059ab96cd511806eaf8b5409e3344c163c
   NZOS_VERSION: 1.1.${{ github.run_number }}
 
 jobs:
