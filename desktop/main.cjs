@@ -426,7 +426,10 @@ app.whenReady().then(async () => {
             }).catch(error=>{
               console.warn('Automatic cloud refresh skipped; local data preserved:',error.message)
               const owner=BrowserWindow.getAllWindows().find(w=>!w.isDestroyed())
-              if(owner)dialog.showMessageBox(owner,{type:'warning',title:'Cloud data not refreshed',message:'Your offline work is safe, but cloud data was not updated.',detail:error.message+'\\n\\nUse Connected → Refresh from Cloud after resolving the issue.',buttons:['OK']}).catch(()=>{})
+              if(owner&&onlineSnapshotToken===token)dialog.showMessageBox(owner,{type:'warning',title:'Cloud data not refreshed',
+                message:'The app could not finish downloading cloud data.',
+                detail:error.code==='SNAPSHOT_TIMEOUT'?error.message:error.message+' Retry with Connected → Refresh from Cloud.',
+                buttons:['OK']}).catch(()=>{})
             }))
           }
         }catch(error){

@@ -1,18 +1,18 @@
 'use strict'
 // Main-process-only authenticated snapshot download. No renderer-provided URLs,
 // no privileged Supabase keys and no cloud writes.
-function createSnapshotDownloadClient({origin,fetchImpl,maxBytes=100*1024*1024}){
+function createSnapshotDownloadClient({origin,fetchImpl,maxBytes=100*1024*1024,timeoutMs=120000}){
  const base=new URL(origin)
  if(base.protocol!=='https:'||base.username||base.password||base.search||base.hash||base.pathname!=='/'||base.port)
   throw Error('Pinned HTTPS application origin required')
- if(typeof fetchImpl!=='function'||!Number.isSafeInteger(maxBytes)||maxBytes<1024||maxBytes>1024*1024*1024)
+ if(typeof fetchImpl!=='function'||!Number.isSafeInteger(maxBytes)||maxBytes<1024||maxBytes>1024*1024*1024||!Number.isSafeInteger(timeoutMs)||timeoutMs<1)
   throw Error('Invalid snapshot transport')
  let busy=false
  async function download({token,checkpoint,incremental=false}){
   if(busy)throw Error('Snapshot download already running')
   if(typeof token!=='string'||token.length<16||token.length>4096)throw Error('Authenticated online session required')
   busy=true
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000)
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs)
   try{
    const url=new URL('/api/desktop/snapshot',base)
    if(incremental){
@@ -62,6 +62,9 @@ function createSnapshotDownloadClient({origin,fetchImpl,maxBytes=100*1024*1024})
        counts[name]!==payload.tables[name].length)throw Error('Snapshot table manifest mismatch')
    }
    return payload
+  }catch(error){
+   if(controller.signal.aborted)throw Object.assign(Error('Cloud download timed out. Wait a moment and try Refresh from Cloud.'),{code:'SNAPSHOT_TIMEOUT'})
+   throw error
   }finally{clearTimeout(timer);busy=false}
  }
  return Object.freeze({download})
