@@ -136,6 +136,11 @@ export function AuthProvider({ children }) {
     if(IS_DESKTOP){const result=await desktopRequest('status');setOfflineSetupRequired(result.setupRequired);setUser(result.user);setUserRole(desktopRole(result.user));return result.user}
     const saved = safeReadSession()
     if (!saved?.id) return null
+    if (saved.role === 'hr') {
+      const result = await fetch('/api/oms?action=session').then(async response => response.ok ? response.json() : null).catch(() => null)
+      setAppUser(result?.user?.role === 'hr' ? result.user : null)
+      return result?.user || null
+    }
     const { data, error } = await fetchUserById(saved.id)
     if (error || !data || data.is_active === false || data.is_restricted === true) {
       setAppUser(null)
@@ -174,8 +179,12 @@ export function AuthProvider({ children }) {
     const cleanPassword = String(password || '')
     if (!cleanIdentifier || !cleanPassword) return { user: null, error: new Error('Username/email and password are required.') }
 
-    const bridge = await fetch('/api/oms', {method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({action:'login',identifier:cleanIdentifier,password:cleanPassword})}).then(async r=>({ok:r.ok,message:(await r.json()).error})).catch(()=>({ok:false,message:'Server login unavailable'}))
-    if(!bridge.ok)return {user:null,error:new Error(bridge.message||'Invalid username/email or password.')}
+    const bridge = await fetch('/api/oms', {method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({action:'login',identifier:cleanIdentifier,password:cleanPassword})}).then(async r=>({ok:r.ok,...await r.json()})).catch(()=>({ok:false,message:'Server login unavailable'}))
+    if(!bridge.ok)return {user:null,error:new Error(bridge.error||bridge.message||'Invalid username/email or password.')}
+    if(bridge.user?.role==='hr'){
+      setAppUser(bridge.user)
+      return {user:bridge.user,error:null}
+    }
     const { data, error } = await findUserByIdentifier(cleanIdentifier)
     if (error || !data) return { user: null, error: new Error('Invalid username/email or password.') }
     if (data.is_active === false) return { user: null, error: new Error('This user is inactive.') }

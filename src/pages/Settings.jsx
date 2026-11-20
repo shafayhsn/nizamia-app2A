@@ -1,3 +1,4 @@
+import HrAttendance from './HrAttendance'
 import { can } from '../lib/permissions'
 import React, { useEffect, useMemo, useState } from 'react'
 import { Building2, Calculator, FileText, Users, ShieldCheck, Hash, Ruler, SlidersHorizontal, Download, X, Palette, Briefcase } from 'lucide-react'
@@ -101,6 +102,7 @@ export default function Settings() {
   const setCompanyField = field => e => setCompanyInfo(prev => ({ ...prev, [field]: e.target.value }))
 
   const cards = [
+    { id: 'hr', title: 'HR & Attendance', desc: 'View employees and attendance', icon: Users, status: 'Admin' },
     { id: 'company', title: 'Company Info', desc: 'PO header company details', icon: Building2, status: 'Active' },
     { id: 'tax', title: 'Tax', desc: 'Default tax, refund and rebate rates', icon: Calculator, status: 'Active' },
     { id: 'terms', title: 'Terms', desc: 'PO terms & conditions', icon: FileText, status: 'Active' },
@@ -116,6 +118,7 @@ export default function Settings() {
   ]
 
   const renderContent = () => {
+    if (active === 'hr') return <HrAttendance readOnly />
     if (active === 'company') return <CompanyInfo companyInfo={companyInfo} setCompanyField={setCompanyField} companyUnlocked={companyUnlocked} companyError={companyError} onUnlock={() => unlock('Company Information', () => setCompanyUnlocked(true), setCompanyError)} onSave={saveCompany} onCancel={() => { try { setCompanyInfo({ ...DEFAULT_COMPANY_INFO, ...JSON.parse(localStorage.getItem(COMPANY_INFO_KEY) || '{}') }) } catch { setCompanyInfo(DEFAULT_COMPANY_INFO) } setCompanyUnlocked(false) }} />
     if (active === 'tax') return <Tax tax={taxSettings} poTaxRate={poTaxRate} setPoTaxRate={setPoTaxRate} setTax={setTaxSettings} onSave={saveTaxRate} onSaveAll={saveTaxFull} />
     if (active === 'terms') return <Terms poTerms={poTerms} setPOTerms={setPOTerms} termsUnlocked={termsUnlocked} termsError={termsError} onUnlock={() => unlock('PO Terms & Conditions', () => setTermsUnlocked(true), setTermsError)} onSave={saveTerms} onCancel={() => { setPOTerms(localStorage.getItem(PO_TERMS_KEY) || DEFAULT_PO_TERMS); setTermsUnlocked(false) }} />

@@ -123,6 +123,7 @@ export default function RolesPermissions() {
     td: { padding: 10, borderBottom: '1px solid #f1f5f9' },
   }
 
+  const hrLocked = String(selectedRole?.name).toLowerCase() === 'hr'
   if (loading) return <div style={{ padding: 24 }}>Loading roles...</div>
 
   return (
@@ -144,11 +145,11 @@ export default function RolesPermissions() {
         <div style={{ height: 50, padding: '0 14px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontWeight: 700, color: '#111827' }}>{selectedRole?.name || 'Select role'}</div>
-            <div style={{ fontSize: 11, color: '#6b7280' }}>{adminLocked ? 'Admin always has full access and cannot be edited.' : 'Clear View to hide a page for everyone with this role.'}</div>
+            <div style={{ fontSize: 11, color: '#6b7280' }}>{hrLocked ? 'HR accounts can use HR & Attendance only.' : adminLocked ? 'Admin always has full access and cannot be edited.' : 'Clear View to hide a page for everyone with this role.'}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {saved && <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 700 }}>Saved</span>}
-            <button onClick={savePermissions} disabled={saving || adminLocked} style={{ ...styles.btn, opacity: adminLocked ? .45 : 1 }}>{saving ? 'Saving...' : 'Save Permissions'}</button>
+            <button onClick={savePermissions} disabled={saving || adminLocked || hrLocked} style={{ ...styles.btn, opacity: adminLocked ? .45 : 1 }}>{saving ? 'Saving...' : 'Save Permissions'}</button>
           </div>
         </div>
         <table style={styles.table}>
@@ -164,7 +165,7 @@ export default function RolesPermissions() {
                 <td style={{ ...styles.td, fontWeight: 700 }}>{m.label}</td>
                 {ACTIONS.map(a => (
                   <td key={a} style={{ ...styles.td, textAlign: 'center' }}>
-                    <input type="checkbox" checked={!!perms[m.key]?.[a]} disabled={adminLocked || m.key === 'settings'} onChange={() => toggle(m.key, a)} />
+                    <input type="checkbox" checked={!!perms[m.key]?.[a]} disabled={adminLocked || hrLocked || m.key === 'settings'} onChange={() => toggle(m.key, a)} />
                   </td>
                 ))}
               </tr>

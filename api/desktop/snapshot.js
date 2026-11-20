@@ -32,7 +32,7 @@ export default async function handler(req,res){
  const claim=verifyBearer(req.headers.authorization)
  if(!claim)return res.status(401).json({error:'Authenticated desktop session required'})
  const {data:user,error:userError}=await db.from('users').select('id,role,role_id,is_active,is_restricted').eq('id',claim.id).maybeSingle()
- if(userError||!user||user.is_active!==true||user.is_restricted===true)return res.status(403).json({error:'Access denied'})
+ if(userError||!user||user.is_active!==true||user.is_restricted===true||String(user.role).toLowerCase()==='hr')return res.status(403).json({error:'Access denied'})
  try{
   let checkpoint={}
   if(req.query?.sync==='2'){

@@ -1,5 +1,5 @@
 import React, { useEffect, lazy, Suspense } from 'react'
-import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Routes, Route, Navigate, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/authContext'
 import { can, MODULES } from './lib/permissions'
 import Layout from './components/layout/Layout'
@@ -12,6 +12,7 @@ const Buyers = lazy(() => import('./pages/Buyers'))
 const Suppliers = lazy(() => import('./pages/Suppliers'))
 const Library = lazy(() => import('./pages/Library'))
 const Settings = lazy(() => import('./pages/Settings'))
+const HrAttendance = lazy(() => import('./pages/HrAttendance'))
 const UsersAndRights = lazy(() => import('./pages/UsersAndRights'))
 const SamplingApprovals = lazy(() => import('./pages/SamplingApprovals'))
 const Parcels = lazy(() => import('./pages/Parcels'))
@@ -77,11 +78,25 @@ function DesktopDestination({ children }) {
   },[navigate])
   return <React.Fragment key={window.location.protocol==='app2a:'?location.search:''}>{children}</React.Fragment>
 }
-function ProtectedRoute({ children }) {
+function ProtectedRoute({ children, hr = false }) {
   const { user, loading } = useAuth()
   if (loading) return <FullScreenLoader />
   if (!user) return <Navigate to="/login" replace />
+  const isHr = String(user.role).toLowerCase() === 'hr'
+  if (hr !== isHr) return <Navigate to={isHr ? '/hr' : '/dashboard'} replace />
   return children
+}
+
+function HrLayout() {
+  const { logout } = useAuth()
+  return <div className="hr-shell">
+    <aside aria-label="Sidebar">
+      <strong>NZOS</strong>
+      <nav><NavLink to="/hr">HR &amp; Attendance</NavLink></nav>
+      <button className="btn btn-secondary" onClick={logout}>Sign out</button>
+    </aside>
+    <main><HrAttendance /></main>
+  </div>
 }
 
 function DashboardEntry() {
@@ -119,6 +134,7 @@ export default function App() {
       <ErrorBoundary>
         <Suspense fallback={<PageLoader />}><Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/hr" element={<ProtectedRoute hr><HrLayout /></ProtectedRoute>} />
           <Route path="/" element={<ProtectedRoute><DesktopDestination><Layout /></DesktopDestination></ProtectedRoute>}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardEntry />} />

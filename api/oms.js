@@ -1,3 +1,4 @@
+import { hrAttendance } from '../server/hrAttendance.js'
 import { fulfillment, isFulfillmentAction } from '../server/fulfillment.js'
 import {poReview} from '../server/poReview.js'
 import {accountAction} from '../server/accountActions.js'
@@ -21,8 +22,8 @@ const session=async req=>{
  if(mac.length!==expected.length||!timingSafeEqual(Buffer.from(mac),Buffer.from(expected)))return null
  let info;try{info=JSON.parse(Buffer.from(payload,'base64url').toString())}catch{return null}
  if(!info.id||!info.exp||Date.now()>info.exp)return null
- const {data,error}=await baseDb.from('users').select('id,role,role_id,is_active,is_restricted').eq('id',info.id).maybeSingle()
- if(error||!data||data.is_active===false||data.is_restricted===true)return null
+ const {data,error}=await baseDb.from('users').select('id,username,email,role,role_id,is_active,is_restricted,deleted_at').eq('id',info.id).maybeSingle()
+ if(error||!data||data.is_active===false||(data.is_restricted===true||data.deleted_at))return null
  return {...data,channel:info.channel==='Mac'?'Mac':'Web',expires:info.exp}
 }
 const err=(res,code,message)=>res.status(code).json({error:message})
@@ -41,6 +42,8 @@ export default async function handler(req,res){
    const {data,error}=await db.from('users').select('id,username,email,role,role_id,password_hash,is_active,is_restricted').eq(field,identifier).maybeSingle()
    if(error||!data||data.is_active===false||data.is_restricted===true)return err(res,401,'Invalid credentials')
    if(!await passwordTools.verifyPassword(password,data.password_hash))return err(res,401,'Invalid credentials')
+   const hr = String(data.role).toLowerCase() === 'hr'
+   if(hr && req.body?.desktopEnrollment===true)return err(res,403,'HR accounts must sign in using the NZOS website.')
    const payload=Buffer.from(JSON.stringify({id:data.id,channel:req.body?.desktopEnrollment===true?'Mac':'Web',exp:Date.now()+8*60*60*1000})).toString('base64url')
    res.setHeader('Set-Cookie',cookieName+'='+payload+'.'+sign(payload)+'; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=28800')
    if(req.body?.desktopEnrollment===true){
@@ -51,7 +54,7 @@ export default async function handler(req,res){
      return res.json({ok:true,desktopSnapshotToken:snapshotToken,
        ...(process.env.DESKTOP_OFFLINE_SYNC_ENABLED==='true'?{desktopSyncToken:desktopSyncToken.issueDesktopSyncToken(key,data.id)}:{}),desktopUser:{id:data.id,username:data.username,email:data.email,displayName:data.username||data.email,role:data.role,role_id:data.role_id,is_active:true,permissions}})
    }
-   return res.json({ok:true})
+   return res.json(hr ? {ok:true,user:{id:data.id,username:data.username,email:data.email,role:'hr'}} : {ok:true})
  }
  const proof=()=>createHmac('sha256',key).update('audit-proof:'+readCookie(req)).digest('hex')
  if(action==='logout'&&req.method==='POST'){
@@ -65,6 +68,11 @@ export default async function handler(req,res){
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
  db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{'x-nzos-actor':user.id,'x-nzos-source':user.channel}}})
+ if(action==='hrAttendance')return hrAttendance(req,res,db,user)
+ if(String(user.role).toLowerCase()==='hr'){
+   if(action==='session')return res.json({ok:true,user:{id:user.id,username:user.username,email:user.email,role:'hr'}})
+   return err(res,403,'This account can access HR & Attendance only.')
+ }
  if(action==='editSession' && req.method==='POST'){
    const token=proof()
    const {error}=await db.rpc('open_edit_session',{actor:user.id,proof:token,expiry:new Date(user.expires).toISOString()})
