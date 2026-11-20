@@ -1,0 +1,15 @@
+@import '../components/fulfillment.css';
+
+.hr-shell { display: grid; grid-template-columns: 190px minmax(0, 1fr); min-height: 100vh; background: #fff; }
+.hr-shell aside { display: flex; flex-direction: column; align-items: flex-start; gap: 20px; padding: 24px 16px; background: #f8fafc; border-right: 1px solid #e5e7eb; }
+.hr-shell aside button { margin-top: auto; }
+.hr-shell nav a { font-size: 13px; font-weight: 700; color: #111827; }
+.hr-shell main { padding: 24px; min-width: 0; }
+.hr-toolbar, .hr-form { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+.hr-toolbar [aria-pressed="true"] { border-color: #111827; font-weight: 700; }
+.hr-form { padding: 12px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; }
+.hr-form label { display: grid; gap: 4px; font-size: 12px; }
+.hr-form .hr-checkbox { display: flex; align-items: center; padding: 6px; }
+.hr-form input, .hr-toolbar input { border: 1px solid #d1d5db; border-radius: 5px; padding: 6px 8px; max-width: 175px; }
+.hr-table-wrap { overflow-x: auto; }
+.hr-error { color: #b91c1c; }

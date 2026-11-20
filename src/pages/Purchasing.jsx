@@ -1,3 +1,4 @@
+import FulfillmentRegister from '../components/FulfillmentRegister'
 import {reviewRequest,readPurchasingRegister,purchasingLookup} from '../lib/poReview'
 import useManagedPopup from '../components/ui/useManagedPopup'
 import TestingTab from '../components/purchasing/TestingTab'
@@ -487,22 +488,30 @@ function WOModal({ wo, orders, suppliers, prefillProcessIds, prefillItems, onClo
     try {
       const woNum = form.wo_number || await generateWONumber()
       const payload = { ...form, notes:writeWOTax(form.notes,taxEnabled,taxRate), wo_number:woNum, qty:parseInt(form.qty)||null, daily_output:parseInt(form.daily_output)||null }
+      const lineFields = (item, sort_order) => ({
+        order_process_id: item.order_process_id || null, process_name: item.process_name,
+        dept_info: item.dept_info || null, qty: parseFloat(item.qty) || null, unit: item.unit || null,
+        rate: parseFloat(item.rate) || null, amount: parseFloat(item.amount) || null, sort_order,
+      })
+      const lines = items.filter(item => item.process_name).map(lineFields)
+      const previous = (wo?.items || []).map(lineFields)
+      const replaceLines = JSON.stringify(lines) !== JSON.stringify(previous)
       let woId
       if (wo?.id) {
-        await supabase.from('work_orders').update(payload).eq('id', wo.id)
         woId = wo.id
-        await supabase.from('work_order_items').delete().eq('wo_id', woId)
+        const header = { ...payload, order_id: payload.order_id || null,
+          start_date: payload.start_date || null, complete_by: payload.complete_by || null }
+        await reviewRequest('editTrackedWorkOrder', { target: woId, expectedTime: wo.updated_at ?? null,
+          header, lines: replaceLines ? lines : null })
       } else {
-        const { data:newWO, error:we } = await supabase.from('work_orders').insert([payload]).select().single()
-        if (we) throw new Error(we.message)
+        const { data:newWO, error } = await supabase.from('work_orders').insert([payload]).select().single()
+        if (error) throw error
         woId = newWO.id
       }
-      const rows = items.filter(i=>i.process_name).map((i,idx)=>({
-        wo_id:woId, order_process_id:i.order_process_id||null, process_name:i.process_name,
-        dept_info:i.dept_info||null, qty:parseFloat(i.qty)||null, unit:i.unit||null,
-        rate:parseFloat(i.rate)||null, amount:parseFloat(i.amount)||null, sort_order:idx,
-      }))
-      if (rows.length) await supabase.from('work_order_items').insert(rows)
+      if (!wo?.id && lines.length) {
+        const { error } = await supabase.from('work_order_items').insert(lines.map(line => ({ ...line, wo_id: woId })))
+        if (error) throw error
+      }
       markTabUpdated('purchasingPage', 'wos')
       onSaved()
     } catch(e) { setError(e.message) }
@@ -1887,10 +1896,11 @@ const TABS = [
   { id:'wos',        label:'Work Orders' },
   { id:'testing',    label:'Testing' },
   { id:'deliveries', label:'Expected Deliveries' },
+  { id:'receipts',   label:'Store Receipts' },
 ]
 
 export default function Purchasing() {
-  const [tab, setTab] = useState(['pos','wos','material','process','testing','deliveries'].includes(new URLSearchParams(window.location.search).get('tab')) ? new URLSearchParams(window.location.search).get('tab') : 'material')
+  const [tab, setTab] = useState(['pos','wos','material','process','testing','deliveries','receipts'].includes(new URLSearchParams(window.location.search).get('tab')) ? new URLSearchParams(window.location.search).get('tab') : 'material')
   const [orders, setOrders] = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [tabNotices, setTabNotices] = useState({ material:false, process:false, pos:false, wos:false, testing:false, deliveries:false })
@@ -1913,7 +1923,7 @@ export default function Purchasing() {
       <div style={{ padding:'16px 24px 0', flexShrink:0 }}>
         <h1 style={{ fontSize:20, fontWeight:700, letterSpacing:'-0.4px', marginBottom:2 }}>Purchasing, Work Orders and Testing</h1>
 
-        <div style={{ display:'flex', borderBottom:'1px solid #e5e7eb', overflowX:'visible' }}>
+        <div style={{ display:'flex', borderBottom:'1px solid #e5e7eb', overflowX:'auto' }}>
           {TABS.map(t=><button key={t.id} style={tabStyle(t.id)} onClick={()=>setTab(t.id)}><span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>{t.label}{tabNotices[t.id] && tab !== t.id ? <span style={{ width:8, height:8, borderRadius:'50%', background:'#F59E0B', display:'inline-block' }} /> : null}</span></button>)}
         </div>
       </div>
@@ -1923,6 +1933,7 @@ export default function Purchasing() {
       {tab==='wos'        && <WorkOrdersTab     orders={orders} suppliers={suppliers}/>}
       {tab==='testing'    && <TestingTab/>}
       {tab==='deliveries' && <DeliveriesTab     orders={orders} suppliers={suppliers}/>}
+      {tab==='receipts' && <FulfillmentRegister/>}
     </div>
   )
 }

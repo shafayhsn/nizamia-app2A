@@ -67,6 +67,7 @@ function getPermissionMap(user) {
 export function can(user, module, action = 'view') {
   const role = getRole(user)
   if (role === 'admin') return true
+  if (String(role).toLowerCase() === 'hr') return false
   const key = normalizeModule(module)
   if (key === 'settings' || key === 'shipping.payments') return false
   const act = String(action || 'view').toLowerCase()

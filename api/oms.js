@@ -1,3 +1,5 @@
+import { hrAttendance } from '../server/hrAttendance.js'
+import { fulfillment, isFulfillmentAction } from '../server/fulfillment.js'
 import {poReview} from '../server/poReview.js'
 import {accountAction,accountColumns} from '../server/accountActions.js'
 import passwordTools from '../server/accountPassword.cjs'
@@ -20,8 +22,8 @@ const session=async req=>{
  if(mac.length!==expected.length||!timingSafeEqual(Buffer.from(mac),Buffer.from(expected)))return null
  let info;try{info=JSON.parse(Buffer.from(payload,'base64url').toString())}catch{return null}
  if(typeof info?.id!=='string'||!info.id||!Number.isSafeInteger(info.exp)||Date.now()>=info.exp)return null
- const {data,error}=await baseDb.from('users').select('id,role,role_id,is_active,is_restricted').eq('id',info.id).maybeSingle()
- if(error||!data||data.is_active===false||data.is_restricted===true)return null
+ const {data,error}=await baseDb.from('users').select('id,username,email,role,role_id,is_active,is_restricted,deleted_at').eq('id',info.id).maybeSingle()
+ if(error||!data||data.is_active===false||data.is_restricted===true||data.deleted_at)return null
  return {...data,channel:info.channel==='Mac'?'Mac':'Web',expires:info.exp}
 }
 const err=(res,code,message)=>res.status(code).json({error:message})
@@ -46,6 +48,8 @@ export default async function handler(req,res){
      const {error:upgradeError}=await db.from('users').update({password_hash:hash}).eq('id',data.id).eq('password_hash',data.password_hash)
      if(upgradeError)return err(res,503,'Login temporarily unavailable')
    }
+   if(String(data.role).toLowerCase()==='hr' && req.body?.desktopEnrollment===true)
+     return err(res,403,'HR accounts must sign in using the NZOS website.')
    const payload=Buffer.from(JSON.stringify({id:data.id,channel:req.body?.desktopEnrollment===true?'Mac':'Web',exp:Date.now()+8*60*60*1000})).toString('base64url')
    res.setHeader('Set-Cookie',cookieName+'='+payload+'.'+sign(payload)+'; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=28800')
    if(req.body?.desktopEnrollment===true){
@@ -70,6 +74,12 @@ export default async function handler(req,res){
  const user=await session(req)
  if(!user)return err(res,401,'Please sign in again to access buyer details')
  db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{'x-nzos-actor':user.id,'x-nzos-source':user.channel}}})
+ if(action==='hrAttendance')return hrAttendance(req,res,db,user)
+ if(String(user.role).toLowerCase()==='hr'){
+   if(action==='session'||action==='accountProfile')
+     return res.json({ok:true,user:{id:user.id,username:user.username,email:user.email,role:'hr'}})
+   return err(res,403,'This account can access HR & Attendance only.')
+ }
  if(action==='samplingChanges'&&req.method==='POST'){
    if(!await hasGrant('sampling','view'))return err(res,403,'Sampling access required')
    const after=req.body.after
@@ -89,6 +99,7 @@ export default async function handler(req,res){
    const {data,error}=await db.from('users').select(accountColumns).eq('id',user.id).maybeSingle()
    return error||!data?err(res,503,'Account unavailable'):res.json({ok:true,user:data})
  }
+ if(isFulfillmentAction(action))return fulfillment(req,res,db,user,action)
  if(['setPOStage','deletePORecords','readPOHistory','savePurchaseOrder','readPOPage','assignedPOReviews','poApprovers','requestPOReview','approveAssignedPO'].includes(action))return poReview(req,res,db,user,action)
  if(['accountRoleRights','accountSaveRights','accountHistory','accountDelete','accountDirectory','accountRoles','accountList','accountCreate','accountPassword','accountActive','accountRestriction','accountRole'].includes(action))
    return accountAction(req,res,db,user,action)
