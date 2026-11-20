@@ -1,3 +1,4 @@
+import { fulfillment, isFulfillmentAction } from '../server/fulfillment.js'
 import {poReview} from '../server/poReview.js'
 import {accountAction} from '../server/accountActions.js'
 import { createClient } from '@supabase/supabase-js'
@@ -69,6 +70,7 @@ export default async function handler(req,res){
    const {error}=await db.rpc('open_edit_session',{actor:user.id,proof:token,expiry:new Date(user.expires).toISOString()})
    return error?err(res,503,'Could not verify the editor'):res.json({token})
  }
+ if(isFulfillmentAction(action))return fulfillment(req,res,db,user,action)
  if(['setPOStage','deletePORecords','readPOHistory','savePurchaseOrder','readPOPage','assignedPOReviews','poApprovers','requestPOReview','approveAssignedPO'].includes(action))return poReview(req,res,db,user,action)
  if(['accountRoleRights','accountSaveRights','accountHistory','accountDelete','accountDirectory','accountRoles','accountList','accountCreate','accountPassword','accountActive','accountRestriction','accountRole'].includes(action))return accountAction(req,res,db,user,action)
  if(action==='session')return res.json({ok:true})

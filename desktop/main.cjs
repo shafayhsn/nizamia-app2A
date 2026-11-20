@@ -479,15 +479,16 @@ app.whenReady().then(async () => {
       }catch(error){return Response.json({error:'PDF generation failed: '+error.message},{status:500})}
       finally{if(pdfWindow&&!pdfWindow.isDestroyed())pdfWindow.destroy()}
     }
-    if(['/api/offline/accounts','/api/offline/po-review'].includes(url.pathname)){
+    if(['/api/offline/accounts','/api/offline/po-review','/api/offline/fulfillment'].includes(url.pathname)){
       const review=url.pathname==='/api/offline/po-review'
+      const tracking=url.pathname==='/api/offline/fulfillment'
       const actor=desktopAuth?.status().user
-      if(!actor||(!review&&actor.role!=='admin')||!onlineWebSession||onlineWebSession.id!==actor.id)
+      if(!actor||(!review&&!tracking&&actor.role!=='admin')||!onlineWebSession||onlineWebSession.id!==actor.id)
         return Response.json({error:'Sign in online with the required permissions.'},{status:403})
       try{
         const body=request.method==='POST'?await request.json():null
         const action=body?.action||url.searchParams.get('action')
-        const permitted=review?(request.method==='GET'?['poApprovers','assignedPOReviews']:['savePurchaseOrder','readPOHistory','setPOStage','readPOPage','requestPOReview','approveAssignedPO']):request.method==='GET'?['accountList','accountRoles']:['accountRoleRights','accountSaveRights','accountDelete','accountHistory','accountCreate','accountPassword','accountRole','accountActive','accountRestriction']
+        const permitted=tracking?(request.method==='POST'?['readStoreReceipts','postStoreReceipt','readWorkOrderTracking','postWorkOrderMovement']:[]):review?(request.method==='GET'?['poApprovers','assignedPOReviews']:['savePurchaseOrder','readPOHistory','setPOStage','readPOPage','requestPOReview','approveAssignedPO']):request.method==='GET'?['accountList','accountRoles']:['accountRoleRights','accountSaveRights','accountDelete','accountHistory','accountCreate','accountPassword','accountRole','accountActive','accountRestriction']
         if(!['GET','POST'].includes(request.method)||!permitted.includes(action))
           return Response.json({error:'Unknown account request'},{status:400})
         const endpoint=new URL('/api/oms',APP_URL)
@@ -498,7 +499,7 @@ app.whenReady().then(async () => {
         const data=await result.json()
         if(onlineWebSession!==session)return Response.json({error:'Session changed'},{status:403})
         return Response.json(data,{status:result.status,headers:{'Cache-Control':'no-store'}})
-      }catch{return Response.json({error:'Account service unavailable. Check your connection.'},{status:503})}
+      }catch{return Response.json({error:tracking?'Register unavailable. Check your connection.':'Account service unavailable. Check your connection.'},{status:503})}
     }
     if(url.pathname==='/api/oms'){
       if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})

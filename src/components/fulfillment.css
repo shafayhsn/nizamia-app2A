@@ -1,0 +1,50 @@
+.fulfillment-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+  text-align: left;
+}
+
+.fulfillment-table :is(th, td) {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.fulfillment-table th {
+  background: #f8fafc;
+  white-space: nowrap;
+}
+
+.fulfillment-table tr.selected {
+  background: var(--app-group-row-bg, #eaf3fa);
+}
+
+.fulfillment-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.fulfillment-form label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.fulfillment-form input,
+.fulfillment-form select {
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 6px 8px;
+  max-width: 160px;
+}
+
+.fulfillment-form [role="alert"] {
+  flex-basis: 100%;
+  color: #b91c1c;
+}
