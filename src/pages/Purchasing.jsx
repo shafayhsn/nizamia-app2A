@@ -1816,6 +1816,7 @@ function DeliveriesTab({ orders, suppliers }) {
   const [receiving, setReceiving] = useState(null)
   const [approvalUnavailable, setApprovalUnavailable] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [receiveError, setReceiveError] = useState('')
 
   useEffect(() => { load() }, [])
   async function load() {
@@ -1877,7 +1878,17 @@ function DeliveriesTab({ orders, suppliers }) {
     if(sort==='latest') return (b.date||'').localeCompare(a.date||'')
     return urgencyOrder[a.urgency]-urgencyOrder[b.urgency] || (a.date||'').localeCompare(b.date||'')
   })
-  const selectedPO=filtered.find(row=>row.id===selected && row.canReceive)
+  const selectedPO=filtered.find(row=>row.type==='PO' && row.id===selected)
+  function receiveSelected(){
+    if(!selectedPO)return
+    setSaved(false)
+    if(!selectedPO.canReceive){
+      setReceiveError(selectedPO.ref+': '+selectedPO.reason)
+      return
+    }
+    setReceiveError('')
+    setReceiving(selectedPO.id)
+  }
   const counts={ overdue:all.filter(r=>r.urgency==='Overdue').length, thisweek:all.filter(r=>r.urgency==='This Week').length, thismonth:all.filter(r=>r.urgency==='This Month').length }
 
   return (
@@ -1907,10 +1918,11 @@ function DeliveriesTab({ orders, suppliers }) {
             <option value="reference">Reference</option><option value="party">Party</option>
           </select>
           {access.canCreatePO(userRole) && <button className="btn btn-primary btn-sm" disabled={!selectedPO || loading}
-            onClick={()=>{setSaved(false);setReceiving(selectedPO.id)}}>Receive Selected</button>}
+            onClick={receiveSelected}>Receive Selected</button>}
         </div>
       </div>
       {approvalUnavailable && <p role="status" className="operations-message">Could not verify purchase orders. Reconnect and reload to receive goods.</p>}
+      {receiveError && <p role="alert" className="operations-message">{receiveError}</p>}
       {saved && <p role="status" className="operations-message">Receipt posted to Store Receipts.</p>}
       <div style={{ flex:1, overflowY:'auto', overflowX:'auto' }}>
         {loading?<div style={{ padding:60, textAlign:'center', color:'#9ca3af', fontSize:12 }}>Loading...</div>
@@ -1924,12 +1936,8 @@ function DeliveriesTab({ orders, suppliers }) {
               const ss=stStyle[r.urgency]||{}; const tc=r.type==='PO'?{color:'#2563eb',bg:'#eff6ff'}:{color:'#7c3aed',bg:'#f5f3ff'}
               return (
                 <tr key={r.type+r.id} onMouseEnter={e=>e.currentTarget.style.background='#fafafa'} onMouseLeave={e=>e.currentTarget.style.background=''}>
-                  <TD>{r.type === 'PO' && <label className="operations-selection-note">
-                    <input type="checkbox" aria-label={'Select '+r.ref+(r.reason ? ': '+r.reason : '')}
-                      disabled={!r.canReceive} checked={r.canReceive && selected===r.id}
-                      onChange={e=>setSelected(e.target.checked?r.id:null)}/>
-                    {r.reason && <span>{r.reason}</span>}
-                  </label>}</TD>
+                  <TD>{r.type === 'PO' && <input type="checkbox" aria-label={'Select '+r.ref}
+                    checked={selected===r.id} onChange={e=>{setReceiveError('');setSelected(e.target.checked?r.id:null)}}/>}</TD>
                   <TD><span style={{ background:tc.bg, color:tc.color, fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:4 }}>{r.type}</span></TD>
                   <TD style={{ fontFamily:'monospace', fontWeight:700 }}>{r.ref}</TD>
                   <TD style={{ fontWeight:600 }}>{r.party}</TD>
