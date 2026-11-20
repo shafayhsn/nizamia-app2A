@@ -1,3 +1,4 @@
+import { staffWorkflow } from './lib/staffRoles'
 import React, { useEffect, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/authContext'
@@ -12,6 +13,7 @@ const Buyers = lazy(() => import('./pages/Buyers'))
 const Suppliers = lazy(() => import('./pages/Suppliers'))
 const Library = lazy(() => import('./pages/Library'))
 const Settings = lazy(() => import('./pages/Settings'))
+const StaffWorkspace = lazy(() => import('./pages/StaffWorkspace'))
 const HrAttendance = lazy(() => import('./pages/HrAttendance'))
 const UsersAndRights = lazy(() => import('./pages/UsersAndRights'))
 const SamplingApprovals = lazy(() => import('./pages/SamplingApprovals'))
@@ -78,24 +80,27 @@ function DesktopDestination({ children }) {
   },[navigate])
   return <React.Fragment key={window.location.protocol==='app2a:'?location.search:''}>{children}</React.Fragment>
 }
-function ProtectedRoute({ children, hr = false }) {
+function ProtectedRoute({ children, workspace = false }) {
   const { user, loading } = useAuth()
   if (loading) return <FullScreenLoader />
   if (!user) return <Navigate to="/login" replace />
-  const isHr = String(user.role).toLowerCase() === 'hr'
-  if (hr !== isHr) return <Navigate to={isHr ? '/hr' : '/dashboard'} replace />
+  const staff = staffWorkflow(user.role)
+  if (workspace !== Boolean(staff)) return <Navigate to={staff?.path || '/dashboard'} replace />
   return children
 }
 
-function HrLayout() {
-  const { logout } = useAuth()
+function StaffLayout() {
+  const { user, logout } = useAuth()
+  const workspace = staffWorkflow(user.role)
+  const location = useLocation()
+  if(location.pathname!==workspace.path)return <Navigate replace to={workspace.path}/>
   return <div className="hr-shell">
     <aside aria-label="Sidebar">
       <strong>NZOS</strong>
-      <nav><NavLink to="/hr">HR &amp; Attendance</NavLink></nav>
+      <nav><NavLink to={workspace.path}>{workspace.title}</NavLink></nav>
       <button className="btn btn-secondary" onClick={logout}>Sign out</button>
     </aside>
-    <main><HrAttendance /></main>
+    <main>{workspace.path==='/hr' ? <HrAttendance /> : <StaffWorkspace key={user.id+':'+workspace.path} user={user} title={workspace.title}/>}</main>
   </div>
 }
 
@@ -134,7 +139,8 @@ export default function App() {
       <ErrorBoundary>
         <Suspense fallback={<PageLoader />}><Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/hr" element={<ProtectedRoute hr><HrLayout /></ProtectedRoute>} />
+          <Route path="/hr" element={<ProtectedRoute workspace><StaffLayout /></ProtectedRoute>} />
+          <Route path="/staff/*" element={<ProtectedRoute workspace><StaffLayout /></ProtectedRoute>} />
           <Route path="/" element={<ProtectedRoute><DesktopDestination><Layout /></DesktopDestination></ProtectedRoute>}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardEntry />} />

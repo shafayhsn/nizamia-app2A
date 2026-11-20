@@ -32,7 +32,13 @@ function createLocalAuth(directory){
   if(remaining.length!==rows.length)save(remaining)
   active=null
  }
+ function onlineOnly(identifier,user){
+  if(!user||typeof user.id!=='string'||!user.role||user.is_active!==true)throw Error('Online identity verification failed')
+  forget(identifier)
+  active=user;failures=0
+  return status()
+ }
  const logout=()=>{active=null;return status()}
- return {status,login,enroll,forget,logout,isAuthenticated:()=>!!active}
+ return {status,login,enroll,onlineOnly,forget,logout,isAuthenticated:()=>!!active}
 }
 module.exports={createLocalAuth}

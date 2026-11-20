@@ -1,3 +1,5 @@
+import { staffWorkflow } from '../src/lib/staffRoles.js'
+import { staffWorkspace } from '../server/staffWorkspaces.js'
 import { hrAttendance } from '../server/hrAttendance.js'
 import { fulfillment, isFulfillmentAction } from '../server/fulfillment.js'
 import {poReview} from '../server/poReview.js'
@@ -42,10 +44,12 @@ export default async function handler(req,res){
    const {data,error}=await db.from('users').select('id,username,email,role,role_id,password_hash,is_active,is_restricted').eq(field,identifier).maybeSingle()
    if(error||!data||data.is_active===false||data.is_restricted===true)return err(res,401,'Invalid credentials')
    if(!await passwordTools.verifyPassword(password,data.password_hash))return err(res,401,'Invalid credentials')
-   const hr = String(data.role).toLowerCase() === 'hr'
-   if(hr && req.body?.desktopEnrollment===true)return err(res,403,'HR accounts must sign in using the NZOS website.')
+   const workflow = staffWorkflow(data.role)
    const payload=Buffer.from(JSON.stringify({id:data.id,channel:req.body?.desktopEnrollment===true?'Mac':'Web',exp:Date.now()+8*60*60*1000})).toString('base64url')
    res.setHeader('Set-Cookie',cookieName+'='+payload+'.'+sign(payload)+'; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=28800')
+   if(workflow && req.body?.desktopEnrollment===true)
+     return res.json({ok:true,desktopUser:{id:data.id,username:data.username,email:data.email,
+       displayName:data.username||data.email,role:data.role,role_id:data.role_id,is_active:true,permissions:{}}})
    if(req.body?.desktopEnrollment===true){
      let permissions=null
      if(data.role!=='admin'&&data.role_id){const {data:rows,error:permissionError}=await db.from('permissions').select('module,can_view,can_create,can_edit,can_delete').eq('role_id',data.role_id);if(permissionError)return err(res,503,'Permissions unavailable');permissions=Object.fromEntries((rows||[]).map(row=>[row.module,{view:!!row.can_view,create:!!row.can_create,edit:!!row.can_edit,delete:!!row.can_delete}]))}
@@ -54,7 +58,7 @@ export default async function handler(req,res){
      return res.json({ok:true,desktopSnapshotToken:snapshotToken,
        ...(process.env.DESKTOP_OFFLINE_SYNC_ENABLED==='true'?{desktopSyncToken:desktopSyncToken.issueDesktopSyncToken(key,data.id)}:{}),desktopUser:{id:data.id,username:data.username,email:data.email,displayName:data.username||data.email,role:data.role,role_id:data.role_id,is_active:true,permissions}})
    }
-   return res.json(hr ? {ok:true,user:{id:data.id,username:data.username,email:data.email,role:'hr'}} : {ok:true})
+   return res.json(workflow ? {ok:true,user:{id:data.id,username:data.username,email:data.email,role:data.role,role_id:data.role_id}} : {ok:true})
  }
  const proof=()=>createHmac('sha256',key).update('audit-proof:'+readCookie(req)).digest('hex')
  if(action==='logout'&&req.method==='POST'){
@@ -69,10 +73,7 @@ export default async function handler(req,res){
  if(!user)return err(res,401,'Please sign in again to access buyer details')
  db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{'x-nzos-actor':user.id,'x-nzos-source':user.channel}}})
  if(action==='hrAttendance')return hrAttendance(req,res,db,user)
- if(String(user.role).toLowerCase()==='hr'){
-   if(action==='session')return res.json({ok:true,user:{id:user.id,username:user.username,email:user.email,role:'hr'}})
-   return err(res,403,'This account can access HR & Attendance only.')
- }
+ if(staffWorkflow(user.role))return staffWorkspace(req,res,db,user,action)
  if(action==='notificationReads'){
    if(req.method!=='POST')return err(res,405,'Method not allowed')
    if(req.body?.userId!==user.id)return err(res,403,'Session changed')

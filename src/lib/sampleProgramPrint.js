@@ -4,7 +4,7 @@ import {usageObject,usageNumber} from './usageMath'
 const safeText=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
 const dayString=value=>{if(!value)return '';const d=new Date(String(value).slice(0,10)+'T12:00:00');return Number.isNaN(d.getTime())?'':d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}).replace(/ /g,'-')}
 function shiftDate(value,days){if(!value)return '';const d=new Date(String(value).slice(0,10)+'T12:00:00');if(Number.isNaN(d.getTime()))return '';d.setDate(d.getDate()+days);return dayString(d.toISOString().slice(0,10))}
-export async function buildSampleProgramHTML(row, {bomItems=[],fittingBlocks=[],allRows=[],sampleComments=[],parcelItems=[]}={}) {
+export async function buildSampleProgramHTML(row, {bomItems=[],fittingBlocks=[],allRows=[],sampleComments=[],parcelItems=[],scoped=false,printedBy:staffPrintUser}={}) {
     const washColour = r => {const snapshot=Array.isArray(r.wash_snapshot)?r.wash_snapshot:[];const names=[...new Set(snapshot.map(w=>w?.color_name||w?.colour_name||w?.wash_color||w?.wash_colour).filter(Boolean))];return names.join(', ')||(Array.isArray(r.colours)?r.colours.join(', '):'')||r.color||'—'}
     const sampleSize = r => r.base_size || (Array.isArray(r.sizes) ? r.sizes.join(', ') : '') || r.size || '—'
     const qty = Number(row.qty ?? row.req_pcs) || 0
@@ -100,7 +100,7 @@ export async function buildSampleProgramHTML(row, {bomItems=[],fittingBlocks=[],
     const commentsHTML=currentComments.map(c=>`<div class="history"><b>${dayString(c.comment_date||c.created_at)||'—'}</b> · ${safeText(c.user_name||c.created_by||c.author||'')}: ${safeText(c.comment_text||c.comment||'')}</div>`).join('') || '<div class="history">No recorded comments for this version</div>'
     const parcelHTML=currentParcel?`<div class="history"><b>${safeText(currentParcel.parcel_number||currentParcel.parcel_no||'—')}</b> · ${safeText(currentParcel.status||'—')} · ${safeText(currentParcel.courier||currentParcel.courier_name||'—')} · ${safeText(currentParcel.tracking_number||'—')} · Dispatched ${dayString(currentParcel.dispatch_date||currentParcel.dispatched_at)||'—'}</div>`:'<div class="history">No linked parcel record</div>'
     let image=row.order?.style_image_url || row.order?.style_image_base64 || row.order?.image_url || row.order?.picture_url || row.meta?.image_url || ''
-    if(!image && row.order?.style_number){
+    if(!scoped && !image && row.order?.style_number){
       const {data:variants,error:imageError}=await supabase.from('orders').select('style_image_url,style_image_base64').eq('style_number',row.order.style_number).limit(100)
       if(imageError)console.warn('Sample program image lookup:',imageError.message)
       const match=variants?.find(v=>v.style_image_url||v.style_image_base64)
@@ -112,8 +112,8 @@ export async function buildSampleProgramHTML(row, {bomItems=[],fittingBlocks=[],
     const typeLabel=rawType ? (/sample$/i.test(rawType)?rawType:`${rawType} Sample`) : 'Sample'
     const versionLabel=String(row.version||row.version_label||`V${row.version_no||1}`)
     const floorNumber=String(row.sample_number||'').replace(/^SAM-/i,'')
-    let printedBy='User not available'
-    try {
+    let printedBy=staffPrintUser || 'User not available'
+    if(!scoped)try {
       const {data:{user}={}}=await supabase.auth.getUser()
       printedBy=user?.user_metadata?.full_name||user?.user_metadata?.name||user?.email||printedBy
     } catch(e) { console.warn('Could not resolve print user',e) }
@@ -130,7 +130,7 @@ export async function buildSampleProgramHTML(row, {bomItems=[],fittingBlocks=[],
     return html
   }
 
-export function printSamplingHTML(html,title,existingWindow=null){const markup=`<!doctype html><html><head><title>${title}</title><style>
+export function printSamplingHTML(html,title,existingWindow=null){const markup=`<!doctype html><html><head><title>${safeText(title)}</title><style>
     body{font-family:Arial,sans-serif;color:#111;padding:18px}
     h1,h2,h3{margin:0}
     .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:14px}
@@ -173,6 +173,6 @@ export function printSamplingHTML(html,title,existingWindow=null){const markup=`
     }
 
   </style></head><body>${html}</body></html>`
-if(location.protocol==='app2a:')return saveDesktopPdf(markup,title).catch(e=>alert(e.message))
+if(location.protocol==='app2a:')return saveDesktopPdf(markup,title)
   const w=existingWindow||window.open('','_blank','width=1000,height=800');if(!w){alert('Please allow popups to print this document.');return}
   w.document.write(markup);w.document.close();w.focus();setTimeout(()=>w.print(),450)}

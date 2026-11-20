@@ -1,3 +1,4 @@
+import { staffWorkflow } from '../../src/lib/staffRoles.js'
 import {createClient} from '@supabase/supabase-js'
 import {createHmac,timingSafeEqual} from 'node:crypto'
 import incremental from '../../server/snapshotDelta.cjs'
@@ -31,8 +32,8 @@ export default async function handler(req,res){
  if(!db)return res.status(503).json({error:'Backend unavailable'})
  const claim=verifyBearer(req.headers.authorization)
  if(!claim)return res.status(401).json({error:'Authenticated desktop session required'})
- const {data:user,error:userError}=await db.from('users').select('id,role,role_id,is_active,is_restricted').eq('id',claim.id).maybeSingle()
- if(userError||!user||user.is_active!==true||user.is_restricted===true||String(user.role).toLowerCase()==='hr')return res.status(403).json({error:'Access denied'})
+ const {data:user,error:userError}=await db.from('users').select('id,role,role_id,is_active,is_restricted,deleted_at').eq('id',claim.id).maybeSingle()
+ if(userError||!user||user.is_active!==true||user.is_restricted===true||user.deleted_at||staffWorkflow(user.role))return res.status(403).json({error:'Access denied'})
  try{
   let checkpoint={}
   if(req.query?.sync==='2'){
@@ -41,8 +42,8 @@ export default async function handler(req,res){
     const result=await incremental.buildDelta(db,user,TABLES,after,req.query.scope)
     checkpoint=result.metadata
     if(result.delta){
-      const {data:current,error}=await db.from('users').select('role,role_id,is_active,is_restricted').eq('id',user.id).single()
-      if(error||!current?.is_active||current.is_restricted||current.role!==user.role||current.role_id!==user.role_id)return res.status(403).json({error:'Access changed'})
+      const {data:current,error}=await db.from('users').select('role,role_id,is_active,is_restricted,deleted_at').eq('id',user.id).single()
+      if(error||!current?.is_active||current.is_restricted||current.deleted_at||current.role!==user.role||current.role_id!==user.role_id)return res.status(403).json({error:'Access changed'})
       if(user.role!=='admin'){
        const {data:rows,error}=await db.from('permissions').select('module,can_view').eq('role_id',user.role_id)
        if(error)throw error

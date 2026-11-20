@@ -42,6 +42,13 @@ const { snapshotReady } = require('./snapshotStartup.cjs')
 protocol.registerSchemesAsPrivileged([{scheme:'app2a',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}])
 const APP_URL = 'https://app.nizamia.com'
 const ALLOWED_ORIGIN = new URL(APP_URL).origin
+const staffActions={
+ hr:{'/api/offline/hr-attendance':['hrAttendance']},
+ production_incharge:{'/api/offline/staff-workspace':['staffProductionList','staffProductionLog']},
+ sample_room:{'/api/offline/staff-workspace':['staffSamplingList','staffSampleStage','staffSamplingProgram']},
+ storekeeper:{'/api/offline/staff-workspace':['staffReceivingList'],'/api/offline/fulfillment':['readPoReceiving','postPoReceiving']},
+}
+const restrictedStaff=role=>Object.hasOwn(staffActions,String(role||'').toLowerCase())
 let onlineWebSession=null
 let onlineSyncSession=null
 const {createOfflineSyncClient}=require('./offlineSyncClient.cjs')
@@ -191,6 +198,7 @@ function allowedNavigation(url) {
 async function enforceLocalDataScope(directory=getDatabaseDirectory()){
  const user=desktopAuth?.status().user
  if(user?.role==='admin')return
+ if(restrictedStaff(user?.role)&&directory)throw Error('This workspace uses online records only.')
  if(user && staffDirectory && directory===staffDirectory)return
  if(!directory||!fs.existsSync(path.join(directory,'nizamia-app2a.sqlite')))return
  const {hasAdminCloudSnapshot}=require('./applyCloudSnapshot.cjs')
@@ -406,11 +414,14 @@ app.whenReady().then(async () => {
           if(!response.ok)throw Error('Cloud login temporarily unavailable')
           const verified=await response.json()
           if(!verified.ok||!verified.desktopUser)throw Error('Online enrollment response invalid')
-          data=desktopAuth.enroll(input.username,input.password,verified.desktopUser)
+          data=restrictedStaff(verified.desktopUser.role)
+            ?desktopAuth.onlineOnly(input.username,verified.desktopUser)
+            :desktopAuth.enroll(input.username,input.password,verified.desktopUser)
           const tokens={snapshotToken:verified.desktopSnapshotToken,syncToken:verified.desktopSyncToken}
           const cookie=response.headers.get('set-cookie')?.match(/(?:^|,\s*)(nizamia_backend_session=[A-Za-z0-9_.-]+);/)?.[1]
-           if(cookie)onlineWebSession={id:data.user.id,cookie}
-          if(data.user.role!=='admin'){
+           if(!cookie&&restrictedStaff(data.user.role))throw Error('Could not establish the online workspace session.')
+          if(cookie)onlineWebSession={id:data.user.id,cookie}
+          if(data.user.role!=='admin'&&!restrictedStaff(data.user.role)){
             staffDirectory=privateFolder(privateFolder(baseDirectory(),'Team'),scopeKey(data.user))
             await initializeDatabase(staffDirectory)
           }
@@ -439,6 +450,10 @@ app.whenReady().then(async () => {
         }
         if(networkUnavailable){
           data=desktopAuth.login(input.username,input.password)
+          if(restrictedStaff(data.user.role)){
+            desktopAuth.logout()
+            throw Error('This workspace requires an online sign-in.')
+          }
           if(data.user.role!=='admin'){
             staffDirectory=privateFolder(privateFolder(baseDirectory(),'Team'),scopeKey(data.user))
             await initializeDatabase(staffDirectory)
@@ -449,6 +464,25 @@ app.whenReady().then(async () => {
     }
     if(url.pathname.startsWith('/api/')&&desktopAuth?.isAuthenticated()){
       const member=desktopAuth.status().user
+      if(restrictedStaff(member.role)){
+        const role=String(member.role).toLowerCase()
+        const permits=staffActions[role][url.pathname]
+        if(permits && request.method==='POST'){
+          const session=onlineWebSession
+          if(!session||session.id!==member.id)return Response.json({error:'Sign in online to use this workspace.'},{status:401})
+          try{
+            const body=await request.json()
+            if(!permits.includes(body?.action))return Response.json({error:'Action is outside this workspace.'},{status:403})
+            const response=await fetch(APP_URL+'/api/oms',{method:'POST',redirect:'error',signal:AbortSignal.timeout(30000),
+              headers:{Cookie:session.cookie,'Content-Type':'application/json'},body:JSON.stringify(body)})
+            const result=await response.json()
+            if(onlineWebSession!==session)return Response.json({error:'Session changed.'},{status:403})
+            return Response.json(result,{status:response.status,headers:{'Cache-Control':'no-store'}})
+          }catch{return Response.json({error:'Workspace unavailable. Check your connection.'},{status:503})}
+        }
+        if(role!=='sample_room'||url.pathname!=='/api/offline/pdf')
+          return Response.json({error:'Action is outside this workspace.'},{status:403})
+      }
       if(member.role!=='admin' && !await require('./staffOperations.cjs').staffRequestAllowed(member,url.pathname,request))
         return Response.json({error:'This offline operation requires additional authorization.'},{status:403})
       try{await enforceLocalDataScope()}

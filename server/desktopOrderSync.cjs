@@ -4,12 +4,13 @@ const {createOfflineSyncHttpHandler}=require('./offlineSyncHttpHandler.cjs')
 const {verifyDesktopSyncToken}=require('./desktopSyncToken.cjs')
 const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 
-function createDesktopOrderSync({db,key,actorDb=()=>db}){
+function createDesktopOrderSync({db,key,authorizeActor=async()=>true,actorDb=()=>db}){
  async function authenticate({headers}){
   const header=headers?.authorization
   if(typeof header!=='string'||!header.startsWith('Bearer '))return null
   const claim=verifyDesktopSyncToken(key,header.slice(7))
   if(!claim||!uuid.test(claim.userId))return null
+  if(!await authorizeActor(claim.userId))return null
   return {authenticated:true,identity:claim.userId}
  }
  const apply=createOfflineSyncApply({

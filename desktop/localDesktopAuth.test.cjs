@@ -25,3 +25,15 @@ test('verified enrollment enables offline login after the app reopens',t=>{
  assert.equal(fs.readFileSync(file,'utf8').includes(password),false)
  assert.equal(fs.statSync(file).mode&0o777,0o600)
 })
+
+test('online-only workspace credentials replace stale offline access',t=>{
+ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'nzos-staff-auth-'))
+ t.after(()=>fs.rmSync(directory,{recursive:true,force:true}))
+ const auth=createLocalAuth(directory)
+ const user={id:'operator-1',username:'operator',role:'merchandiser',is_active:true}
+ auth.enroll('operator','fixture-password',user)
+ const scoped={...user,role:'sample_room',permissions:{}}
+ assert.deepEqual(auth.onlineOnly('operator',scoped).user,scoped)
+ auth.logout()
+ assert.throws(()=>auth.login('operator','fixture-password'),/First sign in online/)
+})

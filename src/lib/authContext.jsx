@@ -1,3 +1,4 @@
+import { staffWorkflow } from './staffRoles'
 // src/lib/authContext.jsx
 // App-table login gate for Nizamia OMS + DB role permissions
 
@@ -136,11 +137,13 @@ export function AuthProvider({ children }) {
     if(IS_DESKTOP){const result=await desktopRequest('status');setOfflineSetupRequired(result.setupRequired);setUser(result.user);setUserRole(desktopRole(result.user));return result.user}
     const saved = safeReadSession()
     if (!saved?.id) return null
-    if (saved.role === 'hr') {
+    if (staffWorkflow(saved.role)) {
       const result = await fetch('/api/oms?action=session').then(async response => response.ok ? response.json() : null).catch(() => null)
-      setAppUser(result?.user?.role === 'hr' ? result.user : null)
+      setAppUser(staffWorkflow(result?.user?.role) ? result.user : null)
       return result?.user || null
     }
+    const profile = await fetch('/api/oms?action=accountProfile').then(response=>response.ok?response.json():null).catch(()=>null)
+    if(staffWorkflow(profile?.user?.role)){setAppUser(profile.user);return profile.user}
     const { data, error } = await fetchUserById(saved.id)
     if (error || !data || data.is_active === false || data.is_restricted === true) {
       setAppUser(null)
@@ -181,7 +184,7 @@ export function AuthProvider({ children }) {
 
     const bridge = await fetch('/api/oms', {method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({action:'login',identifier:cleanIdentifier,password:cleanPassword})}).then(async r=>({ok:r.ok,...await r.json()})).catch(()=>({ok:false,message:'Server login unavailable'}))
     if(!bridge.ok)return {user:null,error:new Error(bridge.error||bridge.message||'Invalid username/email or password.')}
-    if(bridge.user?.role==='hr'){
+    if(staffWorkflow(bridge.user?.role)){
       setAppUser(bridge.user)
       return {user:bridge.user,error:null}
     }

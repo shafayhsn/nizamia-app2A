@@ -1,3 +1,4 @@
+import { staffWorkflow } from '../src/lib/staffRoles.js'
 import passwordTools from './accountPassword.cjs'
 
 export const accountColumns='id,email,username,role,role_id,is_active,is_restricted,restricted_reason,restricted_at,created_at'
@@ -23,6 +24,11 @@ export async function accountAction(req,res,db,user,action){
    return error?fail(503,'Role permissions unavailable'):res.json({data})
  }
  if(action==='accountSaveRights'){
+   if(req.body.roleId){
+     const {data:role,error}=await db.from('roles').select('name').eq('id',req.body.roleId).maybeSingle()
+     if(error||!role)return fail(400,'Role unavailable')
+     if(staffWorkflow(role.name))return fail(403,'This role has a dedicated workspace.')
+   }
    const {data,error}=await db.rpc('save_team_role',{actor:user.id,target:req.body.roleId||null,role_name:req.body.name||null,grants:req.body.rows})
    return error?fail(409,'Could not save this role and its permissions'):res.json({id:data})
  }
