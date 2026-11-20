@@ -1216,11 +1216,8 @@ function MaterialDemandTab({ suppliers }) {
 
   return (
     <>
-      <div style={{ padding:'10px 24px', borderBottom:'1px solid #f3f4f6', display:'flex', alignItems:'center', gap:8, flexShrink:0, flexWrap:'wrap' }}>
-        <div style={{ position:'relative', width:280 }}>
-          <Search size={13} style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', color:'#9ca3af' }}/>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search item, style, buyer..." style={{ width:'100%', paddingLeft:28, height:32, border:'1px solid #e5e7eb', borderRadius:7, fontSize:12, fontFamily:'Inter,sans-serif', outline:'none', background:'#fafafa' }}/>
-        </div>
+      <div className="demand-toolbar">
+        <RegisterSearch value={search} onChange={setSearch} placeholder="Search item, style, buyer..."/>
         <select value={filterCat} onChange={e=>setFilterCat(e.target.value)} style={selStyle}>
           <option value="">All Categories</option>
           <option>Fabric</option><option>S. Trim</option><option>P. Trim</option><option>Embellishment</option><option>Wash</option>
@@ -1229,7 +1226,7 @@ function MaterialDemandTab({ suppliers }) {
         <select value={filterJob} onChange={e=>setFilterJob(e.target.value)} style={selStyle}><option value="">All Jobs</option>{[...new Set(rows.map(r=>r.order.job_number).filter(Boolean))].sort().map(x=><option key={x} value={x}>{x}</option>)}</select>
         <select value={filterDemand} onChange={e=>setFilterDemand(e.target.value)} style={selStyle}><option value="">All Demand</option><option value="unmet">Unmet</option><option value="partial">Partial</option><option value="fulfilled">Fulfilled</option></select>
         <select value={sortDemand} onChange={e=>setSortDemand(e.target.value)} style={selStyle}><option value="job-desc">Job ↓</option><option value="job-asc">Job ↑</option><option value="buyer">Buyer</option><option value="style">Style</option><option value="balance-desc">Highest Balance</option></select>
-        <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:8 }}>
+        <div className="demand-toolbar-actions">
           <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setCollapsedOrders(Object.fromEntries(Object.keys(grouped).map(id=>[id,true])))}>Collapse All</button>
           <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setCollapsedOrders({})}>Expand All</button>
           <button className="btn btn-primary btn-sm" style={{height:32}} onClick={()=>setShowPOModal(true)} disabled={!access.canCreatePO(userRole)}>{selectionCount ? `+ Generate PO (${selectionCount})` : '+ New custom PO'}</button>
@@ -1487,17 +1484,14 @@ function ProcessDemandTab({ suppliers }) {
 
   return (
     <>
-      <div style={{ padding:'10px 24px', borderBottom:'1px solid #f3f4f6', display:'flex', alignItems:'center', gap:8, flexShrink:0, flexWrap:'wrap' }}>
-        <div style={{ position:'relative', width:280 }}>
-          <Search size={13} style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', color:'#9ca3af' }}/>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search process, style, buyer..." style={{ width:'100%', paddingLeft:28, height:32, border:'1px solid #e5e7eb', borderRadius:7, fontSize:12, fontFamily:'Inter,sans-serif', outline:'none', background:'#fafafa' }}/>
-        </div>
+      <div className="demand-toolbar">
+        <RegisterSearch value={search} onChange={setSearch} placeholder="Search process, style, buyer..."/>
         <select value={filterProcess} onChange={e=>setFilterProcess(e.target.value)} style={{ height:32,border:'1px solid #e5e7eb',borderRadius:7,fontSize:12,padding:'0 10px' }}><option value="">All Processes</option>{[...new Set(rows.map(r=>r.process_name).filter(Boolean))].sort().map(x=><option key={x}>{x}</option>)}</select>
 <select value={filterBuyer} onChange={e=>setFilterBuyer(e.target.value)} style={{ height:32,border:'1px solid #e5e7eb',borderRadius:7,fontSize:12,padding:'0 10px' }}><option value="">All Buyers</option>{[...new Set(rows.map(r=>r.order.buyer_name).filter(Boolean))].sort().map(x=><option key={x} value={x}>{x}</option>)}</select>
         <select value={filterJob} onChange={e=>setFilterJob(e.target.value)} style={{ height:32,border:'1px solid #e5e7eb',borderRadius:7,fontSize:12,padding:'0 10px' }}><option value="">All Jobs</option>{[...new Set(rows.map(r=>r.order.job_number).filter(Boolean))].sort().map(x=><option key={x} value={x}>{x}</option>)}</select>
         <select value={filterDemand} onChange={e=>setFilterDemand(e.target.value)} style={{ height:32,border:'1px solid #e5e7eb',borderRadius:7,fontSize:12,padding:'0 10px' }}><option value="">All Demand</option><option value="unmet">Unmet</option><option value="partial">Partial</option><option value="fulfilled">Fulfilled</option></select>
         <select value={sortDemand} onChange={e=>setSortDemand(e.target.value)} style={{ height:32,border:'1px solid #e5e7eb',borderRadius:7,fontSize:12,padding:'0 10px' }}><option value="job-desc">Job ↓</option><option value="job-asc">Job ↑</option><option value="buyer">Buyer</option><option value="style">Style</option><option value="balance-desc">Highest Balance</option></select>
-        <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:8 }}>
+        <div className="demand-toolbar-actions">
           <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setCollapsedOrders(Object.fromEntries(Object.keys(grouped).map(id=>[id,true])))}>Collapse All</button>
           <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setCollapsedOrders({})}>Expand All</button>
           <button className="btn btn-primary btn-sm" onClick={handleGenerateWO} disabled={selectionCount===0}>+ Generate WO {selectionCount>0?`(${selectionCount})`:''}</button>
@@ -1820,15 +1814,18 @@ function DeliveriesTab({ orders, suppliers }) {
   const [sort, setSort] = useState('due')
   const [selected, setSelected] = useState(null)
   const [receiving, setReceiving] = useState(null)
+  const [approvalUnavailable, setApprovalUnavailable] = useState(false)
   const [saved, setSaved] = useState(false)
 
   useEffect(() => { load() }, [])
   async function load() {
     setLoading(true)
+    setApprovalUnavailable(false)
     const [{ data:p }, { data:w }] = await Promise.all([
-      location.protocol==='app2a:' && user?.role==='admin'
-        ? supabase.from('purchase_orders').select('*, purchase_order_items(*)').not('status','eq','Cancelled').order('delivery_date',{nullsLast:true})
-        : readPurchasingRegister().then(rows=>({data:rows.filter(p=>p.status!=='Cancelled')})).catch(error=>{alert(error.message);return {data:[]}}),
+      readPurchasingRegister().then(rows=>({data:rows.filter(p=>p.status!=='Cancelled')})).catch(() => {
+        setApprovalUnavailable(true)
+        return {data:[]}
+      }),
       supabase.from('work_orders').select('*, work_order_items(*)').not('status','eq','Cancelled').order('complete_by',{nullsLast:true}),
     ])
     setPos(p||[]); setWos(w||[]); setLoading(false)
@@ -1849,9 +1846,16 @@ function DeliveriesTab({ orders, suppliers }) {
 
   const poRows=pos.map(p=>{
     const supplier=suppliers.find(s=>s.id===p.supplier_id), order=orders.find(o=>o.id===p.order_id)
+    const status = String(p.status).toLowerCase()
+    const reason = !access.canCreatePO(userRole) ? 'Receiving access required'
+      : approvalUnavailable ? 'Approval check unavailable'
+      : status === 'draft' ? 'Draft · approve and issue'
+      : !p.approval_verified || p.details_hidden ? 'Approval required'
+      : !['issued','acknowledged','delivered'].includes(status) ? 'Issue PO first'
+      : ''
     return { id:p.id, type:'PO', ref:p.po_number, date:p.delivery_date, party:supplier?.name||'—', order,
       summary:(p.purchase_order_items||[]).length+' lines', urgency:urgencyOf(p.delivery_date,p.status),
-      canReceive:access.canCreatePO(userRole) && !p.details_hidden && p.approval_verified!==false && ['issued','acknowledged','delivered'].includes(String(p.status).toLowerCase()) }
+      canReceive:!reason, reason }
   })
   const woRows=wos.map(w=>{
     const order=orders.find(o=>o.id===w.order_id), vendor=suppliers.find(s=>s.id===w.vendor_id)
@@ -1906,6 +1910,7 @@ function DeliveriesTab({ orders, suppliers }) {
             onClick={()=>{setSaved(false);setReceiving(selectedPO.id)}}>Receive Selected</button>}
         </div>
       </div>
+      {approvalUnavailable && <p role="status" className="operations-message">Could not verify purchase orders. Reconnect and reload to receive goods.</p>}
       {saved && <p role="status" className="operations-message">Receipt posted to Store Receipts.</p>}
       <div style={{ flex:1, overflowY:'auto', overflowX:'auto' }}>
         {loading?<div style={{ padding:60, textAlign:'center', color:'#9ca3af', fontSize:12 }}>Loading...</div>
@@ -1919,8 +1924,12 @@ function DeliveriesTab({ orders, suppliers }) {
               const ss=stStyle[r.urgency]||{}; const tc=r.type==='PO'?{color:'#2563eb',bg:'#eff6ff'}:{color:'#7c3aed',bg:'#f5f3ff'}
               return (
                 <tr key={r.type+r.id} onMouseEnter={e=>e.currentTarget.style.background='#fafafa'} onMouseLeave={e=>e.currentTarget.style.background=''}>
-                  <TD>{r.canReceive && <input type="checkbox" aria-label={'Select '+r.ref}
-                    checked={selected===r.id} onChange={e=>setSelected(e.target.checked?r.id:null)}/>}</TD>
+                  <TD>{r.type === 'PO' && <label className="operations-selection-note">
+                    <input type="checkbox" aria-label={'Select '+r.ref+(r.reason ? ': '+r.reason : '')}
+                      disabled={!r.canReceive} checked={r.canReceive && selected===r.id}
+                      onChange={e=>setSelected(e.target.checked?r.id:null)}/>
+                    {r.reason && <span>{r.reason}</span>}
+                  </label>}</TD>
                   <TD><span style={{ background:tc.bg, color:tc.color, fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:4 }}>{r.type}</span></TD>
                   <TD style={{ fontFamily:'monospace', fontWeight:700 }}>{r.ref}</TD>
                   <TD style={{ fontWeight:600 }}>{r.party}</TD>
