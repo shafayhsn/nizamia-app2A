@@ -73,6 +73,26 @@ export default async function handler(req,res){
    if(action==='session')return res.json({ok:true,user:{id:user.id,username:user.username,email:user.email,role:'hr'}})
    return err(res,403,'This account can access HR & Attendance only.')
  }
+ if(action==='notificationReads'){
+   if(req.method!=='POST')return err(res,405,'Method not allowed')
+   if(req.body?.userId!==user.id)return err(res,403,'Session changed')
+   const ids=req.body?.ids
+   if(!Array.isArray(ids)||ids.length>500||ids.some(id=>typeof id!=='string'||!id||id.length>512))
+     return err(res,400,'Invalid notification IDs')
+   if(ids.length){
+     const rows=[...new Set(ids)].map(event_id=>({user_id:user.id,event_id}))
+     const {error}=await db.from('notification_reads').upsert(rows,{onConflict:'user_id,event_id',ignoreDuplicates:true})
+     if(error)return err(res,503,'Could not sync read notifications')
+   }
+   const reads=[]
+   for(let offset=0;;offset+=500){
+     const {data,error}=await db.from('notification_reads').select('event_id').eq('user_id',user.id).order('event_id').range(offset,offset+499)
+     if(error)return err(res,503,'Could not load read notifications')
+     reads.push(...data.map(row=>row.event_id))
+     if(data.length<500)break
+   }
+   return res.json({ids:reads})
+ }
  if(action==='editSession' && req.method==='POST'){
    const token=proof()
    const {error}=await db.rpc('open_edit_session',{actor:user.id,proof:token,expiry:new Date(user.expires).toISOString()})

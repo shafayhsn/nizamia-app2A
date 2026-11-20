@@ -479,17 +479,18 @@ app.whenReady().then(async () => {
       }catch(error){return Response.json({error:'PDF generation failed: '+error.message},{status:500})}
       finally{if(pdfWindow&&!pdfWindow.isDestroyed())pdfWindow.destroy()}
     }
-    if(['/api/offline/accounts','/api/offline/po-review','/api/offline/fulfillment','/api/offline/hr-attendance'].includes(url.pathname)){
+    if(['/api/offline/accounts','/api/offline/po-review','/api/offline/fulfillment','/api/offline/hr-attendance','/api/offline/notification-reads'].includes(url.pathname)){
       const review=url.pathname==='/api/offline/po-review'
       const tracking=url.pathname==='/api/offline/fulfillment'
       const hr=url.pathname==='/api/offline/hr-attendance'
+      const notifications=url.pathname==='/api/offline/notification-reads'
       const actor=desktopAuth?.status().user
-      if(!actor||(!review&&!tracking&&actor.role!=='admin')||!onlineWebSession||onlineWebSession.id!==actor.id)
+      if(!actor||(!review&&!tracking&&!notifications&&actor.role!=='admin')||!onlineWebSession||onlineWebSession.id!==actor.id)
         return Response.json({error:'Sign in online with the required permissions.'},{status:403})
       try{
         const body=request.method==='POST'?await request.json():null
         const action=body?.action||url.searchParams.get('action')
-        const permitted=hr?(request.method==='POST'?['hrAttendance']:[]):tracking?(request.method==='POST'?['readStoreReceipts','postStoreReceipt','readPoReceiving','postPoReceiving','readWorkOrderTracking','postWorkOrderMovement']:[]):review?(request.method==='GET'?['poApprovers','assignedPOReviews']:['savePurchaseOrder','readPOHistory','setPOStage','readPOPage','requestPOReview','approveAssignedPO']):request.method==='GET'?['accountList','accountRoles']:['accountRoleRights','accountSaveRights','accountDelete','accountHistory','accountCreate','accountPassword','accountRole','accountActive','accountRestriction']
+        const permitted=notifications?(request.method==='POST'?['notificationReads']:[]):hr?(request.method==='POST'?['hrAttendance']:[]):tracking?(request.method==='POST'?['readStoreReceipts','postStoreReceipt','readPoReceiving','postPoReceiving','readWorkOrderTracking','postWorkOrderMovement']:[]):review?(request.method==='GET'?['poApprovers','assignedPOReviews']:['savePurchaseOrder','readPOHistory','setPOStage','readPOPage','requestPOReview','approveAssignedPO']):request.method==='GET'?['accountList','accountRoles']:['accountRoleRights','accountSaveRights','accountDelete','accountHistory','accountCreate','accountPassword','accountRole','accountActive','accountRestriction']
         if(!['GET','POST'].includes(request.method)||!permitted.includes(action))
           return Response.json({error:'Unknown account request'},{status:400})
         const endpoint=new URL('/api/oms',APP_URL)
@@ -500,7 +501,7 @@ app.whenReady().then(async () => {
         const data=await result.json()
         if(onlineWebSession!==session)return Response.json({error:'Session changed'},{status:403})
         return Response.json(data,{status:result.status,headers:{'Cache-Control':'no-store'}})
-      }catch{return Response.json({error:(tracking||hr)?'Register unavailable. Check your connection.':'Account service unavailable. Check your connection.'},{status:503})}
+      }catch{return Response.json({error:notifications?'Notification sync unavailable.':(tracking||hr)?'Register unavailable. Check your connection.':'Account service unavailable. Check your connection.'},{status:503})}
     }
     if(url.pathname==='/api/oms'){
       if(!desktopAuth?.isAuthenticated())return Response.json({error:'Local login required'},{status:401})

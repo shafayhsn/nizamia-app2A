@@ -120,22 +120,61 @@ export default function Topbar({onOpenDeadlines}) {
   const [readNotificationIds, setReadNotificationIds] = useState([])
   const [notificationView, setNotificationView] = useState('all')
   const { events } = useDeadlineEvents()
-  // Read receipts are per application user. The database migration must be installed
-  // for cross-device sync; browser storage remains a scoped offline fallback.
+  const desktopNotifications = location.protocol === 'app2a:'
+  const readStoredIds = key => {
+    try {
+      const ids = JSON.parse(localStorage.getItem(key) || '[]')
+      return Array.isArray(ids) ? ids : []
+    } catch { return [] }
+  }
+  const storeIds = (key, ids) => {
+    try { localStorage.setItem(key, JSON.stringify(ids)) } catch { /* In-memory read state still works. */ }
+  }
+  const syncDesktopNotifications = async key => {
+    const pendingKey = key + ':pending'
+    const pending = readStoredIds(pendingKey)
+    let cloud = []
+    for (let offset = 0; offset < Math.max(1, pending.length); offset += 500) {
+      const sent = pending.slice(offset, offset + 500)
+      const response = await fetch('/api/offline/notification-reads', { method:'POST',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'notificationReads',userId,ids:sent}) })
+      if (!response.ok) return null
+      const {ids} = await response.json()
+      cloud = ids
+      const confirmed = new Set(sent)
+      storeIds(pendingKey, readStoredIds(pendingKey).filter(id => !confirmed.has(id)))
+    }
+    return cloud
+  }
   useEffect(() => {
     if (!storageKey) { setReadNotificationIds([]); return }
     let active = true
-    let local = []
-    try { local = JSON.parse(localStorage.getItem(storageKey) || '[]') } catch (_) {}
-    setReadNotificationIds(local)
-    supabase.from('notification_reads').select('event_id').eq('user_id', userId).then(({data,error}) => {
-      if (!active || error) return
-      const merged = [...new Set([...local, ...(data || []).map(r => r.event_id)])]
-      setReadNotificationIds(merged)
-      localStorage.setItem(storageKey, JSON.stringify(merged))
-    })
-    return () => { active = false }
-  }, [userId, storageKey])
+    setReadNotificationIds(readStoredIds(storageKey))
+    const refresh = async () => {
+      try {
+        const cloud = desktopNotifications
+          ? await syncDesktopNotifications(storageKey)
+          : await supabase.from('notification_reads').select('event_id').eq('user_id', userId)
+            .then(({data,error}) => error ? null : (data || []).map(row => row.event_id))
+        if (!active || !cloud) return
+        const ids = [...new Set([...readStoredIds(storageKey), ...cloud])]
+        storeIds(storageKey, ids)
+        setReadNotificationIds(prev => [...new Set([...prev, ...ids])])
+      } catch { /* Reads remain available locally while disconnected. */ }
+    }
+    refresh()
+    if (desktopNotifications) {
+      window.addEventListener('online',refresh)
+      window.addEventListener('focus',refresh)
+      window.addEventListener('app2a-notification-reads-changed',refresh)
+    }
+    return () => {
+      active = false
+      window.removeEventListener('online',refresh)
+      window.removeEventListener('focus',refresh)
+      window.removeEventListener('app2a-notification-reads-changed',refresh)
+    }
+  }, [userId, storageKey, desktopNotifications])
   useEffect(() => {
     if (!userId) { setAssignedTasks([]); setTaskReadIds([]); return }
     let active = true
@@ -171,9 +210,15 @@ export default function Topbar({onOpenDeadlines}) {
     if (!userId || !storageKey) return
     const fresh = ids.filter(id => id && !readNotificationIds.includes(id))
     if (!fresh.length) return
-    const next = [...new Set([...readNotificationIds, ...fresh])]
+    const next = [...new Set([...readStoredIds(storageKey), ...readNotificationIds, ...fresh])]
     setReadNotificationIds(next)
-    localStorage.setItem(storageKey, JSON.stringify(next))
+    storeIds(storageKey, next)
+    if (desktopNotifications) {
+      const pendingKey = storageKey + ':pending'
+      storeIds(pendingKey, [...new Set([...readStoredIds(pendingKey), ...fresh])])
+      window.dispatchEvent(new Event('app2a-notification-reads-changed'))
+      return
+    }
     supabase.from('notification_reads').upsert(fresh.map(event_id => ({user_id:userId,event_id})), {onConflict:'user_id,event_id'})
       .then(({error}) => { if (error) {
         // A failed write must not appear successfully synced.
