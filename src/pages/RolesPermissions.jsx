@@ -1,3 +1,4 @@
+import { staffWorkflow } from '../lib/staffRoles'
 import React, { useEffect, useMemo, useState } from 'react'
 import { accountRequest } from '../lib/accounts'
 import { MODULES, ACTIONS } from '../lib/permissions'
@@ -15,6 +16,7 @@ export default function RolesPermissions() {
 
   const selectedRole = useMemo(() => roles.find(r => r.id === selectedId), [roles, selectedId])
   const adminLocked = selectedRole?.name === 'admin'
+  const workflow = staffWorkflow(selectedRole?.name)
 
   useEffect(() => { loadRoles() }, [])
   useEffect(() => { if (selectedId) loadPermissions(selectedId) }, [selectedId])
@@ -42,6 +44,7 @@ export default function RolesPermissions() {
 
   async function loadPermissions(roleId) {
     const role = roles.find(r => r.id === roleId)
+    if (staffWorkflow(role?.name)) return
     if (role?.name === 'admin') {
       setPerms(blankPerms(true))
       return
@@ -82,7 +85,7 @@ export default function RolesPermissions() {
   }
 
   function toggle(module, action) {
-    if (adminLocked) return
+    if (adminLocked || workflow) return
     setPerms(prev => ({
       ...prev,
       [module]: { ...(prev[module] || {}), [action]: !prev[module]?.[action] }
@@ -90,7 +93,7 @@ export default function RolesPermissions() {
   }
 
   async function savePermissions() {
-    if (!selectedId || adminLocked) return
+    if (!selectedId || adminLocked || workflow) return
     setSaving(true)
     try {
       const rows = MODULES.map(m => ({
@@ -123,7 +126,6 @@ export default function RolesPermissions() {
     td: { padding: 10, borderBottom: '1px solid #f1f5f9' },
   }
 
-  const hrLocked = String(selectedRole?.name).toLowerCase() === 'hr'
   if (loading) return <div style={{ padding: 24 }}>Loading roles...</div>
 
   return (
@@ -145,14 +147,14 @@ export default function RolesPermissions() {
         <div style={{ height: 50, padding: '0 14px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontWeight: 700, color: '#111827' }}>{selectedRole?.name || 'Select role'}</div>
-            <div style={{ fontSize: 11, color: '#6b7280' }}>{hrLocked ? 'HR accounts can use HR & Attendance only.' : adminLocked ? 'Admin always has full access and cannot be edited.' : 'Clear View to hide a page for everyone with this role.'}</div>
+            <div style={{ fontSize: 11, color: '#6b7280' }}>{workflow ? workflow.title : adminLocked ? 'Admin always has full access and cannot be edited.' : 'Clear View to hide a page for everyone with this role.'}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {saved && <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 700 }}>Saved</span>}
-            <button onClick={savePermissions} disabled={saving || adminLocked || hrLocked} style={{ ...styles.btn, opacity: adminLocked ? .45 : 1 }}>{saving ? 'Saving...' : 'Save Permissions'}</button>
+            {!workflow && <button onClick={savePermissions} disabled={saving || adminLocked} style={{ ...styles.btn, opacity: adminLocked ? .45 : 1 }}>{saving ? 'Saving...' : 'Save Permissions'}</button>}
           </div>
         </div>
-        <table style={styles.table}>
+        {workflow ? <p style={{padding:'0 14px',fontSize:13}}>{workflow.actions}</p> : <table style={styles.table}>
           <thead>
             <tr>
               <th style={styles.th}>Module</th>
@@ -165,13 +167,13 @@ export default function RolesPermissions() {
                 <td style={{ ...styles.td, fontWeight: 700 }}>{m.label}</td>
                 {ACTIONS.map(a => (
                   <td key={a} style={{ ...styles.td, textAlign: 'center' }}>
-                    <input type="checkbox" checked={!!perms[m.key]?.[a]} disabled={adminLocked || hrLocked || m.key === 'settings'} onChange={() => toggle(m.key, a)} />
+                    <input type="checkbox" checked={!!perms[m.key]?.[a]} disabled={adminLocked || m.key === 'settings'} onChange={() => toggle(m.key, a)} />
                   </td>
                 ))}
               </tr>
             ))}
           </tbody>
-        </table>
+        </table>}
       </div>
     </div>
   )

@@ -1,3 +1,4 @@
+import { staffWorkflow } from './staffRoles'
 // src/lib/authContext.jsx
 // App-table login gate for Nizamia OMS + DB role permissions
 
@@ -67,7 +68,7 @@ async function normalizeAppUser(userData) {
   if (!userData) return null
   const roleName = userData.role || 'merchandiser'
   const username = userData.username || userData.name || userData.display_name || ''
-  const permissions = await loadRolePermissions({ ...userData, role: roleName })
+  const permissions = staffWorkflow(roleName) ? emptyPermissionMap() : await loadRolePermissions({ ...userData, role: roleName })
   return {
     id: userData.id,
     email: userData.email,

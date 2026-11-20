@@ -204,3 +204,100 @@ test('a PO receipt posts atomically, can be retried, and date searches preserve 
   assert.equal(rows[0].number,'WO-400')
   assert.equal(rows[0].open,false)
 })
+
+test('dedicated staff can act within their role without broad module grants', async t => {
+  const db = await fixture(t)
+  await db.exec(`
+    CREATE FUNCTION desktop_private.team_permission(actor uuid, area text, verb text)
+    RETURNS boolean LANGUAGE sql AS $$
+      SELECT EXISTS(SELECT FROM public.users u JOIN public.permissions p ON p.role_id=u.role_id
+        WHERE u.id=actor AND p.module=area AND p.can_view AND p.can_create AND verb='create')
+    $$;
+    CREATE SCHEMA nzos_private;
+    CREATE TABLE nzos_private.edit_sessions(user_id uuid, proof_hash bytea, expires_at timestamptz);
+    GRANT USAGE ON SCHEMA nzos_private TO service_role;
+    GRANT SELECT ON nzos_private.edit_sessions TO service_role;
+    CREATE TABLE orders(id uuid PRIMARY KEY,job_number text,buyer_name text,style_number text,po_number text,store_name text,status text);
+    CREATE TABLE size_groups(id uuid PRIMARY KEY,order_id uuid,group_name text);
+    CREATE TABLE size_group_colors(id uuid PRIMARY KEY,size_group_id uuid,color_name text);
+    CREATE TABLE production_daily_entries(
+      id uuid PRIMARY KEY, order_id uuid,size_group_id uuid,color_id uuid,job_number text,buyer_name text,style_number text,
+      po_number text,store_name text,wash_name text,size_group_name text,department text,movement text,production_date date,
+      production_at text,quantity int,created_by uuid);
+    CREATE TABLE samples(id uuid PRIMARY KEY,stage text,dispatch_status text,root_sample_id uuid,sample_number text,version_label text);
+    CREATE TABLE sample_comments(id uuid PRIMARY KEY,sample_id uuid,root_sample_id uuid,sam_number text,version_label text,
+      comment_type text,comment_text text,comment_date timestamptz,is_internal boolean);
+    INSERT INTO users VALUES
+      ('${id(7)}','Storekeeper','storekeeper','${id(77)}',true,false,NULL),
+      ('${id(8)}','Production','production_incharge',NULL,true,false,NULL),
+      ('${id(14)}','Sample','sample_room',NULL,true,false,NULL),
+      ('${id(15)}','HR','hr',NULL,true,false,NULL);
+    INSERT INTO permissions(role_id,module,can_view,can_create,can_edit)
+      VALUES ('${id(77)}','purchasing',true,true,true);
+    INSERT INTO nzos_private.edit_sessions VALUES ('${id(7)}',sha256(convert_to('test-proof','UTF8')),now()+interval '1 hour');
+    INSERT INTO orders VALUES ('${id(100)}','JOB-1','Buyer','Style-1','BUYER-PO','Store','Active');
+    INSERT INTO size_groups VALUES ('${id(101)}','${id(100)}','Adult');
+    INSERT INTO size_group_colors VALUES ('${id(102)}','${id(101)}','Indigo');
+    INSERT INTO samples VALUES ('${id(200)}','Pattern',NULL,NULL,'SAM-1','V1'),
+      ('${id(201)}','Ready','Dispatched',NULL,'SAM-2','V1');
+    GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO service_role;
+  `)
+  await db.exec(migration('20261118_desktop_production_create'))
+  await db.exec(migration('20261119_staff_sample_stage'))
+  await db.exec(migration('20261120_zzz_staff_workspaces'))
+  const value=async (sql,args)=>(await db.query(sql,args)).rows[0]?.value
+  const entry={order_id:id(100),size_group_id:id(101),color_id:id(102),department:'Stitching',
+    movement:'completed',production_date:'2026-01-01',production_at:null,quantity:10}
+  await db.exec('SET ROLE service_role')
+
+  assert.equal(await value('SELECT id AS value FROM staff_production_list($1,NULL)',[id(8)]),id(102))
+  assert.equal(await value('SELECT desktop_create_production_entry($1,$2,$3) AS value',[id(8),id(300),entry]),'applied')
+  assert.equal(await value('SELECT desktop_create_production_entry($1,$2,$3) AS value',[id(8),id(300),entry]),'already-applied')
+  assert.equal(await value('SELECT desktop_create_production_entry($1,$2,$3) AS value',[id(7),id(301),entry]),'unauthorized')
+  await assert.rejects(db.query('SELECT * FROM staff_production_list($1,NULL)',[id(14)]),{code:'42501'})
+
+  assert.equal(await value("SELECT desktop_update_sample_stage($1,$2,$3,'Pattern','Cutting') AS value",[id(14),id(301),id(200)]),'applied')
+  assert.equal(await value("SELECT desktop_update_sample_stage($1,$2,$3,'Ready','Finishing') AS value",[id(14),id(302),id(201)]),'conflict')
+  assert.equal(await value("SELECT desktop_update_sample_stage($1,$2,$3,'Pattern','Ready') AS value",[id(7),id(303),id(200)]),'unauthorized')
+
+  assert.deepEqual((await db.query('SELECT id FROM staff_receiving_list($1,NULL)',[id(7)])).rows,[{id:id(10)}])
+  await assert.rejects(db.query('SELECT * FROM staff_receiving_list($1,NULL)',[id(15)]),{code:'42501'})
+  await assert.rejects(db.query('SELECT * FROM read_purchase_order_page($1,NULL,NULL)',[id(7)]),{code:'42501'})
+  const doc=await value('SELECT document AS value FROM read_purchase_order_page($1,NULL,$2)',[id(7),id(10)])
+  assert.deepEqual(Object.keys(doc).sort(),['approval_verified','details_hidden','id'])
+  const unapproved=await value("SELECT read_po_receiving($1,$2,NULL,'',NULL,NULL) AS value",[id(7),id(20)])
+  assert.deepEqual(unapproved.rows,[])
+  const lines=[{operation:id(304),line_id:id(11),quantity:12,accepted:12,rejected:0}]
+  assert.equal(await value("SELECT post_po_receiving($1,$2,'2026-01-01','DN-001','',$3) AS value",[id(7),id(10),lines]),'applied')
+  await assert.rejects(db.query("SELECT read_po_receiving($1,NULL,NULL,'',NULL,NULL)",[id(7)]),{code:'42501'})
+  await db.exec("SELECT set_config('request.headers','{\"x-nzos-edit-proof\":\"test-proof\"}',false)")
+  await db.exec('SET ROLE anon')
+  assert.equal(await value("SELECT team_can_access('purchasing','create') AS value"),false)
+  await assert.rejects(db.query('SELECT * FROM staff_receiving_list($1,NULL)',[id(7)]),{code:'42501'})
+})
+
+test('restricted workspace handlers reject other roles and ignore client-supplied actor IDs', async () => {
+  const {staffWorkspace}=await import('./staffWorkspaces.js')
+  const calls=[]
+  const db={rpc:async(name,args)=>{calls.push({name,args});return {data:'applied'}}}
+  const setup=(role,action,body={})=>{
+    const res={code:200,status(code){this.code=code;return this},json(data){this.data=data;return this}}
+    return staffWorkspace({method:'POST',body},res,db,{id:id(7),role},action)
+  }
+  for(const role of ['hr','production_incharge','sample_room','storekeeper']){
+    for(const action of ['accountCreate','editSession','readPOPage','postStoreReceipt','postWorkOrderMovement'])
+      assert.equal((await setup(role,action)).code,403)
+  }
+  assert.equal((await setup('sample_room','staffProductionLog')).code,403)
+  assert.equal((await setup('production_incharge','staffSampleStage')).code,403)
+  assert.equal((await setup('storekeeper','readPoReceiving')).code,400)
+  assert.equal((await setup('sample_room','staffSampleStage',{
+    actor:id(1),operation:id(500),sampleId:id(200),previousStage:'Pattern',stage:'Cutting'
+  })).code,200)
+  assert.equal(calls.at(-1).args.actor,id(7))
+  assert.equal(calls.at(-1).name,'desktop_update_sample_stage')
+  assert.equal((await setup('production_incharge','staffProductionLog',{
+    operation:id(501),orderId:id(100),groupId:id(101),colorId:id(102),
+    department:'Stitching',movement:'completed',date:'2026-01-01',place:'Floor',quantity:1.5
+  })).code,400)
+})

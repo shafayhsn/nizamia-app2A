@@ -1,3 +1,4 @@
+import { staffWorkflow } from '../src/lib/staffRoles.js'
 import {createClient} from '@supabase/supabase-js'
 import desktopOrderSync from '../server/desktopOrderSync.cjs'
 
@@ -5,7 +6,11 @@ const key=process.env.SUPABASE_SERVICE_ROLE_KEY
 const url=process.env.SUPABASE_URL||process.env.VITE_SUPABASE_URL
 const enabled=process.env.DESKTOP_OFFLINE_SYNC_ENABLED==='true'
 const db=enabled&&key&&url?createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}}):null
-const sync=db?desktopOrderSync.createDesktopOrderSync({db,key,actorDb:actor=>createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{'x-nzos-actor':actor,'x-nzos-source':'Mac'}}})}):null
+const authorizeActor=async id=>{
+ const {data,error}=await db.from('users').select('role,is_active,is_restricted,deleted_at').eq('id',id).maybeSingle()
+ return !error&&data?.is_active===true&&data.is_restricted!==true&&!data.deleted_at&&!staffWorkflow(data.role)
+}
+const sync=db?desktopOrderSync.createDesktopOrderSync({db,key,authorizeActor,actorDb:actor=>createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{'x-nzos-actor':actor,'x-nzos-source':'Mac'}}})}):null
 
 export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store')
