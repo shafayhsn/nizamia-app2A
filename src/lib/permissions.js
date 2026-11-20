@@ -1,3 +1,4 @@
+import { staffWorkflow } from './staffRoles.js'
 // src/lib/permissions.js
 // App-2A role-based permission helpers (DB permissions first, safe legacy fallback)
 
@@ -67,7 +68,7 @@ function getPermissionMap(user) {
 export function can(user, module, action = 'view') {
   const role = getRole(user)
   if (role === 'admin') return true
-  if (String(role).toLowerCase() === 'hr') return false
+  if (staffWorkflow(role)) return false
   const key = normalizeModule(module)
   if (key === 'settings' || key === 'shipping.payments') return false
   const act = String(action || 'view').toLowerCase()

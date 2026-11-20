@@ -5,11 +5,12 @@ const {isShipmentStatusChange}=require('../desktop/shipmentStatusMutation.cjs')
 const uuid=/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i
 const productionFields=['order_id','size_group_id','color_id','department','movement','production_date','production_at','quantity']
 
-function createDesktopMutationHttp({db,key,actorDb=()=>db}){
+function createDesktopMutationHttp({db,key,authorizeActor=async()=>true,actorDb=()=>db}){
  return async function handle({method,headers,body}){
   const header=headers?.authorization
   const claim=typeof header==='string'&&header.startsWith('Bearer ')&&verifyDesktopSyncToken(key,header.slice(7))
   if(!claim||!uuid.test(claim.userId))return {status:401,body:{error:'Desktop sync session required'}}
+  if(!await authorizeActor(claim.userId))return {status:403,body:{error:'Desktop sync is unavailable for this account'}}
   if(method!=='POST')return {status:405,body:{error:'Method not allowed'}}
   if(typeof body==='string'){
    if(Buffer.byteLength(body)>128*1024)return {status:413,body:{error:'Sync batch is too large'}}
