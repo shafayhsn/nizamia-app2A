@@ -1,4 +1,4 @@
-import HrAttendance from './HrAttendance'
+import { useNavigate } from 'react-router-dom'
 import { can } from '../lib/permissions'
 import React, { useEffect, useMemo, useState } from 'react'
 import { Building2, Calculator, FileText, Users, ShieldCheck, Hash, Ruler, SlidersHorizontal, Download, X, Palette, Briefcase } from 'lucide-react'
@@ -43,6 +43,7 @@ function applyGroupRowVars(v = DEFAULT_GROUP_ROW) {
 }
 
 export default function Settings() {
+  const navigate = useNavigate()
   const [active, setActive] = useState(null)
   const {userRole}=useAuth()
   const isAdmin=can(userRole, 'settings')
@@ -102,7 +103,7 @@ export default function Settings() {
   const setCompanyField = field => e => setCompanyInfo(prev => ({ ...prev, [field]: e.target.value }))
 
   const cards = [
-    { id: 'hr', title: 'HR & Attendance', desc: 'View employees and attendance', icon: Users, status: 'Admin' },
+    { id: 'hr', title: 'HR & Attendance', desc: 'Manage employees and attendance', icon: Users, status: 'Admin' },
     { id: 'company', title: 'Company Info', desc: 'PO header company details', icon: Building2, status: 'Active' },
     { id: 'tax', title: 'Tax', desc: 'Default tax, refund and rebate rates', icon: Calculator, status: 'Active' },
     { id: 'terms', title: 'Terms', desc: 'PO terms & conditions', icon: FileText, status: 'Active' },
@@ -118,7 +119,6 @@ export default function Settings() {
   ]
 
   const renderContent = () => {
-    if (active === 'hr') return <HrAttendance readOnly />
     if (active === 'company') return <CompanyInfo companyInfo={companyInfo} setCompanyField={setCompanyField} companyUnlocked={companyUnlocked} companyError={companyError} onUnlock={() => unlock('Company Information', () => setCompanyUnlocked(true), setCompanyError)} onSave={saveCompany} onCancel={() => { try { setCompanyInfo({ ...DEFAULT_COMPANY_INFO, ...JSON.parse(localStorage.getItem(COMPANY_INFO_KEY) || '{}') }) } catch { setCompanyInfo(DEFAULT_COMPANY_INFO) } setCompanyUnlocked(false) }} />
     if (active === 'tax') return <Tax tax={taxSettings} poTaxRate={poTaxRate} setPoTaxRate={setPoTaxRate} setTax={setTaxSettings} onSave={saveTaxRate} onSaveAll={saveTaxFull} />
     if (active === 'terms') return <Terms poTerms={poTerms} setPOTerms={setPOTerms} termsUnlocked={termsUnlocked} termsError={termsError} onUnlock={() => unlock('PO Terms & Conditions', () => setTermsUnlocked(true), setTermsError)} onSave={saveTerms} onCancel={() => { setPOTerms(localStorage.getItem(PO_TERMS_KEY) || DEFAULT_PO_TERMS); setTermsUnlocked(false) }} />
@@ -140,7 +140,7 @@ export default function Settings() {
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 24 }}>
         <div><h1 className="app-page-title" style={{ margin: 0, color: '#111827' }}>Settings</h1><div style={{ fontSize: 12, color: 'var(--text-light)', marginTop: 5 }}>Open each setup area from the cards below.</div></div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 16 }}>{cards.map(card => <SettingsCard key={card.id} card={card} onClick={() => setActive(card.id)} />)}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 16 }}>{cards.map(card => <SettingsCard key={card.id} card={card} onClick={() => card.id === 'hr' ? navigate('/settings/hr') : setActive(card.id)} />)}</div>
       {active && <div style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(15,23,42,0.34)', display: 'grid', placeItems: 'center', padding: 24 }} onMouseDown={e => { if (e.target === e.currentTarget) setActive(null) }}><div style={{ width: active === 'users' || active === 'roles' ? 'min(1120px, 96vw)' : 'min(920px, 94vw)', maxHeight: '88vh', overflow: 'hidden', background: '#fff', borderRadius: 18, boxShadow: '0 24px 70px rgba(15,23,42,0.22)', border: '1px solid #eef0f4', display: 'flex', flexDirection: 'column' }}><div style={{ height: 58, borderBottom: '1px solid #eef0f4', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 18px' }}><div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>{activeCard?.title}</div><button onClick={() => setActive(null)} style={{ width: 32, height: 32, borderRadius: 10, border: '1px solid #e5e7eb', background: '#fff', display: 'grid', placeItems: 'center', cursor: 'pointer' }}><X size={16} /></button></div><div style={{ padding: 18, overflowY: 'auto' }}>{renderContent()}</div></div></div>}
     </div>
   )

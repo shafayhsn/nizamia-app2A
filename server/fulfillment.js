@@ -1,4 +1,6 @@
 const actions = {
+  readPoReceiving: 'read_po_receiving',
+  postPoReceiving: 'post_po_receiving',
   readStoreReceipts: 'read_store_receipts',
   postStoreReceipt: 'post_store_receipt',
   readWorkOrderTracking: 'read_work_order_tracking',
@@ -18,7 +20,22 @@ export async function fulfillment(req, res, db, user, action) {
   const validQuantity = value => typeof value === 'string' && /^\d{1,9}(\.\d{1,3})?$/.test(value)
   const validText = (value, max) => typeof value === 'string' && value.length <= max
   let args
-  if (action === 'editTrackedWorkOrder') {
+  const dateFormat = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+  if (action === 'readPoReceiving') {
+    const { startDate, endDate } = req.body
+    if ((target != null && !uuid(target)) || (afterId != null && !uuid(afterId)) ||
+      !validText(query ?? '', 120) || (startDate != null && !dateFormat(startDate)) || (endDate != null && !dateFormat(endDate)))
+      return res.status(400).json({ error: 'Invalid receipt filter.' })
+    args = { target: target ?? null, after_id: afterId ?? null, query: query ?? '', start_date: startDate ?? null, end_date: endDate ?? null }
+  } else if (action === 'postPoReceiving') {
+    const { lines } = req.body
+    if (!uuid(target) || !dateFormat(date) || !validText(reference, 120) || !reference.trim() ||
+      !validText(notes ?? '', 500) || !Array.isArray(lines) || !lines.length || lines.length > 100 ||
+      lines.some(line => !line || !uuid(line.operation) || !uuid(line.line_id) || !validQuantity(line.quantity) ||
+        !validQuantity(line.accepted) || !validQuantity(line.rejected) || Number(line.quantity) <= 0))
+      return res.status(400).json({ error: 'Check the delivery note, date and line quantities.' })
+    args = { target, event_date: date, reference, memo: notes ?? '', lines }
+  } else if (action === 'editTrackedWorkOrder') {
     const { expectedTime, header, lines } = req.body
     if (!uuid(target) || !header || typeof header !== 'object' || Array.isArray(header) ||
       (expectedTime !== null && !validText(expectedTime, 50)) ||
@@ -50,6 +67,7 @@ export async function fulfillment(req, res, db, user, action) {
     if (error.code === '42501') return res.status(403).json({ error: 'Your role does not have access to this operation.' })
     if (['22P02', '22007', '22008', '22023', '22003', '23514', '23502', '23503'].includes(error.code)) {
       const message = {
+        postPoReceiving: 'Check the selected PO, its approval and line quantities.',
         postStoreReceipt: 'Check the date and quantities. Accepted and rejected quantities cannot exceed the delivery.',
         postWorkOrderMovement: 'Check the movement date and quantity.',
         editTrackedWorkOrder: 'Check the work order fields and lines.',

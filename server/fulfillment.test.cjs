@@ -18,6 +18,7 @@ async function fixture(t) {
     GRANT USAGE ON SCHEMA desktop_private TO service_role;
     CREATE TABLE users(id uuid PRIMARY KEY, username text, role text, role_id uuid, is_active boolean,
       is_restricted boolean, deleted_at timestamptz);
+    CREATE TABLE roles(id uuid PRIMARY KEY,name text NOT NULL);
     CREATE TABLE permissions(role_id uuid, module text, can_view boolean, can_create boolean, can_edit boolean DEFAULT false, can_delete boolean DEFAULT false);
     CREATE TABLE suppliers(id uuid PRIMARY KEY, name text);
     CREATE TABLE purchase_orders(id uuid PRIMARY KEY, po_number text, supplier_id uuid, status text, delivery_date date);
@@ -62,6 +63,8 @@ async function fixture(t) {
   await db.exec(migration('20261119_po_visibility'))
   await db.exec(migration('20261120_store_receipts'))
   await db.exec(migration('20261120_work_order_tracking'))
+  await db.exec(migration('20261120_z_hr_attendance'))
+  await db.exec(migration('20261120_zz_operations_workflows'))
   return db
 }
 
@@ -173,4 +176,31 @@ test('the authenticated API supplies the actor and rejects fractional work order
   assert.deepEqual((await submit({ ...body, quantity: '2' }, response())).payload, { ok: true })
   assert.equal(calls[0][0], 'post_work_order_movement')
   assert.equal(calls[0][1].actor, user.id)
+})
+
+test('a PO receipt posts atomically, can be retried, and date searches preserve all-time balances', async t => {
+  const db = await fixture(t)
+  await db.exec('SET ROLE service_role')
+  const read = async (query = '', from = null, to = null, target = null) => (await db.query(
+    'SELECT read_po_receiving($1,$2,NULL,$3,$4,$5) AS value',[id(2),target,query,from,to]
+  )).rows[0].value
+  const line = (operation, quantity, lineId = 11) =>
+    ({ operation:id(operation),line_id:id(lineId),quantity,accepted:quantity,rejected:0 })
+  const post = (date, reference, lines) => db.query(
+    "SELECT post_po_receiving($1,$2,$3,$4,'', $5) AS value",[id(2),id(10),date,reference,lines])
+  assert.equal((await read()).rows.length,0)
+  assert.equal((await read('',null,null,id(10))).rows[0].open,true)
+  await assert.rejects(post('2026-01-01','DC-01',[line(301,20),line(302,20,21)]),{code:'23514'})
+  assert.equal((await read('',null,null,id(10))).rows[0].lines[0].received,0)
+  await post('2026-01-01','DC-01',[line(301,20)])
+  await post('2026-01-01','DC-01',[line(301,20)])
+  await post('2026-01-02','DC-02',[line(302,15)])
+  const [po]=(await read('DC-01','2026-01-01','2026-01-01')).rows
+  assert.deepEqual([po.lines[0].ordered,po.lines[0].received,po.lines[0].balance],[50,35,15])
+  assert.equal((await read('DC-01','2026-01-02','2026-01-02')).rows.length,0)
+  assert.equal((await read(id(302))).rows[0].id,id(10))
+  assert.equal((await read('',null,null,id(10))).rows[0].lines[0].history.length,2)
+  const {rows}= (await db.query("SELECT read_work_order_tracking($1,'WO-400',NULL,NULL) AS value",[id(3)])).rows[0].value
+  assert.equal(rows[0].number,'WO-400')
+  assert.equal(rows[0].open,false)
 })

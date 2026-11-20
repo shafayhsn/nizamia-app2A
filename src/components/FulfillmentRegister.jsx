@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { ArrowDownUp, Plus, RefreshCw, Search, X } from 'lucide-react'
 import './fulfillment.css'
 
 const receipt = {
@@ -38,7 +39,7 @@ const movementLabels = {
 const format = new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 })
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date())
 
-async function request(action, fields) {
+export async function request(action, fields) {
   const url = location.protocol === 'app2a:' ? '/api/offline/fulfillment' : '/api/oms'
   const response = await fetch(url, {
     method: 'POST',
@@ -54,6 +55,9 @@ async function request(action, fields) {
 export default function FulfillmentRegister({ workOrders = false }) {
   const config = workOrders ? workOrder : receipt
   const [search, setSearch] = useState('')
+  const [sort, setSort] = useState('due')
+  const [status, setStatus] = useState('all')
+  const [dialog, setDialog] = useState(false)
   const [filter, setFilter] = useState({ query: '', afterId: null })
   const [page, setPage] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -86,13 +90,17 @@ export default function FulfillmentRegister({ workOrders = false }) {
     return () => { active = false }
   }, [config, selected, filter])
 
-  const lines = page?.rows.slice(0, 50) ?? []
+  const source = page?.rows.slice(0, 50) ?? []
+  const lines = source.filter(row => status === 'all' || String(row.status).toLowerCase() === status).sort((a,b) =>
+    sort === 'due' ? (a.due || '9999').localeCompare(b.due || '9999') || String(a.number).localeCompare(String(b.number))
+      : String(a.number).localeCompare(String(b.number)))
   const line = lines.find(row => row.id === selected)
   const reload = () => setFilter(current => ({ ...current }))
   function searchRegister(event) {
     event.preventDefault()
     setSelected(null)
     setForm(null)
+    setDialog(false)
     setFilter({ query: search.trim(), afterId: null })
   }
 
@@ -124,26 +132,38 @@ export default function FulfillmentRegister({ workOrders = false }) {
   }
 
   return (
-    <section style={{ overflow: 'auto', padding: '16px 24px', flex: 1 }}>
-      <h2 style={{ fontSize: 18, margin: '0 0 12px' }}>{config.title}</h2>
-      <form onSubmit={searchRegister} style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <input className="form-input" aria-label="Search register" placeholder={config.search} value={search}
-          maxLength={120} onChange={event => setSearch(event.target.value)} />
-        <button className="btn btn-secondary" disabled={busy}>Search</button>
-        <button className="btn btn-secondary" type="button" disabled={busy} onClick={reload}>Refresh</button>
+    <section className="operations-register">
+      <form onSubmit={searchRegister} className="operations-tray">
+        <label className="operations-search"><Search size={15}/><input type="search" aria-label="Search work orders"
+          placeholder={config.search} value={search} maxLength={120} onChange={event => setSearch(event.target.value)}/></label>
+        <button className="btn btn-secondary btn-sm" disabled={busy}>Search</button>
+        <select aria-label="Work order status" value={status} onChange={e=>{setStatus(e.target.value);setSelected(null)}}>
+          <option value="all">All statuses</option>
+          {[...new Set(source.map(row=>String(row.status || '').toLowerCase()).filter(Boolean))].sort().map(value=>
+            <option key={value} value={value}>{source.find(row=>String(row.status).toLowerCase()===value)?.status}</option>)}
+        </select>
+        <button className="btn btn-secondary btn-sm" type="button" onClick={()=>setSort(sort==='due'?'reference':'due')}><ArrowDownUp size={14}/> {sort==='due'?'Due date':'WO number'}</button>
+        <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={reload}><RefreshCw size={14}/> Refresh</button>
+        <button className="btn btn-primary btn-sm" type="button" disabled={busy || !page?.can_post || !line?.open}
+          onClick={()=>{setDialog(true);startEntry()}}><Plus size={14}/> Log Update</button>
       </form>
-      {error && <p role="alert">{error}</p>}
-      {!page && !error && <p role="status">Loading register…</p>}
-      {page && !lines.length && <p>No matching lines.</p>}
+      {error && <p className="operations-error" role="alert">{error}</p>}
+      {!page && !error && <p className="operations-empty" role="status">Loading work orders…</p>}
+      {page && !lines.length && <p className="operations-empty">No work orders match these filters.</p>}
+      {line && !line.open && <p className="operations-message">Updates can be logged for issued or in-progress work orders with whole-piece lines.</p>}
       {lines.length > 0 && (
         <div style={{ overflowX: 'auto' }}>
           <table className="fulfillment-table">
             <thead><tr>
-              {[config.number, 'Line item', config.partner, 'Due', 'Status', ...config.columns.map(([, label]) => label), 'Unit']
+              {['Select', config.number, 'Line item', config.partner, 'Due', 'Status', ...config.columns.map(([, label]) => label), 'Unit']
                 .map(label => <th key={label} scope="col">{label}</th>)}
             </tr></thead>
             <tbody>{lines.map(row => (
-              <tr key={row.id} className={row.id === selected ? 'selected' : undefined}>
+              <tr key={row.id} className={row.id === selected ? 'selected' : undefined}
+                onClick={event => { if (!event.target.closest('button,input')) setSelected(row.id) }}
+                onDoubleClick={() => {setSelected(row.id);setForm(null);setDialog(true)}}>
+                <td><input type="checkbox" aria-label={'Select ' + row.number + ' ' + row.label} checked={row.id===selected}
+                  onChange={event=>setSelected(event.target.checked ? row.id : null)}/></td>
                 <td><button className="btn btn-ghost btn-sm" type="button" disabled={busy}
                   aria-pressed={row.id === selected} onClick={() => { setSelected(row.id); setForm(null) }}>{row.number}</button></td>
                 <td>{row.label}{row.detail && <small style={{ display: 'block' }}>{row.detail}</small>}</td>
@@ -160,12 +180,14 @@ export default function FulfillmentRegister({ workOrders = false }) {
           {filter.afterId && <button className="btn btn-secondary btn-sm" disabled={busy}
             onClick={() => { setSelected(null); setForm(null); setFilter({ ...filter, afterId: null }) }}>First page</button>}
           {page?.rows.length > 50 && <button className="btn btn-secondary btn-sm" disabled={busy}
-            onClick={() => { setSelected(null); setForm(null); setFilter({ ...filter, afterId: lines.at(-1).id }) }}>Next page</button>}
+            onClick={() => { setSelected(null); setForm(null); setFilter({ ...filter, afterId: source.at(-1).id }) }}>Next page</button>}
         </div>
       )}
-      {line && (
-        <div style={{ marginTop: 20 }}>
-          <h3 style={{ fontSize: 15 }}>{line.number} · {line.label}</h3>
+      {dialog && line && (
+        <div className="operations-overlay"><section className="operations-dialog" role="dialog" aria-modal="true" aria-label="Work order updates">
+          <header><div><strong>{line.number} · {line.label}</strong><p>{line.partner || '—'} · {line.status || '—'} · With vendor: {format.format(line.out || 0)}</p></div>
+          <button type="button" className="btn btn-ghost" aria-label="Close" disabled={busy} onClick={()=>{setDialog(false);setForm(null)}}><X size={18}/></button></header>
+          <div className="operations-breakdown">
           {page.can_post && line.open && !form && <button className="btn btn-primary btn-sm" onClick={startEntry}>{config.action}</button>}
           {form && (
             <form className="fulfillment-form" onSubmit={save}>
@@ -207,7 +229,7 @@ export default function FulfillmentRegister({ workOrders = false }) {
               <td>{row.recorded_by || '—'}</td><td>{row.notes || '—'}</td>
             </tr>)}</tbody>
           </table></div>}
-        </div>
+        </div></section></div>
       )}
     </section>
   )

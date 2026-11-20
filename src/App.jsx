@@ -143,6 +143,7 @@ export default function App() {
             <Route path="shipping" element={<RequireRight module="shipping"><Shipping /></RequireRight>} />
             <Route path="library" element={<RequireRight module="library">{null}</RequireRight>} />
             <Route path="settings" element={<RequireRight module="settings"><Settings /></RequireRight>} />
+            <Route path="settings/hr" element={<RequireRight module="settings"><HrAttendance fromSettings /></RequireRight>} />
             <Route path="settings/users" element={<RequireRight module="settings"><UsersAndRights /></RequireRight>} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
