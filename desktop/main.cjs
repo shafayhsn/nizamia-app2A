@@ -42,7 +42,6 @@ const { snapshotReady } = require('./snapshotStartup.cjs')
 protocol.registerSchemesAsPrivileged([{scheme:'app2a',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}])
 const APP_URL = 'https://app.nizamia.com'
 const ALLOWED_ORIGIN = new URL(APP_URL).origin
-const BULK_BOM_URL = APP_URL + '/library?tab=trim-packages'
 const staffActions={
  hr:{'/api/offline/hr-attendance':['hrAttendance']},
  production_incharge:{'/api/offline/staff-workspace':['staffProductionList','staffProductionLog']},
@@ -305,11 +304,6 @@ function openBundledWebApp() {
   })
   const openLink=url=>handleWebLink(url,href=>shell.openExternal(href),error=>dialog.showErrorBox('Could not open link',error.message))
   win.webContents.setWindowOpenHandler(({url})=>{
-    if (url === BULK_BOM_URL) {
-      if (net.isOnline()) createWindow(BULK_BOM_URL)
-      else dialog.showErrorBox('Bulk BOM requires a connection', 'Connect to the internet and open Bulk BOM again.')
-      return { action: 'deny' }
-    }
     openLink(url)
     return {action:'deny'}
   })
@@ -320,7 +314,7 @@ function openBundledWebApp() {
   win.loadURL('app2a://local/').catch(error=>dialog.showErrorBox('App-2A web interface',error.message))
 }
 
-function createWindow(startURL = APP_URL) {
+function createWindow() {
   const win = new BrowserWindow({
     width: 1360, height: 900, minWidth: 960, minHeight: 650,
     title: 'Nizamia App-2A',
@@ -376,11 +370,6 @@ function createWindow(startURL = APP_URL) {
   win.webContents.on('did-fail-load', (_event, code, description, validatedURL, isMainFrame) => {
     if (isMainFrame && code !== -3 && !fallbackActive && validatedURL !== 'file://' + path.join(__dirname, 'offline.html')) {
       fallbackActive = true
-      if (startURL === BULK_BOM_URL) {
-        dialog.showErrorBox('Could not open Bulk BOM', 'Check your connection and try again. ' + description)
-        win.close()
-        return
-      }
       win.loadFile(path.join(__dirname, 'offline.html')).catch(() => {})
       dialog.showMessageBox(win, {
         type: 'warning', title: 'Cloud connection unavailable',
@@ -393,11 +382,11 @@ function createWindow(startURL = APP_URL) {
         if (response === 0) {
           try { await enforceLocalDataScope();showLocalSnapshot(win,getDatabaseDirectory,enforceLocalDataScope) }
           catch (error) { dialog.showErrorBox('Local data unavailable', error.message) }
-        } else if (response === 1) { fallbackActive = false; win.loadURL(startURL) }
+        } else if (response === 1) { fallbackActive = false; win.loadURL(APP_URL) }
       }).catch(error => dialog.showErrorBox('Connection dialog error', error.message))
     }
   })
-  win.loadURL(startURL)
+  win.loadURL(APP_URL)
 }
 
 app.whenReady().then(async () => {
@@ -748,6 +737,20 @@ app.whenReady().then(async () => {
         const {table,orderId,rows,enabled,notes,rule,finishing}=JSON.parse(raw)
         const {queueOrderSection}=require('./standaloneRecords.cjs')
         const data=await queueOrderSection(directory,{table,orderId,rows,enabled,notes,rule,finishing,ownerId,
+          isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
+        return Response.json({data},{headers:{'Cache-Control':'no-store'}})
+      }catch(error){return Response.json({error:error.message},{status:400})}
+    }
+    if(url.pathname==='/api/offline/bulk-bom'){
+      if(request.method!=='POST')return new Response('Method not allowed',{status:405})
+      const member=desktopAuth?.status().user
+      const ownerId=productionSyncOwner(),directory=getDatabaseDirectory()
+      const allowed=member?.role==='admin'||(member?.permissions?.library?.view&&member?.permissions?.orders?.view&&member?.permissions?.orders?.edit)
+      if(!ownerId||!directory||!allowed)return Response.json({error:'Library and Orders edit access required.'},{status:403})
+      try{
+        const raw=await request.text()
+        if(Buffer.byteLength(raw)>2000000)return Response.json({error:'Bulk BOM is too large. Select fewer styles.'},{status:413})
+        const data=await require('./standaloneRecords.cjs').bulkBomLocal(directory,{input:JSON.parse(raw),ownerId,
           isCurrent:()=>productionSyncOwner()===ownerId&&getDatabaseDirectory()===directory})
         return Response.json({data},{headers:{'Cache-Control':'no-store'}})
       }catch(error){return Response.json({error:error.message},{status:400})}

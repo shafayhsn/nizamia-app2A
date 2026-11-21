@@ -436,7 +436,7 @@ async function submitPendingMutations(directory,{ownerId,submit,isCurrent}){
   operationId,intent:{
    operation:intent.operation,table:intent.table,id:intent.id,
    fields:intent.fields,changes:intent.changes,expected:intent.expected,
-   ...(intent.document?.lines?{document:{lines:intent.document.lines,childTable:intent.document.childTable,finishingHeader:intent.document.finishingHeader,...(intent.operation==='update'?{lineIds:intent.document.localLines.map(line=>line.id.replace(/^local-/,''))}:{})}}:{})
+   ...(intent.document?.lines?{document:{lines:intent.document.lines,childTable:intent.document.childTable,finishingHeader:intent.document.finishingHeader,bulkBomPatch:intent.document.bulkBomPatch,...(intent.operation==='update'?{lineIds:intent.document.localLines.map(line=>line.id.replace(/^local-/,''))}:{})}}:{})
   }
  })).filter(item=>{
   const bytes=Buffer.byteLength(JSON.stringify(item))+1
@@ -1189,6 +1189,116 @@ async function queueOrderSection(directory,{orderId,table,enabled,notes,rule,row
  })
 }
 
+// Use the existing snapshot write lock and acknowledgement lifecycle for bulk BOM.
+async function bulkBomLocal(directory,{input,ownerId,isCurrent}){
+ if(!ownerId)throw Error('An NZOS session is required.')
+ return serialize(directory,async()=>{
+  if(!isCurrent())throw Error('The desktop session changed.')
+  const file=assertFile(directory),SQL=await sql(),before=fs.readFileSync(file),db=new SQL.Database(Buffer.from(before))
+  try{
+   schema(db)
+   db.run('CREATE TABLE IF NOT EXISTS desktop_bulk_bom_drafts (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, draft_json TEXT NOT NULL)')
+   const load=id=>db.exec('SELECT draft_json FROM desktop_bulk_bom_drafts WHERE id=? AND owner_id=?',[id,ownerId])[0]?.values?.[0]?.[0]
+   if(input.action==='list')return (db.exec(`SELECT draft_json FROM desktop_bulk_bom_drafts WHERE owner_id=? ORDER BY json_extract(draft_json,'$.name'),id`,[ownerId])[0]?.values||[]).map(([row])=>JSON.parse(row))
+   let result
+   if(input.action==='save'){
+    const {id,expectedRevision,buyerId,name,draft}=input
+    if(!cloudId.test(buyerId||'')||typeof name!=='string'||!name.trim()||name.length>160||
+       !Array.isArray(draft?.materials)||!Array.isArray(draft?.styles))throw Error('Invalid Bulk BOM draft.')
+    const existing=id&&load(id)
+    const previous=existing&&JSON.parse(existing)
+    if(id&&(!previous||previous.revision!==expectedRevision||previous.buyer_id!==buyerId))
+     throw Error('This draft changed. Open it again before saving.')
+    result={id:id||crypto.randomUUID(),buyer_id:buyerId,name:name.trim(),draft,revision:crypto.randomUUID()}
+    db.run('INSERT INTO desktop_bulk_bom_drafts VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET draft_json=excluded.draft_json',
+     [result.id,ownerId,JSON.stringify(result)])
+   }else if(input.action==='queue'){
+    if(!Array.isArray(input.orders)||!input.orders.length)throw Error('Select reviewed orders.')
+    const {isDeepStrictEqual}=require('node:util')
+    const stamp=new Date().toISOString()
+    initializeOrderSectionOverlays(db)
+    const rows=(table,field,values)=>{
+     if(!values.length)return []
+     const queries=[]
+     for(let i=0;i<values.length;i+=100){
+      const batch=values.slice(i,i+100)
+      queries.push(...(db.exec(`SELECT row_json FROM snapshot_rows WHERE table_name=? AND json_extract(row_json,'$.'||?) IN (${batch.map(()=>'?').join(',')})`,
+       [table,field,...batch])[0]?.values||[]))
+     }
+     return queries.map(([json])=>JSON.parse(json))
+    }
+    for(const change of input.orders){
+     const {orderId,expected,lines}=change||{}
+     if(!cloudId.test(orderId||'')||!Array.isArray(expected?.lines)||!Array.isArray(lines)||!lines.length||lines.length>300)
+      throw Error('Invalid reviewed BOM changes.')
+     const [order]=rows('orders','id',[orderId])
+     if(!order||order.buyer_id!==input.buyerId)throw Error('Refresh the order before applying Bulk BOM.')
+     assertOrderSectionAvailable(db,orderId,'bom_items',null)
+     for(const section of ['po_matrix','bom_items']){
+      if(db.exec('SELECT 1 FROM offline_order_section_overlays WHERE order_id=? AND section=?',[orderId,section]).length)
+       throw Error('Sync the earlier PO Matrix or BOM change before applying Bulk BOM.')
+     }
+     const original=rows('bom_items','order_id',[orderId])
+     const groups=rows('size_groups','order_id',[orderId])
+     const groupIds=groups.map(row=>row.id)
+     const current={step_bom:order.step_bom??null,total_qty:order.total_qty??null,
+      groups,colors:rows('size_group_colors','size_group_id',groupIds),
+      breakdown:rows('size_group_breakdown','size_group_id',groupIds),
+      lines:original}
+     const sorted=records=>[...records].sort((a,b)=>a.id.localeCompare(b.id))
+     if(Object.entries(current).some(([key,value])=>Array.isArray(value)
+       ?!Array.isArray(expected[key])||!isDeepStrictEqual(sorted(value),sorted(expected[key]))
+       :!isDeepStrictEqual(value,expected[key])))
+      throw Error('An order changed since review. Review Bulk BOM again.')
+     for(const row of original){
+      assertUnqueued(db,'bom_items',row.id)
+      if(db.exec("SELECT 1 FROM snapshot_edits WHERE table_name='bom_items' AND record_id=?",[row.id]).length)
+       throw Error('Sync the earlier BOM edit before applying Bulk BOM.')
+     }
+     const ids=new Set()
+     const inserts=[]
+     const updates=new Map()
+     let sort=original.reduce((max,row)=>Math.max(max,Number(row.sort_order??-1)),-1)
+     const allowed=['library_item_id','name','category','detail','specification','unit','usage_rule','usage_data','base_qty','final_qty','wastage']
+     for(const {existingId,after} of lines){
+      if(!after||!cloudId.test(after.library_item_id||'')||!after.name)throw Error('Invalid BOM line.')
+      const candidate=Object.fromEntries(allowed.map(key=>[key,after[key]??null]))
+      if(existingId){
+       const old=original.find(row=>row.id===existingId)
+       if(!old||old.use_cutting_qty||ids.has(existingId))throw Error('Review the existing BOM line again.')
+       ids.add(existingId)
+       const {detail,specification,unit,usage_rule,usage_data,base_qty,final_qty,wastage}=candidate
+       updates.set(existingId,{...old,detail,specification,unit,usage_rule,usage_data,base_qty,final_qty,wastage})
+      }else inserts.push({...candidate,id:crypto.randomUUID(),order_id:orderId,sort_order:++sort,use_cutting_qty:false})
+     }
+     const next=original.map(row=>updates.get(row.id)||row).concat(inserts)
+     const localLines=next.map(row=>({table:'bom_items',id:row.id,parentField:'order_id'}))
+     const intent=updateMutationIntent('orders',orderId,{step_bom:true},current,stamp,null,{
+      childTable:'bom_items',lines:next,lineIds:next.map(row=>row.id),localLines,independentOrderSection:true,
+      bulkBomPatch:{updates:[...updates.values()],inserts},
+     })
+     if(Buffer.byteLength(JSON.stringify(intent))>116000||!stageMutation(db,ownerId,intent))
+      throw Error('The reviewed order could not be queued. Review it again or sync earlier changes.')
+     db.run('INSERT INTO offline_order_section_overlays VALUES (?,?,?,?)',[orderId,'bom_items','{"step_bom":true}',stamp])
+     for(const [id,row] of updates)db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',['bom_items',id,JSON.stringify(row),stamp])
+     for(const row of inserts){
+      const {id,...fields}=row
+      db.run('INSERT INTO standalone_records VALUES (?,?,?,?,?)',[id,'bom_items',JSON.stringify(fields),stamp,stamp])
+     }
+    }
+    result={queued:input.orders.length}
+   }else throw Error('Invalid Bulk BOM action.')
+   const temp=file+'.'+crypto.randomUUID()+'.tmp'
+   try{
+    fs.writeFileSync(temp,Buffer.from(db.export()),{flag:'wx',mode:0o600})
+    if(!isCurrent()||!fs.readFileSync(file).equals(before))throw Error('Database or sign-in changed during Bulk BOM save.')
+    fs.renameSync(temp,file)
+   }finally{fs.rmSync(temp,{force:true})}
+   return result
+  }finally{db.close()}
+ })
+}
+
 async function queuePoMatrix(directory,{payload,ownerId,isCurrent}){
  const {p_order_id:orderId,p_groups:groups,p_total_qty:qty,p_total_value_usd:value,
   p_excess_cutting_pct:excess,p_queue_split_rule:rule}=payload||{}
@@ -1567,4 +1677,4 @@ async function queueParcelCreate(directory,{items,customItems,addressId,contactI
  })
 }
 
-module.exports={queueOperationalChange,queuePurchasingRemoval,queueParcelInvoice,queueArea3Records,queueOrderCopy,queueOrderRemoval,queueOrderImport,queueOrderSection,queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}
+module.exports={bulkBomLocal,queueOperationalChange,queuePurchasingRemoval,queueParcelInvoice,queueArea3Records,queueOrderCopy,queueOrderRemoval,queueOrderImport,queueOrderSection,queueOrderGeneral,queueBuyer,queueBom,queuePoMatrix,queueNewJob,queueParcelCreate,queuePurchasingDocument,queueParcelTransition,reviewSavedChanges,submitPendingMutations,TABLES,validateFields,listLocalRecords,listCombinedRecords,mutateLocalRecord,createLocalRecordBatch,mutateLocalRecordBatch,upsertLocalRecordBatch,readLocalRows:read}

@@ -317,7 +317,7 @@ function reconcileDocumentEdits(db,tables){
      Object.entries(header).every(([key,value])=>row[key]===value)))&&current&&tables[intent.table]?.some(row=>row.id===intent.id&&
      (intent.table!=='orders'||Object.entries(intent.changes).every(([key,value])=>row[key]===value)))&&
      linked.every((line,index)=>current.some(row=>row.id===line.id.replace(/^local-/,'')&&
-      (childTable!=='fitting_blocks'||Object.entries(intent.document.lines[index]).every(([key,value])=>
+      ((childTable!=='fitting_blocks'&&!intent.document.bulkBomPatch)||Object.entries(intent.document.lines[index]).every(([key,value])=>
        require('node:util').isDeepStrictEqual(row[key],value)))))&&
      intent.expected.lines.every(line=>linked.some(item=>item.id===line.id)||!current.some(row=>row.id===line.id))){
    if(intent.document.independentOrderSection)

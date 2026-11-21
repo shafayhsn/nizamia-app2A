@@ -1,0 +1,101 @@
+.bulk-bom {
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  width: min(1480px, 92vw);
+  height: min(780px, calc(88vh - 36px));
+}
+
+.bulk-bom-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-bottom: 1px solid #f0f0ee;
+  flex-shrink: 0;
+}
+
+.bulk-bom-steps button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 62px;
+  padding: 7px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: #fff;
+  color: #475569;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.bulk-bom-steps button:disabled { cursor: default; }
+.bulk-bom-steps button[aria-current='step'] {
+  border-bottom-color: #0d0d0d;
+  color: #0d0d0d;
+  font-weight: 700;
+}
+
+.bulk-bom-step-number {
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: #e5e5e3;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.bulk-bom-steps [aria-current='step'] .bulk-bom-step-number { color: #fff; background: #0d0d0d; }
+.bulk-bom-step-number[data-complete='true'] { color: #fff; background: #15803d; }
+.bulk-bom-body { flex: 1; min-height: 0; overflow: auto; padding: 24px 28px; }
+.bulk-bom-body h2 { font-size: 18px; margin: 0 0 18px; }
+.bulk-bom-body h3 { font-size: 14px; margin: 0 0 10px; }
+.bulk-bom-fields, .bulk-bom-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 18px; }
+.bulk-bom-tool { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
+.bulk-bom-tool .bulk-bom-field { flex: 1; min-width: 0; }
+.bulk-bom-field { display: grid; gap: 6px; font-size: 12px; font-weight: 650; color: #334155; }
+.bulk-bom input:not([type='checkbox']), .bulk-bom select {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 13px;
+  color: #111827;
+  background: #fff;
+}
+.bulk-bom input[type='number'] { width: 95px; }
+.bulk-bom input[type='checkbox'] { margin: 0; accent-color: #0d0d0d; }
+.bulk-bom input:disabled, .bulk-bom select:disabled { background: #f5f6f7; color: #475569; }
+.bulk-bom input:focus-visible, .bulk-bom select:focus-visible, .bulk-bom button:focus-visible, .bulk-bom summary:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.bulk-bom .table-wrap { border: 1px solid #e5e7eb; border-radius: 8px; overflow-x: auto; }
+.bulk-bom th { background: #f8fafc; color: #475569; white-space: nowrap; }
+.bulk-bom td { vertical-align: middle; }
+.bulk-bom-inline, .bulk-bom-rate { display: flex; align-items: center; gap: 8px; }
+.bulk-bom-inline label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.bulk-bom-rate + .bulk-bom-rate { margin-top: 6px; }
+.bulk-bom-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
+.bulk-bom-empty { display: grid; justify-items: center; gap: 8px; padding: 36px 12px; color: #475569; }
+.bulk-bom-context { margin-bottom: 12px; color: #475569; }
+.bulk-bom-group { border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+.bulk-bom-review-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.bulk-bom-review-group summary { padding: 9px 0; cursor: pointer; color: #334155; }
+.bulk-bom-notice, .bulk-bom-error { padding: 9px 12px; border-radius: 6px; margin: 0 0 12px; }
+.bulk-bom-notice { background: #f0fdf4; color: #166534; }
+.bulk-bom-error { background: #fef2f2; color: #991b1b; }
+.bulk-bom-footer { border-top: 1px solid #f0f0ee; display: flex; align-items: center; flex-wrap: wrap; min-height: 54px; padding: 8px 24px; gap: 10px; }
+.bulk-bom-spacer { flex: 1; }
+
+@media (max-width: 760px) {
+  .bulk-bom-body, .bulk-bom-footer { padding-inline: 14px; }
+  .bulk-bom-fields, .bulk-bom-tools { grid-template-columns: minmax(0, 1fr); }
+  .bulk-bom-filters .btn { justify-self: start; }
+}
+
+@media (max-width: 440px) {
+  .bulk-bom-tool { flex-direction: column; align-items: stretch; }
+}

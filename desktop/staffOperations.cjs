@@ -2,7 +2,7 @@
 const commonReads=new Set(['records','pending-status','version','refresh','po-review','drafts','pdf'])
 const fixed={
  'order-note':['orders','edit'],'order-copy':['orders','edit'],'order-import':['orders','create'],
- 'order-section':['orders','edit'],bom:['orders','edit'],'po-matrix':['orders','edit'],
+ 'order-section':['orders','edit'],'bulk-bom':['orders','edit'],bom:['orders','edit'],'po-matrix':['orders','edit'],
  'job-create':['orders','edit'],'parcel-create':['parcels','create'],'parcel-transition':['parcels','edit'],
  'sample-stage':['sampling','edit']
 }
