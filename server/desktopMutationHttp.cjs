@@ -151,6 +151,10 @@ function createDesktopMutationHttp({db,key,authorizeActor=async()=>true,actorDb=
     args={target_order:intent.id,section:intent.document.childTable,patch:intent.changes,expected:intent.expected,
      lines:intent.document.lines.map((line,index)=>({...line,id:intent.document.lineIds[index]}))}
    }else if(intent?.operation==='update'&&intent.table==='orders'&&uuid.test(intent.id||'')&&
+      intent.document?.childTable==='bom_items'&&intent.document.bulkBomPatch&&intent.expected){
+    rpc='desktop_apply_bulk_bom'
+    args={target_order:intent.id,expected:intent.expected,patch:intent.document.bulkBomPatch}
+   }else if(intent?.operation==='update'&&intent.table==='orders'&&uuid.test(intent.id||'')&&
       Object.keys(intent.changes||{}).join()==='step_bom'&&intent.changes.step_bom===true&&
       Array.isArray(intent.expected?.lines)&&Array.isArray(intent.document?.lines)&&
       Array.isArray(intent.document.lineIds)&&intent.document.lines.length===intent.document.lineIds.length&&

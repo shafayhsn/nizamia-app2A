@@ -15,7 +15,7 @@ concurrency:
 env:
   # The live desktop window follows the hosted app. Keep the local React
   # fallback and SQLite bridge together at the verified desktop source revision.
-  DESKTOP_SOURCE: 7ccef8c6f347e03bb26656374374fd57cbf35163
+  DESKTOP_SOURCE: bcbd1174c9496f186bfdc49867b52fb63476efed
   NZOS_VERSION: 1.1.${{ github.run_number }}
 
 jobs:
@@ -68,7 +68,7 @@ jobs:
         env:
           APP2A_DESKTOP_BUILD: '1'
       - name: Verify the packaged Library includes the Bulk BOM entry
-        run: node --test desktop/bulkBOMPackage.test.cjs
+        run: node --test desktop/bulkBOMPackage.test.cjs desktop/bulkBOMOffline.test.cjs src/lib/bulkBOMLocalReview.test.mjs
       - name: Package the installer
         run: npm run dist:${{ matrix.platform }} -- --publish never
         working-directory: desktop
