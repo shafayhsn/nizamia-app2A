@@ -31,7 +31,7 @@ jobs:
           node-version: '24'
       - run: npm ci --no-audit --no-fund
       - run: npm run build
-      - run: node --test server/fulfillment.test.cjs server/hrAttendance.test.cjs tests/page-visibility.test.mjs
+      - run: node --test server/bulkBOM.test.cjs server/fulfillment.test.cjs server/hrAttendance.test.cjs tests/page-visibility.test.mjs
 
   desktop:
     needs: web
