@@ -1,0 +1,315 @@
+import React, { useEffect, useState } from 'react'
+import { supabase } from '../lib/supabase'
+import MinimizableModal from './ui/MinimizableModal'
+import { markTabUpdated } from '../lib/tabNotices'
+import { printSamplingHTML } from '../lib/sampleProgramPrint'
+
+const steps = ['Select Trims', 'Select Styles', 'Set Consumptions', 'Review & Apply']
+const categories = ['Fabric', 'Stitching Trim', 'Packing Trim']
+const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]))
+const emptyDraft = { materials: [], styles: [] }
+
+function librarySpec(item) {
+  if (item.category !== 'Fabric') return item.description || ''
+  return [item.composition, item.weight, item.width_inches && item.width_inches + '"'].filter(Boolean).join(', ')
+}
+
+async function read(query) {
+  const { data, error } = await query
+  if (error) throw error
+  if (data == null) throw new Error('Connect to NZOS to use Bulk BOM.')
+  return data
+}
+
+async function readAll(query) {
+  const rows = []
+  for (let first = 0; ; first += 500) {
+    const page = await read(query.range(first, first + 499))
+    rows.push(...page)
+    if (page.length < 500) return rows
+  }
+}
+
+export default function BulkBOM({ buyers, packages, libraryItems }) {
+  const [saved, setSaved] = useState(null)
+  const [draft, setDraft] = useState(null)
+  const [name, setName] = useState('')
+  const [buyer, setBuyer] = useState('')
+  const [step, setStep] = useState(0)
+  const [orders, setOrders] = useState([])
+  const [batches, setBatches] = useState([])
+  const [membership, setMembership] = useState([])
+  const [groups, setGroups] = useState({})
+  const [batch, setBatch] = useState('')
+  const [search, setSearch] = useState('')
+  const [materialId, setMaterialId] = useState('')
+  const [packageId, setPackageId] = useState('')
+  const [review, setReview] = useState([])
+  const [checked, setChecked] = useState([])
+  const [replacements, setReplacements] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [list, setList] = useState(null)
+  const library = new Map(libraryItems.filter(item => categories.includes(item.category)).map(item => [item.id, item]))
+
+  async function run(action) {
+    setBusy(true)
+    setError('')
+    try { await action() }
+    catch (failure) { setError(failure.message || String(failure)) }
+    finally { setBusy(false) }
+  }
+
+  async function openList() {
+    await run(async () => setList(await readAll(supabase.from('bulk_bom_drafts').select('*').order('name').order('id'))))
+  }
+
+  function open(record) {
+    setList(null)
+    setSaved(record)
+    setName(record?.name || '')
+    setBuyer(record?.buyer_id || '')
+    setDraft(record?.draft || emptyDraft)
+    setStep(0)
+    setBatch('')
+    setSearch('')
+    setPackageId('')
+    setMaterialId('')
+    setNotice('')
+    setError('')
+  }
+
+  useEffect(() => {
+    setOrders([])
+    setBatches([])
+    setMembership([])
+    setGroups({})
+    if (!draft || !buyer) return
+    let active = true
+    readAll(supabase.from('orders').select('id,style_number,po_number,store_name').eq('buyer_id', buyer).order('id'))
+      .then(rows => { if (active) setOrders(rows) })
+      .catch(failure => { if (active) setError(failure.message) })
+    Promise.all([
+      readAll(supabase.from('production_batches').select('id,name').order('name').order('id')),
+      readAll(supabase.from('production_batch_orders').select('order_id,batch_id').order('order_id').order('batch_id')),
+    ]).then(([allBatches, links]) => {
+      if (active) { setBatches(allBatches); setMembership(links) }
+    }).catch(() => {})
+    return () => { active = false }
+  }, [buyer, !!draft])
+
+  function add(ids) {
+    const existing = new Set(draft.materials.map(item => item.id))
+    const additions = [...new Set(ids)].filter(id => library.has(id) && !existing.has(id))
+    setDraft(current => ({ ...current, materials: [...current.materials,
+      ...additions.map(id => ({ id, usage: 'Generic', shared: false, rate: '', settings: {} }))] }))
+    setNotice(additions.length + ' added' + (ids.length > additions.length ? '. Existing or unavailable materials skipped.' : '.'))
+  }
+
+  function changeMaterial(id, change) {
+    setDraft(current => ({ ...current, materials: current.materials.map(item => item.id === id ? { ...item, ...change } : item) }))
+  }
+
+  function changeSettings(item, style, change) {
+    changeMaterial(item.id, { settings: { ...item.settings, [style]: { ...item.settings[style], ...change } } })
+  }
+
+  async function save() {
+    const values = { name: name.trim(), draft, revision: crypto.randomUUID() }
+    const query = saved
+      ? supabase.from('bulk_bom_drafts').update(values).eq('id', saved.id).eq('revision', saved.revision)
+      : supabase.from('bulk_bom_drafts').insert({ ...values, buyer_id: buyer })
+    const record = await read(query.select().single())
+    setSaved(record)
+    return record
+  }
+
+  async function beginReview() {
+    const record = await save()
+    setReview(await read(supabase.rpc('bulk_bom_review', { draft_id: record.id, selected_styles: draft.styles })))
+    setChecked([])
+    setReplacements([])
+    setNotice('')
+    setStep(3)
+  }
+
+  async function loadGroups() {
+    const ids = orders.filter(order => draft.styles.includes(order.style_number)).map(order => order.id)
+    const pages = []
+    for (let start = 0; start < ids.length; start += 100) {
+      pages.push(readAll(supabase.from('size_groups').select('id,order_id,group_name').in('order_id', ids.slice(start, start + 100)).order('id')))
+    }
+    const rows = (await Promise.all(pages)).flat()
+    const names = {}
+    for (const order of orders) {
+      if (!draft.styles.includes(order.style_number)) continue
+      names[order.style_number] = [...new Set([...(names[order.style_number] || []),
+        ...rows.filter(group => group.order_id === order.id).map(group => group.group_name).filter(Boolean)])]
+    }
+    setGroups(names)
+    setStep(2)
+  }
+
+  const styleCounts = new Map()
+  orders.forEach(order => {
+    if (order.style_number) styleCounts.set(order.style_number, (styleCounts.get(order.style_number) || 0) + 1)
+  })
+  const batchOrders = new Set(membership.filter(link => link.batch_id === batch).map(link => link.order_id))
+  const visible = [...new Set(orders.filter(order => order.style_number && (!batch || batchOrders.has(order.id)) &&
+    order.style_number.toLowerCase().includes(search.toLowerCase())).map(order => order.style_number))].sort()
+  const ready = (draft?.styles || []).filter(style => review.some(row => row.style === style) &&
+    !review.some(row => row.style === style && row.action === 'Blocked'))
+  const selectedRows = review.filter(row => checked.includes(row.style))
+  const selectedCount = new Set(selectedRows.map(row => row.order_id)).size
+  const changeCount = selectedRows.filter(row => row.action === 'Add' || replacements.includes(row.before?.id)).length
+  const toggle = (values, value) => values.includes(value) ? values.filter(item => item !== value) : [...values, value]
+  function consumption(line) {
+    if (line?.base_qty != null) return line.base_qty
+    let rates = line?.usage_data
+    if (typeof rates === 'string') {
+      try { rates = JSON.parse(rates) }
+      catch { return 'See Order Wizard' }
+    }
+    return Object.entries(rates || {}).filter(([key]) => !key.startsWith('_'))
+      .map(([key, rate]) => key + ': ' + (typeof rate === 'object' ? rate?.value ?? '—' : rate)).join(', ')
+  }
+  const specText = line => [line?.detail, line?.specification].filter(Boolean).join(' · ')
+  const outcome = row => row.issue || (row.action === 'Replace' ? replacements.includes(row.before.id) && checked.includes(row.style)
+    ? 'Replace existing line' : 'Keep existing line' : row.action)
+  const headings = ['PO', 'Store', 'Material', 'Usage', 'Detail / Spec', 'Consumption', 'Required', 'Change']
+  function cells(row) {
+    const { after, before } = row
+    return [[row.po, batch && !batchOrders.has(row.order_id) ? 'Outside batch filter' : ''].filter(Boolean).join(' · '), row.store, after.name, after.usage_rule, specText(after), consumption(after),
+      after.final_qty == null ? '—' : after.final_qty + ' ' + (after.unit || ''),
+      [outcome(row), row.action === 'Replace' && ('Existing: ' + [before.usage_rule, specText(before), consumption(before)].filter(Boolean).join(' · '))].filter(Boolean).join(' — ')]
+  }
+
+  function printReview() {
+    const body = draft.styles.map(style => '<h2>' + esc(style) + ' · ' + (checked.includes(style) ? 'Selected' : 'Unchecked') +
+      '</h2><table><thead><tr>' + headings.map(label => '<th>' + esc(label) + '</th>').join('') +
+      '</tr></thead><tbody>' + review.filter(row => row.style === style).map(row => '<tr>' +
+        cells(row).map(cell => '<td>' + esc(cell) + '</td>').join('') + '</tr>').join('') + '</tbody></table>').join('')
+    printSamplingHTML('<h1>Bulk BOM review</h1><p>' + esc(name) + ' · ' +
+      esc(buyers.find(item => item.id === buyer)?.name) + '</p>' + body, 'Bulk BOM review')
+  }
+
+  async function applyChecked() {
+    const replacementIds = selectedRows.filter(row => row.action === 'Replace' && replacements.includes(row.before.id)).map(row => row.before.id)
+    if (replacementIds.length && !window.confirm('Overwrite ' + replacementIds.length + ' selected existing BOM lines?')) return
+    await read(supabase.rpc('bulk_bom_review', {
+      draft_id: saved.id, selected_styles: checked, expected: selectedRows, replace_lines: replacementIds,
+    }))
+    markTabUpdated('purchasingPage', 'material')
+    setNotice('Applied ' + changeCount + ' BOM lines across ' + selectedCount + ' POs.')
+    setChecked([])
+    setReplacements([])
+    setReview(await read(supabase.rpc('bulk_bom_review', { draft_id: saved.id, selected_styles: draft.styles })))
+  }
+
+  const canSave = !!buyer && !!name.trim()
+  const buyerPackages = packages.filter(item => item.buyer_id === buyer)
+  const selectedPackage = buyerPackages.find(item => item.id === packageId)
+  return <>
+    <button className="btn btn-secondary" disabled={busy} onClick={openList}>Saved Bulk BOMs</button>
+    <button className="btn btn-primary" onClick={() => open(null)}>Build Bulk BOM</button>
+    {error && !draft && !list && <span role="alert">{error}</span>}
+    {list && <MinimizableModal title="Saved Bulk BOMs" onClose={() => setList(null)}>
+      <section className="card" style={{padding: 20, width: 'min(700px, 90vw)'}}>
+        <header className="section-header"><h2>Saved Bulk BOMs</h2><button className="btn btn-secondary" onClick={() => setList(null)}>Close</button></header>
+        {list.length ? list.map(record => <p key={record.id}><button className="btn btn-secondary" onClick={() => open(record)}>{record.name}</button>{' '}
+          {buyers.find(item => item.id === record.buyer_id)?.name} · {record.applied_at ? 'Previously applied' : 'Draft'}</p>) : <p>No saved Bulk BOMs.</p>}
+      </section>
+    </MinimizableModal>}
+    {draft && <MinimizableModal title="Bulk BOM Creation" onClose={() => !busy && setDraft(null)}>
+      <section className="card" style={{width: 'min(1180px, 94vw)', maxHeight: '88vh', overflow: 'auto', padding: 20}}>
+        <header className="section-header"><h2>Bulk BOM Creation</h2>
+          <button className="btn btn-secondary" disabled={busy} onClick={() => setDraft(null)}>Close</button></header>
+        <p aria-label="Progress">{steps.map((label, index) => <span key={label} aria-current={step === index ? 'step' : undefined}
+          style={{marginRight: 20, fontWeight: step === index ? 700 : 400}}>{index + 1}. {label}</span>)}</p>
+        {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
+        {step === 0 && <>
+          <label>Name <input className="form-control" maxLength={160} value={name} onChange={event => setName(event.target.value)}/></label>
+          <label>Buyer <select className="form-control" disabled={!!saved || busy} value={buyer} onChange={event => {
+            setBuyer(event.target.value); setBatch(''); setSearch(''); setPackageId(''); setMaterialId(''); setNotice(''); setError(''); setDraft(emptyDraft)
+          }}><option value="">Select one buyer</option>{buyers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <div className="section-header">
+            <label>Trim Package <select className="form-control" disabled={!buyer} value={packageId} onChange={event => setPackageId(event.target.value)}>
+              <option value="">Select package</option>{buyerPackages.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <button className="btn btn-secondary" disabled={!selectedPackage} onClick={() => add((selectedPackage.bom_preset_items || []).map(item => item.library_item_id))}>Import Trim Package</button>
+            <label>Library material <select className="form-control" disabled={!buyer} value={materialId} onChange={event => setMaterialId(event.target.value)}>
+              <option value="">Select material</option>{categories.map(category => <optgroup key={category} label={category}>
+                {[...library.values()].filter(item => item.category === category).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </optgroup>)}</select></label>
+            <button className="btn btn-secondary" disabled={!materialId} onClick={() => add([materialId])}>Add Material</button>
+          </div>
+          <div className="table-wrap"><table><thead><tr>{['Category','Material','Usage','Same Consumption Per Style',''].map(label => <th key={label}>{label}</th>)}</tr></thead>
+            <tbody>{draft.materials.map(item => <tr key={item.id}>
+              <td>{library.get(item.id)?.category}</td><td>{library.get(item.id)?.name || 'Unavailable material'}</td>
+              <td><select className="form-control" aria-label="Usage" value={item.usage} onChange={event => changeMaterial(item.id,{usage:event.target.value})}>
+                <option>Generic</option><option>By Size Group</option></select></td>
+              <td><label><input type="checkbox" checked={item.shared} onChange={event => changeMaterial(item.id,{shared:event.target.checked})}/> Same rate</label>{' '}
+                <input aria-label="Shared consumption" type="number" min="0" step="any" disabled={!item.shared} value={item.rate} onChange={event => changeMaterial(item.id,{rate:event.target.value})}/></td>
+              <td><button className="btn btn-secondary" onClick={() => setDraft({...draft, materials:draft.materials.filter(row => row.id !== item.id)})}>Remove</button></td>
+            </tr>)}</tbody></table></div>
+        </>}
+        {step === 1 && <>
+          <div className="section-header">
+            <label>Find styles <input className="form-control" value={search} onChange={event => setSearch(event.target.value)}/></label>
+            <label>Internal batch filter <select className="form-control" value={batch} onChange={event => setBatch(event.target.value)}>
+              <option value="">All batches</option>{batches.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <button className="btn btn-secondary" onClick={() => setDraft({...draft, styles:[...new Set([...draft.styles,...visible])]})}>Select visible styles</button>
+          </div>
+          <p>{draft.styles.length} styles selected. Selecting a style includes all its POs for this buyer.</p>
+          {[...new Set([...visible,...draft.styles])].map(style => <p key={style}><label>
+            <input type="checkbox" checked={draft.styles.includes(style)} onChange={() => setDraft({...draft, styles:toggle(draft.styles,style)})}/>
+            {' '}{style} · {styleCounts.get(style) || 0} POs{!visible.includes(style) && ' · outside filter'}
+          </label></p>)}
+        </>}
+        {step === 2 && draft.styles.map(style => <section key={style}><h3>{style}</h3>
+          <div className="table-wrap"><table><thead><tr><th>Material</th><th>Detail / Spec</th><th>Consumption</th></tr></thead>
+          <tbody>{draft.materials.map(item => {
+            const lib = library.get(item.id)
+            const settings = item.settings[style] || {}
+            return <tr key={item.id}><td>{lib?.name || 'Unavailable material'}</td>
+              <td><input className="form-control" aria-label={'Detail / Spec for ' + (lib?.name || 'material')}
+                value={settings.spec ?? (lib ? librarySpec(lib) : '')} onChange={event => changeSettings(item,style,{spec:event.target.value})}/></td>
+              <td>{(item.usage === 'Generic' ? ['All sizes'] : groups[style] || []).map(group => <label key={group} style={{display:'block'}}>
+                {group} <input type="number" min="0" step="any" disabled={item.shared}
+                  value={item.shared ? item.rate : item.usage === 'Generic' ? settings.rate ?? '' : settings.rates?.[group] ?? ''}
+                  onChange={event => changeSettings(item,style,item.usage === 'Generic' ? {rate:event.target.value} :
+                    {rates:{...settings.rates,[group]:event.target.value}})}/> {lib?.unit}
+              </label>)}</td></tr>
+          })}</tbody></table></div></section>)}
+        {step === 3 && <>
+          <div className="section-header">
+            <label><input type="checkbox" checked={ready.length > 0 && ready.every(style => checked.includes(style))}
+              onChange={event => setChecked(event.target.checked ? ready : [])}/> Select all ready styles</label>
+            <button className="btn btn-secondary" onClick={printReview}>Print Review</button>
+          </div>
+          {draft.styles.map(style => <section key={style} style={{marginBottom:12}}>
+            <label><input type="checkbox" checked={checked.includes(style)} disabled={!ready.includes(style) || busy}
+              onChange={() => setChecked(toggle(checked,style))}/> {style}{!ready.includes(style) && ' · Needs attention'}</label>
+            <details><summary>Review POs and stores</summary><div className="table-wrap"><table><thead><tr>
+              {headings.map(label => <th key={label}>{label}</th>)}<th>Overwrite</th></tr></thead><tbody>
+              {review.filter(row => row.style === style).map(row => <tr key={row.order_id + '|' + row.after.library_item_id}>
+                {cells(row).map((cell,index) => <td key={index}>{cell}</td>)}
+                <td>{row.action === 'Replace' && <label><input type="checkbox" checked={replacements.includes(row.before.id)}
+                  onChange={() => setReplacements(toggle(replacements,row.before.id))}/> Replace</label>}</td>
+              </tr>)}</tbody></table></div></details>
+          </section>)}
+        </>}
+        <footer className="section-header">
+          {step > 0 && <button className="btn btn-secondary" disabled={busy} onClick={() => setStep(step - 1)}>Back</button>}
+          {step < 3 && <button className="btn btn-secondary" disabled={busy || !canSave} onClick={() => run(async () => { await save(); setNotice('Draft saved.') })}>Save Draft</button>}
+          {step === 0 && <button className="btn btn-primary" disabled={busy || !canSave || !draft.materials.length} onClick={() => setStep(1)}>Next Step</button>}
+          {step === 1 && <button className="btn btn-primary" disabled={busy || !draft.styles.length} onClick={() => run(loadGroups)}>Next Step</button>}
+          {step === 2 && <button className="btn btn-primary" disabled={busy} onClick={() => run(beginReview)}>Review Bulk BOM</button>}
+          {step === 3 && <button className="btn btn-primary" disabled={busy || !changeCount} onClick={() => run(applyChecked)}>
+            Apply BOM to {checked.length} styles · {selectedCount} POs
+          </button>}
+        </footer>
+      </section>
+    </MinimizableModal>}
+  </>
+}
