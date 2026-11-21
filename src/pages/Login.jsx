@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/authContext'
 import { version as webVersion } from '../../package.json'
 
@@ -10,6 +10,7 @@ const REMEMBER_FLAG_KEY = 'nizamia_app2a_remember_login'
 
 export default function Login() {
   const navigate = useNavigate()
+  const destination = useLocation().state?.openBulkBOM ? '/library?tab=trim-packages' : '/dashboard'
   const { user, loading, login } = useAuth()
   const remembered = useMemo(() => localStorage.getItem(REMEMBER_FLAG_KEY) === 'yes', [])
   const [identifier, setIdentifier] = useState(() => remembered ? (localStorage.getItem(REMEMBER_LOGIN_KEY) || '') : '')
@@ -20,10 +21,10 @@ export default function Login() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (user) navigate('/dashboard', { replace: true })
-  }, [user, navigate])
+    if (user) navigate(destination, { replace: true })
+  }, [user, navigate, destination])
 
-  if (!loading && user) return <Navigate to="/dashboard" replace />
+  if (!loading && user) return <Navigate to={destination} replace />
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -46,7 +47,7 @@ export default function Login() {
         localStorage.removeItem(REMEMBER_FLAG_KEY)
         localStorage.removeItem(REMEMBER_LOGIN_KEY)
       }
-      navigate('/dashboard', { replace: true })
+      navigate(destination, { replace: true })
     } catch (err) {
       setError('Invalid username/email or password.')
     } finally {
