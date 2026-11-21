@@ -3,7 +3,7 @@ import { supabase } from '../../../lib/supabase'
 import { markTabUpdated } from '../../../lib/tabNotices'
 import { Plus, Trash2, Check, Library, X, Settings2, AlertTriangle, Search, Scissors, PackageOpen } from 'lucide-react'
 
-const USAGE_RULES = ['Generic', 'By Color', 'By Size Group', 'By Individual Sizes', 'Configure Own', 'By Batch']
+import { USAGE_RULES, buildBOMMatrix, calculateBOMFinalQty, normalizeUsageCell, normalizeUsageData } from '../../../lib/bomUsage'
 const UNITS = ['yards', 'meters', 'cm', 'inch', 'ft', 'pcs', 'kg', 'gram', 'cone', 'set', 'sht', 'ctn', 'roll', 'ltr']
 const PACKING_FORMS = ['Cone', 'Roll', 'Spool', 'Box', 'Bag', 'Carton', 'Reel', 'Bundle', 'Piece']
 const TABLES = [
@@ -15,48 +15,32 @@ const COVERAGE_COLOR = { full: '#16a34a', partial: '#f59e0b', none: '#e5e7eb' }
 
 function tempId() { return Math.random().toString(36).slice(2) }
 
-function normalizeUsageData(ud) {
-  if (!ud) return {}
-  if (typeof ud === 'string') {
-    try {
-      const parsed = JSON.parse(ud)
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
-    } catch (e) { return {} }
-  }
-  return typeof ud === 'object' && !Array.isArray(ud) ? ud : {}
-}
-
-function normalizeUsageCell(cell) {
-  if (cell && typeof cell === 'object' && !Array.isArray(cell)) return { value: cell.value ?? '', na: !!cell.na }
-  return { value: cell ?? '', na: false }
-}
-
 function getStaleKeys(item, poData) {
   const rule = item.usage_rule
   const ud   = normalizeUsageData(item.usage_data)
   if (!rule || rule === 'Generic' || !ud) return []
-  if (rule === 'By Color') return poData.colors.map(c => c.name).filter(n => !(n in ud))
-  if (rule === 'By Size Group') return poData.sizeGroups.map(g => g.name).filter(n => !(n in ud))
-  if (rule === 'By Individual Sizes') return poData.allSizes.map(s => s.size).filter(s => !(s in ud))
+  if (rule === 'By Color') return poData.colors.filter(c => c.qty > 0).map(c => c.name).filter(n => !(n in ud))
+  if (rule === 'By Size Group') return poData.sizeGroups.filter(g => g.qty > 0).map(g => g.name).filter(n => !(n in ud))
+  if (rule === 'By Individual Sizes') return poData.allSizes.filter(s => s.qty > 0).map(s => s.size).filter(s => !(s in ud))
   if (rule === 'By Batch') {
     const batches = ud.__batches || []
     const assigned = batches.flatMap(b => (b.cells || []).map(c => `${c.sgName}||${c.colorName}||${c.size || ''}`))
-    return (poData.sgMatrix || []).flatMap(sg => sg.colors.flatMap(c => (c.sizes || []).map(sz => `${sg.sgName}||${c.colorName}||${sz.size}`))).filter(k => !assigned.includes(k))
+    return (poData.sgMatrix || []).flatMap(sg => sg.colors.flatMap(c => (c.sizes || []).filter(sz => sz.qty > 0).map(sz => `${sg.sgName}||${c.colorName}||${sz.size}`))).filter(k => !assigned.includes(k) && !assigned.includes(k.split('||').slice(0, 2).join('||') + '||'))
   }
   if (rule === 'Configure Own') {
     if (ud.__matrix) {
       const assigned = ud.__matrix.map(m => `${m.sgName}||${m.colorName}`)
-      return (poData.sgMatrix || []).flatMap(sg => sg.colors.map(c => `${sg.sgName}||${c.colorName}`)).filter(k => !assigned.includes(k))
+      return (poData.sgMatrix || []).flatMap(sg => sg.colors.filter(c => c.qty > 0).map(c => `${sg.sgName}||${c.colorName}`)).filter(k => !assigned.includes(k))
     }
     const groups = ud.__groups || []
     const assigned = groups.flatMap(g => g.sizes)
-    return poData.allSizes.map(s => s.size).filter(s => !assigned.includes(s))
+    return poData.allSizes.filter(s => s.qty > 0).map(s => s.size).filter(s => !assigned.includes(s))
   }
   return []
 }
 
 // ── Usage Config Modal ────────────────────────────────────────────────────────
-function UsageModal({ config, onClose, onSave, poData, orderData }) {
+export function UsageModal({ config, onClose, onSave, poData, orderData }) {
   const { item, rule } = config
   const wastage = parseFloat(item.wastage) || 0
 
@@ -68,6 +52,9 @@ function UsageModal({ config, onClose, onSave, poData, orderData }) {
       if (k.startsWith('_')) return
       out[k] = normalizeUsageCell(v)
     })
+    if (rule === 'Generic' && Number(item.base_qty) > 0 && !out.generic?.na) {
+      out.generic = { value: item.base_qty, na: false }
+    }
     return out
   })
   const [matrixData, setMatrixData] = useState(() => {
@@ -97,62 +84,44 @@ function UsageModal({ config, onClose, onSave, poData, orderData }) {
   const inp = { height: 30, padding: '0 8px', border: '1px solid #e5e7eb', borderRadius: 5, fontSize: 12, fontFamily: 'Inter,sans-serif', outline: 'none', background: '#fff', width: '100%', boxSizing: 'border-box' }
   const TH = ({ children, right }) => <th style={{ textAlign: right ? 'right' : 'left', fontSize: 10, fontWeight: 600, color: '#9ca3af', padding: '0 8px 8px 0', textTransform: 'uppercase' }}>{children}</th>
 
-  const totalFQ = (() => {
-    if (rule === 'Generic') {
-      const totalQty = poData.allSizes.reduce((s, x) => s + x.qty, 0)
-      return genericCell.na ? null : ((parseFloat(genericCell.value) || 0) * totalQty * (1 + wastage / 100) || null)
-    }
+  function getUsageData() {
+    if (rule === 'Generic') return { generic: genericCell }
     if (rule === 'Configure Own') {
-      const total = (poData.sgMatrix || []).reduce((s, sg) =>
-        s + sg.colors.reduce((ss, c) => { const cell = matrixData[`${sg.sgName}||${c.colorName}`] || { value: '', na: false }; return ss + (cell.na ? 0 : (parseFloat(cell.value) || 0) * c.qty * (1 + wastage / 100)) }, 0), 0)
-      return total > 0 ? total : null
+      const matrix = Object.entries(matrixData)
+        .filter(([, cell]) => cell.na || (cell.value !== '' && cell.value != null))
+        .map(([key, cell]) => {
+          const [sgName, colorName] = key.split('||')
+          return { sgName, colorName, consumption: cell.na ? '' : cell.value, na: !!cell.na }
+        })
+      return { __matrix: matrix }
     }
     if (rule === 'By Batch') {
-      const total = batchData.reduce((sum, b) => {
-        const qty = (b.cells || []).reduce((sq, cell) => {
-          const sg = (poData.sgMatrix || []).find(x => x.sgName === cell.sgName)
-          const c = sg?.colors.find(x => x.colorName === cell.colorName)
-          if (cell.size) return sq + (parseFloat((c?.sizes || []).find(sz => sz.size === cell.size)?.qty) || 0)
-          return sq + (parseFloat(c?.qty) || 0)
-        }, 0)
-        return sum + (parseFloat(b.consumption) || 0) * qty * (1 + wastage / 100)
-      }, 0)
-      return total > 0 ? total : null
+      return { __batches: batchData.map((b, i) => ({
+        name: b.name || 'Batch ' + (i + 1), consumption: b.consumption || '', cells: b.cells || [],
+      })).filter(b => b.cells.length || b.consumption) }
     }
-    const entries = Object.entries(data)
-    if (!entries.length) return null
-    const total = entries.reduce((s, [k, cons]) => {
-      const qty = rule === 'By Color' ? poData.colors.find(x => x.name === k)?.qty
-        : rule === 'By Size Group' ? poData.sizeGroups.find(x => x.name === k)?.qty
-        : poData.allSizes.find(x => x.size === k)?.qty
-      return s + (parseFloat(cons) || 0) * (qty || 0) * (1 + wastage / 100)
-    }, 0)
-    return total > 0 ? total : null
-  })()
+    return Object.fromEntries(Object.entries(data).map(([key, cell]) => [key, normalizeUsageCell(cell)]))
+  }
 
+  const totalFQ = calculateBOMFinalQty({ usage_rule: rule, usage_data: getUsageData(), wastage }, {
+    poData, totalQty: orderData?.total_qty ?? poData.allSizes.reduce((sum, size) => sum + size.qty, 0), round: false,
+  })
   const packsNeeded = totalFQ && packingQty ? Math.ceil(totalFQ / parseFloat(packingQty)) : null
 
   const handleSave = () => {
-    let usageData = {}
-    if (rule === 'Generic') {
-      usageData = { generic: genericCell }
-    } else if (rule === 'Configure Own') {
-      const matrix = Object.entries(matrixData)
-        .filter(([, cell]) => (cell?.na) || (cell?.value !== '' && cell?.value != null))
-        .map(([key, cell]) => { const [sgName, colorName] = key.split('||'); return { sgName, colorName, consumption: cell?.na ? '' : (cell?.value ?? ''), na: !!cell?.na } })
-      usageData = { __matrix: matrix }
-    } else if (rule === 'By Batch') {
+    const usageData = getUsageData()
+    if (rule === 'By Batch') {
       const seen = new Set()
-      for (const b of batchData) {
-        for (const cell of (b.cells || [])) {
-          const k = `${cell.sgName}||${cell.colorName}||${cell.size || ''}`
-          if (seen.has(k)) { alert(`${cell.sgName} / ${cell.colorName}${cell.size ? ' / Size ' + cell.size : ''} is already used in another batch.`); return }
-          seen.add(k)
+      for (const batch of usageData.__batches) {
+        for (const cell of batch.cells) {
+          const key = JSON.stringify([cell.sgName, cell.colorName, cell.size || ''])
+          if (seen.has(key)) {
+            alert([cell.sgName, cell.colorName, cell.size].filter(Boolean).join(' / ') + ' is already used in another batch.')
+            return
+          }
+          seen.add(key)
         }
       }
-      usageData = { __batches: batchData.map((b, i) => ({ name: b.name || `Batch ${i + 1}`, consumption: b.consumption || '', cells: b.cells || [] })).filter(b => b.cells.length || b.consumption) }
-    } else {
-      usageData = Object.fromEntries(Object.entries(data).map(([k, cell]) => [k, normalizeUsageCell(cell)]))
     }
     if (packingQty) usageData._packing_qty = packingQty
     if (packingUnit) usageData._packing_unit = packingUnit
@@ -572,36 +541,7 @@ export default function Step3BOM({ orderId, orderData, onSaved, registerSave }) 
     const { data: colors } = await supabase.from('size_group_colors').select('*').in('size_group_id', sgs.map(g => g.id)).order('sort_order')
     const { data: bd }     = await supabase.from('size_group_breakdown').select('*').in('size_group_id', sgs.map(g => g.id))
 
-    const colorMap = {}
-    colors?.forEach(c => { colorMap[c.id] = { name: c.color_name, qty: 0 } })
-    bd?.forEach(b => { if (colorMap[b.color_id]) colorMap[b.color_id].qty += b.qty || 0 })
-    const colorList = Object.values(colorMap)
-
-    const sizeGroupList = sgs.map(g => ({
-      name: g.group_name, sizes: g.sizes || [],
-      qty: bd?.filter(b => b.size_group_id === g.id).reduce((s, b) => s + (b.qty || 0), 0) || 0
-    }))
-
-    const sizeQtyMap = {}
-    bd?.forEach(b => { sizeQtyMap[b.size] = (sizeQtyMap[b.size] || 0) + (b.qty || 0) })
-    const seenSizes = []
-    sgs.forEach(g => (g.sizes || []).forEach(sz => { if (!seenSizes.includes(sz)) seenSizes.push(sz) }))
-    const allSizeList = seenSizes.map(sz => ({ size: sz, qty: sizeQtyMap[sz] || 0 }))
-
-    const sgMatrix = sgs.map(g => {
-      const bdForGroup = bd?.filter(b => b.size_group_id === g.id) || []
-      const colorsForGroup = (colors || []).filter(c => c.size_group_id === g.id)
-      return {
-        sgName: g.group_name, sizes: g.sizes || [],
-        colors: colorsForGroup.map(c => ({
-          colorName: c.color_name,
-          sizes: (g.sizes || []).map(sz => ({ size: sz, qty: (bdForGroup.find(b => b.color_id === c.id && b.size === sz)?.qty || 0) })),
-          qty: (g.sizes || []).reduce((s, sz) => s + (bdForGroup.find(b => b.color_id === c.id && b.size === sz)?.qty || 0), 0),
-        })),
-      }
-    })
-
-    setPoData({ colors: colorList, sizeGroups: sizeGroupList, allSizes: allSizeList, sgMatrix })
+    setPoData(buildBOMMatrix(sgs, colors || [], bd || []))
   }
 
   const addBlank = (cat) => setItems(i => [...i, {
@@ -727,78 +667,14 @@ export default function Step3BOM({ orderId, orderData, onSaved, registerSave }) 
     setSaving(false)
   }
 
-  const handleUsageSave = (itemIdx, usageData) => upd(itemIdx, 'usage_data', usageData)
+  const handleUsageSave = (itemIdx, usageData) => setItems(current => current.map((item, index) =>
+    index !== itemIdx ? item : {
+      ...item,
+      usage_data: usageData,
+      base_qty: item.usage_rule === 'Generic' ? normalizeUsageCell(usageData.generic).value : item.base_qty,
+    }))
 
-  const calcFinalQty = (item) => {
-    const wastage = parseFloat(item.wastage) || 0
-    const rule = item.usage_rule || 'Generic'
-    const ud = normalizeUsageData(item.usage_data)
-    const useCut = item.use_cutting_qty && excessCutPct > 0
-    const multiplier = useCut ? cuttingQtyMult : 1
-
-    if (rule === 'Generic') {
-      const generic = normalizeUsageCell(ud?.generic)
-      if (generic.na) return null
-      const base = parseFloat(item.base_qty) || parseFloat(generic.value) || 0
-      if (!base || !totalQty) return null
-      return (base * totalQty * multiplier * (1 + wastage / 100)).toFixed(1)
-    }
-    if (!ud) return null
-    if (rule === 'By Color') {
-      const total = Object.entries(ud).filter(([k]) => !String(k).startsWith('_')).reduce((s, [n, cons]) => {
-        const c = poData.colors.find(c => c.name === n)
-        const cell = normalizeUsageCell(cons)
-        return s + (cell.na ? 0 : (parseFloat(cell.value) || 0) * (c?.qty || 0) * multiplier * (1 + wastage / 100))
-      }, 0)
-      return total > 0 ? total.toFixed(1) : null
-    }
-    if (rule === 'By Size Group') {
-      const total = Object.entries(ud).filter(([k]) => !String(k).startsWith('_')).reduce((s, [n, cons]) => {
-        const g = poData.sizeGroups.find(x => x.name === n)
-        const cell = normalizeUsageCell(cons)
-        return s + (cell.na ? 0 : (parseFloat(cell.value) || 0) * (g?.qty || 0) * multiplier * (1 + wastage / 100))
-      }, 0)
-      return total > 0 ? total.toFixed(1) : null
-    }
-    if (rule === 'By Individual Sizes') {
-      const total = Object.entries(ud).filter(([k]) => !String(k).startsWith('_')).reduce((s, [sz, cons]) => {
-        const found = poData.allSizes.find(x => x.size === sz)
-        const cell = normalizeUsageCell(cons)
-        return s + (cell.na ? 0 : (parseFloat(cell.value) || 0) * (found?.qty || 0) * multiplier * (1 + wastage / 100))
-      }, 0)
-      return total > 0 ? total.toFixed(1) : null
-    }
-    if (rule === 'Configure Own') {
-      if (ud.__matrix) {
-        const total = ud.__matrix.reduce((s, m) => {
-          const sg = (poData.sgMatrix || []).find(x => x.sgName === m.sgName)
-          const c  = sg?.colors.find(x => x.colorName === m.colorName)
-          return s + (parseFloat(m.consumption) || 0) * (c?.qty || 0) * multiplier * (1 + wastage / 100)
-        }, 0)
-        return total > 0 ? total.toFixed(1) : null
-      }
-      const groups = ud.__groups || []
-      const total = groups.reduce((s, g) => {
-        const gQty = g.sizes.reduce((sq, sz) => sq + (poData.allSizes.find(x => x.size === sz)?.qty || 0), 0)
-        return s + (parseFloat(g.consumption) || 0) * gQty * multiplier * (1 + wastage / 100)
-      }, 0)
-      return total > 0 ? total.toFixed(1) : null
-    }
-    if (rule === 'By Batch') {
-      const batches = ud.__batches || []
-      const total = batches.reduce((s, b) => {
-        const qty = (b.cells || []).reduce((sq, cell) => {
-          const sg = (poData.sgMatrix || []).find(x => x.sgName === cell.sgName)
-          const c = sg?.colors.find(x => x.colorName === cell.colorName)
-          if (cell.size) return sq + (parseFloat((c?.sizes || []).find(sz => sz.size === cell.size)?.qty) || 0)
-          return sq + (parseFloat(c?.qty) || 0)
-        }, 0)
-        return s + (parseFloat(b.consumption) || 0) * qty * multiplier * (1 + wastage / 100)
-      }, 0)
-      return total > 0 ? total.toFixed(1) : null
-    }
-    return null
-  }
+  const calcFinalQty = item => calculateBOMFinalQty(item, { totalQty, poData, excessCutPct, cuttingQtyMult })
 
   calcFinalQtyRef.current = calcFinalQty
 
@@ -820,7 +696,7 @@ export default function Step3BOM({ orderId, orderData, onSaved, registerSave }) 
     if (!Number(calcFinalQty(item)) || getStaleKeys(item, poData).length) return false
     const ud = normalizeUsageData(item.usage_data)
     if (['By Color','By Size Group','By Individual Sizes'].includes(rule)) {
-      const names = rule === 'By Color' ? poData.colors.map(c=>c.name) : rule === 'By Size Group' ? poData.sizeGroups.map(g=>g.name) : poData.allSizes.map(sz=>sz.size)
+      const names = rule === 'By Color' ? poData.colors.filter(c=>c.qty>0).map(c=>c.name) : rule === 'By Size Group' ? poData.sizeGroups.filter(g=>g.qty>0).map(g=>g.name) : poData.allSizes.filter(sz=>sz.qty>0).map(sz=>sz.size)
       return names.length > 0 && names.every(k=>{const cell=normalizeUsageCell(ud[k]);return cell.na || Number(cell.value)>0})
     }
     return true
@@ -974,7 +850,7 @@ export default function Step3BOM({ orderId, orderData, onSaved, registerSave }) 
                     }
                   </td>
                   <td style={{ padding: '4px 4px', borderBottom: '1px solid #f0f0ee' }}>
-                    <input style={{ ...inp, textAlign: 'right' }} type="number" value={item.wastage || ''} onChange={e => upd(realIdx, 'wastage', e.target.value)} />
+                    <input style={{ ...inp, textAlign: 'right' }} type="number" value={item.wastage ?? ''} onChange={e => upd(realIdx, 'wastage', e.target.value)} />
                   </td>
                   <td style={{ padding: '4px 4px', borderBottom: '1px solid #f0f0ee', textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {fqty ? (() => {

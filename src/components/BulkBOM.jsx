@@ -1,7 +1,11 @@
+import { Check, ChevronLeft, Search, PackageOpen, Printer } from 'lucide-react'
+import './bulkBOM.css'
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import MinimizableModal from './ui/MinimizableModal'
 import { markTabUpdated } from '../lib/tabNotices'
+import { UsageModal } from './wizard/steps/Step3BOM'
+import { buildBOMMatrix, normalizeUsageData, normalizeUsageCell, USAGE_RULES } from '../lib/bomUsage'
 import { printSamplingHTML } from '../lib/sampleProgramPrint'
 
 const steps = ['Select Trims', 'Select Styles', 'Set Consumptions', 'Review & Apply']
@@ -39,7 +43,8 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
   const [orders, setOrders] = useState([])
   const [batches, setBatches] = useState([])
   const [membership, setMembership] = useState([])
-  const [groups, setGroups] = useState({})
+  const [matrices, setMatrices] = useState({})
+  const [usageConfig, setUsageConfig] = useState(null)
   const [batch, setBatch] = useState('')
   const [search, setSearch] = useState('')
   const [materialId, setMaterialId] = useState('')
@@ -84,7 +89,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
     setOrders([])
     setBatches([])
     setMembership([])
-    setGroups({})
+    setMatrices({})
     if (!draft || !buyer) return
     let active = true
     readAll(supabase.from('orders').select('id,style_number,po_number,store_name').eq('buyer_id', buyer).order('id'))
@@ -134,21 +139,47 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
     setStep(3)
   }
 
-  async function loadGroups() {
-    const ids = orders.filter(order => draft.styles.includes(order.style_number)).map(order => order.id)
-    const pages = []
-    for (let start = 0; start < ids.length; start += 100) {
-      pages.push(readAll(supabase.from('size_groups').select('id,order_id,group_name').in('order_id', ids.slice(start, start + 100)).order('id')))
+  async function loadMatrices() {
+    const selected = orders.filter(order => draft.styles.includes(order.style_number))
+    async function loadFor(table, column, ids, sort) {
+      const pages = []
+      for (let start = 0; start < ids.length; start += 100) {
+        pages.push(readAll(supabase.from(table).select('*').in(column, ids.slice(start, start + 100))
+          .order(sort).order('id')))
+      }
+      return (await Promise.all(pages)).flat()
     }
-    const rows = (await Promise.all(pages)).flat()
-    const names = {}
-    for (const order of orders) {
-      if (!draft.styles.includes(order.style_number)) continue
-      names[order.style_number] = [...new Set([...(names[order.style_number] || []),
-        ...rows.filter(group => group.order_id === order.id).map(group => group.group_name).filter(Boolean)])]
-    }
-    setGroups(names)
+    const groups = await loadFor('size_groups', 'order_id', selected.map(order => order.id), 'sort_order')
+    const ids = groups.map(group => group.id)
+    const [colors, breakdown] = await Promise.all([
+      loadFor('size_group_colors', 'size_group_id', ids, 'sort_order'),
+      loadFor('size_group_breakdown', 'size_group_id', ids, 'size'),
+    ])
+    const styleByOrder = new Map(selected.map(order => [order.id, order.style_number]))
+    const styleByGroup = new Map(groups.map(group => [group.id, styleByOrder.get(group.order_id)]))
+    setMatrices(Object.fromEntries(draft.styles.map(style => [style, buildBOMMatrix(
+      groups.filter(group => styleByOrder.get(group.order_id) === style),
+      colors.filter(color => styleByGroup.get(color.size_group_id) === style),
+      breakdown.filter(row => styleByGroup.get(row.size_group_id) === style),
+    )])))
     setStep(2)
+  }
+
+  function configure(item, style, lib, settings) {
+    const usageData = settings.usageData ?? (item.usage === 'Generic'
+      ? { generic: { value: settings.rate ?? '', na: false } }
+      : item.usage === 'By Size Group' ? settings.rates : {})
+    setUsageConfig({
+      material: item,
+      style,
+      rule: item.usage,
+      item: {
+        name: lib?.name,
+        detail: settings.spec ?? (lib ? librarySpec(lib) : ''),
+        wastage: settings.wastage ?? (lib?.default_wastage || 5),
+        usage_data: { ...(lib?.packing_form ? { _packing_unit: lib.packing_form } : {}), ...usageData },
+      },
+    })
   }
 
   const styleCounts = new Map()
@@ -166,21 +197,25 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
   const toggle = (values, value) => values.includes(value) ? values.filter(item => item !== value) : [...values, value]
   function consumption(line) {
     if (line?.base_qty != null) return line.base_qty
-    let rates = line?.usage_data
-    if (typeof rates === 'string') {
-      try { rates = JSON.parse(rates) }
-      catch { return 'See Order Wizard' }
-    }
-    return Object.entries(rates || {}).filter(([key]) => !key.startsWith('_'))
-      .map(([key, rate]) => key + ': ' + (typeof rate === 'object' ? rate?.value ?? '—' : rate)).join(', ')
+    const rates = normalizeUsageData(line?.usage_data)
+    if (rates.__matrix) return rates.__matrix.map(cell =>
+      [cell.sgName, cell.colorName, cell.na ? 'N/A' : cell.consumption].join(' / ')).join(', ')
+    if (rates.__batches) return rates.__batches.map(batch =>
+      batch.name + ' (' + batch.cells.map(cell => [cell.sgName, cell.colorName, cell.size].filter(Boolean).join(' / ')).join(', ') +
+      '): ' + batch.consumption).join('; ')
+    return Object.entries(rates).filter(([key]) => !key.startsWith('_'))
+      .map(([key, rate]) => {
+        const cell = normalizeUsageCell(rate)
+        return key + ': ' + (cell.na ? 'N/A' : cell.value)
+      }).join(', ')
   }
   const specText = line => [line?.detail, line?.specification].filter(Boolean).join(' · ')
   const outcome = row => row.issue || (row.action === 'Replace' ? replacements.includes(row.before.id) && checked.includes(row.style)
     ? 'Replace existing line' : 'Keep existing line' : row.action)
-  const headings = ['PO', 'Store', 'Material', 'Usage', 'Detail / Spec', 'Consumption', 'Required', 'Change']
+  const headings = ['PO', 'Store', 'Material', 'Usage', 'Detail / Spec', 'Consumption', 'Wastage', 'Required', 'Change']
   function cells(row) {
     const { after, before } = row
-    return [[row.po, batch && !batchOrders.has(row.order_id) ? 'Outside batch filter' : ''].filter(Boolean).join(' · '), row.store, after.name, after.usage_rule, specText(after), consumption(after),
+    return [[row.po, batch && !batchOrders.has(row.order_id) ? 'Outside batch filter' : ''].filter(Boolean).join(' · '), row.store, after.name, after.usage_rule, specText(after), consumption(after), after.wastage + '%',
       after.final_qty == null ? '—' : after.final_qty + ' ' + (after.unit || ''),
       [outcome(row), row.action === 'Replace' && ('Existing: ' + [before.usage_rule, specText(before), consumption(before)].filter(Boolean).join(' · '))].filter(Boolean).join(' — ')]
   }
@@ -222,73 +257,103 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
       </section>
     </MinimizableModal>}
     {draft && <MinimizableModal title="Bulk BOM Creation" onClose={() => !busy && setDraft(null)}>
-      <section className="card" style={{width: 'min(1180px, 94vw)', maxHeight: '88vh', overflow: 'auto', padding: 20}}>
-        <header className="section-header"><h2>Bulk BOM Creation</h2>
-          <button className="btn btn-secondary" disabled={busy} onClick={() => setDraft(null)}>Close</button></header>
-        <p aria-label="Progress">{steps.map((label, index) => <span key={label} aria-current={step === index ? 'step' : undefined}
-          style={{marginRight: 20, fontWeight: step === index ? 700 : 400}}>{index + 1}. {label}</span>)}</p>
-        {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
+      <section className="bulk-bom">
+        <nav className="bulk-bom-steps" aria-label="Bulk BOM steps">
+          {steps.map((label, index) => <button key={label} type="button"
+            aria-current={step === index ? 'step' : undefined}
+            disabled={busy || index >= step} onClick={() => setStep(index)}>
+            <span className="bulk-bom-step-number" data-complete={index < step}>
+              {index < step ? <Check size={12} strokeWidth={3}/> : index + 1}
+            </span>
+            {label}
+          </button>)}
+        </nav>
+        <div className="bulk-bom-body" key={step}>
+          {error && <p className="bulk-bom-error" role="alert">{error}</p>}
+          {notice && <p className="bulk-bom-notice" role="status">{notice}</p>}
         {step === 0 && <>
-          <label>Name <input className="form-control" maxLength={160} value={name} onChange={event => setName(event.target.value)}/></label>
-          <label>Buyer <select className="form-control" disabled={!!saved || busy} value={buyer} onChange={event => {
+          <h2>Materials and usage</h2>
+          <div className="bulk-bom-fields">
+          <label className="bulk-bom-field">BOM name <input placeholder="Enter a name for this BOM" className="form-control" maxLength={160} value={name} onChange={event => setName(event.target.value)}/></label>
+          <label className="bulk-bom-field">Buyer <select className="form-control" disabled={!!saved || busy} value={buyer} onChange={event => {
             setBuyer(event.target.value); setBatch(''); setSearch(''); setPackageId(''); setMaterialId(''); setNotice(''); setError(''); setDraft(emptyDraft)
           }}><option value="">Select one buyer</option>{buyers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <div className="section-header">
-            <label>Trim Package <select className="form-control" disabled={!buyer} value={packageId} onChange={event => setPackageId(event.target.value)}>
+          </div>
+          <div className="bulk-bom-tools">
+            <div className="bulk-bom-tool"><label className="bulk-bom-field">Trim package <select className="form-control" disabled={!buyer} value={packageId} onChange={event => setPackageId(event.target.value)}>
               <option value="">Select package</option>{buyerPackages.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-            <button className="btn btn-secondary" disabled={!selectedPackage} onClick={() => add((selectedPackage.bom_preset_items || []).map(item => item.library_item_id))}>Import Trim Package</button>
-            <label>Library material <select className="form-control" disabled={!buyer} value={materialId} onChange={event => setMaterialId(event.target.value)}>
+            <button className="btn btn-secondary" disabled={!selectedPackage} onClick={() => add((selectedPackage.bom_preset_items || []).map(item => item.library_item_id))}>Import Trim Package</button></div>
+            <div className="bulk-bom-tool"><label className="bulk-bom-field">Library material <select className="form-control" disabled={!buyer} value={materialId} onChange={event => setMaterialId(event.target.value)}>
               <option value="">Select material</option>{categories.map(category => <optgroup key={category} label={category}>
                 {[...library.values()].filter(item => item.category === category).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
               </optgroup>)}</select></label>
-            <button className="btn btn-secondary" disabled={!materialId} onClick={() => add([materialId])}>Add Material</button>
+            <button className="btn btn-secondary" disabled={!materialId} onClick={() => add([materialId])}>Add Material</button></div>
           </div>
-          <div className="table-wrap"><table><thead><tr>{['Category','Material','Usage','Same Consumption Per Style',''].map(label => <th key={label}>{label}</th>)}</tr></thead>
+          <div className="table-wrap"><table><thead><tr>{['Category','Material','Usage','Same Consumption Per Style','Actions'].map(label => <th key={label}>{label}</th>)}</tr></thead>
             <tbody>{draft.materials.map(item => <tr key={item.id}>
               <td>{library.get(item.id)?.category}</td><td>{library.get(item.id)?.name || 'Unavailable material'}</td>
-              <td><select className="form-control" aria-label="Usage" value={item.usage} onChange={event => changeMaterial(item.id,{usage:event.target.value})}>
-                <option>Generic</option><option>By Size Group</option></select></td>
-              <td><label><input type="checkbox" checked={item.shared} onChange={event => changeMaterial(item.id,{shared:event.target.checked})}/> Same rate</label>{' '}
-                <input aria-label="Shared consumption" type="number" min="0" step="any" disabled={!item.shared} value={item.rate} onChange={event => changeMaterial(item.id,{rate:event.target.value})}/></td>
+              <td><select className="form-control" aria-label="Usage" value={item.usage} onChange={event => changeMaterial(item.id,{
+                usage:event.target.value,
+                settings:Object.fromEntries(Object.entries(item.settings).map(([style, settings]) =>
+                  [style, { spec: settings.spec, wastage: settings.wastage }])),
+              })}>
+                {USAGE_RULES.map(rule => <option key={rule}>{rule}</option>)}</select></td>
+              <td><div className="bulk-bom-inline"><label><input type="checkbox" disabled={item.usage === 'By Batch'} checked={item.shared && item.usage !== 'By Batch'} onChange={event => changeMaterial(item.id,{shared:event.target.checked})}/> Same rate</label>{' '}
+                <input aria-label="Shared consumption" type="number" min="0" step="any" disabled={!item.shared || item.usage === 'By Batch'} value={item.rate} onChange={event => changeMaterial(item.id,{rate:event.target.value})}/></div></td>
               <td><button className="btn btn-secondary" onClick={() => setDraft({...draft, materials:draft.materials.filter(row => row.id !== item.id)})}>Remove</button></td>
             </tr>)}</tbody></table></div>
+          {!draft.materials.length && <div className="bulk-bom-empty"><PackageOpen size={26}/>
+            <strong>No materials added</strong>
+            <span>{buyer ? 'Import a trim package or add a library material.' : 'Choose a buyer to get started.'}</span>
+          </div>}
         </>}
         {step === 1 && <>
-          <div className="section-header">
-            <label>Find styles <input className="form-control" value={search} onChange={event => setSearch(event.target.value)}/></label>
-            <label>Internal batch filter <select className="form-control" value={batch} onChange={event => setBatch(event.target.value)}>
+          <h2>Select styles</h2>
+          <div className="bulk-bom-tools bulk-bom-filters">
+            <label className="bulk-bom-field">Find styles <input className="form-control" value={search} onChange={event => setSearch(event.target.value)}/></label>
+            <label className="bulk-bom-field">Internal batch filter <select className="form-control" value={batch} onChange={event => setBatch(event.target.value)}>
               <option value="">All batches</option>{batches.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <button className="btn btn-secondary" onClick={() => setDraft({...draft, styles:[...new Set([...draft.styles,...visible])]})}>Select visible styles</button>
           </div>
-          <p>{draft.styles.length} styles selected. Selecting a style includes all its POs for this buyer.</p>
-          {[...new Set([...visible,...draft.styles])].map(style => <p key={style}><label>
-            <input type="checkbox" checked={draft.styles.includes(style)} onChange={() => setDraft({...draft, styles:toggle(draft.styles,style)})}/>
-            {' '}{style} · {styleCounts.get(style) || 0} POs{!visible.includes(style) && ' · outside filter'}
-          </label></p>)}
+          <p className="bulk-bom-context">{draft.styles.length} styles selected. Each style includes all its POs for this buyer.</p>
+          <div className="table-wrap"><table>
+            <thead><tr><th scope="col">Style</th><th scope="col">Purchase orders</th><th scope="col">Batch filter</th></tr></thead>
+            <tbody>{[...new Set([...visible,...draft.styles])].map(style => <tr key={style}>
+              <td><label className="bulk-bom-inline"><input type="checkbox" checked={draft.styles.includes(style)}
+                onChange={() => setDraft({...draft, styles:toggle(draft.styles,style)})}/> {style}</label></td>
+              <td>{styleCounts.get(style) || 0}</td>
+              <td>{!visible.includes(style) ? 'Outside filter' : '—'}</td>
+            </tr>)}</tbody>
+          </table></div>
+          {!visible.length && !draft.styles.length && <div className="bulk-bom-empty"><Search size={24}/><strong>No matching styles</strong></div>}
         </>}
-        {step === 2 && draft.styles.map(style => <section key={style}><h3>{style}</h3>
-          <div className="table-wrap"><table><thead><tr><th>Material</th><th>Detail / Spec</th><th>Consumption</th></tr></thead>
+        {step === 2 && <><h2>Set consumptions</h2>{draft.styles.map(style => <section key={style} className="bulk-bom-group"><h3>{style}</h3>
+          <div className="table-wrap"><table><thead><tr><th>Material</th><th>Detail / Spec</th><th>Consumption</th><th>Wastage %</th></tr></thead>
           <tbody>{draft.materials.map(item => {
             const lib = library.get(item.id)
             const settings = item.settings[style] || {}
             return <tr key={item.id}><td>{lib?.name || 'Unavailable material'}</td>
               <td><input className="form-control" aria-label={'Detail / Spec for ' + (lib?.name || 'material')}
                 value={settings.spec ?? (lib ? librarySpec(lib) : '')} onChange={event => changeSettings(item,style,{spec:event.target.value})}/></td>
-              <td>{(item.usage === 'Generic' ? ['All sizes'] : groups[style] || []).map(group => <label key={group} style={{display:'block'}}>
-                {group} <input type="number" min="0" step="any" disabled={item.shared}
-                  value={item.shared ? item.rate : item.usage === 'Generic' ? settings.rate ?? '' : settings.rates?.[group] ?? ''}
-                  onChange={event => changeSettings(item,style,item.usage === 'Generic' ? {rate:event.target.value} :
-                    {rates:{...settings.rates,[group]:event.target.value}})}/> {lib?.unit}
-              </label>)}</td></tr>
-          })}</tbody></table></div></section>)}
+              <td>{item.shared && item.usage !== 'By Batch'
+                ? <span>{item.rate || '—'} {lib?.unit} · shared rate</span>
+                : <button className="btn btn-secondary" onClick={() => configure(item,style,lib,settings)}>
+                  Configure {item.usage}
+                </button>}</td>
+              <td><input aria-label={'Wastage for ' + (lib?.name || 'material')} type="number" min="0" step="any"
+                className="form-control" placeholder={String(lib?.default_wastage || 5)}
+                value={settings.wastage ?? ''} onChange={event => changeSettings(item,style,{wastage:event.target.value})}/></td>
+            </tr>
+          })}</tbody></table></div></section>)}</>}
         {step === 3 && <>
-          <div className="section-header">
-            <label><input type="checkbox" checked={ready.length > 0 && ready.every(style => checked.includes(style))}
+          <h2>Review and apply</h2>
+          <div className="bulk-bom-review-tools">
+            <label className="bulk-bom-inline"><input type="checkbox" checked={ready.length > 0 && ready.every(style => checked.includes(style))}
               onChange={event => setChecked(event.target.checked ? ready : [])}/> Select all ready styles</label>
-            <button className="btn btn-secondary" onClick={printReview}>Print Review</button>
+            <button className="btn btn-secondary" onClick={printReview}><Printer size={14}/> Print Review</button>
           </div>
-          {draft.styles.map(style => <section key={style} style={{marginBottom:12}}>
-            <label><input type="checkbox" checked={checked.includes(style)} disabled={!ready.includes(style) || busy}
+          {draft.styles.map(style => <section key={style} className="bulk-bom-group bulk-bom-review-group">
+            <label className="bulk-bom-inline"><input type="checkbox" checked={checked.includes(style)} disabled={!ready.includes(style) || busy}
               onChange={() => setChecked(toggle(checked,style))}/> {style}{!ready.includes(style) && ' · Needs attention'}</label>
             <details><summary>Review POs and stores</summary><div className="table-wrap"><table><thead><tr>
               {headings.map(label => <th key={label}>{label}</th>)}<th>Overwrite</th></tr></thead><tbody>
@@ -299,17 +364,22 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
               </tr>)}</tbody></table></div></details>
           </section>)}
         </>}
-        <footer className="section-header">
-          {step > 0 && <button className="btn btn-secondary" disabled={busy} onClick={() => setStep(step - 1)}>Back</button>}
+        </div>
+        <footer className="bulk-bom-footer">
+          {step > 0 && <button className="btn btn-secondary" disabled={busy} onClick={() => setStep(step - 1)}><ChevronLeft size={14}/> Back</button>}
           {step < 3 && <button className="btn btn-secondary" disabled={busy || !canSave} onClick={() => run(async () => { await save(); setNotice('Draft saved.') })}>Save Draft</button>}
+          <span className="bulk-bom-spacer"/>
           {step === 0 && <button className="btn btn-primary" disabled={busy || !canSave || !draft.materials.length} onClick={() => setStep(1)}>Next Step</button>}
-          {step === 1 && <button className="btn btn-primary" disabled={busy || !draft.styles.length} onClick={() => run(loadGroups)}>Next Step</button>}
+          {step === 1 && <button className="btn btn-primary" disabled={busy || !draft.styles.length} onClick={() => run(loadMatrices)}>Next Step</button>}
           {step === 2 && <button className="btn btn-primary" disabled={busy} onClick={() => run(beginReview)}>Review Bulk BOM</button>}
           {step === 3 && <button className="btn btn-primary" disabled={busy || !changeCount} onClick={() => run(applyChecked)}>
             Apply BOM to {checked.length} styles · {selectedCount} POs
           </button>}
         </footer>
       </section>
+      {usageConfig && <UsageModal config={usageConfig} poData={matrices[usageConfig.style]}
+        orderData={{style_number: usageConfig.style}} onClose={() => setUsageConfig(null)}
+        onSave={(_, usageData) => changeSettings(usageConfig.material, usageConfig.style, { usageData })}/>}
     </MinimizableModal>}
   </>
 }
