@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import MinimizableModal from './ui/MinimizableModal'
 import { markTabUpdated } from '../lib/tabNotices'
+import { UsageModal } from './wizard/steps/Step3BOM'
+import { buildBOMMatrix, normalizeUsageData, normalizeUsageCell, USAGE_RULES } from '../lib/bomUsage'
 import { printSamplingHTML } from '../lib/sampleProgramPrint'
 
 const steps = ['Select Trims', 'Select Styles', 'Set Consumptions', 'Review & Apply']
@@ -41,7 +43,8 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
   const [orders, setOrders] = useState([])
   const [batches, setBatches] = useState([])
   const [membership, setMembership] = useState([])
-  const [groups, setGroups] = useState({})
+  const [matrices, setMatrices] = useState({})
+  const [usageConfig, setUsageConfig] = useState(null)
   const [batch, setBatch] = useState('')
   const [search, setSearch] = useState('')
   const [materialId, setMaterialId] = useState('')
@@ -86,7 +89,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
     setOrders([])
     setBatches([])
     setMembership([])
-    setGroups({})
+    setMatrices({})
     if (!draft || !buyer) return
     let active = true
     readAll(supabase.from('orders').select('id,style_number,po_number,store_name').eq('buyer_id', buyer).order('id'))
@@ -136,21 +139,47 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
     setStep(3)
   }
 
-  async function loadGroups() {
-    const ids = orders.filter(order => draft.styles.includes(order.style_number)).map(order => order.id)
-    const pages = []
-    for (let start = 0; start < ids.length; start += 100) {
-      pages.push(readAll(supabase.from('size_groups').select('id,order_id,group_name').in('order_id', ids.slice(start, start + 100)).order('id')))
+  async function loadMatrices() {
+    const selected = orders.filter(order => draft.styles.includes(order.style_number))
+    async function loadFor(table, column, ids, sort) {
+      const pages = []
+      for (let start = 0; start < ids.length; start += 100) {
+        pages.push(readAll(supabase.from(table).select('*').in(column, ids.slice(start, start + 100))
+          .order(sort).order('id')))
+      }
+      return (await Promise.all(pages)).flat()
     }
-    const rows = (await Promise.all(pages)).flat()
-    const names = {}
-    for (const order of orders) {
-      if (!draft.styles.includes(order.style_number)) continue
-      names[order.style_number] = [...new Set([...(names[order.style_number] || []),
-        ...rows.filter(group => group.order_id === order.id).map(group => group.group_name).filter(Boolean)])]
-    }
-    setGroups(names)
+    const groups = await loadFor('size_groups', 'order_id', selected.map(order => order.id), 'sort_order')
+    const ids = groups.map(group => group.id)
+    const [colors, breakdown] = await Promise.all([
+      loadFor('size_group_colors', 'size_group_id', ids, 'sort_order'),
+      loadFor('size_group_breakdown', 'size_group_id', ids, 'size'),
+    ])
+    const styleByOrder = new Map(selected.map(order => [order.id, order.style_number]))
+    const styleByGroup = new Map(groups.map(group => [group.id, styleByOrder.get(group.order_id)]))
+    setMatrices(Object.fromEntries(draft.styles.map(style => [style, buildBOMMatrix(
+      groups.filter(group => styleByOrder.get(group.order_id) === style),
+      colors.filter(color => styleByGroup.get(color.size_group_id) === style),
+      breakdown.filter(row => styleByGroup.get(row.size_group_id) === style),
+    )])))
     setStep(2)
+  }
+
+  function configure(item, style, lib, settings) {
+    const usageData = settings.usageData ?? (item.usage === 'Generic'
+      ? { generic: { value: settings.rate ?? '', na: false } }
+      : item.usage === 'By Size Group' ? settings.rates : {})
+    setUsageConfig({
+      material: item,
+      style,
+      rule: item.usage,
+      item: {
+        name: lib?.name,
+        detail: settings.spec ?? (lib ? librarySpec(lib) : ''),
+        wastage: settings.wastage ?? (lib?.default_wastage || 5),
+        usage_data: { ...(lib?.packing_form ? { _packing_unit: lib.packing_form } : {}), ...usageData },
+      },
+    })
   }
 
   const styleCounts = new Map()
@@ -168,21 +197,25 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
   const toggle = (values, value) => values.includes(value) ? values.filter(item => item !== value) : [...values, value]
   function consumption(line) {
     if (line?.base_qty != null) return line.base_qty
-    let rates = line?.usage_data
-    if (typeof rates === 'string') {
-      try { rates = JSON.parse(rates) }
-      catch { return 'See Order Wizard' }
-    }
-    return Object.entries(rates || {}).filter(([key]) => !key.startsWith('_'))
-      .map(([key, rate]) => key + ': ' + (typeof rate === 'object' ? rate?.value ?? '—' : rate)).join(', ')
+    const rates = normalizeUsageData(line?.usage_data)
+    if (rates.__matrix) return rates.__matrix.map(cell =>
+      [cell.sgName, cell.colorName, cell.na ? 'N/A' : cell.consumption].join(' / ')).join(', ')
+    if (rates.__batches) return rates.__batches.map(batch =>
+      batch.name + ' (' + batch.cells.map(cell => [cell.sgName, cell.colorName, cell.size].filter(Boolean).join(' / ')).join(', ') +
+      '): ' + batch.consumption).join('; ')
+    return Object.entries(rates).filter(([key]) => !key.startsWith('_'))
+      .map(([key, rate]) => {
+        const cell = normalizeUsageCell(rate)
+        return key + ': ' + (cell.na ? 'N/A' : cell.value)
+      }).join(', ')
   }
   const specText = line => [line?.detail, line?.specification].filter(Boolean).join(' · ')
   const outcome = row => row.issue || (row.action === 'Replace' ? replacements.includes(row.before.id) && checked.includes(row.style)
     ? 'Replace existing line' : 'Keep existing line' : row.action)
-  const headings = ['PO', 'Store', 'Material', 'Usage', 'Detail / Spec', 'Consumption', 'Required', 'Change']
+  const headings = ['PO', 'Store', 'Material', 'Usage', 'Detail / Spec', 'Consumption', 'Wastage', 'Required', 'Change']
   function cells(row) {
     const { after, before } = row
-    return [[row.po, batch && !batchOrders.has(row.order_id) ? 'Outside batch filter' : ''].filter(Boolean).join(' · '), row.store, after.name, after.usage_rule, specText(after), consumption(after),
+    return [[row.po, batch && !batchOrders.has(row.order_id) ? 'Outside batch filter' : ''].filter(Boolean).join(' · '), row.store, after.name, after.usage_rule, specText(after), consumption(after), after.wastage + '%',
       after.final_qty == null ? '—' : after.final_qty + ' ' + (after.unit || ''),
       [outcome(row), row.action === 'Replace' && ('Existing: ' + [before.usage_rule, specText(before), consumption(before)].filter(Boolean).join(' · '))].filter(Boolean).join(' — ')]
   }
@@ -259,10 +292,14 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
           <div className="table-wrap"><table><thead><tr>{['Category','Material','Usage','Same Consumption Per Style','Actions'].map(label => <th key={label}>{label}</th>)}</tr></thead>
             <tbody>{draft.materials.map(item => <tr key={item.id}>
               <td>{library.get(item.id)?.category}</td><td>{library.get(item.id)?.name || 'Unavailable material'}</td>
-              <td><select className="form-control" aria-label="Usage" value={item.usage} onChange={event => changeMaterial(item.id,{usage:event.target.value})}>
-                <option>Generic</option><option>By Size Group</option></select></td>
-              <td><div className="bulk-bom-inline"><label><input type="checkbox" checked={item.shared} onChange={event => changeMaterial(item.id,{shared:event.target.checked})}/> Same rate</label>{' '}
-                <input aria-label="Shared consumption" type="number" min="0" step="any" disabled={!item.shared} value={item.rate} onChange={event => changeMaterial(item.id,{rate:event.target.value})}/></div></td>
+              <td><select className="form-control" aria-label="Usage" value={item.usage} onChange={event => changeMaterial(item.id,{
+                usage:event.target.value,
+                settings:Object.fromEntries(Object.entries(item.settings).map(([style, settings]) =>
+                  [style, { spec: settings.spec, wastage: settings.wastage }])),
+              })}>
+                {USAGE_RULES.map(rule => <option key={rule}>{rule}</option>)}</select></td>
+              <td><div className="bulk-bom-inline"><label><input type="checkbox" disabled={item.usage === 'By Batch'} checked={item.shared && item.usage !== 'By Batch'} onChange={event => changeMaterial(item.id,{shared:event.target.checked})}/> Same rate</label>{' '}
+                <input aria-label="Shared consumption" type="number" min="0" step="any" disabled={!item.shared || item.usage === 'By Batch'} value={item.rate} onChange={event => changeMaterial(item.id,{rate:event.target.value})}/></div></td>
               <td><button className="btn btn-secondary" onClick={() => setDraft({...draft, materials:draft.materials.filter(row => row.id !== item.id)})}>Remove</button></td>
             </tr>)}</tbody></table></div>
           {!draft.materials.length && <div className="bulk-bom-empty"><PackageOpen size={26}/>
@@ -291,19 +328,22 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
           {!visible.length && !draft.styles.length && <div className="bulk-bom-empty"><Search size={24}/><strong>No matching styles</strong></div>}
         </>}
         {step === 2 && <><h2>Set consumptions</h2>{draft.styles.map(style => <section key={style} className="bulk-bom-group"><h3>{style}</h3>
-          <div className="table-wrap"><table><thead><tr><th>Material</th><th>Detail / Spec</th><th>Consumption</th></tr></thead>
+          <div className="table-wrap"><table><thead><tr><th>Material</th><th>Detail / Spec</th><th>Consumption</th><th>Wastage %</th></tr></thead>
           <tbody>{draft.materials.map(item => {
             const lib = library.get(item.id)
             const settings = item.settings[style] || {}
             return <tr key={item.id}><td>{lib?.name || 'Unavailable material'}</td>
               <td><input className="form-control" aria-label={'Detail / Spec for ' + (lib?.name || 'material')}
                 value={settings.spec ?? (lib ? librarySpec(lib) : '')} onChange={event => changeSettings(item,style,{spec:event.target.value})}/></td>
-              <td>{(item.usage === 'Generic' ? ['All sizes'] : groups[style] || []).map(group => <label key={group} className="bulk-bom-rate">
-                {group} <input type="number" min="0" step="any" disabled={item.shared}
-                  value={item.shared ? item.rate : item.usage === 'Generic' ? settings.rate ?? '' : settings.rates?.[group] ?? ''}
-                  onChange={event => changeSettings(item,style,item.usage === 'Generic' ? {rate:event.target.value} :
-                    {rates:{...settings.rates,[group]:event.target.value}})}/> {lib?.unit}
-              </label>)}</td></tr>
+              <td>{item.shared && item.usage !== 'By Batch'
+                ? <span>{item.rate || '—'} {lib?.unit} · shared rate</span>
+                : <button className="btn btn-secondary" onClick={() => configure(item,style,lib,settings)}>
+                  Configure {item.usage}
+                </button>}</td>
+              <td><input aria-label={'Wastage for ' + (lib?.name || 'material')} type="number" min="0" step="any"
+                className="form-control" placeholder={String(lib?.default_wastage || 5)}
+                value={settings.wastage ?? ''} onChange={event => changeSettings(item,style,{wastage:event.target.value})}/></td>
+            </tr>
           })}</tbody></table></div></section>)}</>}
         {step === 3 && <>
           <h2>Review and apply</h2>
@@ -330,13 +370,16 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
           {step < 3 && <button className="btn btn-secondary" disabled={busy || !canSave} onClick={() => run(async () => { await save(); setNotice('Draft saved.') })}>Save Draft</button>}
           <span className="bulk-bom-spacer"/>
           {step === 0 && <button className="btn btn-primary" disabled={busy || !canSave || !draft.materials.length} onClick={() => setStep(1)}>Next Step</button>}
-          {step === 1 && <button className="btn btn-primary" disabled={busy || !draft.styles.length} onClick={() => run(loadGroups)}>Next Step</button>}
+          {step === 1 && <button className="btn btn-primary" disabled={busy || !draft.styles.length} onClick={() => run(loadMatrices)}>Next Step</button>}
           {step === 2 && <button className="btn btn-primary" disabled={busy} onClick={() => run(beginReview)}>Review Bulk BOM</button>}
           {step === 3 && <button className="btn btn-primary" disabled={busy || !changeCount} onClick={() => run(applyChecked)}>
             Apply BOM to {checked.length} styles · {selectedCount} POs
           </button>}
         </footer>
       </section>
+      {usageConfig && <UsageModal config={usageConfig} poData={matrices[usageConfig.style]}
+        orderData={{style_number: usageConfig.style}} onClose={() => setUsageConfig(null)}
+        onSave={(_, usageData) => changeSettings(usageConfig.material, usageConfig.style, { usageData })}/>}
     </MinimizableModal>}
   </>
 }
