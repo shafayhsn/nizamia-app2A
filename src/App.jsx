@@ -71,8 +71,12 @@ function PageLoader() {
 
 function ProtectedRoute({ children, workspace = false }) {
   const { user, loading } = useAuth()
+  const location = useLocation()
   if (loading) return <FullScreenLoader />
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) {
+    const openBulkBOM = location.pathname === '/library' && location.search === '?tab=trim-packages'
+    return <Navigate to="/login" state={openBulkBOM ? { openBulkBOM: true } : undefined} replace />
+  }
   const staff = staffWorkflow(user.role)
   if (workspace !== Boolean(staff)) return <Navigate to={staff?.path || '/dashboard'} replace />
   return children

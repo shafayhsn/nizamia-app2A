@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '../lib/authContext'
 import { can } from '../lib/permissions'
 import BulkBOM from '../components/BulkBOM'
@@ -390,7 +391,11 @@ function TrimPackagesTab({ libraryItems }) {
 export default function Library() {
   const { alert, confirm, Dialogs } = useAppDialogs()
   const [items,     setItems]   = useState([])
-  const [activeTab, setActive]  = useState('Fabric')
+  const { pathname, search } = useLocation()
+  const [activeTab, setActive] = useState('Fabric')
+  useEffect(() => {
+    if (pathname === '/library' && search === '?tab=trim-packages') setActive('Trim Packages')
+  }, [pathname, search])
   const [modal,     setModal]   = useState(false)
   const [editing,   setEditing] = useState(null)
   const [form,      setForm]    = useState({})
