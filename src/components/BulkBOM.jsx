@@ -124,6 +124,21 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
     return () => { active = false }
   }, [step,buyer])
 
+  const [estimate, setEstimate] = useState(null)
+  useEffect(() => {
+    if (step !== 2) return
+    let active = true
+    const timer = setTimeout(async () => {
+      try {
+        const rows = await read(supabase.rpc('bulk_bom_consumption_totals', {buyer, proposal:draft}))
+        if (active) setEstimate({draft, rows:new Map(rows.map(row => [JSON.stringify([row.style,row.material]),row]))})
+      } catch (failure) {
+        if (active) setEstimate({draft, error:failure.message})
+      }
+    },350)
+    return () => { active = false; clearTimeout(timer) }
+  },[step,buyer,draft])
+
   function add(ids) {
     const existing = new Set(draft.materials.map(item => item.id))
     const additions = [...new Set(ids)].filter(id => library.has(id) && !existing.has(id))
@@ -359,21 +374,28 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
           {!visible.length && !draft.styles.length && <div className="bulk-bom-empty"><Search size={24}/><strong>No matching styles</strong></div>}
         </>}
         {step === 2 && <><h2>Set consumptions</h2>{draft.styles.map(style => <section key={style} className="bulk-bom-group"><h3>{style}</h3>
-          <div className="table-wrap"><table><thead><tr><th>Material</th><th>Detail / Spec</th><th>Consumption</th><th>Wastage %</th></tr></thead>
+          <div className="table-wrap"><table><thead><tr><th>Material</th><th>Detail / Spec</th><th>Consumption</th><th>Wastage %</th><th>Total trim quantity</th></tr></thead>
           <tbody>{draft.materials.map(item => {
             const lib = library.get(item.id)
             const settings = item.settings[style] || {}
+            const total = estimate?.draft === draft && estimate.rows?.get(JSON.stringify([style,item.id]))
             return <tr key={item.id}><td>{lib?.name || 'Unavailable material'}</td>
               <td><input className="form-control" aria-label={'Detail / Spec for ' + (lib?.name || 'material')}
                 value={settings.spec ?? (lib ? librarySpec(lib) : '')} onChange={event => changeSettings(item,style,{spec:event.target.value})}/></td>
               <td>{item.shared && item.usage !== 'By Batch'
-                ? <span>{item.rate || '—'} {lib?.unit} · shared rate</span>
+                ? <div className="bulk-bom-inline"><input className="form-control" type="number" min="0" step="any"
+                    aria-label={'Consumption for ' + lib?.name + ' on ' + style} value={settings.sharedRate ?? item.rate ?? ''}
+                    onChange={event => changeSettings(item,style,{sharedRate:event.target.value})}/>
+                    <small>{lib?.unit}/pc · {settings.sharedRate == null ? 'Shared rate' : 'Style rate'}</small>
+                    {settings.sharedRate != null && <button className="btn btn-secondary" onClick={() => changeSettings(item,style,{sharedRate:undefined})}>Use shared rate</button>}</div>
                 : <button className="btn btn-secondary" onClick={() => configure(item,style,lib,settings)}>
                   Configure {item.usage}
                 </button>}</td>
               <td><input aria-label={'Wastage for ' + (lib?.name || 'material')} type="number" min="0" step="any"
                 className="form-control" placeholder={String(lib?.default_wastage || 5)}
                 value={settings.wastage ?? ''} onChange={event => changeSettings(item,style,{wastage:event.target.value})}/></td>
+              <td aria-live="polite">{total?.issue || (total ? Number(total.qty).toLocaleString(undefined,{maximumFractionDigits:1}) + ' ' + (lib?.unit || '') :
+                estimate?.draft === draft && estimate.error ? estimate.error : 'Calculating…')}</td>
             </tr>
           })}</tbody></table></div></section>)}</>}
         {step === 3 && <>

@@ -121,6 +121,11 @@ test('Bulk BOM scopes to one buyer, adds without replacing, and requires a fresh
     assert.match((await review(['S']))[0].issue,/Kids \/ Indigo \/ 6/)
 
     await db.exec(readFileSync(join(__dirname,'migrations/20261123_bulk_bom_replacement.sql'),'utf8'))
+    await db.exec(readFileSync(join(__dirname,'migrations/20261123_bulk_bom_consumption_totals.sql'),'utf8'))
+    const totalsDraft = {styles:['S'], materials:[{id:tag,usage:'Generic',shared:true,rate:1,settings:{S:{sharedRate:'2',wastage:'5'}}}]}
+    const totals = await one('SELECT * FROM bulk_bom_consumption_totals($1,$2)',[firstBuyer,JSON.stringify(totalsDraft)])
+    assert.equal(Number(totals.qty),210)
+    assert.equal(totals.issue,null)
     const web = async (expected=null, removals=[]) => (await one(
       'SELECT bulk_bom_review_web($1,$2,$3,$4,$5) AS result',
       [id,['S'],expected && JSON.stringify(expected),[],removals])).result
