@@ -41,6 +41,8 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
   const [buyer, setBuyer] = useState('')
   const [step, setStep] = useState(0)
   const [orders, setOrders] = useState([])
+  const [inventory, setInventory] = useState(null)
+  const replaceStyles = draft?.replaceStyles || []
   const [batches, setBatches] = useState([])
   const [membership, setMembership] = useState([])
   const [matrices, setMatrices] = useState({})
@@ -104,6 +106,24 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
     return () => { active = false }
   }, [buyer, !!draft])
 
+  useEffect(() => {
+    setInventory(null)
+    if (step !== 1 || !buyer) return
+    let active = true
+    readAll(supabase.from('bom_items').select('id,name,category,orders!inner(buyer_id,style_number,po_number)')
+      .eq('orders.buyer_id',buyer).order('id')).then(rows => {
+      if (!active) return
+      const grouped = new Map()
+      for (const line of rows) {
+        const key = JSON.stringify([line.orders.style_number,line.category])
+        if (!grouped.has(key)) grouped.set(key,[])
+        grouped.get(key).push(line)
+      }
+      setInventory(grouped)
+    }).catch(failure => { if (active) setError(failure.message) })
+    return () => { active = false }
+  }, [step,buyer])
+
   function add(ids) {
     const existing = new Set(draft.materials.map(item => item.id))
     const additions = [...new Set(ids)].filter(id => library.has(id) && !existing.has(id))
@@ -132,7 +152,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
 
   async function beginReview() {
     const record = await save()
-    setReview(await read(supabase.rpc('bulk_bom_review', { draft_id: record.id, selected_styles: draft.styles })))
+    setReview(await read(supabase.rpc('bulk_bom_review_web', { draft_id: record.id, selected_styles: draft.styles })))
     setChecked([])
     setReplacements([])
     setNotice('')
@@ -193,7 +213,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
     !review.some(row => row.style === style && row.action === 'Blocked'))
   const selectedRows = review.filter(row => checked.includes(row.style))
   const selectedCount = new Set(selectedRows.map(row => row.order_id)).size
-  const changeCount = selectedRows.filter(row => row.action === 'Add' || replacements.includes(row.before?.id)).length
+  const changeCount = selectedRows.filter(row => ['Add','Remove'].includes(row.action) || row.action === 'Replace' && (replaceStyles.includes(row.style) || replacements.includes(row.before.id))).length
   const toggle = (values, value) => values.includes(value) ? values.filter(item => item !== value) : [...values, value]
   function consumption(line) {
     if (line?.base_qty != null) return line.base_qty
@@ -210,12 +230,13 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
       }).join(', ')
   }
   const specText = line => [line?.detail, line?.specification].filter(Boolean).join(' · ')
-  const outcome = row => row.issue || (row.action === 'Replace' ? replacements.includes(row.before.id) && checked.includes(row.style)
-    ? 'Replace existing line' : 'Keep existing line' : row.action)
+  const outcome = row => row.issue || (row.action === 'Replace' ? (replaceStyles.includes(row.style) || replacements.includes(row.before.id)) && checked.includes(row.style)
+    ? 'Replace existing line' : 'Keep existing line' : row.action === 'Unchanged' ? 'Keep' : row.action)
   const headings = ['PO', 'Store', 'Material', 'Usage', 'Detail / Spec', 'Consumption', 'Wastage', 'Required', 'Change']
   function cells(row) {
-    const { after, before } = row
-    return [[row.po, batch && !batchOrders.has(row.order_id) ? 'Outside batch filter' : ''].filter(Boolean).join(' · '), row.store, after.name, after.usage_rule, specText(after), consumption(after), after.wastage + '%',
+    const before = row.before
+    const after = row.after || before
+    return [[row.po, batch && !batchOrders.has(row.order_id) ? 'Outside batch filter' : ''].filter(Boolean).join(' · '), row.store, [after.category,after.name].filter(Boolean).join(' · '), after.usage_rule, specText(after), consumption(after), after.wastage + '%',
       after.final_qty == null ? '—' : after.final_qty + ' ' + (after.unit || ''),
       [outcome(row), row.action === 'Replace' && ('Existing: ' + [before.usage_rule, specText(before), consumption(before)].filter(Boolean).join(' · '))].filter(Boolean).join(' — ')]
   }
@@ -230,16 +251,20 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
   }
 
   async function applyChecked() {
-    const replacementIds = selectedRows.filter(row => row.action === 'Replace' && replacements.includes(row.before.id)).map(row => row.before.id)
-    if (replacementIds.length && !window.confirm('Overwrite ' + replacementIds.length + ' selected existing BOM lines?')) return
-    await read(supabase.rpc('bulk_bom_review', {
-      draft_id: saved.id, selected_styles: checked, expected: selectedRows, replace_lines: replacementIds,
+    const replacementIds = selectedRows.filter(row => row.action === 'Replace' && (replaceStyles.includes(row.style) || replacements.includes(row.before.id))).map(row => row.before.id)
+    const removed = selectedRows.filter(row => row.action === 'Remove')
+    if ((replacementIds.length || removed.length) && !window.confirm(
+      'Apply changes across ' + selectedCount + ' POs? Overwrite ' + replacementIds.length + ' existing lines and remove ' + removed.length + ' lines.' +
+      (removed.length ? '\n' + categories.map(category => category + ': ' + removed.filter(row => row.before.category === category).length).join(' · ') : '')
+    )) return
+    await read(supabase.rpc('bulk_bom_review_web', {
+      draft_id: saved.id, selected_styles: checked, expected: selectedRows, replace_lines: replacementIds, remove_lines: removed.map(row => row.before.id),
     }))
     markTabUpdated('purchasingPage', 'material')
     setNotice('Applied ' + changeCount + ' BOM lines across ' + selectedCount + ' POs.')
     setChecked([])
     setReplacements([])
-    setReview(await read(supabase.rpc('bulk_bom_review', { draft_id: saved.id, selected_styles: draft.styles })))
+    setReview(await read(supabase.rpc('bulk_bom_review_web', { draft_id: saved.id, selected_styles: draft.styles })))
   }
 
   const canSave = !!buyer && !!name.trim()
@@ -315,14 +340,20 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
               <option value="">All batches</option>{batches.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <button className="btn btn-secondary" onClick={() => setDraft({...draft, styles:[...new Set([...draft.styles,...visible])]})}>Select visible styles</button>
           </div>
-          <p className="bulk-bom-context">{draft.styles.length} styles selected. Each style includes all its POs for this buyer.</p>
+          <p className="bulk-bom-context">{draft.styles.length} styles selected. Counts are saved BOM lines across all POs for this buyer. Expand a count for details. Replace entire BOM removes lines omitted from this draft when you confirm Apply.</p>
           <div className="table-wrap"><table>
-            <thead><tr><th scope="col">Style</th><th scope="col">Purchase orders</th><th scope="col">Batch filter</th></tr></thead>
+            <thead><tr><th scope="col">Style</th><th scope="col">Purchase orders</th>{categories.map(category => <th scope="col" key={category}>Current BOM<br/>{category}</th>)}<th>Replace entire BOM</th></tr></thead>
             <tbody>{[...new Set([...visible,...draft.styles])].map(style => <tr key={style}>
               <td><label className="bulk-bom-inline"><input type="checkbox" checked={draft.styles.includes(style)}
-                onChange={() => setDraft({...draft, styles:toggle(draft.styles,style)})}/> {style}</label></td>
+                onChange={() => setDraft({...draft, styles:toggle(draft.styles,style), replaceStyles:replaceStyles.filter(value => value !== style)})}/> {style}</label>{!visible.includes(style) && ' · Outside filter'}</td>
               <td>{styleCounts.get(style) || 0}</td>
-              <td>{!visible.includes(style) ? 'Outside filter' : '—'}</td>
+              {categories.map(category => {
+                const lines = inventory?.get(JSON.stringify([style,category])) || []
+                return <td key={category}>{!inventory ? '—' : lines.length ? <details><summary aria-label={category + ' lines for ' + style}>{lines.length}</summary>
+                  {lines.map(line => <div key={line.id}>PO {line.orders.po_number} · {line.name}</div>)}</details> : 0}</td>
+              })}
+              <td><input type="checkbox" aria-label={'Replace entire BOM for ' + style} disabled={!draft.styles.includes(style) || !inventory}
+                checked={replaceStyles.includes(style)} onChange={() => setDraft({...draft,replaceStyles:toggle(replaceStyles,style)})}/></td>
             </tr>)}</tbody>
           </table></div>
           {!visible.length && !draft.styles.length && <div className="bulk-bom-empty"><Search size={24}/><strong>No matching styles</strong></div>}
@@ -350,16 +381,18 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
           <div className="bulk-bom-review-tools">
             <label className="bulk-bom-inline"><input type="checkbox" checked={ready.length > 0 && ready.every(style => checked.includes(style))}
               onChange={event => setChecked(event.target.checked ? ready : [])}/> Select all ready styles</label>
+            <button className="btn btn-secondary" disabled={busy} onClick={() => run(beginReview)}>Refresh review</button>
             <button className="btn btn-secondary" onClick={printReview}><Printer size={14}/> Print Review</button>
           </div>
           {draft.styles.map(style => <section key={style} className="bulk-bom-group bulk-bom-review-group">
             <label className="bulk-bom-inline"><input type="checkbox" checked={checked.includes(style)} disabled={!ready.includes(style) || busy}
               onChange={() => setChecked(toggle(checked,style))}/> {style}{!ready.includes(style) && ' · Needs attention'}</label>
+            {replaceStyles.includes(style) && <p>Replace entire BOM · {review.filter(row => row.style === style && row.action === 'Remove').length} existing lines to remove</p>}
             <details><summary>Review POs and stores</summary><div className="table-wrap"><table><thead><tr>
               {headings.map(label => <th key={label}>{label}</th>)}<th>Overwrite</th></tr></thead><tbody>
-              {review.filter(row => row.style === style).map(row => <tr key={row.order_id + '|' + row.after.library_item_id}>
+              {review.filter(row => row.style === style).map(row => <tr key={row.order_id + '|' + (row.before?.id || row.after.library_item_id)}>
                 {cells(row).map((cell,index) => <td key={index}>{cell}</td>)}
-                <td>{row.action === 'Replace' && <label><input type="checkbox" checked={replacements.includes(row.before.id)}
+                <td>{row.action === 'Replace' && <label><input type="checkbox" disabled={replaceStyles.includes(style)} checked={replaceStyles.includes(style) || replacements.includes(row.before.id)}
                   onChange={() => setReplacements(toggle(replacements,row.before.id))}/> Replace</label>}</td>
               </tr>)}</tbody></table></div></details>
           </section>)}

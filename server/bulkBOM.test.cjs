@@ -119,6 +119,28 @@ test('Bulk BOM scopes to one buyer, adds without replacing, and requires a fresh
     payload.materials[0].settings.S.usageData.__batches.pop()
     await one('UPDATE bulk_bom_drafts SET draft=$1 WHERE id=$2',[JSON.stringify(payload),id])
     assert.match((await review(['S']))[0].issue,/Kids \/ Indigo \/ 6/)
+
+    await db.exec(readFileSync(join(__dirname,'migrations/20261123_bulk_bom_replacement.sql'),'utf8'))
+    const web = async (expected=null, removals=[]) => (await one(
+      'SELECT bulk_bom_review_web($1,$2,$3,$4,$5) AS result',
+      [id,['S'],expected && JSON.stringify(expected),[],removals])).result
+    payload.materials = [payload.materials[1]]
+    const saveDraft = () => one('UPDATE bulk_bom_drafts SET draft=$1 WHERE id=$2',[JSON.stringify(payload),id])
+    await saveDraft()
+    const keep = await web()
+    assert.equal(keep.filter(r => r.action === 'Keep').length,2)
+    await web(keep)
+    payload.replaceStyles = ['S']
+    await saveDraft()
+    const replace = await web()
+    const removals = replace.filter(r => r.action === 'Remove').map(r => r.before.id)
+    assert.equal(removals.length,2)
+    await assert.rejects(web(replace),/Confirm the reviewed removals/)
+    await one('UPDATE bom_items SET notes=$1 WHERE id=$2',['Changed after review',line])
+    await assert.rejects(web(replace,removals),/Refresh the review/)
+    await web(await web(),removals)
+    assert.deepEqual((await db.query('SELECT library_item_id FROM bom_items WHERE order_id=$1',[first])).rows,
+      [{library_item_id:late.id}])
   } finally {
     await db.close()
   }
