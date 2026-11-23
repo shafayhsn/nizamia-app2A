@@ -394,8 +394,9 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
               <td><input aria-label={'Wastage for ' + (lib?.name || 'material')} type="number" min="0" step="any"
                 className="form-control" placeholder={String(lib?.default_wastage || 5)}
                 value={settings.wastage ?? ''} onChange={event => changeSettings(item,style,{wastage:event.target.value})}/></td>
-              <td aria-live="polite">{total?.issue || (total ? Number(total.qty).toLocaleString(undefined,{maximumFractionDigits:1}) + ' ' + (lib?.unit || '') :
-                estimate?.draft === draft && estimate.error ? estimate.error : 'Calculating…')}</td>
+              <td aria-live="polite">{total?.qty != null
+                ? [Number(total.qty).toLocaleString(undefined,{maximumFractionDigits:1}), lib?.unit].filter(Boolean).join(' ')
+                : '—'}</td>
             </tr>
           })}</tbody></table></div></section>)}</>}
         {step === 3 && <>
