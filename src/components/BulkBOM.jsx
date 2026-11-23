@@ -374,8 +374,8 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
           {!visible.length && !draft.styles.length && <div className="bulk-bom-empty"><Search size={24}/><strong>No matching styles</strong></div>}
         </>}
         {step === 2 && <><h2>Set consumptions</h2>{draft.styles.map(style => <section key={style} className="bulk-bom-group"><h3>{style}</h3>
-          <div className="table-wrap"><table><thead><tr><th>Material</th><th>Detail / Spec</th><th>Consumption</th><th>Wastage %</th><th>Total trim quantity</th></tr></thead>
-          <tbody>{draft.materials.map(item => {
+          <div className="table-wrap"><table><thead><tr><th>Material</th><th>Detail / Spec</th><th>Consumption</th><th>Wastage %</th><th>Total trim quantity</th><th>Action</th></tr></thead>
+          <tbody>{draft.materials.filter(item => !item.settings?.[style]?.excluded).map(item => {
             const lib = library.get(item.id)
             const settings = item.settings[style] || {}
             const total = estimate?.draft === draft && estimate.rows?.get(JSON.stringify([style,item.id]))
@@ -397,8 +397,16 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
               <td aria-live="polite">{total?.qty != null
                 ? [Number(total.qty).toLocaleString(undefined,{maximumFractionDigits:1}), lib?.unit].filter(Boolean).join(' ')
                 : '—'}</td>
+              <td><button type="button" className="btn btn-secondary" aria-label={'Remove ' + lib?.name + ' from ' + style}
+                onClick={() => changeSettings(item,style,{excluded:true})}>Remove</button></td>
             </tr>
-          })}</tbody></table></div></section>)}</>}
+          })}</tbody></table></div>
+          {draft.materials.some(item => item.settings?.[style]?.excluded) && <details><summary>Removed from this style</summary>
+            {draft.materials.filter(item => item.settings?.[style]?.excluded).map(item => <div key={item.id} className="bulk-bom-inline">
+              {library.get(item.id)?.name} · {item.settings[style].spec ?? library.get(item.id)?.description}
+              <button type="button" className="btn btn-secondary" onClick={() => changeSettings(item,style,{excluded:false})}>Restore</button>
+            </div>)}</details>}
+        </section>)}</>}
         {step === 3 && <>
           <h2>Review and apply</h2>
           <div className="bulk-bom-review-tools">

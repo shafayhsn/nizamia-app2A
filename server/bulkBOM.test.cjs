@@ -126,6 +126,11 @@ test('Bulk BOM scopes to one buyer, adds without replacing, and requires a fresh
     const totals = await one('SELECT * FROM bulk_bom_consumption_totals($1,$2)',[firstBuyer,JSON.stringify(totalsDraft)])
     assert.equal(Number(totals.qty),210)
     assert.equal(totals.issue,null)
+    await db.exec(readFileSync(join(__dirname,'migrations/20261123_bulk_bom_exclude_trim.sql'),'utf8'))
+    totalsDraft.styles.push('Other')
+    totalsDraft.materials[0].settings.S.excluded = true
+    const included = await db.query('SELECT style FROM bulk_bom_consumption_totals($1,$2)',[firstBuyer,JSON.stringify(totalsDraft)])
+    assert.deepEqual(included.rows,[{style:'Other'}])
     const web = async (expected=null, removals=[]) => (await one(
       'SELECT bulk_bom_review_web($1,$2,$3,$4,$5) AS result',
       [id,['S'],expected && JSON.stringify(expected),[],removals])).result
