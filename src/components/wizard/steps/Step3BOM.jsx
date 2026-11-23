@@ -135,6 +135,8 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
     onClose()
   }
 
+  const [sameForSizes, setSameForSizes] = useState(false)
+  const [allSizeRate, setAllSizeRate] = useState('')
   const mergedColors = poData.colors.map(c => c.name)
   const mergedGroups = poData.sizeGroups.map(g => g.name)
   const mergedSizes  = poData.allSizes.map(s => s.size)
@@ -178,6 +180,19 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
               </div>
             )
             return (
+              <><div>{rule === 'By Individual Sizes' && <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
+                <label><input type="checkbox" checked={sameForSizes} onChange={event => {
+                  setSameForSizes(event.target.checked)
+                  setAllSizeRate('')
+                }}/> Add same for all sizes</label>
+                {sameForSizes && <input type="number" min="0" step="any" aria-label="Consumption per piece for all sizes"
+                  placeholder="Cons./pc" style={{...inp,width:96}} value={allSizeRate} onChange={event => {
+                    const value = event.target.value
+                    setAllSizeRate(value)
+                    setData(previous => ({...previous,...Object.fromEntries(keys.filter(key => !normalizeUsageCell(previous[key]).na)
+                      .map(key => [key,{value,na:false}]))}))
+                  }}/>}
+              </div>}</div>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead><tr><TH>{label}</TH><TH right>Qty</TH><TH right>Cons./pc</TH><TH right>Final Qty</TH></tr></thead>
                 <tbody>
@@ -196,11 +211,11 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
                         <td style={{ padding: '5px 0 5px 8px', borderBottom: '1px solid #f0f0ee', width: 150 }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
                             <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: isNA ? '#92400e' : '#6b7280', whiteSpace: 'nowrap' }}>
-                              <input type="checkbox" checked={isNA} onChange={e => setData(d => ({ ...d, [k]: { value: e.target.checked ? '' : (normalizeUsageCell(d[k]).value || ''), na: e.target.checked } }))} />
+                              <input type="checkbox" checked={isNA} onChange={e => setData(d => ({ ...d, [k]: { value: e.target.checked ? '' : (sameForSizes ? allSizeRate : normalizeUsageCell(d[k]).value || ''), na: e.target.checked } }))} />
                               N/A
                             </label>
                             <input style={{ ...inp, textAlign: 'right', width: 96, borderColor: isNew && !val && !isNA ? '#fcd34d' : '#e5e7eb', opacity: isNA ? 0.55 : 1 }}
-                              type="number" step="0.01" value={val} placeholder="0.00" disabled={isNA}
+                              type="number" step="0.01" value={val} placeholder="0.00" disabled={isNA || sameForSizes}
                               onChange={e => setData(d => ({ ...d, [k]: { value: e.target.value, na: false } }))} autoFocus={isNew} />
                           </div>
                         </td>
@@ -211,7 +226,7 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
                     )
                   })}
                 </tbody>
-              </table>
+              </table></>
             )
           })()}
           {rule === 'By Batch' && (

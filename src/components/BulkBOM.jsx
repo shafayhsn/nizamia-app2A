@@ -200,14 +200,15 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
     setStep(2)
   }
 
-  function configure(item, style, lib, settings) {
-    const usageData = settings.usageData ?? (item.usage === 'Generic'
+  function configure(item, style, lib, settings, rule = settings.usage || item.usage) {
+    const switching = rule !== (settings.usage || item.usage)
+    const usageData = switching ? Object.fromEntries(Object.entries(settings.usageData || {}).filter(([key]) => key.startsWith('_packing'))) : settings.usageData ?? (rule === 'Generic'
       ? { generic: { value: settings.rate ?? '', na: false } }
-      : item.usage === 'By Size Group' ? settings.rates : {})
+      : rule === 'By Size Group' ? settings.rates : {})
     setUsageConfig({
       material: item,
       style,
-      rule: item.usage,
+      rule, switching,
       item: {
         name: lib?.name,
         detail: settings.spec ?? (lib ? librarySpec(lib) : ''),
@@ -335,7 +336,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
               <td><select className="form-control" aria-label="Usage" value={item.usage} onChange={event => changeMaterial(item.id,{
                 usage:event.target.value,
                 settings:Object.fromEntries(Object.entries(item.settings).map(([style, settings]) =>
-                  [style, { spec: settings.spec, wastage: settings.wastage }])),
+                  [style, settings.usage ? settings : { spec: settings.spec, wastage: settings.wastage, excluded: settings.excluded }])),
               })}>
                 {USAGE_RULES.map(rule => <option key={rule}>{rule}</option>)}</select></td>
               <td><div className="bulk-bom-inline"><label><input type="checkbox" disabled={item.usage === 'By Batch'} checked={item.shared && item.usage !== 'By Batch'} onChange={event => changeMaterial(item.id,{shared:event.target.checked})}/> Same rate</label>{' '}
@@ -374,7 +375,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
           {!visible.length && !draft.styles.length && <div className="bulk-bom-empty"><Search size={24}/><strong>No matching styles</strong></div>}
         </>}
         {step === 2 && <><h2>Set consumptions</h2>{draft.styles.map(style => <section key={style} className="bulk-bom-group"><h3>{style}</h3>
-          <div className="table-wrap"><table><thead><tr><th>Material</th><th>Detail / Spec</th><th>Consumption</th><th>Wastage %</th><th>Total trim quantity</th><th>Action</th></tr></thead>
+          <div className="table-wrap"><table><thead><tr><th>Material</th><th>Detail / Spec</th><th>Usage rule</th><th>Consumption</th><th>Wastage %</th><th>Total trim quantity</th><th>Action</th></tr></thead>
           <tbody>{draft.materials.filter(item => !item.settings?.[style]?.excluded).map(item => {
             const lib = library.get(item.id)
             const settings = item.settings[style] || {}
@@ -382,14 +383,17 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
             return <tr key={item.id}><td>{lib?.name || 'Unavailable material'}</td>
               <td><input className="form-control" aria-label={'Detail / Spec for ' + (lib?.name || 'material')}
                 value={settings.spec ?? (lib ? librarySpec(lib) : '')} onChange={event => changeSettings(item,style,{spec:event.target.value})}/></td>
-              <td>{item.shared && item.usage !== 'By Batch'
+              <td><select className="form-control" aria-label={'Usage rule for ' + lib?.name + ' on ' + style}
+                value={settings.usage || item.usage} onChange={event => configure(item,style,lib,settings,event.target.value)}>
+                {USAGE_RULES.map(rule => <option key={rule}>{rule}</option>)}</select></td>
+              <td>{!settings.usage && item.shared && item.usage !== 'By Batch'
                 ? <div className="bulk-bom-inline"><input className="form-control" type="number" min="0" step="any"
                     aria-label={'Consumption for ' + lib?.name + ' on ' + style} value={settings.sharedRate ?? item.rate ?? ''}
                     onChange={event => changeSettings(item,style,{sharedRate:event.target.value})}/>
                     <small>{lib?.unit}/pc · {settings.sharedRate == null ? 'Shared rate' : 'Style rate'}</small>
                     {settings.sharedRate != null && <button className="btn btn-secondary" onClick={() => changeSettings(item,style,{sharedRate:undefined})}>Use shared rate</button>}</div>
                 : <button className="btn btn-secondary" onClick={() => configure(item,style,lib,settings)}>
-                  Configure {item.usage}
+                  Configure {settings.usage || item.usage}
                 </button>}</td>
               <td><input aria-label={'Wastage for ' + (lib?.name || 'material')} type="number" min="0" step="any"
                 className="form-control" placeholder={String(lib?.default_wastage || 5)}
@@ -443,7 +447,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
       </section>
       {usageConfig && <UsageModal config={usageConfig} poData={matrices[usageConfig.style]}
         orderData={{style_number: usageConfig.style}} onClose={() => setUsageConfig(null)}
-        onSave={(_, usageData) => changeSettings(usageConfig.material, usageConfig.style, { usageData })}/>}
+        onSave={(_, usageData) => changeSettings(usageConfig.material, usageConfig.style, { usageData, ...(usageConfig.switching ? {usage:usageConfig.rule,rate:undefined,rates:undefined,sharedRate:undefined} : {}) })}/>}
     </MinimizableModal>}
   </>
 }
