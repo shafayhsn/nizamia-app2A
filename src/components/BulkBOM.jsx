@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import MinimizableModal from './ui/MinimizableModal'
 import { markTabUpdated } from '../lib/tabNotices'
 import { UsageModal } from './wizard/steps/Step3BOM'
-import { buildBOMMatrix, normalizeUsageData, normalizeUsageCell, USAGE_RULES } from '../lib/bomUsage'
+import { bulkLocalTotal, buildBOMMatrix, normalizeUsageData, normalizeUsageCell, USAGE_RULES } from '../lib/bomUsage'
 import { printSamplingHTML } from '../lib/sampleProgramPrint'
 
 const steps = ['Select Trims', 'Select Styles', 'Set Consumptions', 'Review & Apply']
@@ -94,7 +94,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
     setMatrices({})
     if (!draft || !buyer) return
     let active = true
-    readAll(supabase.from('orders').select('id,style_number,po_number,store_name').eq('buyer_id', buyer).order('id'))
+    readAll(supabase.from('orders').select('id,style_number,po_number,store_name,total_qty').eq('buyer_id', buyer).order('id'))
       .then(rows => { if (active) setOrders(rows) })
       .catch(failure => { if (active) setError(failure.message) })
     Promise.all([
@@ -124,20 +124,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
     return () => { active = false }
   }, [step,buyer])
 
-  const [estimate, setEstimate] = useState(null)
-  useEffect(() => {
-    if (step !== 2) return
-    let active = true
-    const timer = setTimeout(async () => {
-      try {
-        const rows = await read(supabase.rpc('bulk_bom_consumption_totals', {buyer, proposal:draft}))
-        if (active) setEstimate({draft, rows:new Map(rows.map(row => [JSON.stringify([row.style,row.material]),row]))})
-      } catch (failure) {
-        if (active) setEstimate({draft, error:failure.message})
-      }
-    },350)
-    return () => { active = false; clearTimeout(timer) }
-  },[step,buyer,draft])
+  const [orderInputs,setOrderInputs] = useState({})
 
   function add(ids) {
     const existing = new Set(draft.materials.map(item => item.id))
@@ -186,9 +173,11 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
     }
     const groups = await loadFor('size_groups', 'order_id', selected.map(order => order.id), 'sort_order')
     const ids = groups.map(group => group.id)
-    const [colors, breakdown] = await Promise.all([
+    const [colors, breakdown, lines, packs] = await Promise.all([
       loadFor('size_group_colors', 'size_group_id', ids, 'sort_order'),
       loadFor('size_group_breakdown', 'size_group_id', ids, 'size'),
+      loadFor('bom_items','order_id',selected.map(o => o.id),'order_id'),
+      loadFor('finishing_packs','order_id',selected.map(o => o.id),'order_id'),
     ])
     const styleByOrder = new Map(selected.map(order => [order.id, order.style_number]))
     const styleByGroup = new Map(groups.map(group => [group.id, styleByOrder.get(group.order_id)]))
@@ -197,6 +186,18 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
       colors.filter(color => styleByGroup.get(color.size_group_id) === style),
       breakdown.filter(row => styleByGroup.get(row.size_group_id) === style),
     )])))
+    const inputs = {}
+    for (const order of selected) {
+      const poGroups = groups.filter(g => g.order_id === order.id)
+      const groupIds = new Set(poGroups.map(g => g.id))
+      const matrix = buildBOMMatrix(poGroups,colors.filter(c => groupIds.has(c.size_group_id)),
+        breakdown.filter(b => groupIds.has(b.size_group_id)))
+      const variants = matrix.sgMatrix.flatMap(g => g.colors.flatMap(c => c.sizes.filter(s => s.qty > 0)
+        .map(s => ({group:g.sgName,wash:c.colorName,size:s.size,qty:s.qty}))))
+      ;(inputs[order.style_number] ||= []).push({...order,matrix,variants,lines:lines.filter(l => l.order_id === order.id),
+        hasPacks:packs.some(p => p.order_id === order.id)})
+    }
+    setOrderInputs(inputs)
     setStep(2)
   }
 
@@ -379,7 +380,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
           <tbody>{draft.materials.filter(item => !item.settings?.[style]?.excluded).map(item => {
             const lib = library.get(item.id)
             const settings = item.settings[style] || {}
-            const total = estimate?.draft === draft && estimate.rows?.get(JSON.stringify([style,item.id]))
+            const total = bulkLocalTotal(item,settings,lib,orderInputs[style])
             return <tr key={item.id}><td>{lib?.name || 'Unavailable material'}</td>
               <td><input className="form-control" aria-label={'Detail / Spec for ' + (lib?.name || 'material')}
                 value={settings.spec ?? (lib ? librarySpec(lib) : '')} onChange={event => changeSettings(item,style,{spec:event.target.value})}/></td>
@@ -394,7 +395,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
                     {settings.sharedRate != null && <button className="btn btn-secondary" onClick={() => changeSettings(item,style,{sharedRate:undefined})}>Use shared rate</button>}</div>
                 : <button className="btn btn-secondary" onClick={() => configure(item,style,lib,settings)}>
                   Configure {settings.usage || item.usage}
-                </button>}</td>
+                </button>}{total.issue && <span role="img" aria-label={total.issue} title={total.issue} style={{color:'#c62828',marginLeft:5}}>●</span>}</td>
               <td><input aria-label={'Wastage for ' + (lib?.name || 'material')} type="number" min="0" step="any"
                 className="form-control" placeholder={String(lib?.default_wastage || 5)}
                 value={settings.wastage ?? ''} onChange={event => changeSettings(item,style,{wastage:event.target.value})}/></td>

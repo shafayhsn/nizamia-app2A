@@ -3,7 +3,7 @@ import { supabase } from '../../../lib/supabase'
 import { markTabUpdated } from '../../../lib/tabNotices'
 import { Plus, Trash2, Check, Library, X, Settings2, AlertTriangle, Search, Scissors, PackageOpen } from 'lucide-react'
 
-import { configuredCell, configuredQuantity, USAGE_RULES, buildBOMMatrix, calculateBOMFinalQty, normalizeUsageCell, normalizeUsageData } from '../../../lib/bomUsage'
+import { variantProblem, configuredCell, configuredQuantity, USAGE_RULES, buildBOMMatrix, calculateBOMFinalQty, normalizeUsageCell, normalizeUsageData } from '../../../lib/bomUsage'
 const UNITS = ['yards', 'meters', 'cm', 'inch', 'ft', 'pcs', 'kg', 'gram', 'cone', 'set', 'sht', 'ctn', 'roll', 'ltr']
 const PACKING_FORMS = ['Cone', 'Roll', 'Spool', 'Box', 'Bag', 'Carton', 'Reel', 'Bundle', 'Piece']
 const TABLES = [
@@ -137,6 +137,8 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
 
   const [sameForSizes, setSameForSizes] = useState(false)
   const [allSizeRate, setAllSizeRate] = useState('')
+  const indicator = message => config.material && message ? <span role="img" title={message} aria-label={message} style={{color:'#c62828',marginLeft:4}}>●</span> : null
+  const batchProblem = (g,c,sz) => sz.qty > 0 && variantProblem('By Batch',{__batches:batchData},g.sgName,c.colorName,sz.size)
   const mergedColors = poData.colors.map(c => c.name)
   const mergedGroups = poData.sizeGroups.map(g => g.name)
   const mergedSizes  = poData.allSizes.map(s => s.size)
@@ -155,7 +157,7 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
           {rule === 'Generic' && (
             <div>
               <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 12 }}>One consumption value applies to all sizes and colours.</div>
-              <label style={{ fontSize: 11, fontWeight: 500, color: '#6b7280', display: 'block', marginBottom: 4 }}>Consumption / pc</label>
+              <label style={{ fontSize: 11, fontWeight: 500, color: '#6b7280', display: 'block', marginBottom: 4 }}>Consumption / pc{indicator(variantProblem('Generic',{generic:genericCell}))}</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: genericCell.na ? '#92400e' : '#6b7280', whiteSpace: 'nowrap' }}>
                   <input type="checkbox" checked={genericCell.na} onChange={e => setData({ generic: { value: e.target.checked ? '' : (genericCell.value || ''), na: e.target.checked } })} />
@@ -205,7 +207,7 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
                     return (
                       <tr key={k}>
                         <td style={{ padding: '5px 8px 5px 0', borderBottom: '1px solid #f0f0ee', fontSize: 12, fontWeight: 500 }}>
-                          {k}{isNew && <span style={{ fontSize: 9, background: '#fef3c7', color: '#92400e', borderRadius: 3, padding: '1px 5px', fontWeight: 700, marginLeft: 6 }}>NEW</span>}
+                          {k}{indicator(qtys[k] > 0 && !isNA && !(Number(val)>0) && "Enter consumption or select N/A")}{isNew && <span style={{ fontSize: 9, background: '#fef3c7', color: '#92400e', borderRadius: 3, padding: '1px 5px', fontWeight: 700, marginLeft: 6 }}>NEW</span>}
                         </td>
                         <td style={{ padding: '5px 8px', borderBottom: '1px solid #f0f0ee', textAlign: 'right', fontSize: 11, color: '#6b7280' }}>{qtys[k]?.toLocaleString()}</td>
                         <td style={{ padding: '5px 0 5px 8px', borderBottom: '1px solid #f0f0ee', width: 150 }}>
@@ -260,6 +262,7 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
                       <div key={batchIdx} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 12, background: '#fff' }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
                           <input style={{ ...inp, flex: 1 }} value={batch.name} onChange={e => setBatchData(prev => prev.map((b, ix) => ix === batchIdx ? { ...b, name: e.target.value } : b))} placeholder={`Batch ${batchIdx + 1}`} />
+                          {indicator(batchQty > 0 && !(Number(batch.consumption)>0) && "Enter batch consumption")}
                           <input style={{ ...inp, width: 110, textAlign: 'right' }} type="number" step="0.01" value={batch.consumption || ''} onChange={e => setBatchData(prev => prev.map((b, ix) => ix === batchIdx ? { ...b, consumption: e.target.value } : b))} placeholder="Cons./pc" />
                           <div style={{ fontSize: 11, fontWeight: 700, minWidth: 86, textAlign: 'right' }}>{finalQty ? finalQty.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'}</div>
                           {batchData.length > 1 && <button className="btn btn-ghost" onClick={() => setBatchData(prev => prev.filter((_, ix) => ix !== batchIdx))}>Remove</button>}
@@ -276,7 +279,7 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
                                       {(c.sizes || []).map(sz => {
                                         const key = `${sg.sgName}||${c.colorName}||${sz.size}`
                                         const disabled = usedElsewhere.has(key) || !(parseFloat(sz.qty) > 0)
-                                        return <button key={key} type="button" onClick={() => toggleCell(sg.sgName, c.colorName, sz.size)} disabled={disabled} style={{ fontSize: 11, padding: '4px 8px', borderRadius: 999, border: selectedHere.has(key) ? '1px solid #2563eb' : '1px solid #e5e7eb', background: selectedHere.has(key) ? '#eff6ff' : disabled ? '#f3f4f6' : '#fff', color: disabled ? '#9ca3af' : '#111827', cursor: disabled ? 'not-allowed' : 'pointer' }}>Size {sz.size} ({sz.qty || 0})</button>
+                                        return <button key={key} type="button" onClick={() => toggleCell(sg.sgName, c.colorName, sz.size)} disabled={disabled} style={{ fontSize: 11, padding: '4px 8px', borderRadius: 999, border: selectedHere.has(key) ? '1px solid #2563eb' : '1px solid #e5e7eb', background: selectedHere.has(key) ? '#eff6ff' : disabled ? '#f3f4f6' : '#fff', color: disabled ? '#9ca3af' : '#111827', cursor: disabled ? 'not-allowed' : 'pointer' }}>Size {sz.size} ({sz.qty || 0}){indicator(batchProblem(sg,c,sz))}</button>
                                       })}
                                     </div>
                                   </div>
@@ -332,11 +335,11 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
                           const total = configuredQuantity(row,c.qty,c.sizes) * (1+wastage/100)
                           return <React.Fragment key={key}><tr>
                             <td><button type="button" aria-expanded={!!expanded[key]} onClick={() => setExpanded(prev => ({...prev,[key]:!prev[key]}))}>
-                              {expanded[key] ? '▾' : '▸'} {c.colorName} · {c.sizes.length} sizes</button></td>
+                              {expanded[key] ? '▾' : '▸'} {c.colorName} · {c.sizes.length} sizes{indicator(c.sizes.some(sz => sz.qty > 0 && !configuredCell(row,sz.size)?.na && !(Number(configuredCell(row,sz.size)?.consumption)>0)) && "Expand to check sizes")}</button></td>
                             <td align="right">{c.qty}</td><td>{controls(null,label)}</td><td align="right">{Number(total.toFixed(2))}</td>
                           </tr>{expanded[key] && c.sizes.map(({size,qty}) => {
                             const cell = configuredCell(row,size)
-                            return <tr key={size}><td style={{paddingLeft:18}}>{size}</td><td align="right">{qty}</td>
+                            return <tr key={size}><td style={{paddingLeft:18}}>{size}{indicator(qty > 0 && !cell.na && !(Number(cell.consumption)>0) && "Enter consumption or select N/A")}</td><td align="right">{qty}</td>
                               <td>{controls(size,label + ' / ' + size)}</td><td align="right">{cell.na ? 'N/A' : fmtQty(cell.consumption,qty) ?? '—'}</td></tr>
                           })}</React.Fragment>
                         })}
