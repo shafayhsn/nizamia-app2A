@@ -57,6 +57,7 @@ test('Bulk BOM scopes to one buyer, adds without replacing, and requires a fresh
     assert.deepEqual(await one('SELECT detail,notes FROM bom_items WHERE id=$1',[line]),{detail:'White',notes:'New note'})
     assert.equal((await review(['S'])).every(row=>row.action==='Unchanged'),true)
     await db.exec(readFileSync(join(__dirname,'migrations/20261121_bulk_bom_usage_parity.sql'),'utf8'))
+    await db.exec(readFileSync(join(__dirname,'migrations/20261123_bulk_bom_size_overrides.sql'),'utf8'))
     const { buildBOMMatrix, calculateBOMFinalQty } = await import('../src/lib/bomUsage.js')
     const group = await one("INSERT INTO size_groups(order_id,group_name,sizes) VALUES ($1,'Kids',ARRAY['4','6']) RETURNING *",[first])
     const color = await one("INSERT INTO size_group_colors(size_group_id,color_name) VALUES ($1,'Indigo') RETURNING *",[group.id])
@@ -81,6 +82,9 @@ test('Bulk BOM scopes to one buyer, adds without replacing, and requires a fresh
       ['By Size Group', {Kids:{value:'3',na:false}}, 330],
       ['By Individual Sizes', {4:{value:'2',na:false},6:{value:'',na:true}}, 132],
       ['Configure Own', {__matrix:[{sgName:'Kids',colorName:'Indigo',consumption:'4',na:false}]}, 440],
+      ['Configure Own', {__matrix:[{sgName:'Kids',colorName:'Indigo',consumption:'4',overrides:[{size:'4',consumption:'2'}]}]}, 308],
+      ['Configure Own', {__matrix:[{sgName:'Kids',colorName:'Indigo',na:true,overrides:[{size:'4',consumption:'2'}]}]}, 132],
+      ['Configure Own', {__matrix:[{sgName:'Kids',colorName:'Indigo',consumption:'4',overrides:[{size:'4',na:true}]}]}, 176],
       ['By Batch', {__batches:[
         {name:'A',consumption:'2',cells:[{sgName:'Kids',colorName:'Indigo',size:'4'}]},
         {name:'B',consumption:'4',cells:[{sgName:'Kids',colorName:'Indigo',size:'6'}]},

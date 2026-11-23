@@ -199,7 +199,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
     if (line?.base_qty != null) return line.base_qty
     const rates = normalizeUsageData(line?.usage_data)
     if (rates.__matrix) return rates.__matrix.map(cell =>
-      [cell.sgName, cell.colorName, cell.na ? 'N/A' : cell.consumption].join(' / ')).join(', ')
+      [cell.sgName, cell.colorName, cell.na ? 'N/A' : cell.consumption, ...(cell.overrides || []).map(o => o.size + ' = ' + (o.na ? 'N/A' : o.consumption))].join(' / ')).join(', ')
     if (rates.__batches) return rates.__batches.map(batch =>
       batch.name + ' (' + batch.cells.map(cell => [cell.sgName, cell.colorName, cell.size].filter(Boolean).join(' / ')).join(', ') +
       '): ' + batch.consumption).join('; ')

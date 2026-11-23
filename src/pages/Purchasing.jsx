@@ -1,3 +1,4 @@
+import { configuredCell, configuredMapQuantity, configuredQuantity } from '../lib/bomUsage.js'
 import StoreReceipts, { PoReceivingDialog, RegisterSearch } from '../components/purchasing/StoreReceiving'
 import {reviewRequest,readPurchasingRegister,purchasingLookup} from '../lib/poReview'
 import useManagedPopup from '../components/ui/useManagedPopup'
@@ -829,7 +830,7 @@ function MaterialDemandTab({ suppliers }) {
           return ud.__matrix.reduce((s,m)=>{
             const sg = (pd.sgMatrix||[]).find(x=>x.sgName===m.sgName)
             const c  = sg?.colors.find(x=>x.colorName===m.colorName)
-            return s + usageNumeric(m.consumption) * (c?.qty||0) * (1+wastage/100)
+            return s + configuredQuantity(m,c?.qty,c?.sizes) * (1+wastage/100)
           },0)
         }
         const groups = ud.__groups||[]
@@ -946,7 +947,7 @@ function MaterialDemandTab({ suppliers }) {
             const matchesColor = !queueColorName || normText(colorName) === normText(queueColorName) || q.split_rule === 'By Size Group'
             if (!matchesGroup || !matchesColor) return s
             const cellQty = pd.sgColorTotals?.[sgName]?.[colorName] || 0
-            return s + (usageNumeric(m.consumption) * cellQty * wastageFactor)
+            return s + (configuredMapQuantity(m, cellQty, pd.sgColorSizeMatrix?.[sgName]?.[colorName]) * wastageFactor)
           },0)
         }
         const groups = ud.__groups || []
@@ -980,7 +981,7 @@ function MaterialDemandTab({ suppliers }) {
           const matchesColor = !queueColorName || normText(colorName) === normText(queueColorName) || q.split_rule === 'By Size Group'
           if (!matchesGroup || !matchesColor) return s
           const cellQty = pd.sgColorTotals?.[sgName]?.[colorName] || 0
-          return s + (usageNumeric(m.consumption) * cellQty)
+          return s + (configuredMapQuantity(m, cellQty, pd.sgColorSizeMatrix?.[sgName]?.[colorName]))
         },0)
       }
       if (rule === 'Generic' && ud.generic) return (parseFloat(ud.generic) || 0) * queueQty
@@ -1022,7 +1023,7 @@ function MaterialDemandTab({ suppliers }) {
         if (eRule==='By Color') { eReqQty=Object.entries(eUd).reduce((s,[n,cons])=>{ const totalColorQty = (ePd.colors||[]).filter(c=>c.name===n).reduce((ss,c)=>ss+(c.qty||0),0); return s+usageNumeric(cons)*totalColorQty },0)||eReqQty }
         else if (eRule==='By Size Group') { eReqQty=Object.entries(eUd).reduce((s,[n,cons])=>{ const g=ePd.sizeGroups.find(x=>x.name===n); return s+usageNumeric(cons)*(g?.qty||0) },0)||eReqQty }
         else if (eRule==='By Individual Sizes') { eReqQty=Object.entries(eUd).reduce((s,[sz,cons])=>{ const f=ePd.allSizes.find(x=>x.size===sz); return s+usageNumeric(cons)*(f?.qty||0) },0)||eReqQty }
-        else if (eRule==='Configure Own'&&eUd.__matrix) { eReqQty=eUd.__matrix.reduce((s,m)=>{ const sg=ePd.sgMatrix?.find(x=>x.sgName===m.sgName); const c=sg?.colors.find(x=>x.colorName===m.colorName); return s+usageNumeric(m.consumption)*(c?.qty||0) },0)||eReqQty }
+        else if (eRule==='Configure Own'&&eUd.__matrix) { eReqQty=eUd.__matrix.reduce((s,m)=>{ const sg=ePd.sgMatrix?.find(x=>x.sgName===m.sgName); const c=sg?.colors.find(x=>x.colorName===m.colorName); return s+configuredQuantity(m,c?.qty,c?.sizes) },0)||eReqQty }
         else if (eRule==='By Batch'&&eUd.__batches) { eReqQty=eUd.__batches.reduce((sum,b)=>sum+usageNumeric(b.consumption)*(b.cells||[]).reduce((sq,cell)=>{ const sg=ePd.sgMatrix?.find(x=>x.sgName===cell.sgName); const c=sg?.colors.find(x=>x.colorName===cell.colorName); if (cell.size) return sq + (parseFloat((c?.sizes || []).find(sz => normText(sz.size) === normText(cell.size))?.qty) || 0); return sq+(c?.qty||0) },0),0)||eReqQty }
         else if (eRule==='Generic'&&eUd.generic) { eReqQty=usageNumeric(eUd.generic)*(parseFloat(ord.total_qty)||0)||eReqQty }
       }
@@ -1108,7 +1109,7 @@ function MaterialDemandTab({ suppliers }) {
           const sg = pickKnownName(m.sgName, pd.sizeGroups.map(g => g.name)) || m.sgName || ''
           const color = pickKnownName(m.colorName, pd.colors.map(c => c.name)) || m.colorName || ''
           const qty = pd.sgColorTotals?.[sg]?.[color] || 0
-          const req = usageNumeric(m.consumption) * qty * factor
+          const req = configuredMapQuantity(m,qty,pd.sgColorSizeMatrix?.[sg]?.[color]) * factor
           return req > 0 ? { breakdown: [sg, color].filter(Boolean).join(' / ') || `Breakdown ${ix+1}`, req_qty: req, unit } : null
         }).filter(Boolean)
       }

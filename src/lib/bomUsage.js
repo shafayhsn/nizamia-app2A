@@ -16,6 +16,21 @@ export function normalizeUsageCell(cell) {
   return { value: cell ?? '', na: false }
 }
 
+export function configuredCell(row, size) {
+  return row?.overrides?.find(entry => entry.size === size) ?? row
+}
+
+export function configuredQuantity(row, qty, sizes = []) {
+  const rate = cell => cell?.na ? 0 : Number(cell?.consumption) || 0
+  const base = rate(row)
+  return sizes.reduce((sum, cell) =>
+    sum + (rate(configuredCell(row, cell.size)) - base) * cell.qty, base * (qty || 0))
+}
+
+export function configuredMapQuantity(row, qty, sizeMap) {
+  return configuredQuantity(row, qty, Object.entries(sizeMap || {}).map(([size, qty]) => ({ size, qty })))
+}
+
 export function calculateBOMFinalQty(item, { totalQty, poData, excessCutPct, cuttingQtyMult, round = true }) {
   const wastage = parseFloat(item.wastage) || 0
   const rule = item.usage_rule || 'Generic'
@@ -63,7 +78,7 @@ export function calculateBOMFinalQty(item, { totalQty, poData, excessCutPct, cut
       const total = ud.__matrix.reduce((s, m) => {
         const sg = (poData.sgMatrix || []).find(x => x.sgName === m.sgName)
         const c  = sg?.colors.find(x => x.colorName === m.colorName)
-        return s + (parseFloat(m.consumption) || 0) * (c?.qty || 0) * multiplier * (1 + wastage / 100)
+        return s + configuredQuantity(m, c?.qty, c?.sizes) * multiplier * (1 + wastage / 100)
       }, 0)
       return total > 0 ? finalQuantity(total) : null
     }

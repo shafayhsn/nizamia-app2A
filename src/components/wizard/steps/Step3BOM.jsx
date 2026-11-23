@@ -3,7 +3,7 @@ import { supabase } from '../../../lib/supabase'
 import { markTabUpdated } from '../../../lib/tabNotices'
 import { Plus, Trash2, Check, Library, X, Settings2, AlertTriangle, Search, Scissors, PackageOpen } from 'lucide-react'
 
-import { USAGE_RULES, buildBOMMatrix, calculateBOMFinalQty, normalizeUsageCell, normalizeUsageData } from '../../../lib/bomUsage'
+import { configuredCell, configuredQuantity, USAGE_RULES, buildBOMMatrix, calculateBOMFinalQty, normalizeUsageCell, normalizeUsageData } from '../../../lib/bomUsage'
 const UNITS = ['yards', 'meters', 'cm', 'inch', 'ft', 'pcs', 'kg', 'gram', 'cone', 'set', 'sht', 'ctn', 'roll', 'ltr']
 const PACKING_FORMS = ['Cone', 'Roll', 'Spool', 'Box', 'Bag', 'Carton', 'Reel', 'Bundle', 'Piece']
 const TABLES = [
@@ -29,8 +29,13 @@ function getStaleKeys(item, poData) {
   }
   if (rule === 'Configure Own') {
     if (ud.__matrix) {
-      const assigned = ud.__matrix.map(m => `${m.sgName}||${m.colorName}`)
-      return (poData.sgMatrix || []).flatMap(sg => sg.colors.filter(c => c.qty > 0).map(c => `${sg.sgName}||${c.colorName}`)).filter(k => !assigned.includes(k))
+      return (poData.sgMatrix || []).flatMap(group => group.colors.flatMap(color => {
+        const row = ud.__matrix.find(entry => entry.sgName === group.sgName && entry.colorName === color.colorName)
+        return color.sizes.filter(size => {
+          const cell = configuredCell(row, size.size)
+          return size.qty > 0 && !cell?.na && !(Number(cell?.consumption) > 0)
+        }).map(size => [group.sgName, color.colorName, size.size].join(' / '))
+      }))
     }
     const groups = ud.__groups || []
     const assigned = groups.flatMap(g => g.sizes)
@@ -59,11 +64,17 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
   })
   const [matrixData, setMatrixData] = useState(() => {
     if (rule !== 'Configure Own') return {}
-    const m = normalizeUsageData(item.usage_data).__matrix || []
-    const obj = {}
-    m.forEach(e => { obj[`${e.sgName}||${e.colorName}`] = { value: e.consumption ?? '', na: !!e.na } })
-    return obj
+    const saved = normalizeUsageData(item.usage_data)
+    const rows = saved.__matrix ?? (poData.sgMatrix || []).flatMap(group => group.colors.map(color => ({
+      sgName: group.sgName, colorName: color.colorName,
+      overrides: color.sizes.flatMap(({size}) => {
+        const matches = (saved.__groups || []).filter(entry => entry.sizes?.includes(size))
+        return matches.length ? [{size, consumption: matches.reduce((sum, entry) => sum + Number(entry.consumption || 0), 0)}] : []
+      }),
+    })))
+    return Object.fromEntries(rows.map(row => [JSON.stringify([row.sgName, row.colorName]), row]))
   })
+  const [expanded, setExpanded] = useState({})
   const [batchData, setBatchData] = useState(() => {
     if (rule !== 'By Batch') return []
     const existing = normalizeUsageData(item.usage_data).__batches || []
@@ -87,12 +98,7 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
   function getUsageData() {
     if (rule === 'Generic') return { generic: genericCell }
     if (rule === 'Configure Own') {
-      const matrix = Object.entries(matrixData)
-        .filter(([, cell]) => cell.na || (cell.value !== '' && cell.value != null))
-        .map(([key, cell]) => {
-          const [sgName, colorName] = key.split('||')
-          return { sgName, colorName, consumption: cell.na ? '' : cell.value, na: !!cell.na }
-        })
+      const matrix = Object.values(matrixData).filter(row => row.na || row.consumption !== '' && row.consumption != null || row.overrides?.length)
       return { __matrix: matrix }
     }
     if (rule === 'By Batch') {
@@ -274,7 +280,7 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
           )}
           {rule === 'Configure Own' && (
             <div>
-              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 14 }}>Set consumption per Size Group × Colour combination.</div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 14 }}>Set a default for each wash. Expand it to change consumption or mark an individual size N/A.</div>
               {!(poData.sgMatrix || []).length
                 ? <div style={{ fontSize: 12, color: '#9ca3af', padding: 16, background: '#fafaf8', borderRadius: 6, textAlign: 'center' }}>No PO Matrix data yet. Complete Step 2 first.</div>
                 : (poData.sgMatrix || []).map(sg => (
@@ -284,38 +290,40 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
                       <thead><tr><TH>Colour / Wash</TH><TH right>Qty</TH><TH right>Cons./pc</TH><TH right>Final Qty</TH></tr></thead>
                       <tbody>
                         {sg.colors.map(c => {
-                          const key = `${sg.sgName}||${c.colorName}`
-                          const cell = matrixData[key] || { value: '', na: false }
-                          const val = cell.value || ''
-                          const isNA = !!cell.na
-                          const fq  = fmtQty(val, c.qty, isNA)
-                          const isNew = !(normalizeUsageData(item.usage_data).__matrix || []).some(m => m.sgName === sg.sgName && m.colorName === c.colorName)
-                          return (
-                            <tr key={key}>
-                              <td style={{ padding: '5px 8px 5px 0', borderBottom: '1px solid #f0f0ee', fontSize: 12, fontWeight: 500 }}>
-                                {c.colorName}{isNew && <span style={{ fontSize: 9, background: '#fef3c7', color: '#92400e', borderRadius: 3, padding: '1px 5px', fontWeight: 700, marginLeft: 6 }}>NEW</span>}
-                              </td>
-                              <td style={{ padding: '5px 8px', borderBottom: '1px solid #f0f0ee', textAlign: 'right', fontSize: 11, color: '#6b7280' }}>{c.qty?.toLocaleString()}</td>
-                              <td style={{ padding: '5px 0 5px 8px', borderBottom: '1px solid #f0f0ee', width: 110 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
-                                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: isNA ? '#92400e' : '#6b7280', whiteSpace: 'nowrap' }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={isNA}
-                                      onChange={e => setMatrixData(d => ({ ...d, [key]: { value: e.target.checked ? '' : (d[key]?.value || ''), na: e.target.checked } }))}
-                                    />
-                                    N/A
-                                  </label>
-                                  <input style={{ ...inp, textAlign: 'right', width: 96, borderColor: isNew && !val && !isNA ? '#fcd34d' : '#e5e7eb', opacity: isNA ? 0.55 : 1 }}
-                                    type="number" step="0.01" value={val} placeholder="0.00" disabled={isNA}
-                                    onChange={e => setMatrixData(d => ({ ...d, [key]: { value: e.target.value, na: false } }))} />
-                                </div>
-                              </td>
-                              <td style={{ padding: '5px 0 5px 8px', borderBottom: '1px solid #f0f0ee', textAlign: 'right', fontSize: 11, fontWeight: 700, color: fq ? '#1a1a2e' : '#d1d5db' }}>
-                                {isNA ? 'N/A' : (fq ? parseFloat(fq).toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—')}
-                              </td>
-                            </tr>
-                          )
+                          const key = JSON.stringify([sg.sgName, c.colorName])
+                          const row = matrixData[key] || { sgName: sg.sgName, colorName: c.colorName }
+                          const update = (size, patch) => {
+                            setMatrixData(previous => {
+                              const current = previous[key] || row
+                              if (size == null) return { ...previous, [key]: { ...current, ...patch } }
+                              const overrides = (current.overrides || []).filter(entry => entry.size !== size)
+                              if (patch) overrides.push({ size, ...patch })
+                              return { ...previous, [key]: { ...current, overrides } }
+                            })
+                          }
+                          const controls = (size, label) => {
+                            const own = size == null ? row : row.overrides?.find(entry => entry.size === size)
+                            const effective = own || row
+                            return <div style={{display:'flex', alignItems:'center', justifyContent:'end', gap:8}}>
+                              <label><input type="checkbox" checked={!!effective.na} aria-label={label + ' N/A'}
+                                onChange={e => update(size, {na:e.target.checked, consumption:e.target.checked ? '' : effective.consumption ?? ''})}/> N/A</label>
+                              <input type="number" min="0" step="any" disabled={!!effective.na} style={{...inp,width:88,textAlign:'right'}}
+                                aria-label={label + ' consumption per piece'} value={effective.consumption ?? ''} placeholder="Cons./pc"
+                                onChange={e => update(size, size != null && !e.target.value ? null : {na:false, consumption:e.target.value})}/>
+                              {size != null && own && <button type="button" onClick={() => update(size,null)}>Use default</button>}
+                            </div>
+                          }
+                          const label = sg.sgName + ' / ' + c.colorName
+                          const total = configuredQuantity(row,c.qty,c.sizes) * (1+wastage/100)
+                          return <React.Fragment key={key}><tr>
+                            <td><button type="button" aria-expanded={!!expanded[key]} onClick={() => setExpanded(prev => ({...prev,[key]:!prev[key]}))}>
+                              {expanded[key] ? '▾' : '▸'} {c.colorName} · {c.sizes.length} sizes</button></td>
+                            <td align="right">{c.qty}</td><td>{controls(null,label)}</td><td align="right">{Number(total.toFixed(2))}</td>
+                          </tr>{expanded[key] && c.sizes.map(({size,qty}) => {
+                            const cell = configuredCell(row,size)
+                            return <tr key={size}><td style={{paddingLeft:18}}>{size}</td><td align="right">{qty}</td>
+                              <td>{controls(size,label + ' / ' + size)}</td><td align="right">{cell.na ? 'N/A' : fmtQty(cell.consumption,qty) ?? '—'}</td></tr>
+                          })}</React.Fragment>
                         })}
                       </tbody>
                     </table>
