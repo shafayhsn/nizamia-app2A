@@ -11,6 +11,7 @@ import { printSamplingHTML } from '../lib/sampleProgramPrint'
 const steps = ['Select Trims', 'Select Styles', 'Set Consumptions', 'Review & Apply']
 const categories = ['Fabric', 'Stitching Trim', 'Packing Trim']
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]))
+const rowKey = item => item.lineId || item.id
 const emptyDraft = { materials: [], styles: [] }
 
 function librarySpec(item) {
@@ -40,6 +41,8 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
   const [name, setName] = useState('')
   const [buyer, setBuyer] = useState('')
   const [step, setStep] = useState(0)
+  const [collapsed,setCollapsed] = useState([])
+  const [picker,setPicker] = useState(null)
   const [orders, setOrders] = useState([])
   const [inventory, setInventory] = useState(null)
   const replaceStyles = draft?.replaceStyles || []
@@ -74,6 +77,10 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
 
   function open(record) {
     setList(null)
+    setCollapsed([])
+    setPicker(null)
+    setChecked([])
+    setReplacements([])
     setSaved(record)
     setName(record?.name || '')
     setBuyer(record?.buyer_id || '')
@@ -134,12 +141,26 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
     setNotice(additions.length + ' added' + (ids.length > additions.length ? '. Existing or unavailable materials skipped.' : '.'))
   }
 
+  function addTrim(id, style, source) {
+    if (!library.has(id)) return
+    const repeated = draft.materials.some(row => row.id === id)
+    const row = source ? structuredClone(source) : {id,usage:'Generic',shared:false,rate:'',settings:{}}
+    if (repeated) row.lineId = crypto.randomUUID()
+    if (style) {
+      row.onlyStyle = style
+      row.settings = {[style]: {...row.settings[style], targets:undefined, excluded:false}}
+    }
+    setDraft(current => ({...current,materials:[...current.materials,row]}))
+    setCollapsed(current => current.filter(value => value !== style))
+    setPicker(null)
+  }
+
   function changeMaterial(id, change) {
-    setDraft(current => ({ ...current, materials: current.materials.map(item => item.id === id ? { ...item, ...change } : item) }))
+    setDraft(current => ({ ...current, materials: current.materials.map(item => rowKey(item) === id ? { ...item, ...change } : item) }))
   }
 
   function changeSettings(item, style, change) {
-    changeMaterial(item.id, { settings: { ...item.settings, [style]: { ...item.settings[style], ...change } } })
+    changeMaterial(rowKey(item), { settings: { ...item.settings, [style]: { ...item.settings[style], ...change } } })
   }
 
   async function save() {
@@ -294,8 +315,24 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
     {list && <MinimizableModal title="Saved Bulk BOMs" onClose={() => setList(null)}>
       <section className="card" style={{padding: 20, width: 'min(700px, 90vw)'}}>
         <header className="section-header"><h2>Saved Bulk BOMs</h2><button className="btn btn-secondary" onClick={() => setList(null)}>Close</button></header>
+        {error && <p role="alert">{error}</p>}
         {list.length ? list.map(record => <p key={record.id}><button className="btn btn-secondary" onClick={() => open(record)}>{record.name}</button>{' '}
-          {buyers.find(item => item.id === record.buyer_id)?.name} · {record.applied_at ? 'Previously applied' : 'Draft'}</p>) : <p>No saved Bulk BOMs.</p>}
+          {buyers.find(item => item.id === record.buyer_id)?.name} · {record.applied_at ? 'Previously applied' : 'Draft'}{' '}
+          <button className="btn btn-secondary" disabled={busy} onClick={() => {
+            open(null)
+            setBuyer(record.buyer_id)
+            setName(('Copy of ' + record.name).slice(0,160))
+            const copy = structuredClone(record.draft)
+            copy.replaceStyles = []
+            for (const row of copy.materials) for (const settings of Object.values(row.settings || {})) delete settings.targets
+            setDraft(copy)
+          }}>Duplicate</button>{' '}
+          <button className="btn btn-secondary" disabled={busy} onClick={() => run(async () => {
+            if (!window.confirm('Delete draft “' + record.name + '”? Applied PO lines will be kept.')) return
+            const result = await supabase.rpc('delete_bulk_bom_draft',{target_id:record.id,expected_revision:record.revision})
+            if (result.error) throw result.error
+            setList(current => current.filter(row => row.id !== record.id))
+          })}>Delete</button></p>) : <p>No saved Bulk BOMs.</p>}
       </section>
     </MinimizableModal>}
     {draft && <MinimizableModal title="Bulk BOM Creation" onClose={() => !busy && setDraft(null)}>
@@ -329,20 +366,21 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
               <option value="">Select material</option>{categories.map(category => <optgroup key={category} label={category}>
                 {[...library.values()].filter(item => item.category === category).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
               </optgroup>)}</select></label>
-            <button className="btn btn-secondary" disabled={!materialId} onClick={() => add([materialId])}>Add Material</button></div>
+            <button className="btn btn-secondary" disabled={!materialId} onClick={() => addTrim(materialId)}>Add Material</button></div>
           </div>
           <div className="table-wrap"><table><thead><tr>{['Category','Material','Usage','Same Consumption Per Style','Actions'].map(label => <th key={label}>{label}</th>)}</tr></thead>
-            <tbody>{draft.materials.map(item => <tr key={item.id}>
-              <td>{library.get(item.id)?.category}</td><td>{library.get(item.id)?.name || 'Unavailable material'}</td>
-              <td><select className="form-control" aria-label="Usage" value={item.usage} onChange={event => changeMaterial(item.id,{
+            <tbody>{draft.materials.map(item => <tr key={rowKey(item)}>
+              <td>{library.get(item.id)?.category}</td><td>{library.get(item.id)?.name || 'Unavailable material'}
+              {item.onlyStyle && <small> · {item.onlyStyle}</small>}</td>
+              <td><select className="form-control" aria-label="Usage" value={item.usage} onChange={event => changeMaterial(rowKey(item),{
                 usage:event.target.value,
                 settings:Object.fromEntries(Object.entries(item.settings).map(([style, settings]) =>
                   [style, settings.usage ? settings : { spec: settings.spec, wastage: settings.wastage, excluded: settings.excluded }])),
               })}>
                 {USAGE_RULES.map(rule => <option key={rule}>{rule}</option>)}</select></td>
-              <td><div className="bulk-bom-inline"><label><input type="checkbox" disabled={item.usage === 'By Batch'} checked={item.shared && item.usage !== 'By Batch'} onChange={event => changeMaterial(item.id,{shared:event.target.checked})}/> Same rate</label>{' '}
-                <input aria-label="Shared consumption" type="number" min="0" step="any" disabled={!item.shared || item.usage === 'By Batch'} value={item.rate} onChange={event => changeMaterial(item.id,{rate:event.target.value})}/></div></td>
-              <td><button className="btn btn-secondary" onClick={() => setDraft({...draft, materials:draft.materials.filter(row => row.id !== item.id)})}>Remove</button></td>
+              <td><div className="bulk-bom-inline"><label><input type="checkbox" disabled={item.usage === 'By Batch'} checked={item.shared && item.usage !== 'By Batch'} onChange={event => changeMaterial(rowKey(item),{shared:event.target.checked})}/> Same rate</label>{' '}
+                <input aria-label="Shared consumption" type="number" min="0" step="any" disabled={!item.shared || item.usage === 'By Batch'} value={item.rate} onChange={event => changeMaterial(rowKey(item),{rate:event.target.value})}/></div></td>
+              <td><button className="btn btn-secondary" onClick={() => setDraft({...draft, materials:draft.materials.filter(row => rowKey(row) !== rowKey(item))})}>Remove</button></td>
             </tr>)}</tbody></table></div>
           {!draft.materials.length && <div className="bulk-bom-empty"><PackageOpen size={26}/>
             <strong>No materials added</strong>
@@ -375,13 +413,40 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
           </table></div>
           {!visible.length && !draft.styles.length && <div className="bulk-bom-empty"><Search size={24}/><strong>No matching styles</strong></div>}
         </>}
-        {step === 2 && <><h2>Set consumptions</h2>{draft.styles.map(style => <section key={style} className="bulk-bom-group"><h3>{style}</h3>
+        {step === 2 && <><h2>Set consumptions</h2>{draft.styles.map(style => {
+          const rows = draft.materials.filter(item => (!item.onlyStyle || item.onlyStyle === style) && !item.settings?.[style]?.excluded)
+          const totals = new Map(rows.map(item => [rowKey(item),bulkLocalTotal(item,item.settings[style] || {},library.get(item.id),orderInputs[style])]))
+          const issues = [...totals.values()].filter(total => total.issue).length
+          return <section key={style} className="bulk-bom-group"><header className="section-header"><h3>{style} · {rows.length} lines
+            {issues > 0 && <small style={{color:'#b42318'}}> · ● {issues} need attention</small>}</h3><div>
+            <button className="btn btn-secondary" aria-expanded={!collapsed.includes(style)} onClick={() => setCollapsed(toggle(collapsed,style))}>{collapsed.includes(style) ? 'Show' : 'Collapse'}</button>{' '}
+            <button className="btn btn-secondary" onClick={() => setPicker(picker === style ? null : style)}>Add Trim from Library</button></div></header>
+          {picker === style && <label>Choose trim <select className="form-control" value="" onChange={e => {
+              const value = e.target.value
+              if (value.startsWith('restore:')) {
+                const row = draft.materials.find(item => rowKey(item) === value.slice(8))
+                if (row) changeSettings(row,style,{excluded:false})
+                setPicker(null)
+                setCollapsed(current => current.filter(name => name !== style))
+              } else addTrim(value,style)
+            }}>
+            <option value="">Select a trim</option>{draft.materials.filter(item => (!item.onlyStyle || item.onlyStyle === style) && item.settings?.[style]?.excluded).map(item =>
+              <option key={rowKey(item)} value={'restore:'+rowKey(item)}>Restore · {library.get(item.id)?.name} · {item.settings[style].spec ?? library.get(item.id)?.description}</option>)}
+              {[...library.values()].filter(lib => lib.category !== 'Fabric').map(lib => <option key={lib.id} value={lib.id}>{lib.name} · {librarySpec(lib)}</option>)}</select></label>}
+          {!collapsed.includes(style) && <>
           <div className="table-wrap"><table><thead><tr><th>Material</th><th>Detail / Spec</th><th>Usage rule</th><th>Consumption</th><th>Wastage %</th><th>Total trim quantity</th><th>Action</th></tr></thead>
-          <tbody>{draft.materials.filter(item => !item.settings?.[style]?.excluded).map(item => {
+          <tbody>{rows.map(item => {
             const lib = library.get(item.id)
             const settings = item.settings[style] || {}
-            const total = bulkLocalTotal(item,settings,lib,orderInputs[style])
-            return <tr key={item.id}><td>{lib?.name || 'Unavailable material'}</td>
+            const total = totals.get(rowKey(item))
+            return <tr key={rowKey(item)}><td>{lib?.name || 'Unavailable material'}
+              {!item.lineId && (orderInputs[style] || []).map(order => {
+                const candidates = order.lines.filter(b => !b.bulk_instance_id && (b.library_item_id === item.id ||
+                  (!b.library_item_id && b.category === lib?.category && b.name?.trim().toLowerCase() === lib?.name?.trim().toLowerCase())))
+                if (candidates.length < 2 && !settings.targets?.[order.id]) return null
+                return <label key={order.id}>PO {order.po_number} · Existing line<select value={settings.targets?.[order.id] || ''} onChange={e => changeSettings(item,style,{targets:{...settings.targets,[order.id]:e.target.value || undefined}})}>
+                  <option value="">Choose line</option>{candidates.map(b => <option key={b.id} value={b.id}>{b.detail} · {b.specification} · line {Number(b.sort_order)+1}</option>)}</select></label>
+              })}</td>
               <td><input className="form-control" aria-label={'Detail / Spec for ' + (lib?.name || 'material')}
                 value={settings.spec ?? (lib ? librarySpec(lib) : '')} onChange={event => changeSettings(item,style,{spec:event.target.value})}/></td>
               <td><select className="form-control" aria-label={'Usage rule for ' + lib?.name + ' on ' + style}
@@ -402,16 +467,17 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
               <td aria-live="polite">{total?.qty != null
                 ? [Number(total.qty).toLocaleString(undefined,{maximumFractionDigits:1}), lib?.unit].filter(Boolean).join(' ')
                 : '—'}</td>
-              <td><button type="button" className="btn btn-secondary" aria-label={'Remove ' + lib?.name + ' from ' + style}
+              <td>{lib?.category !== 'Fabric' && <button type="button" className="btn btn-secondary" onClick={() => addTrim(item.id,style,item)}>Duplicate</button>}{' '}
+                <button type="button" className="btn btn-secondary" aria-label={'Remove ' + lib?.name + ' from ' + style}
                 onClick={() => changeSettings(item,style,{excluded:true})}>Remove</button></td>
             </tr>
           })}</tbody></table></div>
           {draft.materials.some(item => item.settings?.[style]?.excluded) && <details><summary>Removed from this style</summary>
-            {draft.materials.filter(item => item.settings?.[style]?.excluded).map(item => <div key={item.id} className="bulk-bom-inline">
+            {draft.materials.filter(item => item.settings?.[style]?.excluded).map(item => <div key={rowKey(item)} className="bulk-bom-inline">
               {library.get(item.id)?.name} · {item.settings[style].spec ?? library.get(item.id)?.description}
               <button type="button" className="btn btn-secondary" onClick={() => changeSettings(item,style,{excluded:false})}>Restore</button>
             </div>)}</details>}
-        </section>)}</>}
+        </>}</section>})}</>}
         {step === 3 && <>
           <h2>Review and apply</h2>
           <div className="bulk-bom-review-tools">
@@ -426,7 +492,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
             {replaceStyles.includes(style) && <p>Replace entire BOM · {review.filter(row => row.style === style && row.action === 'Remove').length} existing lines to remove</p>}
             <details><summary>Review POs and stores</summary><div className="table-wrap"><table><thead><tr>
               {headings.map(label => <th key={label}>{label}</th>)}<th>Overwrite</th></tr></thead><tbody>
-              {review.filter(row => row.style === style).map(row => <tr key={row.order_id + '|' + (row.before?.id || row.after.library_item_id)}>
+              {review.filter(row => row.style === style).map(row => <tr key={row.order_id + '|' + (row.before?.id || row.after.bulk_instance_id || row.after.library_item_id)}>
                 {cells(row).map((cell,index) => <td key={index}>{cell}</td>)}
                 <td>{row.action === 'Replace' && <label><input type="checkbox" disabled={replaceStyles.includes(style)} checked={replaceStyles.includes(style) || replacements.includes(row.before.id)}
                   onChange={() => setReplacements(toggle(replacements,row.before.id))}/> Replace</label>}</td>

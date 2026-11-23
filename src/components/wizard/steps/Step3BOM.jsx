@@ -649,6 +649,7 @@ export default function Step3BOM({ orderId, orderData, onSaved, registerSave }) 
         return {
           order_id:        currentOrderId,
           library_item_id: item.library_item_id || null,
+          bulk_instance_id: item.bulk_instance_id || null,
           name:            item.name?.trim() || '',
           category:        item.category || '',
           detail:          item.detail || null,

@@ -155,6 +155,24 @@ test('Bulk BOM scopes to one buyer, adds without replacing, and requires a fresh
     await web(await web(),removals)
     assert.deepEqual((await db.query('SELECT library_item_id FROM bom_items WHERE order_id=$1',[first])).rows,
       [{library_item_id:late.id}])
+
+    await db.exec(readFileSync(join(__dirname,'migrations/20261123_repeat_trim.sql'),'utf8'))
+    const repeated = {...payload.materials[0],lineId:crypto.randomUUID(),onlyStyle:'S',settings:{S:{spec:'Second trim'}}}
+    payload.materials.push(repeated)
+    await saveDraft()
+    const addedCopy = await web()
+    assert.deepEqual(addedCopy.map(row => row.action),['Unchanged','Add'])
+    await web(addedCopy)
+    assert.deepEqual((await web()).map(r => r.action),['Unchanged','Unchanged'])
+    repeated.settings.S.spec = 'Updated second trim'
+    await saveDraft()
+    const edits = await web()
+    const edit = edits.find(row => row.action === 'Replace')
+    assert.equal(edit.before.bulk_instance_id,repeated.lineId)
+    await one('SELECT bulk_bom_review_web($1,$2,$3,$4,$5)',[id,['S'],JSON.stringify(edits),[edit.before.id],[]])
+    const revision = (await one('SELECT revision FROM bulk_bom_drafts WHERE id=$1',[id])).revision
+    await one('SELECT delete_bulk_bom_draft($1,$2)',[id,revision])
+    assert.equal((await one('SELECT count(*)::int n FROM bom_items WHERE order_id=$1',[first])).n,2)
   } finally {
     await db.close()
   }

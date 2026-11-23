@@ -184,8 +184,8 @@ export function bulkLocalTotal(item, settings, lib, orders) {
   if (!lib || !orders?.length) return {issue:'Missing order or material'}
   let qty = 0
   for (const order of orders) {
-    const matches = order.lines.filter(b => b.library_item_id === item.id || (!b.library_item_id && b.category === lib.category &&
-      String(b.name).trim().toLowerCase() === String(lib.name).trim().toLowerCase()))
+    const matches = order.lines.filter(b => (b.bulk_instance_id ?? null) === (item.lineId ?? null) && (!settings.targets?.[order.id] || settings.targets[order.id] === b.id) && (b.library_item_id === item.id || (!b.library_item_id && b.category === lib.category &&
+      String(b.name).trim().toLowerCase() === String(lib.name).trim().toLowerCase())))
     if (matches.length > 1 || matches[0]?.use_cutting_qty) return {issue:'Review existing BOM line'}
     const wastage = settings.wastage !== '' && settings.wastage != null ? Number(settings.wastage) :
       Number(matches[0]?.wastage ?? (Number(lib.default_wastage) || 5))
