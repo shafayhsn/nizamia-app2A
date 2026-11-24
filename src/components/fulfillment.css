@@ -86,3 +86,9 @@
 .demand-toolbar-actions .btn { height: 32px; }
 .operations-selection-note { display: flex; align-items: center; gap: 6px; color: #6b7280; font-size: 10px; line-height: 1.2; }
 .operations-selection-note input { flex: 0 0 auto; }
+
+.material-demand-toolbar { flex-wrap: wrap; }
+.demand-filter { position: relative; }
+.demand-filter summary { cursor: pointer; padding: 6px 9px; border: 1px solid #e5e7eb; border-radius: 7px; }
+.demand-filter > div { position: absolute; top: 100%; left: 0; z-index: 30; min-width: 150px; max-height: 240px; overflow: auto; background: white; border: 1px solid #e5e7eb; border-radius: 7px; }
+.demand-filter label { display: block; padding: 6px 9px; white-space: nowrap; }

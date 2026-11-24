@@ -1,3 +1,4 @@
+import { buildSupplierLines, packFor, purchasedQuantities } from '../lib/supplierLines'
 import { configuredCell, configuredMapQuantity, configuredQuantity } from '../lib/bomUsage.js'
 import StoreReceipts, { PoReceivingDialog, RegisterSearch } from '../components/purchasing/StoreReceiving'
 import {reviewRequest,readPurchasingRegister,purchasingLookup} from '../lib/poReview'
@@ -232,9 +233,10 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
   })
   const [items, setItems] = useState(
     po?.items?.length ? hydratePOItems(po.items)
-    : prefillItems?.length ? hydratePOItems(prefillItems)
+    : prefillItems?.length ? hydratePOItems(buildSupplierLines(prefillItems,false))
     : [{ _id:'1', description:'', specification:'', breakdown:'', qty:'', unit:'yards', unit_rate:'', amount:'', source_type:null, source_id:null }]
   )
+  const [mergeLines,setMergeLines] = useState(false)
   const [saving, setSaving] = useState(false)
   const [localSuppliers, setLocalSuppliers] = useState(suppliers || [])
   useEffect(()=>{if(suppliers?.length)setLocalSuppliers(previous=>[...new Map([...previous,...suppliers].map(row=>[row.id,row])).values()])},[suppliers])
@@ -301,7 +303,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
       const lines=items.filter(i=>i.description?.trim()).map((i,sort_order)=>({
         description:i.description.trim(),specification:encodeSpec(i.specification,i.breakdown)||null,
         unit:i.unit||null,qty:parseFloat(i.qty)||null,unit_rate:i.unit_rate===''?null:Number(i.unit_rate),
-        source_type:i.source_type||null,source_id:i.source_id||null,sort_order
+        source_type:i.source_type||null,source_id:i.source_id||null,sort_order,demand_allocation:i.demand_allocation||null
       }))
       const expected=po?.id?{updated_at:po.updated_at,header:Object.fromEntries(Object.keys(header).map(key=>[key,po[key]??null])),
         lines:po.purchase_order_items||po.items}:null
@@ -373,9 +375,18 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
               </select></div>
             <div style={{ gridColumn:'2 / 4' }}><label style={lbl}>Notes</label><input style={mkInp(locked)} value={form.notes} onChange={set('notes')} placeholder="Any notes..." disabled={locked} /></div>
           </div>
+          {isNew && prefillItems?.length > 0 && <label>
+            <input type="checkbox" checked={mergeLines} onChange={event => {
+              const original = hydratePOItems(buildSupplierLines(prefillItems,mergeLines))
+              if (JSON.stringify(items) !== JSON.stringify(original) &&
+                  !window.confirm('Changing the merge setting resets line edits. Continue?')) return
+              setMergeLines(event.target.checked)
+              setItems(hydratePOItems(buildSupplierLines(prefillItems,event.target.checked)))
+            }}/> Merge similar PO lines
+          </label>}
           <div style={{ fontSize:12, fontWeight:700, marginBottom:8 }}>Line Items</div>
           <table style={{ width:'100%', borderCollapse:'collapse', marginBottom:10 }}>
-            <thead><tr>{['Description','Specification','Break-down','Qty','Unit','Unit Rate','Amount',''].map(h=>(
+            <thead><tr>{['Description','Specification','Break-down','Qty','Unit','Info','Unit Rate','Amount',''].map(h=>(
               <th key={h} style={{ fontSize:10, fontWeight:600, color:'#9ca3af', padding:'0 6px 8px', textAlign:'left', textTransform:'uppercase', letterSpacing:'0.5px', whiteSpace:'nowrap' }}>{h}</th>
             ))}</tr></thead>
             <tbody>{items.map((item,idx)=>(
@@ -384,7 +395,8 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
                 <td style={{ padding:'3px 4px', minWidth:130 }}><input style={{ ...mkInp(locked), height:28 }} value={item.specification||''} onChange={e=>updItem(idx,'specification',e.target.value)} placeholder="Spec" disabled={locked} /></td>
                 <td style={{ padding:'3px 4px', width:110 }}><input style={{ ...mkInp(locked), height:28 }} value={item.breakdown||''} onChange={e=>updItem(idx,'breakdown',e.target.value)} placeholder="Size 4 / Q1" disabled={locked} /></td>
                 <td style={{ padding:'3px 4px', width:80 }}><input style={{ ...mkInp(locked), height:28, textAlign:'right' }} type="number" value={item.qty} onChange={e=>updItem(idx,'qty',e.target.value)} disabled={locked} /></td>
-                <td style={{ padding:'3px 4px', width:80 }}><select style={{ ...mkSel(locked), height:28 }} value={item.unit||'yards'} onChange={e=>updItem(idx,'unit',e.target.value)} disabled={locked}>{['yards','meters','cm','inch','ft','pcs','kg','gram','cone','set','sht','ctn','roll','ltr'].map(u=><option key={u}>{u}</option>)}</select></td>
+                <td style={{ padding:'3px 4px', width:80 }}><select style={{ ...mkSel(locked), height:28 }} value={item.unit||'yards'} onChange={e=>updItem(idx,'unit',e.target.value)} disabled={locked || Number(item.demand_allocation?.packSize) > 1 || !!item.pack}>{[...new Set([item.unit,'yards','meters','cm','inch','ft','pcs','kg','gram','cone','set','sht','ctn','roll','ltr'].filter(Boolean))].map(u=><option key={u}>{u}</option>)}</select></td>
+                <td>{item.demand_allocation?.info}</td>
                 <td style={{ padding:'3px 4px', width:100 }}><input style={{ ...mkInp(locked), height:28, textAlign:'right' }} type="number" value={item.unit_rate} onChange={e=>updItem(idx,'unit_rate',e.target.value)} placeholder="0.00" disabled={locked} /></td>
                 <td style={{ padding:'3px 4px', width:100, textAlign:'right', fontSize:12, fontWeight:700 }}>{item.amount?fmtNum(parseFloat(item.amount),2):'—'}</td>
                 <td style={{ padding:'3px 0 3px 4px', width:30 }}>{!locked&&items.length>1&&<button className="btn btn-ghost btn-sm" onClick={()=>setItems(its=>its.filter((_,i)=>i!==idx))}><Trash2 size={10} /></button>}</td>
@@ -694,11 +706,9 @@ function MaterialDemandTab({ suppliers }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [filterCat, setFilterCat] = useState('')
-  const [filterBuyer, setFilterBuyer] = useState('')
-  const [filterJob, setFilterJob] = useState('')
-  const [filterDemand, setFilterDemand] = useState('')
-  const [sortDemand, setSortDemand] = useState('job-desc')
+  const [filters,setFilters] = useState({})
+  const [groupBy,setGroupBy] = useState('style')
+  const [batches,setBatches] = useState({})
   const [selected, setSelected] = useState(new Set())
   const [showPOModal, setShowPOModal] = useState(false)
   const [expanded, setExpanded] = useState({})
@@ -710,19 +720,26 @@ function MaterialDemandTab({ suppliers }) {
   async function load() {
     setLoading(true)
     try {
-      const { data:ords, error:ordersError } = await supabase.from('orders').select('id,job_id,job_number,buyer_name,style_number,total_qty,queue_split_rule,po_number,store_name,factory_ref').not('status','eq','Cancelled').order('job_number')
+      const { data:ords, error:ordersError } = await supabase.from('orders').select('id,buyer_id,job_id,job_number,buyer_name,style_number,total_qty,queue_split_rule,po_number,store_name,factory_ref').not('status','eq','Cancelled').order('job_number')
       if (ordersError) throw ordersError
       const allOrds = ords||[]
       const jobOrds = allOrds.filter(o=>o.job_id)
       setOrders(allOrds)
+      const [batchList,membership] = await Promise.all([
+        supabase.from('production_batches').select('id,name'),
+        supabase.from('production_batch_orders').select('order_id,batch_id'),
+      ])
+      if (batchList.error || membership.error) throw batchList.error || membership.error
+      const names = new Map(batchList.data.map(batch => [batch.id,batch.name]))
+      setBatches(Object.fromEntries(membership.data.map(link => [link.order_id,names.get(link.batch_id)])))
       if (!jobOrds.length) { setRows([]); setLoading(false); return }
       const idSet = new Set(jobOrds.map(o=>o.id))
       const idArr = Array.from(idSet)
       const [{ data:bom, error:bomError }, { data:emb, error:embError }, { data:wash, error:washError }, { data:poItems, error:poItemsError }, { data:sizeGroups, error:sizeGroupsError }, { data:queues, error:queuesError }] = await Promise.all([
-      supabase.from('bom_items').select('id,order_id,name,category,specification,detail,unit,supplier_id,usage_rule,usage_data,base_qty,wastage,final_qty,po_status,use_cutting_qty,sort_order').order('sort_order'),
+      supabase.from('bom_items').select('id,order_id,library_item_id,name,category,specification,detail,unit,supplier_id,usage_rule,usage_data,base_qty,wastage,final_qty,po_status,use_cutting_qty,sort_order').order('sort_order'),
       supabase.from('embellishments').select('id,order_id,description,technique,placement,dimensions,qty,unit,vendor_id,applies_to,usage_rule,usage_data'),
       supabase.from('washing').select('id,order_id,color_id,color_name,wash_type,wash_ref,qty,unit,vendor_id'),
-      purchasingLookup(supabase.from('purchase_order_items').select('qty,source_type,source_id'),{lines:true}),
+      purchasingLookup(supabase.from('purchase_order_items').select('qty,source_type,source_id,demand_allocation'),{lines:true}),
       supabase.from('size_groups').select('id,order_id,group_name,sizes,base_size').in('order_id', idArr),
       supabase.from('order_queues').select('id,order_id,q_number,label,split_rule,color_name,size_group_id,qty,status,sort_order').in('order_id', idArr).order('sort_order'),
     ])
@@ -989,8 +1006,7 @@ function MaterialDemandTab({ suppliers }) {
     }
 
     poDataMapRef.current = poDataMap
-    const purchasedMap = {}
-    ;(poItems||[]).forEach(p=>{ if (p.source_id) purchasedMap[p.source_id]=(purchasedMap[p.source_id]||0)+(parseFloat(p.qty)||0) })
+    const purchasedMap = purchasedQuantities(poItems || [])
     const queuesByOrder = {}
     ;(queues || []).forEach(q => {
       if (!queuesByOrder[q.order_id]) queuesByOrder[q.order_id] = []
@@ -1011,7 +1027,7 @@ function MaterialDemandTab({ suppliers }) {
       })))
       const normalizedReqQty = queue_breakdown.length ? queue_breakdown.reduce((s, x) => s + (parseFloat(x.req_qty) || 0), 0) : req_qty
       const displayName = cat === 'Fabric' && b.specification ? `${b.name} — ${b.specification}` : b.name
-      built.push({ id:b.id, order_id:b.order_id, order:ord, source_type:'bom', source_id:b.id, cat, name:displayName, specification:b.detail || b.specification || '', req_qty:normalizedReqQty, purchased:purchasedMap[b.id]||0, unit:b.unit||'', usage_rule:b.usage_rule, usage_data:b.usage_data, wastage:b.wastage, base_qty:b.base_qty, queue_breakdown })
+      built.push({ id:b.id, order_id:b.order_id, order:ord, source_type:'bom', source_id:b.id, material:b.library_item_id || b.name, cat, name:displayName, specification:b.detail || b.specification || '', req_qty:normalizedReqQty, purchased:purchasedMap[b.id]||0, unit:b.unit||'', usage_rule:b.usage_rule, usage_data:b.usage_data, wastage:b.wastage, base_qty:b.base_qty, queue_breakdown })
     })
     ;(emb||[]).filter(e=>idSet.has(e.order_id)).forEach(e=>{
       const ord=allOrds.find(o=>o.id===e.order_id); if (!ord) return
@@ -1126,16 +1142,33 @@ function MaterialDemandTab({ suppliers }) {
     }
   }
 
-  const filtered = rows.filter(r=>{
-    const q=search.toLowerCase()
-    const bal=r.req_qty-r.purchased
-    const status=bal<=0?'fulfilled':r.purchased>0?'partial':'unmet'
-    return (!q||[r.name,r.specification,r.order.buyer_name,r.order.style_number,r.order.job_number,r.order.po_number].some(f=>String(f||'').toLowerCase().includes(q)))
-      && (!filterCat||r.cat===filterCat) && (!filterBuyer||r.order.buyer_name===filterBuyer)
-      && (!filterJob||r.order.job_number===filterJob) && (!filterDemand||status===filterDemand)
-  }).sort((a,b)=>sortDemand==='balance-desc'?(b.req_qty-b.purchased)-(a.req_qty-a.purchased):sortDemand==='buyer'?String(a.order.buyer_name).localeCompare(String(b.order.buyer_name)):sortDemand==='style'?String(a.order.style_number).localeCompare(String(b.order.style_number)):sortDemand==='job-asc'?String(a.order.job_number).localeCompare(String(b.order.job_number)):String(b.order.job_number).localeCompare(String(a.order.job_number)))
-  const grouped = {}
-  filtered.forEach(r=>{ if (!grouped[r.order_id]) grouped[r.order_id]={order:r.order,rows:[]}; grouped[r.order_id].rows.push(r) })
+  const fields = [
+    ['batch','Batch',row => batches[row.order_id]],
+    ['buyer','Buyer',row => row.order.buyer_name],
+    ['style','Style #',row => row.order.style_number],
+    ['po','PO #',row => row.order.po_number],
+    ['store','Store',row => row.order.store_name],
+    ['type','Trim type',row => row.name],
+    ['category','Trim category',row => row.cat],
+  ]
+  const fieldValue = (read,row) => String(read(row) || 'Unspecified')
+  const filtered = rows.filter(row => {
+    const query = search.trim().toLowerCase()
+    return (!query || [row.specification,row.order.job_number,...fields.map(([, ,read])=>read(row))]
+      .some(value=>String(value || '').toLowerCase().includes(query))) &&
+      fields.every(([key,,read])=>!filters[key]?.length || filters[key].includes(fieldValue(read,row)))
+  })
+  const readGroup = fields.find(([key])=>key===groupBy)?.[2]
+  const grouped = Object.create(null)
+  for (const row of filtered) {
+    const label = readGroup ? fieldValue(readGroup,row) : ''
+    ;(grouped[label] ||= {label,rows:[]}).rows.push(row)
+  }
+  const demandQuantity = (row,qty) => {
+    const base = fmtNum(qty,2)+' '+row.unit
+    const pack = packFor(row.usage_data)
+    return pack ? fmtNum(Math.ceil(qty/pack.size),0)+' '+pack.unit+' / '+base : base
+  }
   const catStyle = { Fabric:{color:'#2563eb',bg:'#eff6ff'}, 'S. Trim':{color:'#d97706',bg:'#fff7ed'}, 'P. Trim':{color:'#7c3aed',bg:'#f5f3ff'}, Embellishment:{color:'#be185d',bg:'#fdf2f8'}, Wash:{color:'#0891b2',bg:'#ecfeff'} }
   const selStyle = { height:32, border:'1px solid #e5e7eb', borderRadius:7, fontSize:12, padding:'0 10px', background:'#fff', cursor:'pointer', fontFamily:'Inter,sans-serif' }
   const rowKey = (rowId) => `row:${rowId}`
@@ -1210,23 +1243,33 @@ function MaterialDemandTab({ suppliers }) {
         else lines.push({ _id:r.id, description:r.name, specification:r.specification, breakdown:'', qty:r.req_qty||'', unit:r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:'' })
       }
     }
-    return lines
+    const sources = new Map(filtered.map(row=>[row.source_id,row]))
+    return lines.map(line => {
+      const row = sources.get(line.source_id)
+      return {...line,buyer:row?.order.buyer_id || row?.order.buyer_name,material:row?.material || row?.cat,
+        ref:row?.order.factory_ref || row?.order.style_number,pack:packFor(row?.usage_data)}
+    })
   }
   const balColor = (req,purch) => { const bal=req-purch; if (bal<=0) return '#16a34a'; if (purch>0) return '#d97706'; return '#374151' }
   const toggleExpanded = (id) => setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
 
   return (
     <>
-      <div className="demand-toolbar">
+      <div className="demand-toolbar material-demand-toolbar">
         <RegisterSearch value={search} onChange={setSearch} placeholder="Search item, style, buyer..."/>
-        <select value={filterCat} onChange={e=>setFilterCat(e.target.value)} style={selStyle}>
-          <option value="">All Categories</option>
-          <option>Fabric</option><option>S. Trim</option><option>P. Trim</option><option>Embellishment</option><option>Wash</option>
-        </select>
-<select value={filterBuyer} onChange={e=>setFilterBuyer(e.target.value)} style={selStyle}><option value="">All Buyers</option>{[...new Set(rows.map(r=>r.order.buyer_name).filter(Boolean))].sort().map(x=><option key={x} value={x}>{x}</option>)}</select>
-        <select value={filterJob} onChange={e=>setFilterJob(e.target.value)} style={selStyle}><option value="">All Jobs</option>{[...new Set(rows.map(r=>r.order.job_number).filter(Boolean))].sort().map(x=><option key={x} value={x}>{x}</option>)}</select>
-        <select value={filterDemand} onChange={e=>setFilterDemand(e.target.value)} style={selStyle}><option value="">All Demand</option><option value="unmet">Unmet</option><option value="partial">Partial</option><option value="fulfilled">Fulfilled</option></select>
-        <select value={sortDemand} onChange={e=>setSortDemand(e.target.value)} style={selStyle}><option value="job-desc">Job ↓</option><option value="job-asc">Job ↑</option><option value="buyer">Buyer</option><option value="style">Style</option><option value="balance-desc">Highest Balance</option></select>
+        {fields.map(([key,label,read]) => <details key={key} className="demand-filter">
+          <summary>{label}{filters[key]?.length ? ' ('+filters[key].length+')' : ''}</summary>
+          <div>{[...new Set(rows.map(row=>fieldValue(read,row)))].sort().map(option =>
+            <label key={option}><input type="checkbox" checked={filters[key]?.includes(option) || false}
+              onChange={event => {
+                const checked = event.target.checked
+                setFilters(old=>({...old,[key]:checked ? [...(old[key] || []),option] : old[key].filter(value=>value!==option)}))
+              }}/> {option}</label>)}</div>
+        </details>)}
+        <label>Group by <select style={selStyle} value={groupBy} onChange={event=>{
+          setGroupBy(event.target.value)
+          setCollapsedOrders({})
+        }}><option value="">No grouping</option>{fields.map(([key,label])=><option value={key} key={key}>{label}</option>)}</select></label>
         <div className="demand-toolbar-actions">
           <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setCollapsedOrders(Object.fromEntries(Object.keys(grouped).map(id=>[id,true])))}>Collapse All</button>
           <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setCollapsedOrders({})}>Expand All</button>
@@ -1251,17 +1294,14 @@ function MaterialDemandTab({ suppliers }) {
             </tr></thead>
             <tbody>
               {Object.values(grouped).map(grp=>(
-                <React.Fragment key={grp.order.id}>
-                  <tr><td colSpan={7} style={{ padding:'7px 18px', background:'var(--app-group-row-bg, #f9fafb)', color:'var(--app-group-row-text, #111827)', borderBottom:'1px solid #f0f0ee', borderTop:'1px solid #f0f0ee' }}>
-                    <button type="button" aria-expanded={!collapsedOrders[grp.order.id]} onClick={()=>setCollapsedOrders(prev=>({...prev,[grp.order.id]:!prev[grp.order.id]}))} style={{border:0,background:'transparent',cursor:'pointer',fontSize:12,fontWeight:700,color:'inherit',padding:0,textAlign:'left'}}>
-                      <span style={{marginRight:8}}>{collapsedOrders[grp.order.id]?'▸':'▾'}</span>
-                      <span style={{fontFamily:'monospace'}}>{grp.order.job_number||'—'}</span>
-                      {' | '}{grp.order.buyer_name||'—'}{' | '}{grp.order.style_number||'—'}{' | '}{grp.order.factory_ref||'—'}{' | '}{grp.order.store_name||'—'}{' | '}{Number(grp.order.total_qty||0).toLocaleString()} pcs
-                      <span style={{fontWeight:400,color:'#64748b',marginLeft:10}}>PO #{grp.order.po_number||'—'} · {grp.rows.length} lines</span>
+                <React.Fragment key={grp.label}>
+                  {groupBy && <tr><td colSpan={7} style={{ padding:'7px 18px', background:'var(--app-group-row-bg, #f9fafb)', color:'var(--app-group-row-text, #111827)', borderBottom:'1px solid #f0f0ee', borderTop:'1px solid #f0f0ee' }}>
+                    <button type="button" aria-expanded={!collapsedOrders[grp.label]} onClick={()=>setCollapsedOrders(prev=>({...prev,[grp.label]:!prev[grp.label]}))} style={{border:0,background:'transparent',cursor:'pointer',fontSize:12,fontWeight:700,color:'inherit',padding:0,textAlign:'left'}}>
+                      <span style={{marginRight:8}}>{collapsedOrders[grp.label]?'▸':'▾'}</span>
+                      {grp.label} · {grp.rows.length} lines
                     </button>
-                    {grp.order.queue_split_rule && <span style={{ fontSize:10, color:'#7c3aed', background:'#f5f3ff', padding:'2px 7px', borderRadius:4, fontWeight:700, marginLeft:8 }}>{grp.order.queue_split_rule}</span>}
-                  </td></tr>
-                  {!collapsedOrders[grp.order.id] && grp.rows.map(r=>{
+                  </td></tr>}
+                  {(!groupBy || !collapsedOrders[grp.label]) && grp.rows.map(r=>{
                     const cs=catStyle[r.cat]||{}
                     const bal=r.req_qty-r.purchased
                     const hasQueues = (r.queue_breakdown || []).length > 0
@@ -1280,8 +1320,8 @@ function MaterialDemandTab({ suppliers }) {
                             ) : null}
                           </td>
                           <TD><span style={{ background:cs.bg, color:cs.color, fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:4 }}>{r.cat}</span></TD>
-                          <TD><div style={{ fontSize:12, fontWeight:600 }}>{r.name}</div>{r.specification&&<div style={{ fontSize:11, color:'#9ca3af' }}>{r.specification}</div>}</TD>
-                          <TD style={{ textAlign:'right', fontFamily:'monospace', fontWeight:600 }}>{r.req_qty?`${fmtNum(r.req_qty,2)} ${r.unit}`:'—'}</TD>
+                          <TD><div style={{ fontSize:12, fontWeight:600 }}>{r.name}</div>{r.specification&&<div style={{ fontSize:11, color:'#9ca3af' }}>{r.specification}</div>}<small>{[r.order.style_number,r.order.po_number,r.order.store_name].filter(Boolean).join(' · ')}</small></TD>
+                          <TD style={{ textAlign:'right', fontFamily:'monospace', fontWeight:600 }}>{r.req_qty?demandQuantity(r,r.req_qty):'—'}</TD>
                           <TD style={{ textAlign:'right', fontFamily:'monospace', color:r.purchased>0?'#16a34a':'#9ca3af', fontWeight:r.purchased>0?600:400 }}>{r.purchased>0?`${fmtNum(r.purchased,2)} ${r.unit}`:'—'}</TD>
                           <TD style={{ textAlign:'right', fontFamily:'monospace', color:balColor(r.req_qty,r.purchased), fontWeight:700 }}>{r.req_qty?`${fmtNum(bal,2)} ${r.unit}`:'—'}</TD>
                         </tr>
