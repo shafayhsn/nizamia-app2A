@@ -1055,11 +1055,11 @@ export async function buildSampleCards(orders) {
 // REPORT 8 & 9: PO and WO — triggered from Purchasing, handled separately
 // These are exported as standalone functions
 // ─────────────────────────────────────────────────────────────────────────────
-export async function printPurchaseOrder(po, supplier, order, taxRate, targetWindow = null) {
+export async function printPurchaseOrder(po, supplier, order, taxRate, targetWindow = null, checkingCopyFilename = null) {
   // Issuance needs confirmation for the exact cloud version, including its lines.
   // A modified offline copy can still be printed as a masked draft.
   let verified=false
-  if(po?.id && !String(po.id).startsWith('local-')){
+  if(!checkingCopyFilename && po?.id && !String(po.id).startsWith('local-')){
     try{
       const {rows}=await reviewRequest('readPOPage',{poId:po.id})
       const current=rows[0]
@@ -1078,7 +1078,7 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
   const qReference = verified ? extractQReference(po, order) : null
   const version = getPOVersion(po.notes)
   const company = getCompanyInfo()
-  const printCount = bumpPrintCount(po.po_number)
+  const printCount = checkingCopyFilename ? null : bumpPrintCount(po.po_number)
   const isPOApproved = verified
   const statusText = isPOApproved ? 'APPROVED' : 'DRAFT'
   const printableSupplierName = isPOApproved ? (supplier?.name || '—') : '************'
@@ -1090,8 +1090,8 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
   const totalQty = items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0)
   const filledRows = items.map((item) => `<tr><td>${escapeHTML(item.description || '—')}</td><td>${escapeHTML([item.specification, item.breakdown].filter(Boolean).join(' · ') || '—')}${item.demand_allocation?.info ? '<br><small style="font-size:9px">' + escapeHTML(item.demand_allocation.info) + '</small>' : ''}</td><td>${escapeHTML(item.unit || '—')}</td><td class="num">${item.qty ? fmtNum(item.qty,Number.isInteger(Number(item.qty)) ? 0 : 3) : '—'}</td><td class="num">${item.unit_rate ? fmtNum(item.unit_rate,2) : '—'}</td><td class="num">${item.amount ? fmtNum(item.amount,2) : '—'}</td></tr>`)
   const emptyRows = Array.from({ length: Math.max(0, 14 - filledRows.length) }, () => `<tr class="blank-row"><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>`)
-  const itemRows = [...filledRows, ...emptyRows].join('')
-  const html = `
+  const pageSize = 12
+  const renderPage = (itemRows, pageNumber, pageCount) => `
   <div class="po-a4-page">
     <style>
       @page { size: A4; margin: 0; }
@@ -1103,14 +1103,41 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
       .items-table{margin-top:2.5mm;border:1.4px solid #000;flex:0 0 auto}.items-table th{background:#000;color:#fff;border:1.4px solid #000;padding:2.2mm 2.4mm;font-size:12.5px;font-weight:700;text-align:left}.items-table td{border-left:1.4px solid #000;border-right:1.4px solid #000;border-bottom:1.1px solid #000;padding:1.6mm 2.4mm;font-size:10.8px;height:8.1mm;vertical-align:middle}.items-table .blank-row td{height:8.1mm}.items-table .num{text-align:right;font-variant-numeric:tabular-nums}.items-table th:nth-child(1){width:11%}.items-table th:nth-child(2){width:47%}.items-table th:nth-child(3){width:10%}.items-table th:nth-child(4){width:9%}.items-table th:nth-child(5){width:11%}.items-table th:nth-child(6){width:12%}.total-strip td{background:#e8e8e8;font-size:13px;font-weight:700;height:8.1mm;border-top:1.4px solid #000;border-bottom:1.4px solid #000}.total-strip .total-title{text-align:left}
       .words-tax-table{border-left:1.4px solid #000;border-right:1.4px solid #000;border-bottom:1.4px solid #000}.words-tax-table td{border:1.4px solid #000;padding:3mm 2.5mm;vertical-align:top;font-size:11px}.words-box{width:63%;height:18mm}.tax-box{width:37%;padding:0!important}.tax-row{display:grid;grid-template-columns:1fr 28mm;border-bottom:1.4px solid #000;min-height:9mm;align-items:center}.tax-row:last-child{border-bottom:0}.tax-row div{padding:2mm 2.5mm;font-size:13px;font-weight:700}.tax-row div:last-child{text-align:right;font-variant-numeric:tabular-nums}.terms-block{margin-top:3mm;min-height:24mm;flex:0 0 auto}.terms-title{font-size:13px;font-weight:700;margin-bottom:1.5mm;text-transform:uppercase}.terms-text{font-size:10.8px;line-height:1.2;text-align:justify}.sig-table{margin-top:auto;border:1.4px solid #000;height:24mm;flex:0 0 auto}.sig-table td{border:1.4px solid #000;width:25%;padding:0;position:relative;vertical-align:top}.signature-box{height:24mm;position:relative;vertical-align:top;text-align:center}.sig-label{position:absolute;bottom:2mm;left:0;right:0;text-align:center;font-size:11px;font-weight:700;color:#000;letter-spacing:0;text-transform:uppercase}.footer-lock{display:none}
     </style>
-    <div class="po-head"><div><div class="po-small-title">PURCHASE ORDER</div><div class="po-company">${escapeHTML(company.name)}</div><div class="po-tagline">${escapeHTML(company.tagline)}</div><div class="po-address">${companyAddressLine(company)}</div></div><div class="po-status"><div class="po-status-meta"><div class="po-status-version">V${version}</div><div>Print Count: ${String(printCount).padStart(2,'0')}</div></div><div class="po-status-box">${escapeHTML(statusText)}</div></div></div>
+    <div class="po-head"><div><div class="po-small-title">PURCHASE ORDER</div><div class="po-company">${escapeHTML(company.name)}</div><div class="po-tagline">${escapeHTML(company.tagline)}</div><div class="po-address">${companyAddressLine(company)}</div></div><div class="po-status">${checkingCopyFilename
+      ? `<div class="po-status-meta">FOR CHECKING · ${pageNumber} / ${pageCount}</div>`
+      : `<div class="po-status-meta"><div class="po-status-version">V${version}</div><div>Print Count: ${String(printCount).padStart(2,'0')}</div></div>`}<div class="po-status-box">${escapeHTML(statusText)}</div></div></div>
     <table class="meta-table"><tr><td class="supplier-cell"><div class="meta-label">Supplier Information</div><div class="meta-value">${escapeHTML(printableSupplierName)}</div></td><td class="middle-cell"><div class="mini-stack"><div><div class="meta-label">Job Number</div><div class="meta-value">${escapeHTML(order?.job_number || '—')}</div></div><div><div class="meta-label">Style &amp; Queue Number</div><div class="meta-value">${escapeHTML([order?.style_number, qReference].filter(Boolean).join(' / ') || '—')}</div></div></div></td><td class="right-cell"><div class="right-stack"><div><div class="meta-label">PO Number</div><div class="meta-value">${escapeHTML(po.po_number || '—')}</div></div><div><div class="meta-label">Issue Date</div><div class="meta-value">${fmtDate(po.po_date)}</div></div><div><div class="meta-label">Delivery Date</div><div class="meta-value">${fmtDate(po.delivery_date)}</div></div><div><div class="meta-label">Payment Terms</div><div class="meta-value">${escapeHTML(po.payment_terms || '—')}</div></div></div></td></tr></table>
-    <table class="items-table"><thead><tr><th>ITEMS</th><th>DESCRIPTION</th><th>UOM</th><th>QTY</th><th>RATE</th><th>AMOUNT</th></tr></thead><tbody>${itemRows}<tr class="total-strip"><td colspan="3" class="total-title">TOTAL</td><td class="num">${fmtNum(totalQty,0)}</td><td></td><td class="num">${fmtNum(subtotal,2)}</td></tr></tbody></table>
-    <table class="words-tax-table"><tr><td class="words-box"><b>AMOUNT IN WORDS:</b><br/>${escapeHTML(amountInWords(grand, currency))}</td><td class="tax-box"><div class="tax-row"><div>ADD SALES TAX (${fmtNum(effectiveTaxRate,0)}%)</div><div>${fmtNum(tax,2)}</div></div><div class="tax-row"><div>TOTAL AMOUNT (${escapeHTML(currency)})</div><div>${fmtNum(grand,2)}</div></div></td></tr></table>
+    <table class="items-table"><thead><tr><th>ITEMS</th><th>DESCRIPTION</th><th>UOM</th><th>QTY</th><th>RATE</th><th>AMOUNT</th></tr></thead><tbody>${itemRows}${pageNumber === pageCount ? `<tr class="total-strip"><td colspan="3" class="total-title">TOTAL</td><td class="num">${fmtNum(totalQty,0)}</td><td></td><td class="num">${fmtNum(subtotal,2)}</td></tr>` : ''}</tbody></table>
+    ${pageNumber === pageCount ? `<table class="words-tax-table"><tr><td class="words-box"><b>AMOUNT IN WORDS:</b><br/>${escapeHTML(amountInWords(grand, currency))}</td><td class="tax-box"><div class="tax-row"><div>ADD SALES TAX (${fmtNum(effectiveTaxRate,0)}%)</div><div>${fmtNum(tax,2)}</div></div><div class="tax-row"><div>TOTAL AMOUNT (${escapeHTML(currency)})</div><div>${fmtNum(grand,2)}</div></div></td></tr></table>
     <div class="terms-block"><div class="terms-title">Terms &amp; Conditions</div><div class="terms-text">${escapeHTML(getPOTerms())}</div></div>
-    <table class="sig-table"><tr><td class="signature-box"><div class="sig-label">Supplier Receiving</div></td><td class="signature-box"><div class="sig-label">Merchandiser</div></td><td class="signature-box"><div class="sig-label">Store Incharge</div></td><td class="signature-box"><div class="sig-label">CEO / Director</div></td></tr></table>
+    <table class="sig-table"><tr><td class="signature-box"><div class="sig-label">Supplier Receiving</div></td><td class="signature-box"><div class="sig-label">Merchandiser</div></td><td class="signature-box"><div class="sig-label">Store Incharge</div></td><td class="signature-box"><div class="sig-label">CEO / Director</div></td></tr></table>` : ''}
   </div>`
-  printHTML(html, targetWindow, po.po_number || 'Purchase Order')
+  if (!checkingCopyFilename) {
+    printHTML(renderPage([...filledRows, ...emptyRows].join(''), 1, 1), targetWindow, po.po_number || 'Purchase Order')
+    return
+  }
+
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
+  const frame = createPrintFrame()
+  if (!frame) throw new Error('Could not prepare the PO layout')
+  try {
+    Object.assign(frame.__printFrame.style, { left:'-10000px', width:'210mm', height:'297mm' })
+    const pdf = new jsPDF({ unit:'mm', format:'a4', compress:true })
+    const pageCount = Math.max(1, Math.ceil(filledRows.length / pageSize))
+    for (let index = 0; index < pageCount; index++) {
+      const rows = filledRows.slice(index * pageSize, (index + 1) * pageSize)
+      frame.document.body.innerHTML = renderPage([...rows, ...emptyRows.slice(0, pageSize - rows.length)].join(''), index + 1, pageCount)
+      const page = frame.document.querySelector('.po-a4-page')
+      Object.assign(page.style, { height:'auto', minHeight:'297mm', overflow:'visible' })
+      const canvas = await html2canvas(page, { scale:2, backgroundColor:'#fff' })
+      const scale = Math.min(210 / canvas.width, 297 / canvas.height)
+      if (index > 0) pdf.addPage()
+      pdf.addImage(canvas, 'PNG', 0, 0, canvas.width * scale, canvas.height * scale)
+    }
+    pdf.save(`${checkingCopyFilename}.pdf`)
+  } finally {
+    cleanupPrintTarget(frame)
+  }
 }
 
 export async function printWorkOrder(wo, vendor, order, targetWindow = null) {
