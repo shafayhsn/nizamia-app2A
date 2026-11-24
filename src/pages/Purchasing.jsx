@@ -1189,10 +1189,17 @@ function MaterialDemandTab({ suppliers }) {
   }
   const groupsCollapsed = !!groupBy && Object.keys(grouped).length > 0 &&
     Object.keys(grouped).every(key => collapsedOrders[key])
-  const demandQuantity = (row,qty) => {
-    const base = fmtNum(qty,2)+' '+row.unit
+  const shortUnit = unit => ({
+    meter:'mtrs', meters:'mtrs', metre:'mtrs', metres:'mtrs', yard:'yds', yards:'yds',
+    piece:'pcs', pieces:'pcs', kilogram:'kg', kilograms:'kg', gram:'g', grams:'g',
+    inch:'in', inches:'in', carton:'ctn', cartons:'ctns', liter:'L', litre:'L', ltr:'L',
+  })[String(unit || '').toLowerCase()] || unit
+  const demandQuantity = (row,qty,roundPacks = true) => {
     const pack = packFor(row.usage_data)
-    return pack ? fmtNum(Math.ceil(qty/pack.size),0)+' '+pack.unit+' / '+base : base
+    const equivalent = pack && qty > 0 ? qty / pack.size : 0
+    const packs = roundPacks ? Math.ceil(equivalent) : equivalent
+    return <><div>{fmtNum(qty,2)} {shortUnit(row.unit)}</div>
+      {packs > 0 && <small className="demand-quantity-pack">{fmtNum(packs,Number.isInteger(packs) ? 0 : 2)} {pack.unit}{packs === 1 || pack.unit.endsWith('s') ? '' : 's'}</small>}</>
   }
   const catStyle = { Fabric:{color:'#2563eb',bg:'#eff6ff'}, 'S. Trim':{color:'#d97706',bg:'#fff7ed'}, 'P. Trim':{color:'#7c3aed',bg:'#f5f3ff'}, Embellishment:{color:'#be185d',bg:'#fdf2f8'}, Wash:{color:'#0891b2',bg:'#ecfeff'} }
   const selStyle = { height:32, border:'1px solid #e5e7eb', borderRadius:7, fontSize:12, padding:'0 10px', background:'#fff', cursor:'pointer', fontFamily:'Inter,sans-serif' }
@@ -1328,12 +1335,12 @@ function MaterialDemandTab({ suppliers }) {
             <thead><tr style={{ background:'#fafafa', position:'sticky', top:0, zIndex:10 }}>
               <th style={{ width:40, padding:'9px 0 9px 18px', borderBottom:'1px solid #f3f4f6' }}><input type="checkbox" checked={selectionCount===getAllSelectableKeys().length&&getAllSelectableKeys().length>0} onChange={()=>{ const keys=getAllSelectableKeys(); setSelected(selectionCount===keys.length?new Set():new Set(keys)) }}/></th>
               <th style={{ width:34, padding:'9px 6px', borderBottom:'1px solid #f3f4f6' }}></th>
-              <TH>Cat</TH><TH>Item / Spec</TH><TH right>Required</TH><TH right>Purchased</TH><TH right>Balance</TH>
+              <TH>Item / Category</TH><TH>Detail / Spec</TH><TH>Style # / Fty Ref</TH><TH>PO # / Store</TH><TH>Wash / Size Range</TH><TH right>Required</TH><TH right>Purchased</TH><TH right>Balance</TH>
             </tr></thead>
             <tbody>
               {Object.values(grouped).map(grp=>(
                 <React.Fragment key={grp.label}>
-                  {groupBy && <tr><td colSpan={7} style={{ padding:'7px 18px', background:'var(--app-group-row-bg, #f9fafb)', color:'var(--app-group-row-text, #111827)', borderBottom:'1px solid #f0f0ee', borderTop:'1px solid #f0f0ee' }}>
+                  {groupBy && <tr><td colSpan={10} style={{ padding:'7px 18px', background:'var(--app-group-row-bg, #f9fafb)', color:'var(--app-group-row-text, #111827)', borderBottom:'1px solid #f0f0ee', borderTop:'1px solid #f0f0ee' }}>
                     <button type="button" aria-expanded={!collapsedOrders[grp.label]} onClick={()=>setCollapsedOrders(prev=>({...prev,[grp.label]:!prev[grp.label]}))} style={{border:0,background:'transparent',cursor:'pointer',fontSize:12,fontWeight:700,color:'inherit',padding:0,textAlign:'left'}}>
                       <span style={{marginRight:8}}>{collapsedOrders[grp.label]?'▸':'▾'}</span>
                       {grp.label} · {grp.rows.length} lines
@@ -1342,6 +1349,9 @@ function MaterialDemandTab({ suppliers }) {
                   {(!groupBy || !collapsedOrders[grp.label]) && grp.rows.map(r=>{
                     const cs=catStyle[r.cat]||{}
                     const bal=r.req_qty-r.purchased
+                    const matrix = poDataMapRef.current[r.order_id]
+                    const washes = matrix?.colors.map(color=>color.name).filter(Boolean).join(' / ')
+                    const sizeRanges = matrix?.sizeGroups.map(group=>group.name).filter(Boolean).join(' / ')
                     const hasQueues = (r.queue_breakdown || []).length > 0
                     const isOpen = !!expanded[r.id]
                     return (
@@ -1357,11 +1367,15 @@ function MaterialDemandTab({ suppliers }) {
                               </button>
                             ) : null}
                           </td>
-                          <TD><span style={{ background:cs.bg, color:cs.color, fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:4 }}>{r.cat}</span></TD>
-                          <TD><div style={{ fontSize:12, fontWeight:600 }}>{r.name}</div>{r.specification&&<div style={{ fontSize:11, color:'#9ca3af' }}>{r.specification}</div>}<small>{[r.order.style_number,r.order.po_number,r.order.store_name].filter(Boolean).join(' · ')}</small></TD>
+                          <TD><div style={{fontWeight:600,marginBottom:4}}>{r.name}</div>
+                            <span style={{background:cs.bg,color:cs.color,fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:4}}>{r.cat}</span></TD>
+                          <TD>{r.specification || '—'}</TD>
+                          <TD><div>{r.order.style_number || '—'}</div>{r.order.factory_ref && <small>{r.order.factory_ref}</small>}</TD>
+                          <TD><div>{r.order.po_number || '—'}</div>{r.order.store_name && <small>{r.order.store_name}</small>}</TD>
+                          <TD><div>{washes || '—'}</div>{sizeRanges && <small>{sizeRanges}</small>}</TD>
                           <TD style={{ textAlign:'right', fontFamily:'monospace', fontWeight:600 }}>{r.req_qty?demandQuantity(r,r.req_qty):'—'}</TD>
-                          <TD style={{ textAlign:'right', fontFamily:'monospace', color:r.purchased>0?'#16a34a':'#9ca3af', fontWeight:r.purchased>0?600:400 }}>{r.purchased>0?`${fmtNum(r.purchased,2)} ${r.unit}`:'—'}</TD>
-                          <TD style={{ textAlign:'right', fontFamily:'monospace', color:balColor(r.req_qty,r.purchased), fontWeight:700 }}>{r.req_qty?`${fmtNum(bal,2)} ${r.unit}`:'—'}</TD>
+                          <TD style={{ textAlign:'right', fontFamily:'monospace', color:r.purchased>0?'#16a34a':'#9ca3af', fontWeight:r.purchased>0?600:400 }}>{r.purchased>0?demandQuantity(r,r.purchased,false):'—'}</TD>
+                          <TD style={{ textAlign:'right', fontFamily:'monospace', color:balColor(r.req_qty,r.purchased), fontWeight:700 }}>{r.req_qty?demandQuantity(r,bal):'—'}</TD>
                         </tr>
                         {isOpen && (r.queue_breakdown || []).map(q => {
                           const qSelected = selected.has(qKey(r.id, queueRef(q)))
@@ -1371,14 +1385,14 @@ function MaterialDemandTab({ suppliers }) {
                               <input type="checkbox" checked={qSelected} onClick={e=>e.stopPropagation()} onChange={()=>toggleQueueSelection(r, q)} />
                             </td>
                             <td style={{ borderBottom:'1px solid #f3f4f6' }}></td>
-                            <td colSpan={2} style={{ padding:'8px 12px 8px 24px', borderBottom:'1px solid #f3f4f6' }}>
+                            <td colSpan={5} style={{ padding:'8px 12px 8px 24px', borderBottom:'1px solid #f3f4f6' }}>
                               <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                                 <span style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:11, color:'#0d0d0d', background:'#f3f4f6', padding:'2px 7px', borderRadius:5 }}>{q.q_number || 'Queued'}</span>
                                 <span style={{ fontSize:11, fontWeight:600, color:'#374151' }}>{q.label || 'Queue'}</span>
                                 <span style={{ fontSize:10, color:'#9ca3af' }}>{q.split_rule}</span>
                               </div>
                             </td>
-                            <td style={{ textAlign:'right', fontFamily:'monospace', fontSize:11, fontWeight:700, padding:'8px 12px', borderBottom:'1px solid #f3f4f6' }}>{fmtNum(q.req_qty,2)} {q.unit}</td>
+                            <td style={{ textAlign:'right', fontFamily:'monospace', fontSize:11, fontWeight:700, padding:'8px 12px', borderBottom:'1px solid #f3f4f6' }}>{demandQuantity({...r,unit:q.unit || r.unit},q.req_qty)}</td>
                             <td style={{ padding:'8px 12px', borderBottom:'1px solid #f3f4f6', color:'#cbd5e1', textAlign:'right' }}>—</td>
                             <td style={{ padding:'8px 12px', borderBottom:'1px solid #f3f4f6', color:'#cbd5e1', textAlign:'right' }}>—</td>
                           </tr>
