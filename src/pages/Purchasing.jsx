@@ -1335,7 +1335,7 @@ function MaterialDemandTab({ suppliers }) {
             <thead><tr style={{ background:'#fafafa', position:'sticky', top:0, zIndex:10 }}>
               <th style={{ width:40, padding:'9px 0 9px 18px', borderBottom:'1px solid #f3f4f6' }}><input type="checkbox" checked={selectionCount===getAllSelectableKeys().length&&getAllSelectableKeys().length>0} onChange={()=>{ const keys=getAllSelectableKeys(); setSelected(selectionCount===keys.length?new Set():new Set(keys)) }}/></th>
               <th style={{ width:34, padding:'9px 6px', borderBottom:'1px solid #f3f4f6' }}></th>
-              <TH>Item / Category</TH><TH>Detail / Spec</TH><TH>Style # / Fty Ref</TH><TH>PO # / Store</TH><TH>Wash / Size Range</TH><TH right>Required</TH><TH right>Purchased</TH><TH right>Balance</TH>
+              <TH>Item / Category</TH><TH>Detail / Spec</TH><TH>Style # / Fty Ref</TH><TH>PO # / Store</TH><TH>Washes / Size Groups</TH><TH right>Required</TH><TH right>Purchased</TH><TH right>Balance</TH>
             </tr></thead>
             <tbody>
               {Object.values(grouped).map(grp=>(
@@ -1350,8 +1350,8 @@ function MaterialDemandTab({ suppliers }) {
                     const cs=catStyle[r.cat]||{}
                     const bal=r.req_qty-r.purchased
                     const matrix = poDataMapRef.current[r.order_id]
-                    const washes = matrix?.colors.map(color=>color.name).filter(Boolean).join(' / ')
-                    const sizeRanges = matrix?.sizeGroups.map(group=>group.name).filter(Boolean).join(' / ')
+                    const washCount = new Set(matrix?.colors.map(color => normText(color.name)).filter(Boolean)).size
+                    const sizeGroupCount = new Set(matrix?.sizeGroups.map(group => normText(group.name)).filter(Boolean)).size
                     const hasQueues = (r.queue_breakdown || []).length > 0
                     const isOpen = !!expanded[r.id]
                     return (
@@ -1372,7 +1372,8 @@ function MaterialDemandTab({ suppliers }) {
                           <TD>{r.specification || '—'}</TD>
                           <TD><div>{r.order.style_number || '—'}</div>{r.order.factory_ref && <small>{r.order.factory_ref}</small>}</TD>
                           <TD><div>{r.order.po_number || '—'}</div>{r.order.store_name && <small>{r.order.store_name}</small>}</TD>
-                          <TD><div>{washes || '—'}</div>{sizeRanges && <small>{sizeRanges}</small>}</TD>
+                          <TD><div>{String(washCount).padStart(2,'0')} {washCount === 1 ? 'Wash' : 'Washes'}</div>
+                            <small>{String(sizeGroupCount).padStart(2,'0')} {sizeGroupCount === 1 ? 'Size Group' : 'Size Groups'}</small></TD>
                           <TD style={{ textAlign:'right', fontFamily:'monospace', fontWeight:600 }}>{r.req_qty?demandQuantity(r,r.req_qty):'—'}</TD>
                           <TD style={{ textAlign:'right', fontFamily:'monospace', color:r.purchased>0?'#16a34a':'#9ca3af', fontWeight:r.purchased>0?600:400 }}>{r.purchased>0?demandQuantity(r,r.purchased,false):'—'}</TD>
                           <TD style={{ textAlign:'right', fontFamily:'monospace', color:balColor(r.req_qty,r.purchased), fontWeight:700 }}>{r.req_qty?demandQuantity(r,bal):'—'}</TD>
