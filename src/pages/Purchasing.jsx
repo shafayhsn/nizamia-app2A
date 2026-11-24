@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom'
-import { buildSupplierLines, packFor, purchasedQuantities } from '../lib/supplierLines'
+import { buildSupplierLines, checkingCopyLines, packFor, purchasedQuantities } from '../lib/supplierLines'
 import { configuredCell, configuredMapQuantity, configuredQuantity } from '../lib/bomUsage.js'
 import StoreReceipts, { PoReceivingDialog, RegisterSearch } from '../components/purchasing/StoreReceiving'
 import {reviewRequest,readPurchasingRegister,purchasingLookup} from '../lib/poReview'
@@ -247,6 +247,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
   const [error, setError] = useState(null)
   const [hiddenColumns, setHiddenColumns] = useState({})
   const [exporting, setExporting] = useState(false)
+  const [showFactoryRefs, setShowFactoryRefs] = useState(false)
   const optionalColumns = ['Description', 'Specification', 'Break-down', 'Unit']
   const [admins,setAdmins]=useState([])
   const [reviewer,setReviewer]=useState('')
@@ -326,29 +327,30 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
   const downloadCheckingCopy = async (format) => {
     setError(null)
     setExporting(true)
-    const lines = items.filter(item => [item.description, item.specification, item.breakdown, item.qty, item.unit_rate]
-      .some(value => String(value ?? '').trim()))
+    const lines = checkingCopyLines(items, showFactoryRefs)
+    const exportTaxRate = taxEnabled ? Number(taxRate) || 0 : 0
+    const subtotal = lines.reduce((sum, line) => sum + (line.amount ?? 0), 0)
+    const exportTax = Math.round(subtotal * exportTaxRate / 100)
     const filename = `PO-Checking-Copy-${form.po_date}`
     try {
       if (format === 'pdf') {
         await printPurchaseOrder({ ...form, po_number: '', items: lines }, null, null,
-          taxEnabled ? Number(taxRate) || 0 : 0, null, filename)
+          exportTaxRate, null, filename)
       } else {
         const xlsx = await import('xlsx')
-        const numberOrBlank = value => value == null || value === '' ? null : Number(value)
         const rows = [
           ['DRAFT — FOR CHECKING'],
           ['PO Date', form.po_date], ['Delivery Date', form.delivery_date],
           ['Currency', form.currency], ['Payment Terms', form.payment_terms], ['Notes', form.notes],
           [],
-          ['Description', 'Specification', 'Breakdown', 'Qty', 'Unit', 'Unit Rate', 'Amount', 'Info'],
-          ...lines.map(item => [item.description, item.specification, item.breakdown, numberOrBlank(item.qty),
-            item.unit, numberOrBlank(item.unit_rate), numberOrBlank(item.amount), item.demand_allocation?.info]),
-          [], ['Subtotal', total], [taxEnabled ? `GST (${taxRate}%)` : 'GST (off)', taxAmount],
-          ['Grand Total', grandTotal],
+          ['Description', 'Specification', 'Breakdown', 'Qty', 'Unit', 'Unit Rate', 'Amount', 'Pack Info', ...(showFactoryRefs ? ['Factory Ref Breakdown'] : [])],
+          ...lines.map(item => [item.description, item.specification, item.breakdown, item.qty,
+            item.unit, item.unit_rate, item.amount, item.checkingCopyPackInfo, ...(showFactoryRefs ? [item.factoryRefs] : [])]),
+          [], ['Subtotal', subtotal], [taxEnabled ? `GST (${taxRate}%)` : 'GST (off)', exportTax],
+          ['Grand Total', subtotal + exportTax],
         ]
         const sheet = xlsx.utils.aoa_to_sheet(rows)
-        sheet['!cols'] = [26, 30, 25, 12, 12, 14, 14, 36].map(wch => ({ wch }))
+        sheet['!cols'] = [26, 30, 25, 12, 12, 14, 14, 22, ...(showFactoryRefs ? [48] : [])].map(wch => ({ wch }))
         const workbook = xlsx.utils.book_new()
         xlsx.utils.book_append_sheet(workbook, sheet, 'PO Checking Copy')
         xlsx.writeFile(workbook, `${filename}.xlsx`)
@@ -461,6 +463,9 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
         <div style={{padding:'12px 24px',borderTop:'1px solid #f0f0ee',display:'flex',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end',gap:12}}>
           <QuantityAndMoneySummary items={items} currency={form.currency} rateKey="unit_rate" taxEnabled={taxEnabled} taxRate={taxRate}/>
           {isNew && <>
+            <label style={{fontSize:12}}>
+              <input type="checkbox" checked={showFactoryRefs} onChange={event=>setShowFactoryRefs(event.target.checked)} /> Show factory ref breakdown
+            </label>
             <button type="button" className="btn btn-secondary" disabled={exporting} onClick={()=>downloadCheckingCopy('excel')}>Download Excel Draft</button>
             <button type="button" className="btn btn-secondary" disabled={exporting} onClick={()=>downloadCheckingCopy('pdf')}>Download PDF Draft</button>
           </>}
@@ -1194,8 +1199,9 @@ function MaterialDemandTab({ suppliers }) {
             return sq + (pd.sgColorTotals?.[sg]?.[color] || 0)
           }, 0)
           const req = usageNumeric(b.consumption) * qty * factor
+          const batchName = b.name || `Batch ${ix+1}`
           const details = (b.cells || []).map(cell => [cell.sgName, cell.colorName, cell.size ? `Size ${cell.size}` : ''].filter(Boolean).join(' / ')).join(', ')
-          return req > 0 ? { breakdown: `${b.name || `Batch ${ix+1}`}${details ? ` — ${details}` : ''}`, req_qty: req, unit } : null
+          return req > 0 ? { breakdown: `${batchName}${details ? ` — ${details}` : ''}`, batchName, req_qty: req, unit } : null
         }).filter(Boolean)
       }
       if (rule === 'Configure Own' && Array.isArray(ud.__matrix)) {
@@ -1317,7 +1323,7 @@ function MaterialDemandTab({ suppliers }) {
         ;(r.queue_breakdown || []).forEach(q => {
           if (selected.has(qKey(r.id, queueRef(q)))) {
             const usageLines = r.usage_breakdown || []
-            if (usageLines.length) usageLines.forEach((u, ix) => lines.push({ _id:`${r.id}_${queueRef(q)}_${ix}`, description:r.name, specification:r.specification, breakdown:`${u.breakdown}${q.q_number ? ' [' + q.q_number + ']' : ''}`, qty:u.req_qty||'', unit:u.unit||r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:q.q_number || q.label || '' }))
+            if (usageLines.length) usageLines.forEach((u, ix) => lines.push({ _id:`${r.id}_${queueRef(q)}_${ix}`, description:r.name, specification:r.specification, breakdown:`${u.breakdown}${q.q_number ? ' [' + q.q_number + ']' : ''}`, checkingCopyBatchName:u.batchName, qty:u.req_qty||'', unit:u.unit||r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:q.q_number || q.label || '' }))
             else lines.push(buildQueueLine(r, q))
           }
         })
@@ -1326,15 +1332,15 @@ function MaterialDemandTab({ suppliers }) {
       if (selected.has(rowKey(r.id))) {
         
         const usageLines = r.usage_breakdown || []
-        if (usageLines.length) usageLines.forEach((u, ix) => lines.push({ _id:`${r.id}_${ix}`, description:r.name, specification:r.specification, breakdown:u.breakdown, qty:u.req_qty||'', unit:u.unit||r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:'' }))
+        if (usageLines.length) usageLines.forEach((u, ix) => lines.push({ _id:`${r.id}_${ix}`, description:r.name, specification:r.specification, breakdown:u.breakdown, checkingCopyBatchName:u.batchName, qty:u.req_qty||'', unit:u.unit||r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:'' }))
         else lines.push({ _id:r.id, description:r.name, specification:r.specification, breakdown:'', qty:r.req_qty||'', unit:r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:'' })
       }
     }
     const sources = new Map(filtered.map(row=>[row.source_id,row]))
     return lines.map(line => {
       const row = sources.get(line.source_id)
-      return {...line,buyer:row?.order.buyer_id || row?.order.buyer_name,material:row?.material || row?.cat,
-        ref:row?.order.factory_ref || row?.order.style_number,pack:packFor(row?.usage_data)}
+      return {...line,checkingCopyOriginalBreakdown:line.checkingCopyBatchName ? line.breakdown : undefined,buyer:row?.order.buyer_id || row?.order.buyer_name,material:row?.material || row?.cat,
+        ref:row?.order.factory_ref || row?.order.style_number,factoryRef:row?.order.factory_ref,pack:packFor(row?.usage_data)}
     })
   }
   const balColor = (req,purch) => { const bal=req-purch; if (bal<=0) return '#16a34a'; if (purch>0) return '#d97706'; return '#374151' }

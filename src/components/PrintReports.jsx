@@ -1084,11 +1084,25 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
   const printableSupplierName = isPOApproved ? (supplier?.name || '—') : '************'
   const items = (po.items || po.purchase_order_items || []).map(it => ({ ...it, ...decodePrintSpec(it.specification), breakdown: it.breakdown || decodePrintSpec(it.specification).breakdown }))
   const subtotal = items.reduce((s,i)=>s+(parseFloat(i.amount)||0),0)
-  const tax = subtotal * ((parseFloat(effectiveTaxRate) || 0)/100)
+  const rawTax = subtotal * ((parseFloat(effectiveTaxRate) || 0)/100)
+  const tax = checkingCopyFilename ? Math.round(rawTax) : rawTax
+  const amountDecimals = checkingCopyFilename ? 0 : 2
   const grand = subtotal + tax
   const currency = po.currency || 'PKR'
   const totalQty = items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0)
-  const filledRows = items.map((item) => `<tr><td>${escapeHTML(item.description || '—')}</td><td>${escapeHTML([item.specification, item.breakdown].filter(Boolean).join(' · ') || '—')}${item.demand_allocation?.info ? '<br><small style="font-size:9px">' + escapeHTML(item.demand_allocation.info) + '</small>' : ''}</td><td>${escapeHTML(item.unit || '—')}</td><td class="num">${item.qty ? fmtNum(item.qty,Number.isInteger(Number(item.qty)) ? 0 : 3) : '—'}</td><td class="num">${item.unit_rate ? fmtNum(item.unit_rate,2) : '—'}</td><td class="num">${item.amount ? fmtNum(item.amount,2) : '—'}</td></tr>`)
+  const filledRows = items.map(item => {
+    const description = checkingCopyFilename && item.checkingCopyBatchName
+      ? item.breakdown : [item.specification, item.breakdown].filter(Boolean).join(' · ')
+    const info = checkingCopyFilename
+      ? [item.checkingCopyPackInfo, item.factoryRefs].filter(Boolean)
+      : [item.demand_allocation?.info].filter(Boolean)
+    const details = info.map(value => `<br><small style="font-size:9px">${escapeHTML(value)}</small>`).join('')
+    const quantityDecimals = Number.isInteger(Number(item.qty)) ? 0 : 3
+    const rate = checkingCopyFilename && item.unit_rate != null
+      ? Number(item.unit_rate).toLocaleString(undefined, { maximumFractionDigits:20 })
+      : item.unit_rate ? fmtNum(item.unit_rate,2) : '—'
+    return `<tr><td>${escapeHTML(item.description || '—')}</td><td>${escapeHTML(description || '—')}${details}</td><td>${escapeHTML(item.unit || '—')}</td><td class="num">${checkingCopyFilename || item.qty ? fmtNum(item.qty,quantityDecimals) : '—'}</td><td class="num">${rate}</td><td class="num">${checkingCopyFilename || item.amount ? fmtNum(item.amount,amountDecimals) : '—'}</td></tr>`
+  })
   const emptyRows = Array.from({ length: Math.max(0, 14 - filledRows.length) }, () => `<tr class="blank-row"><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>`)
   const pageSize = 12
   const renderPage = (itemRows, pageNumber, pageCount) => `
@@ -1107,8 +1121,8 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
       ? `<div class="po-status-meta">FOR CHECKING · ${pageNumber} / ${pageCount}</div>`
       : `<div class="po-status-meta"><div class="po-status-version">V${version}</div><div>Print Count: ${String(printCount).padStart(2,'0')}</div></div>`}<div class="po-status-box">${escapeHTML(statusText)}</div></div></div>
     <table class="meta-table"><tr><td class="supplier-cell"><div class="meta-label">Supplier Information</div><div class="meta-value">${escapeHTML(printableSupplierName)}</div></td><td class="middle-cell"><div class="mini-stack"><div><div class="meta-label">Job Number</div><div class="meta-value">${escapeHTML(order?.job_number || '—')}</div></div><div><div class="meta-label">Style &amp; Queue Number</div><div class="meta-value">${escapeHTML([order?.style_number, qReference].filter(Boolean).join(' / ') || '—')}</div></div></div></td><td class="right-cell"><div class="right-stack"><div><div class="meta-label">PO Number</div><div class="meta-value">${escapeHTML(po.po_number || '—')}</div></div><div><div class="meta-label">Issue Date</div><div class="meta-value">${fmtDate(po.po_date)}</div></div><div><div class="meta-label">Delivery Date</div><div class="meta-value">${fmtDate(po.delivery_date)}</div></div><div><div class="meta-label">Payment Terms</div><div class="meta-value">${escapeHTML(po.payment_terms || '—')}</div></div></div></td></tr></table>
-    <table class="items-table"><thead><tr><th>ITEMS</th><th>DESCRIPTION</th><th>UOM</th><th>QTY</th><th>RATE</th><th>AMOUNT</th></tr></thead><tbody>${itemRows}${pageNumber === pageCount ? `<tr class="total-strip"><td colspan="3" class="total-title">TOTAL</td><td class="num">${fmtNum(totalQty,0)}</td><td></td><td class="num">${fmtNum(subtotal,2)}</td></tr>` : ''}</tbody></table>
-    ${pageNumber === pageCount ? `<table class="words-tax-table"><tr><td class="words-box"><b>AMOUNT IN WORDS:</b><br/>${escapeHTML(amountInWords(grand, currency))}</td><td class="tax-box"><div class="tax-row"><div>ADD SALES TAX (${fmtNum(effectiveTaxRate,0)}%)</div><div>${fmtNum(tax,2)}</div></div><div class="tax-row"><div>TOTAL AMOUNT (${escapeHTML(currency)})</div><div>${fmtNum(grand,2)}</div></div></td></tr></table>
+    <table class="items-table"><thead><tr><th>ITEMS</th><th>DESCRIPTION</th><th>UOM</th><th>QTY</th><th>RATE</th><th>AMOUNT</th></tr></thead><tbody>${itemRows}${pageNumber === pageCount ? `<tr class="total-strip"><td colspan="3" class="total-title">TOTAL</td><td class="num">${fmtNum(totalQty,0)}</td><td></td><td class="num">${fmtNum(subtotal,amountDecimals)}</td></tr>` : ''}</tbody></table>
+    ${pageNumber === pageCount ? `<table class="words-tax-table"><tr><td class="words-box"><b>AMOUNT IN WORDS:</b><br/>${escapeHTML(amountInWords(grand, currency))}</td><td class="tax-box"><div class="tax-row"><div>ADD SALES TAX (${fmtNum(effectiveTaxRate,0)}%)</div><div>${fmtNum(tax,amountDecimals)}</div></div><div class="tax-row"><div>TOTAL AMOUNT (${escapeHTML(currency)})</div><div>${fmtNum(grand,amountDecimals)}</div></div></td></tr></table>
     <div class="terms-block"><div class="terms-title">Terms &amp; Conditions</div><div class="terms-text">${escapeHTML(getPOTerms())}</div></div>
     <table class="sig-table"><tr><td class="signature-box"><div class="sig-label">Supplier Receiving</div></td><td class="signature-box"><div class="sig-label">Merchandiser</div></td><td class="signature-box"><div class="sig-label">Store Incharge</div></td><td class="signature-box"><div class="sig-label">CEO / Director</div></td></tr></table>` : ''}
   </div>`
