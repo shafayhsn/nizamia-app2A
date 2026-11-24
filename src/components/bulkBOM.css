@@ -99,3 +99,10 @@
 @media (max-width: 440px) {
   .bulk-bom-tool { flex-direction: column; align-items: stretch; }
 }
+
+.bulk-review-style[data-tone='0'] { --style-tint: #edf4ff; }
+.bulk-review-style[data-tone='1'] { --style-tint: #edf7f2; }
+.bulk-review-style[data-tone='2'] { --style-tint: #f3effa; }
+.bulk-bom .bulk-review-style > :is(td, th) { background: var(--style-tint); color: #1e293b; }
+.bulk-review-style button { font-weight: 700; }
+.bulk-review-summary details summary { cursor: pointer; color: #475569; }

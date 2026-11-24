@@ -3,7 +3,7 @@ import { supabase } from '../../../lib/supabase'
 import { markTabUpdated } from '../../../lib/tabNotices'
 import { Plus, Trash2, Check, Library, X, Settings2, AlertTriangle, Search, Scissors, PackageOpen } from 'lucide-react'
 
-import { USAGE_RULES, buildBOMMatrix, calculateBOMFinalQty, normalizeUsageCell, normalizeUsageData } from '../../../lib/bomUsage'
+import { variantProblem, configuredCell, configuredQuantity, USAGE_RULES, buildBOMMatrix, calculateBOMFinalQty, normalizeUsageCell, normalizeUsageData } from '../../../lib/bomUsage'
 const UNITS = ['yards', 'meters', 'cm', 'inch', 'ft', 'pcs', 'kg', 'gram', 'cone', 'set', 'sht', 'ctn', 'roll', 'ltr']
 const PACKING_FORMS = ['Cone', 'Roll', 'Spool', 'Box', 'Bag', 'Carton', 'Reel', 'Bundle', 'Piece']
 const TABLES = [
@@ -33,8 +33,13 @@ function getStaleKeys(item, poData) {
   }
   if (rule === 'Configure Own') {
     if (ud.__matrix) {
-      const assigned = ud.__matrix.map(m => `${m.sgName}||${m.colorName}`)
-      return (poData.sgMatrix || []).flatMap(sg => sg.colors.map(c => `${sg.sgName}||${c.colorName}`)).filter(k => !assigned.includes(k))
+      return (poData.sgMatrix || []).flatMap(group => group.colors.flatMap(color => {
+        const row = ud.__matrix.find(entry => entry.sgName === group.sgName && entry.colorName === color.colorName)
+        return color.sizes.filter(size => {
+          const cell = configuredCell(row, size.size)
+          return size.qty > 0 && !cell?.na && !(Number(cell?.consumption) > 0)
+        }).map(size => [group.sgName, color.colorName, size.size].join(' / '))
+      }))
     }
     const groups = ud.__groups || []
     const assigned = groups.flatMap(g => g.sizes)
@@ -63,11 +68,17 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
   })
   const [matrixData, setMatrixData] = useState(() => {
     if (rule !== 'Configure Own') return {}
-    const m = normalizeUsageData(item.usage_data).__matrix || []
-    const obj = {}
-    m.forEach(e => { obj[`${e.sgName}||${e.colorName}`] = { value: e.consumption ?? '', na: !!e.na } })
-    return obj
+    const saved = normalizeUsageData(item.usage_data)
+    const rows = saved.__matrix ?? (poData.sgMatrix || []).flatMap(group => group.colors.map(color => ({
+      sgName: group.sgName, colorName: color.colorName,
+      overrides: color.sizes.flatMap(({size}) => {
+        const matches = (saved.__groups || []).filter(entry => entry.sizes?.includes(size))
+        return matches.length ? [{size, consumption: matches.reduce((sum, entry) => sum + Number(entry.consumption || 0), 0)}] : []
+      }),
+    })))
+    return Object.fromEntries(rows.map(row => [JSON.stringify([row.sgName, row.colorName]), row]))
   })
+  const [expanded, setExpanded] = useState({})
   const [batchData, setBatchData] = useState(() => {
     if (rule !== 'By Batch') return []
     const existing = normalizeUsageData(item.usage_data).__batches || []
@@ -91,12 +102,7 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
   function getUsageData() {
     if (rule === 'Generic') return { generic: genericCell }
     if (rule === 'Configure Own') {
-      const matrix = Object.entries(matrixData)
-        .filter(([, cell]) => cell.na || (cell.value !== '' && cell.value != null))
-        .map(([key, cell]) => {
-          const [sgName, colorName] = key.split('||')
-          return { sgName, colorName, consumption: cell.na ? '' : cell.value, na: !!cell.na }
-        })
+      const matrix = Object.values(matrixData).filter(row => row.na || row.consumption !== '' && row.consumption != null || row.overrides?.length)
       return { __matrix: matrix }
     }
     if (rule === 'By Batch') {
@@ -133,6 +139,10 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
     onClose()
   }
 
+  const [sameForSizes, setSameForSizes] = useState(false)
+  const [allSizeRate, setAllSizeRate] = useState('')
+  const indicator = message => config.material && message ? <span role="img" title={message} aria-label={message} style={{color:'#c62828',marginLeft:4}}>●</span> : null
+  const batchProblem = (g,c,sz) => sz.qty > 0 && variantProblem('By Batch',{__batches:batchData},g.sgName,c.colorName,sz.size)
   const mergedColors = poData.colors.map(c => c.name)
   const mergedGroups = poData.sizeGroups.map(g => g.name)
   const mergedSizes  = poData.allSizes.map(s => s.size)
@@ -151,7 +161,7 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
           {rule === 'Generic' && (
             <div>
               <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 12 }}>One consumption value applies to all sizes and colours.</div>
-              <label style={{ fontSize: 11, fontWeight: 500, color: '#6b7280', display: 'block', marginBottom: 4 }}>Consumption / pc</label>
+              <label style={{ fontSize: 11, fontWeight: 500, color: '#6b7280', display: 'block', marginBottom: 4 }}>Consumption / pc{indicator(variantProblem('Generic',{generic:genericCell}))}</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: genericCell.na ? '#92400e' : '#6b7280', whiteSpace: 'nowrap' }}>
                   <input type="checkbox" checked={genericCell.na} onChange={e => setData({ generic: { value: e.target.checked ? '' : (genericCell.value || ''), na: e.target.checked } })} />
@@ -176,6 +186,19 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
               </div>
             )
             return (
+              <><div>{rule === 'By Individual Sizes' && <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
+                <label><input type="checkbox" checked={sameForSizes} onChange={event => {
+                  setSameForSizes(event.target.checked)
+                  setAllSizeRate('')
+                }}/> Add same for all sizes</label>
+                {sameForSizes && <input type="number" min="0" step="any" aria-label="Consumption per piece for all sizes"
+                  placeholder="Cons./pc" style={{...inp,width:96}} value={allSizeRate} onChange={event => {
+                    const value = event.target.value
+                    setAllSizeRate(value)
+                    setData(previous => ({...previous,...Object.fromEntries(keys.filter(key => !normalizeUsageCell(previous[key]).na)
+                      .map(key => [key,{value,na:false}]))}))
+                  }}/>}
+              </div>}</div>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead><tr><TH>{label}</TH><TH right>Qty</TH><TH right>Cons./pc</TH><TH right>Final Qty</TH></tr></thead>
                 <tbody>
@@ -188,17 +211,17 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
                     return (
                       <tr key={k}>
                         <td style={{ padding: '5px 8px 5px 0', borderBottom: '1px solid #f0f0ee', fontSize: 12, fontWeight: 500 }}>
-                          {k}{isNew && <span style={{ fontSize: 9, background: '#fef3c7', color: '#92400e', borderRadius: 3, padding: '1px 5px', fontWeight: 700, marginLeft: 6 }}>NEW</span>}
+                          {k}{indicator(qtys[k] > 0 && !isNA && !(Number(val)>0) && "Enter consumption or select N/A")}{isNew && <span style={{ fontSize: 9, background: '#fef3c7', color: '#92400e', borderRadius: 3, padding: '1px 5px', fontWeight: 700, marginLeft: 6 }}>NEW</span>}
                         </td>
                         <td style={{ padding: '5px 8px', borderBottom: '1px solid #f0f0ee', textAlign: 'right', fontSize: 11, color: '#6b7280' }}>{qtys[k]?.toLocaleString()}</td>
                         <td style={{ padding: '5px 0 5px 8px', borderBottom: '1px solid #f0f0ee', width: 150 }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
                             <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: isNA ? '#92400e' : '#6b7280', whiteSpace: 'nowrap' }}>
-                              <input type="checkbox" checked={isNA} onChange={e => setData(d => ({ ...d, [k]: { value: e.target.checked ? '' : (normalizeUsageCell(d[k]).value || ''), na: e.target.checked } }))} />
+                              <input type="checkbox" checked={isNA} onChange={e => setData(d => ({ ...d, [k]: { value: e.target.checked ? '' : (sameForSizes ? allSizeRate : normalizeUsageCell(d[k]).value || ''), na: e.target.checked } }))} />
                               N/A
                             </label>
                             <input style={{ ...inp, textAlign: 'right', width: 96, borderColor: isNew && !val && !isNA ? '#fcd34d' : '#e5e7eb', opacity: isNA ? 0.55 : 1 }}
-                              type="number" step="0.01" value={val} placeholder="0.00" disabled={isNA}
+                              type="number" step="0.01" value={val} placeholder="0.00" disabled={isNA || sameForSizes}
                               onChange={e => setData(d => ({ ...d, [k]: { value: e.target.value, na: false } }))} autoFocus={isNew} />
                           </div>
                         </td>
@@ -209,7 +232,7 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
                     )
                   })}
                 </tbody>
-              </table>
+              </table></>
             )
           })()}
           {rule === 'By Batch' && (
@@ -243,6 +266,7 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
                       <div key={batchIdx} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 12, background: '#fff' }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
                           <input style={{ ...inp, flex: 1 }} value={batch.name} onChange={e => setBatchData(prev => prev.map((b, ix) => ix === batchIdx ? { ...b, name: e.target.value } : b))} placeholder={`Batch ${batchIdx + 1}`} />
+                          {indicator(batchQty > 0 && !(Number(batch.consumption)>0) && "Enter batch consumption")}
                           <input style={{ ...inp, width: 110, textAlign: 'right' }} type="number" step="0.01" value={batch.consumption || ''} onChange={e => setBatchData(prev => prev.map((b, ix) => ix === batchIdx ? { ...b, consumption: e.target.value } : b))} placeholder="Cons./pc" />
                           <div style={{ fontSize: 11, fontWeight: 700, minWidth: 86, textAlign: 'right' }}>{finalQty ? finalQty.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'}</div>
                           {batchData.length > 1 && <button className="btn btn-ghost" onClick={() => setBatchData(prev => prev.filter((_, ix) => ix !== batchIdx))}>Remove</button>}
@@ -259,7 +283,7 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
                                       {(c.sizes || []).map(sz => {
                                         const key = `${sg.sgName}||${c.colorName}||${sz.size}`
                                         const disabled = usedElsewhere.has(key) || !(parseFloat(sz.qty) > 0)
-                                        return <button key={key} type="button" onClick={() => toggleCell(sg.sgName, c.colorName, sz.size)} disabled={disabled} style={{ fontSize: 11, padding: '4px 8px', borderRadius: 999, border: selectedHere.has(key) ? '1px solid #2563eb' : '1px solid #e5e7eb', background: selectedHere.has(key) ? '#eff6ff' : disabled ? '#f3f4f6' : '#fff', color: disabled ? '#9ca3af' : '#111827', cursor: disabled ? 'not-allowed' : 'pointer' }}>Size {sz.size} ({sz.qty || 0})</button>
+                                        return <button key={key} type="button" onClick={() => toggleCell(sg.sgName, c.colorName, sz.size)} disabled={disabled} style={{ fontSize: 11, padding: '4px 8px', borderRadius: 999, border: selectedHere.has(key) ? '1px solid #2563eb' : '1px solid #e5e7eb', background: selectedHere.has(key) ? '#eff6ff' : disabled ? '#f3f4f6' : '#fff', color: disabled ? '#9ca3af' : '#111827', cursor: disabled ? 'not-allowed' : 'pointer' }}>Size {sz.size} ({sz.qty || 0}){indicator(batchProblem(sg,c,sz))}</button>
                                       })}
                                     </div>
                                   </div>
@@ -278,7 +302,7 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
           )}
           {rule === 'Configure Own' && (
             <div>
-              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 14 }}>Set consumption per Size Group × Colour combination.</div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 14 }}>Set a default for each wash. Expand it to change consumption or mark an individual size N/A.</div>
               {!(poData.sgMatrix || []).length
                 ? <div style={{ fontSize: 12, color: '#9ca3af', padding: 16, background: '#fafaf8', borderRadius: 6, textAlign: 'center' }}>No PO Matrix data yet. Complete Step 2 first.</div>
                 : (poData.sgMatrix || []).map(sg => (
@@ -288,38 +312,40 @@ export function UsageModal({ config, onClose, onSave, poData, orderData }) {
                       <thead><tr><TH>Colour / Wash</TH><TH right>Qty</TH><TH right>Cons./pc</TH><TH right>Final Qty</TH></tr></thead>
                       <tbody>
                         {sg.colors.map(c => {
-                          const key = `${sg.sgName}||${c.colorName}`
-                          const cell = matrixData[key] || { value: '', na: false }
-                          const val = cell.value || ''
-                          const isNA = !!cell.na
-                          const fq  = fmtQty(val, c.qty, isNA)
-                          const isNew = !(normalizeUsageData(item.usage_data).__matrix || []).some(m => m.sgName === sg.sgName && m.colorName === c.colorName)
-                          return (
-                            <tr key={key}>
-                              <td style={{ padding: '5px 8px 5px 0', borderBottom: '1px solid #f0f0ee', fontSize: 12, fontWeight: 500 }}>
-                                {c.colorName}{isNew && <span style={{ fontSize: 9, background: '#fef3c7', color: '#92400e', borderRadius: 3, padding: '1px 5px', fontWeight: 700, marginLeft: 6 }}>NEW</span>}
-                              </td>
-                              <td style={{ padding: '5px 8px', borderBottom: '1px solid #f0f0ee', textAlign: 'right', fontSize: 11, color: '#6b7280' }}>{c.qty?.toLocaleString()}</td>
-                              <td style={{ padding: '5px 0 5px 8px', borderBottom: '1px solid #f0f0ee', width: 110 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
-                                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: isNA ? '#92400e' : '#6b7280', whiteSpace: 'nowrap' }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={isNA}
-                                      onChange={e => setMatrixData(d => ({ ...d, [key]: { value: e.target.checked ? '' : (d[key]?.value || ''), na: e.target.checked } }))}
-                                    />
-                                    N/A
-                                  </label>
-                                  <input style={{ ...inp, textAlign: 'right', width: 96, borderColor: isNew && !val && !isNA ? '#fcd34d' : '#e5e7eb', opacity: isNA ? 0.55 : 1 }}
-                                    type="number" step="0.01" value={val} placeholder="0.00" disabled={isNA}
-                                    onChange={e => setMatrixData(d => ({ ...d, [key]: { value: e.target.value, na: false } }))} />
-                                </div>
-                              </td>
-                              <td style={{ padding: '5px 0 5px 8px', borderBottom: '1px solid #f0f0ee', textAlign: 'right', fontSize: 11, fontWeight: 700, color: fq ? '#1a1a2e' : '#d1d5db' }}>
-                                {isNA ? 'N/A' : (fq ? parseFloat(fq).toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—')}
-                              </td>
-                            </tr>
-                          )
+                          const key = JSON.stringify([sg.sgName, c.colorName])
+                          const row = matrixData[key] || { sgName: sg.sgName, colorName: c.colorName }
+                          const update = (size, patch) => {
+                            setMatrixData(previous => {
+                              const current = previous[key] || row
+                              if (size == null) return { ...previous, [key]: { ...current, ...patch } }
+                              const overrides = (current.overrides || []).filter(entry => entry.size !== size)
+                              if (patch) overrides.push({ size, ...patch })
+                              return { ...previous, [key]: { ...current, overrides } }
+                            })
+                          }
+                          const controls = (size, label) => {
+                            const own = size == null ? row : row.overrides?.find(entry => entry.size === size)
+                            const effective = own || row
+                            return <div style={{display:'flex', alignItems:'center', justifyContent:'end', gap:8}}>
+                              <label><input type="checkbox" checked={!!effective.na} aria-label={label + ' N/A'}
+                                onChange={e => update(size, {na:e.target.checked, consumption:e.target.checked ? '' : effective.consumption ?? ''})}/> N/A</label>
+                              <input type="number" min="0" step="any" disabled={!!effective.na} style={{...inp,width:88,textAlign:'right'}}
+                                aria-label={label + ' consumption per piece'} value={effective.consumption ?? ''} placeholder="Cons./pc"
+                                onChange={e => update(size, size != null && !e.target.value ? null : {na:false, consumption:e.target.value})}/>
+                              {size != null && own && <button type="button" onClick={() => update(size,null)}>Use default</button>}
+                            </div>
+                          }
+                          const label = sg.sgName + ' / ' + c.colorName
+                          const total = configuredQuantity(row,c.qty,c.sizes) * (1+wastage/100)
+                          return <React.Fragment key={key}><tr>
+                            <td><button type="button" aria-expanded={!!expanded[key]} onClick={() => setExpanded(prev => ({...prev,[key]:!prev[key]}))}>
+                              {expanded[key] ? '▾' : '▸'} {c.colorName} · {c.sizes.length} sizes{indicator(c.sizes.some(sz => sz.qty > 0 && !configuredCell(row,sz.size)?.na && !(Number(configuredCell(row,sz.size)?.consumption)>0)) && "Expand to check sizes")}</button></td>
+                            <td align="right">{c.qty}</td><td>{controls(null,label)}</td><td align="right">{Number(total.toFixed(2))}</td>
+                          </tr>{expanded[key] && c.sizes.map(({size,qty}) => {
+                            const cell = configuredCell(row,size)
+                            return <tr key={size}><td style={{paddingLeft:18}}>{size}{indicator(qty > 0 && !cell.na && !(Number(cell.consumption)>0) && "Enter consumption or select N/A")}</td><td align="right">{qty}</td>
+                              <td>{controls(size,label + ' / ' + size)}</td><td align="right">{cell.na ? 'N/A' : fmtQty(cell.consumption,qty) ?? '—'}</td></tr>
+                          })}</React.Fragment>
                         })}
                       </tbody>
                     </table>
@@ -624,6 +650,7 @@ export default function Step3BOM({ orderId, orderData, onSaved, registerSave }) 
       return {
         order_id:        currentOrderId,
         library_item_id: item.library_item_id || null,
+        bulk_instance_id: item.bulk_instance_id || null,
         name:            item.name?.trim() || '',
         category:        item.category || '',
         detail:          item.detail || null,

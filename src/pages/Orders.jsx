@@ -1,3 +1,4 @@
+import { configuredCell, configuredMapQuantity } from '../lib/bomUsage.js'
 import { buildOrderIOS, buildTrimsProgramHTML, fetchOrderProgramData, fetchProgramData } from '../lib/orderProgramPrint'
 import {reviewRequest,purchasingLookup} from '../lib/poReview'
 import { saveDesktopPdf } from '../lib/saveDesktopPdf.mjs'
@@ -966,7 +967,7 @@ function OldQueuesTab({ onEditOrder }) {
             const matchesColor = !queueColorName || norm(colorName) === norm(queueColorName) || queue.split_rule === 'By Size Group'
             if (!matchesGroup || !matchesColor) return s
             const cellQty = pd.sgColorTotals?.[sgName]?.[colorName] || 0
-            return s + (usageNumeric(m.consumption) * cellQty * wastageFactor)
+            return s + (configuredMapQuantity(m, cellQty, pd.sgColorSizeMatrix?.[sgName]?.[colorName]) * wastageFactor)
           },0)
         }
         const groups = ud.__groups || []
@@ -1039,7 +1040,10 @@ function OldQueuesTab({ onEditOrder }) {
             const matchesColor = !queueColorName || norm(colorName) === norm(queueColorName) || queue.split_rule === 'By Size Group'
             if (!matchesGroup || !matchesColor) return []
             const cellQty = pd.sgColorTotals?.[sgName]?.[colorName] || 0
-            return cellQty > 0 ? [usageNumeric(m.consumption)] : []
+            return cellQty > 0 ? Object.entries(pd.sgColorSizeMatrix?.[sgName]?.[colorName] || {}).filter(([,qty]) => qty > 0).map(([size]) => {
+              const cell = configuredCell(m,size)
+              return cell.na ? 0 : usageNumeric(cell.consumption)
+            }) : []
           })
           return pickSingle(vals)
         }
@@ -1738,7 +1742,16 @@ const libMap = Object.fromEntries((libs || []).map(x => [x.id, x]))
     const wastageFactor = (item) => 1 + ((parseFloat(item?.wastage) || 5) / 100)
     const childBreakdownRows = (item) => {
       const rule = String(item.usage_rule || 'Generic').trim(); const ud=normalizeUsageData(item.usage_data); const base=parseFloat(item.base_qty)||parseFloat(item.consump)||0; const wf=wastageFactor(item); const rows=[]
-      if (rule === 'By Individual Sizes' || rule === 'By Individual Size') Object.entries(ud||{}).forEach(([sz, consRaw]) => { const q=parseFloat(queueSizeQty[String(sz)])||0; const cons=usageNum(consRaw); if(q>0&&cons>0) rows.push({desc:`Size ${sz}`, cons, req:q*cons*wf}) })
+      if (rule === 'Configure Own' && ud.__matrix?.some(row => row.overrides?.length)) {
+      for (const block of blocks) {
+        const row = ud.__matrix.find(entry => entry.sgName === block.groupName && entry.colorName === block.colorName)
+        for (const [size,qty] of Object.entries(block.sizeMap || {})) {
+          const cell = configuredCell(row,size)
+          const cons = cell?.na ? 0 : usageNum(cell?.consumption)
+          if (qty > 0 && cons > 0) rows.push({desc:[block.groupName,block.colorName,size].join(' / '),cons,req:qty*cons*wf})
+        }
+      }
+    } else if (rule === 'By Individual Sizes' || rule === 'By Individual Size') Object.entries(ud||{}).forEach(([sz, consRaw]) => { const q=parseFloat(queueSizeQty[String(sz)])||0; const cons=usageNum(consRaw); if(q>0&&cons>0) rows.push({desc:`Size ${sz}`, cons, req:q*cons*wf}) })
       else if (rule === 'By Size Group' || rule === 'By Color' || rule === 'By Colour') Object.entries(ud||{}).forEach(([key, consRaw]) => { const cons=usageNum(consRaw); if(cons>0) rows.push({desc:String(key), cons, req:parseFloat(item.q_qty)||0}) })
       else if (rule === 'Configure Own' && Array.isArray(ud?.__matrix)) ud.__matrix.forEach(m => { const cons=usageNum(m.consumption); if(cons>0) rows.push({desc:[m.colorName,m.sgName].filter(Boolean).join(' / ') || item.shade || item.specification || '—', cons, req:parseFloat(item.q_qty)||0}) })
       else if (rule === 'Configure Own' && Array.isArray(ud?.__groups)) ud.__groups.forEach(g => { const cons=usageNum(g.consumption); const sizes=Array.isArray(g.sizes)?g.sizes.join(', '):''; if(cons>0) rows.push({desc:sizes?`Sizes ${sizes}`:(g.name||'Custom Group'), cons, req:parseFloat(item.q_qty)||0}) })
@@ -3010,8 +3023,7 @@ function OrderMetadataModal({ order, orders = [], onClose, onEdit }) {
     if (rule === 'By Individual Sizes' || rule === 'By Individual Size') return Object.entries(ud).reduce((s,[k,v]) => s + usageNumericLocal(v) * ((allSizes.find(x => String(x.size) === String(k)) || {}).qty || 0) * wastage, 0)
     if (rule === 'Configure Own' && Array.isArray(ud.__groups)) return ud.__groups.reduce((s,g) => s + usageNumericLocal(g.consumption) * (g.sizes || []).reduce((q,sz)=>q+(totalBySize[sz]||0),0) * wastage, 0)
     if (rule === 'Configure Own' && Array.isArray(ud.__matrix)) return ud.__matrix.reduce((s,m) => {
-      const row = colorWashRows.find(r => String(r.color).toLowerCase() === String(m.colorName).toLowerCase())
-      return s + usageNumericLocal(m.consumption) * (row?.qty || 0) * wastage
+      return s + colorWashRows.filter(r => r.size_group === m.sgName && r.color === m.colorName).reduce((sum,row) => sum + configuredMapQuantity(m,row.qty,Object.fromEntries(sizeCols.map(size => [size,row[size] || 0]))),0) * wastage
     }, 0)
     return base || 0
   }

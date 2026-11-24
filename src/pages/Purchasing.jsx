@@ -1,3 +1,6 @@
+import { createPortal } from 'react-dom'
+import { buildSupplierLines, packFor, purchasedQuantities } from '../lib/supplierLines'
+import { configuredCell, configuredMapQuantity, configuredQuantity } from '../lib/bomUsage.js'
 import StoreReceipts, { PoReceivingDialog, RegisterSearch } from '../components/purchasing/StoreReceiving'
 import {reviewRequest,readPurchasingRegister,purchasingLookup} from '../lib/poReview'
 import useManagedPopup from '../components/ui/useManagedPopup'
@@ -258,9 +261,10 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
   })
   const [items, setItems] = useState(
     po?.items?.length ? hydratePOItems(po.items)
-    : prefillItems?.length ? hydratePOItems(prefillItems)
+    : prefillItems?.length ? hydratePOItems(buildSupplierLines(prefillItems,false))
     : [{ _id:'1', description:'', specification:'', breakdown:'', qty:'', unit:'yards', unit_rate:'', amount:'', source_type:null, source_id:null }]
   )
+  const [mergeLines,setMergeLines] = useState(false)
   const [saving, setSaving] = useState(false)
   const [localSuppliers, setLocalSuppliers] = useState(suppliers || [])
   useEffect(()=>{if(suppliers?.length)setLocalSuppliers(previous=>[...new Map([...previous,...suppliers].map(row=>[row.id,row])).values()])},[suppliers])
@@ -326,7 +330,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
         const lines=items.filter(i=>i.description?.trim()).map((i,sort_order)=>({
          description:i.description,specification:encodeSpec(i.specification,i.breakdown)||null,
          qty:parseFloat(i.qty)||null,unit:i.unit||null,unit_rate:parseFloat(i.unit_rate)||null,
-         amount:parseFloat(i.amount)||null,source_type:i.source_type||null,source_id:i.source_id||null,sort_order
+         amount:parseFloat(i.amount)||null,source_type:i.source_type||null,source_id:i.source_id||null,sort_order,demand_allocation:i.demand_allocation||null
         }))
         await saveOfflinePurchasingDocument('purchase_orders',{...form,status:'Draft',order_id:form.order_id || null,delivery_date:form.delivery_date || null,notes},lines,po?.id)
         markTabUpdated('purchasingPage','pos')
@@ -340,7 +344,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
       const lines=items.filter(i=>i.description?.trim()).map((i,sort_order)=>({
         description:i.description.trim(),specification:encodeSpec(i.specification,i.breakdown)||null,
         unit:i.unit||null,qty:parseFloat(i.qty)||null,unit_rate:i.unit_rate===''?null:Number(i.unit_rate),
-        source_type:i.source_type||null,source_id:i.source_id||null,sort_order
+        source_type:i.source_type||null,source_id:i.source_id||null,sort_order,demand_allocation:i.demand_allocation||null
       }))
       const expected=po?.id?{updated_at:po.updated_at,header:Object.fromEntries(Object.keys(header).map(key=>[key,po[key]??null])),
         lines:po.purchase_order_items||po.items}:null
@@ -413,6 +417,15 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
               </select></div>
             <div style={{ gridColumn:'2 / 4' }}><label style={lbl}>Notes</label><input style={mkInp(locked)} value={form.notes} onChange={set('notes')} placeholder="Any notes..." disabled={locked} /></div>
           </div>
+          {isNew && prefillItems?.length > 0 && <label>
+            <input type="checkbox" checked={mergeLines} onChange={event => {
+              const original = hydratePOItems(buildSupplierLines(prefillItems,mergeLines))
+              if (JSON.stringify(items) !== JSON.stringify(original) &&
+                  !window.confirm('Changing the merge setting resets line edits. Continue?')) return
+              setMergeLines(event.target.checked)
+              setItems(hydratePOItems(buildSupplierLines(prefillItems,event.target.checked)))
+            }}/> Merge similar PO lines
+          </label>}
           <div style={{ fontSize:12, fontWeight:700, marginBottom:8 }}>Line Items</div>
           <table style={{ width:'100%', borderCollapse:'collapse', marginBottom:10 }}>
             <thead><tr>{['Description','Specification','Break-down','Qty','Unit','Unit Rate','Amount',''].map(h=>(
@@ -424,7 +437,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
                 <td style={{ padding:'3px 4px', minWidth:130 }}><input style={{ ...mkInp(locked), height:28 }} value={item.specification||''} onChange={e=>updItem(idx,'specification',e.target.value)} placeholder="Spec" disabled={locked} /></td>
                 <td style={{ padding:'3px 4px', width:110 }}><input style={{ ...mkInp(locked), height:28 }} value={item.breakdown||''} onChange={e=>updItem(idx,'breakdown',e.target.value)} placeholder="Size 4 / Q1" disabled={locked} /></td>
                 <td style={{ padding:'3px 4px', width:80 }}><input style={{ ...mkInp(locked), height:28, textAlign:'right' }} type="number" value={item.qty} onChange={e=>updItem(idx,'qty',e.target.value)} disabled={locked} /></td>
-                <td style={{ padding:'3px 4px', width:80 }}><select style={{ ...mkSel(locked), height:28 }} value={item.unit||'yards'} onChange={e=>updItem(idx,'unit',e.target.value)} disabled={locked}>{['yards','meters','cm','inch','ft','pcs','kg','gram','cone','set','sht','ctn','roll','ltr'].map(u=><option key={u}>{u}</option>)}</select></td>
+                <td style={{ padding:'3px 4px', width:80 }}><select style={{ ...mkSel(locked), height:28 }} value={item.unit||'yards'} onChange={e=>updItem(idx,'unit',e.target.value)} disabled={locked || Number(item.demand_allocation?.packSize) > 1 || !!item.pack}>{[...new Set([item.unit,'yards','meters','cm','inch','ft','pcs','kg','gram','cone','set','sht','ctn','roll','ltr'].filter(Boolean))].map(u=><option key={u}>{u}</option>)}</select></td>
                 <td style={{ padding:'3px 4px', width:100 }}><input style={{ ...mkInp(locked), height:28, textAlign:'right' }} type="number" value={item.unit_rate} onChange={e=>updItem(idx,'unit_rate',e.target.value)} placeholder="0.00" disabled={locked} /></td>
                 <td style={{ padding:'3px 4px', width:100, textAlign:'right', fontSize:12, fontWeight:700 }}>{item.amount?fmtNum(parseFloat(item.amount),2):'—'}</td>
                 <td style={{ padding:'3px 0 3px 4px', width:30 }}>{!locked&&items.length>1&&<button className="btn btn-ghost btn-sm" onClick={()=>setItems(its=>its.filter((_,i)=>i!==idx))}><Trash2 size={10} /></button>}</td>
@@ -748,11 +761,32 @@ function MaterialDemandTab({ suppliers }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [filterCat, setFilterCat] = useState('')
-  const [filterBuyer, setFilterBuyer] = useState('')
-  const [filterJob, setFilterJob] = useState('')
-  const [filterDemand, setFilterDemand] = useState('')
-  const [sortDemand, setSortDemand] = useState('job-desc')
+  const [filterMenu,setFilterMenu] = useState(null)
+  const filterPanel = useRef(null)
+  useEffect(() => {
+    if (!filterMenu) return
+    const close = () => setFilterMenu(null)
+    const onPointer = event => {
+      if (!filterPanel.current?.contains(event.target) && !filterMenu.anchor.contains(event.target)) close()
+    }
+    const onKey = event => {
+      if (event.key === 'Escape') {
+        close()
+        filterMenu.anchor.focus()
+      }
+    }
+    document.addEventListener('pointerdown',onPointer)
+    document.addEventListener('keydown',onKey)
+    window.addEventListener('resize',close)
+    return () => {
+      document.removeEventListener('pointerdown',onPointer)
+      document.removeEventListener('keydown',onKey)
+      window.removeEventListener('resize',close)
+    }
+  },[filterMenu])
+  const [filters,setFilters] = useState({})
+  const [groupBy,setGroupBy] = useState('style')
+  const [batches,setBatches] = useState({})
   const [selected, setSelected] = useState(new Set())
   const [showPOModal, setShowPOModal] = useState(false)
   const [expanded, setExpanded] = useState({})
@@ -764,19 +798,26 @@ function MaterialDemandTab({ suppliers }) {
   async function load() {
     setLoading(true)
     try {
-      const { data:ords, error:ordersError } = await supabase.from('orders').select('id,job_id,job_number,buyer_name,style_number,total_qty,queue_split_rule,po_number,store_name,factory_ref').not('status','eq','Cancelled').order('job_number')
+      const { data:ords, error:ordersError } = await supabase.from('orders').select('id,buyer_id,job_id,job_number,buyer_name,style_number,total_qty,queue_split_rule,po_number,store_name,factory_ref').not('status','eq','Cancelled').order('job_number')
       if (ordersError) throw ordersError
       const allOrds = ords||[]
       const jobOrds = allOrds.filter(o=>o.job_id)
       setOrders(allOrds)
+      const [batchList,membership] = await Promise.all([
+        supabase.from('production_batches').select('id,name'),
+        supabase.from('production_batch_orders').select('order_id,batch_id'),
+      ])
+      if (batchList.error || membership.error) throw batchList.error || membership.error
+      const names = new Map(batchList.data.map(batch => [batch.id,batch.name]))
+      setBatches(Object.fromEntries(membership.data.map(link => [link.order_id,names.get(link.batch_id)])))
       if (!jobOrds.length) { setRows([]); setLoading(false); return }
       const idSet = new Set(jobOrds.map(o=>o.id))
       const idArr = Array.from(idSet)
       const [{ data:bom, error:bomError }, { data:emb, error:embError }, { data:wash, error:washError }, { data:poItems, error:poItemsError }, { data:sizeGroups, error:sizeGroupsError }, { data:queues, error:queuesError }] = await Promise.all([
-      supabase.from('bom_items').select('id,order_id,name,category,specification,detail,unit,supplier_id,usage_rule,usage_data,base_qty,wastage,final_qty,po_status,use_cutting_qty,sort_order').order('sort_order'),
+      supabase.from('bom_items').select('id,order_id,library_item_id,name,category,specification,detail,unit,supplier_id,usage_rule,usage_data,base_qty,wastage,final_qty,po_status,use_cutting_qty,sort_order').order('sort_order'),
       supabase.from('embellishments').select('id,order_id,description,technique,placement,dimensions,qty,unit,vendor_id,applies_to,usage_rule,usage_data'),
       supabase.from('washing').select('id,order_id,color_id,color_name,wash_type,wash_ref,qty,unit,vendor_id'),
-      purchasingLookup(supabase.from('purchase_order_items').select('qty,source_type,source_id'),{lines:true}),
+      purchasingLookup(supabase.from('purchase_order_items').select('qty,source_type,source_id,demand_allocation'),{lines:true}),
       supabase.from('size_groups').select('id,order_id,group_name,sizes,base_size').in('order_id', idArr),
       supabase.from('order_queues').select('id,order_id,q_number,label,split_rule,color_name,size_group_id,qty,status,sort_order').in('order_id', idArr).order('sort_order'),
     ])
@@ -884,7 +925,7 @@ function MaterialDemandTab({ suppliers }) {
           return ud.__matrix.reduce((s,m)=>{
             const sg = (pd.sgMatrix||[]).find(x=>x.sgName===m.sgName)
             const c  = sg?.colors.find(x=>x.colorName===m.colorName)
-            return s + usageNumeric(m.consumption) * (c?.qty||0) * (1+wastage/100)
+            return s + configuredQuantity(m,c?.qty,c?.sizes) * (1+wastage/100)
           },0)
         }
         const groups = ud.__groups||[]
@@ -1001,7 +1042,7 @@ function MaterialDemandTab({ suppliers }) {
             const matchesColor = !queueColorName || normText(colorName) === normText(queueColorName) || q.split_rule === 'By Size Group'
             if (!matchesGroup || !matchesColor) return s
             const cellQty = pd.sgColorTotals?.[sgName]?.[colorName] || 0
-            return s + (usageNumeric(m.consumption) * cellQty * wastageFactor)
+            return s + (configuredMapQuantity(m, cellQty, pd.sgColorSizeMatrix?.[sgName]?.[colorName]) * wastageFactor)
           },0)
         }
         const groups = ud.__groups || []
@@ -1035,7 +1076,7 @@ function MaterialDemandTab({ suppliers }) {
           const matchesColor = !queueColorName || normText(colorName) === normText(queueColorName) || q.split_rule === 'By Size Group'
           if (!matchesGroup || !matchesColor) return s
           const cellQty = pd.sgColorTotals?.[sgName]?.[colorName] || 0
-          return s + (usageNumeric(m.consumption) * cellQty)
+          return s + (configuredMapQuantity(m, cellQty, pd.sgColorSizeMatrix?.[sgName]?.[colorName]))
         },0)
       }
       if (rule === 'Generic' && ud.generic) return (parseFloat(ud.generic) || 0) * queueQty
@@ -1043,8 +1084,7 @@ function MaterialDemandTab({ suppliers }) {
     }
 
     poDataMapRef.current = poDataMap
-    const purchasedMap = {}
-    ;(poItems||[]).forEach(p=>{ if (p.source_id) purchasedMap[p.source_id]=(purchasedMap[p.source_id]||0)+(parseFloat(p.qty)||0) })
+    const purchasedMap = purchasedQuantities(poItems || [])
     const queuesByOrder = {}
     ;(queues || []).forEach(q => {
       if (!queuesByOrder[q.order_id]) queuesByOrder[q.order_id] = []
@@ -1065,7 +1105,7 @@ function MaterialDemandTab({ suppliers }) {
       })))
       const normalizedReqQty = queue_breakdown.length ? queue_breakdown.reduce((s, x) => s + (parseFloat(x.req_qty) || 0), 0) : req_qty
       const displayName = cat === 'Fabric' && b.specification ? `${b.name} — ${b.specification}` : b.name
-      built.push({ id:b.id, order_id:b.order_id, order:ord, source_type:'bom', source_id:b.id, cat, name:displayName, specification:b.detail || b.specification || '', req_qty:normalizedReqQty, purchased:purchasedMap[b.id]||0, unit:b.unit||'', usage_rule:b.usage_rule, usage_data:b.usage_data, wastage:b.wastage, base_qty:b.base_qty, queue_breakdown })
+      built.push({ id:b.id, order_id:b.order_id, order:ord, source_type:'bom', source_id:b.id, material:b.library_item_id || b.name, cat, name:displayName, specification:b.detail || b.specification || '', req_qty:normalizedReqQty, purchased:purchasedMap[b.id]||0, unit:b.unit||'', usage_rule:b.usage_rule, usage_data:b.usage_data, wastage:b.wastage, base_qty:b.base_qty, queue_breakdown })
     })
     ;(emb||[]).filter(e=>idSet.has(e.order_id)).forEach(e=>{
       const ord=allOrds.find(o=>o.id===e.order_id); if (!ord) return
@@ -1077,7 +1117,7 @@ function MaterialDemandTab({ suppliers }) {
         if (eRule==='By Color') { eReqQty=Object.entries(eUd).reduce((s,[n,cons])=>{ const totalColorQty = (ePd.colors||[]).filter(c=>c.name===n).reduce((ss,c)=>ss+(c.qty||0),0); return s+usageNumeric(cons)*totalColorQty },0)||eReqQty }
         else if (eRule==='By Size Group') { eReqQty=Object.entries(eUd).reduce((s,[n,cons])=>{ const g=ePd.sizeGroups.find(x=>x.name===n); return s+usageNumeric(cons)*(g?.qty||0) },0)||eReqQty }
         else if (eRule==='By Individual Sizes') { eReqQty=Object.entries(eUd).reduce((s,[sz,cons])=>{ const f=ePd.allSizes.find(x=>x.size===sz); return s+usageNumeric(cons)*(f?.qty||0) },0)||eReqQty }
-        else if (eRule==='Configure Own'&&eUd.__matrix) { eReqQty=eUd.__matrix.reduce((s,m)=>{ const sg=ePd.sgMatrix?.find(x=>x.sgName===m.sgName); const c=sg?.colors.find(x=>x.colorName===m.colorName); return s+usageNumeric(m.consumption)*(c?.qty||0) },0)||eReqQty }
+        else if (eRule==='Configure Own'&&eUd.__matrix) { eReqQty=eUd.__matrix.reduce((s,m)=>{ const sg=ePd.sgMatrix?.find(x=>x.sgName===m.sgName); const c=sg?.colors.find(x=>x.colorName===m.colorName); return s+configuredQuantity(m,c?.qty,c?.sizes) },0)||eReqQty }
         else if (eRule==='By Batch'&&eUd.__batches) { eReqQty=eUd.__batches.reduce((sum,b)=>sum+usageNumeric(b.consumption)*(b.cells||[]).reduce((sq,cell)=>{ const sg=ePd.sgMatrix?.find(x=>x.sgName===cell.sgName); const c=sg?.colors.find(x=>x.colorName===cell.colorName); if (cell.size) return sq + (parseFloat((c?.sizes || []).find(sz => normText(sz.size) === normText(cell.size))?.qty) || 0); return sq+(c?.qty||0) },0),0)||eReqQty }
         else if (eRule==='Generic'&&eUd.generic) { eReqQty=usageNumeric(eUd.generic)*(parseFloat(ord.total_qty)||0)||eReqQty }
       }
@@ -1163,7 +1203,7 @@ function MaterialDemandTab({ suppliers }) {
           const sg = pickKnownName(m.sgName, pd.sizeGroups.map(g => g.name)) || m.sgName || ''
           const color = pickKnownName(m.colorName, pd.colors.map(c => c.name)) || m.colorName || ''
           const qty = pd.sgColorTotals?.[sg]?.[color] || 0
-          const req = usageNumeric(m.consumption) * qty * factor
+          const req = configuredMapQuantity(m,qty,pd.sgColorSizeMatrix?.[sg]?.[color]) * factor
           return req > 0 ? { breakdown: [sg, color].filter(Boolean).join(' / ') || `Breakdown ${ix+1}`, req_qty: req, unit } : null
         }).filter(Boolean)
       }
@@ -1180,16 +1220,42 @@ function MaterialDemandTab({ suppliers }) {
     }
   }
 
-  const filtered = rows.filter(r=>{
-    const q=search.toLowerCase()
-    const bal=r.req_qty-r.purchased
-    const status=bal<=0?'fulfilled':r.purchased>0?'partial':'unmet'
-    return (!q||[r.name,r.specification,r.order.buyer_name,r.order.style_number,r.order.job_number,r.order.po_number].some(f=>String(f||'').toLowerCase().includes(q)))
-      && (!filterCat||r.cat===filterCat) && (!filterBuyer||r.order.buyer_name===filterBuyer)
-      && (!filterJob||r.order.job_number===filterJob) && (!filterDemand||status===filterDemand)
-  }).sort((a,b)=>sortDemand==='balance-desc'?(b.req_qty-b.purchased)-(a.req_qty-a.purchased):sortDemand==='buyer'?String(a.order.buyer_name).localeCompare(String(b.order.buyer_name)):sortDemand==='style'?String(a.order.style_number).localeCompare(String(b.order.style_number)):sortDemand==='job-asc'?String(a.order.job_number).localeCompare(String(b.order.job_number)):String(b.order.job_number).localeCompare(String(a.order.job_number)))
-  const grouped = {}
-  filtered.forEach(r=>{ if (!grouped[r.order_id]) grouped[r.order_id]={order:r.order,rows:[]}; grouped[r.order_id].rows.push(r) })
+  const fields = [
+    ['batch','Batch',row => batches[row.order_id]],
+    ['buyer','Buyer',row => row.order.buyer_name],
+    ['style','Style #',row => row.order.style_number],
+    ['po','PO #',row => row.order.po_number],
+    ['store','Store',row => row.order.store_name],
+    ['type','Trim type',row => row.name],
+    ['category','Trim category',row => row.cat],
+  ]
+  const fieldValue = (read,row) => String(read(row) || 'Unspecified')
+  const filtered = rows.filter(row => {
+    const query = search.trim().toLowerCase()
+    return (!query || [row.specification,row.order.job_number,...fields.map(([, ,read])=>read(row))]
+      .some(value=>String(value || '').toLowerCase().includes(query))) &&
+      fields.every(([key,,read])=>!filters[key]?.length || filters[key].includes(fieldValue(read,row)))
+  })
+  const readGroup = fields.find(([key])=>key===groupBy)?.[2]
+  const grouped = Object.create(null)
+  for (const row of filtered) {
+    const label = readGroup ? fieldValue(readGroup,row) : ''
+    ;(grouped[label] ||= {label,rows:[]}).rows.push(row)
+  }
+  const groupsCollapsed = !!groupBy && Object.keys(grouped).length > 0 &&
+    Object.keys(grouped).every(key => collapsedOrders[key])
+  const shortUnit = unit => ({
+    meter:'mtrs', meters:'mtrs', metre:'mtrs', metres:'mtrs', yard:'yds', yards:'yds',
+    piece:'pcs', pieces:'pcs', kilogram:'kg', kilograms:'kg', gram:'g', grams:'g',
+    inch:'in', inches:'in', carton:'ctn', cartons:'ctns', liter:'L', litre:'L', ltr:'L',
+  })[String(unit || '').toLowerCase()] || unit
+  const demandQuantity = (row,qty,roundPacks = true) => {
+    const pack = packFor(row.usage_data)
+    const equivalent = pack && qty > 0 ? qty / pack.size : 0
+    const packs = roundPacks ? Math.ceil(equivalent) : equivalent
+    return <><div>{fmtNum(qty,2)} {shortUnit(row.unit)}</div>
+      {packs > 0 && <small className="demand-quantity-pack">{fmtNum(packs,Number.isInteger(packs) ? 0 : 2)} {pack.unit}{packs === 1 || pack.unit.endsWith('s') ? '' : 's'}</small>}</>
+  }
   const catStyle = { Fabric:{color:'#2563eb',bg:'#eff6ff'}, 'S. Trim':{color:'#d97706',bg:'#fff7ed'}, 'P. Trim':{color:'#7c3aed',bg:'#f5f3ff'}, Embellishment:{color:'#be185d',bg:'#fdf2f8'}, Wash:{color:'#0891b2',bg:'#ecfeff'} }
   const selStyle = { height:32, border:'1px solid #e5e7eb', borderRadius:7, fontSize:12, padding:'0 10px', background:'#fff', cursor:'pointer', fontFamily:'Inter,sans-serif' }
   const rowKey = (rowId) => `row:${rowId}`
@@ -1264,26 +1330,49 @@ function MaterialDemandTab({ suppliers }) {
         else lines.push({ _id:r.id, description:r.name, specification:r.specification, breakdown:'', qty:r.req_qty||'', unit:r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:'' })
       }
     }
-    return lines
+    const sources = new Map(filtered.map(row=>[row.source_id,row]))
+    return lines.map(line => {
+      const row = sources.get(line.source_id)
+      return {...line,buyer:row?.order.buyer_id || row?.order.buyer_name,material:row?.material || row?.cat,
+        ref:row?.order.factory_ref || row?.order.style_number,pack:packFor(row?.usage_data)}
+    })
   }
   const balColor = (req,purch) => { const bal=req-purch; if (bal<=0) return '#16a34a'; if (purch>0) return '#d97706'; return '#374151' }
   const toggleExpanded = (id) => setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
 
   return (
     <>
-      <div className="demand-toolbar">
-        <RegisterSearch value={search} onChange={setSearch} placeholder="Search item, style, buyer..."/>
-        <select value={filterCat} onChange={e=>setFilterCat(e.target.value)} style={selStyle}>
-          <option value="">All Categories</option>
-          <option>Fabric</option><option>S. Trim</option><option>P. Trim</option><option>Embellishment</option><option>Wash</option>
-        </select>
-<select value={filterBuyer} onChange={e=>setFilterBuyer(e.target.value)} style={selStyle}><option value="">All Buyers</option>{[...new Set(rows.map(r=>r.order.buyer_name).filter(Boolean))].sort().map(x=><option key={x} value={x}>{x}</option>)}</select>
-        <select value={filterJob} onChange={e=>setFilterJob(e.target.value)} style={selStyle}><option value="">All Jobs</option>{[...new Set(rows.map(r=>r.order.job_number).filter(Boolean))].sort().map(x=><option key={x} value={x}>{x}</option>)}</select>
-        <select value={filterDemand} onChange={e=>setFilterDemand(e.target.value)} style={selStyle}><option value="">All Demand</option><option value="unmet">Unmet</option><option value="partial">Partial</option><option value="fulfilled">Fulfilled</option></select>
-        <select value={sortDemand} onChange={e=>setSortDemand(e.target.value)} style={selStyle}><option value="job-desc">Job ↓</option><option value="job-asc">Job ↑</option><option value="buyer">Buyer</option><option value="style">Style</option><option value="balance-desc">Highest Balance</option></select>
+      <div className="demand-toolbar material-demand-toolbar" onScroll={() => setFilterMenu(null)}>
+        <RegisterSearch value={search} onChange={setSearch} placeholder="Search demand…"/>
+        {fields.map(([key,label,read]) => <React.Fragment key={key}>
+          <button type="button" className="btn btn-secondary btn-sm" aria-expanded={filterMenu?.key === key}
+            aria-controls={filterMenu?.key === key ? 'material-demand-filter' : undefined}
+            onClick={event => {
+              const anchor = event.currentTarget
+              const bounds = anchor.getBoundingClientRect()
+              setFilterMenu(current => current?.key === key ? null : {key,anchor,
+                left:Math.max(8,Math.min(bounds.left,window.innerWidth-248)),top:bounds.bottom+4})
+            }}>{label}{filters[key]?.length ? ' ('+filters[key].length+')' : ''} <span aria-hidden="true">▾</span></button>
+          {filterMenu?.key === key && createPortal(
+            <div ref={filterPanel} id="material-demand-filter" className="demand-filter-panel" role="group" aria-label={label}
+              style={{left:filterMenu.left,top:filterMenu.top,maxHeight:Math.max(70,Math.min(280,window.innerHeight-filterMenu.top-8))}}>
+              {[...new Set(rows.map(row=>fieldValue(read,row)))].sort().map(option =>
+                <label key={option}><input type="checkbox" checked={filters[key]?.includes(option) || false}
+                  onChange={event => {
+                    const checked = event.target.checked
+                    setFilters(old=>({...old,[key]:checked ? [...(old[key] || []),option] : old[key].filter(value=>value!==option)}))
+                  }}/> {option}</label>)}
+            </div>,document.body)}
+        </React.Fragment>)}
+        <label>Group by <select style={selStyle} value={groupBy} onChange={event=>{
+          setGroupBy(event.target.value)
+          setCollapsedOrders({})
+        }}><option value="">No grouping</option>{fields.map(([key,label])=><option value={key} key={key}>{label}</option>)}</select></label>
         <div className="demand-toolbar-actions">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setCollapsedOrders(Object.fromEntries(Object.keys(grouped).map(id=>[id,true])))}>Collapse All</button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setCollapsedOrders({})}>Expand All</button>
+          <button type="button" className="btn btn-secondary btn-sm" disabled={!groupBy || !filtered.length}
+            onClick={() => setCollapsedOrders(groupsCollapsed ? {} : Object.fromEntries(Object.keys(grouped).map(key=>[key,true])))}>
+            {groupsCollapsed ? 'Expand All' : 'Collapse All'}
+          </button>
           <button className="btn btn-primary btn-sm" style={{height:32}} onClick={()=>setShowPOModal(true)} disabled={!access.canCreatePO(userRole)}>{selectionCount ? `+ Generate PO (${selectionCount})` : '+ New custom PO'}</button>
         </div>
       </div>
@@ -1301,23 +1390,23 @@ function MaterialDemandTab({ suppliers }) {
             <thead><tr style={{ background:'#fafafa', position:'sticky', top:0, zIndex:10 }}>
               <th style={{ width:40, padding:'9px 0 9px 18px', borderBottom:'1px solid #f3f4f6' }}><input type="checkbox" checked={selectionCount===getAllSelectableKeys().length&&getAllSelectableKeys().length>0} onChange={()=>{ const keys=getAllSelectableKeys(); setSelected(selectionCount===keys.length?new Set():new Set(keys)) }}/></th>
               <th style={{ width:34, padding:'9px 6px', borderBottom:'1px solid #f3f4f6' }}></th>
-              <TH>Cat</TH><TH>Item / Spec</TH><TH right>Required</TH><TH right>Purchased</TH><TH right>Balance</TH>
+              <TH>Item / Category</TH><TH>Detail / Spec</TH><TH>Style # / Fty Ref</TH><TH>PO # / Store</TH><TH>Washes / Size Groups</TH><TH right>Required</TH><TH right>Purchased</TH><TH right>Balance</TH>
             </tr></thead>
             <tbody>
               {Object.values(grouped).map(grp=>(
-                <React.Fragment key={grp.order.id}>
-                  <tr><td colSpan={7} style={{ padding:'7px 18px', background:'var(--app-group-row-bg, #f9fafb)', color:'var(--app-group-row-text, #111827)', borderBottom:'1px solid #f0f0ee', borderTop:'1px solid #f0f0ee' }}>
-                    <button type="button" aria-expanded={!collapsedOrders[grp.order.id]} onClick={()=>setCollapsedOrders(prev=>({...prev,[grp.order.id]:!prev[grp.order.id]}))} style={{border:0,background:'transparent',cursor:'pointer',fontSize:12,fontWeight:700,color:'inherit',padding:0,textAlign:'left'}}>
-                      <span style={{marginRight:8}}>{collapsedOrders[grp.order.id]?'▸':'▾'}</span>
-                      <span style={{fontFamily:'monospace'}}>{grp.order.job_number||'—'}</span>
-                      {' | '}{grp.order.buyer_name||'—'}{' | '}{grp.order.style_number||'—'}{' | '}{grp.order.factory_ref||'—'}{' | '}{grp.order.store_name||'—'}{' | '}{Number(grp.order.total_qty||0).toLocaleString()} pcs
-                      <span style={{fontWeight:400,color:'#64748b',marginLeft:10}}>PO #{grp.order.po_number||'—'} · {grp.rows.length} lines</span>
+                <React.Fragment key={grp.label}>
+                  {groupBy && <tr><td colSpan={10} style={{ padding:'7px 18px', background:'var(--app-group-row-bg, #f9fafb)', color:'var(--app-group-row-text, #111827)', borderBottom:'1px solid #f0f0ee', borderTop:'1px solid #f0f0ee' }}>
+                    <button type="button" aria-expanded={!collapsedOrders[grp.label]} onClick={()=>setCollapsedOrders(prev=>({...prev,[grp.label]:!prev[grp.label]}))} style={{border:0,background:'transparent',cursor:'pointer',fontSize:12,fontWeight:700,color:'inherit',padding:0,textAlign:'left'}}>
+                      <span style={{marginRight:8}}>{collapsedOrders[grp.label]?'▸':'▾'}</span>
+                      {grp.label} · {grp.rows.length} lines
                     </button>
-                    {grp.order.queue_split_rule && <span style={{ fontSize:10, color:'#7c3aed', background:'#f5f3ff', padding:'2px 7px', borderRadius:4, fontWeight:700, marginLeft:8 }}>{grp.order.queue_split_rule}</span>}
-                  </td></tr>
-                  {!collapsedOrders[grp.order.id] && grp.rows.map(r=>{
+                  </td></tr>}
+                  {(!groupBy || !collapsedOrders[grp.label]) && grp.rows.map(r=>{
                     const cs=catStyle[r.cat]||{}
                     const bal=r.req_qty-r.purchased
+                    const matrix = poDataMapRef.current[r.order_id]
+                    const washCount = new Set(matrix?.colors.map(color => normText(color.name)).filter(Boolean)).size
+                    const sizeGroupCount = new Set(matrix?.sizeGroups.map(group => normText(group.name)).filter(Boolean)).size
                     const hasQueues = (r.queue_breakdown || []).length > 0
                     const isOpen = !!expanded[r.id]
                     return (
@@ -1333,11 +1422,16 @@ function MaterialDemandTab({ suppliers }) {
                               </button>
                             ) : null}
                           </td>
-                          <TD><span style={{ background:cs.bg, color:cs.color, fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:4 }}>{r.cat}</span></TD>
-                          <TD><div style={{ fontSize:12, fontWeight:600 }}>{r.name}</div>{r.specification&&<div style={{ fontSize:11, color:'#9ca3af' }}>{r.specification}</div>}</TD>
-                          <TD style={{ textAlign:'right', fontFamily:'monospace', fontWeight:600 }}>{r.req_qty?`${fmtNum(r.req_qty,2)} ${r.unit}`:'—'}</TD>
-                          <TD style={{ textAlign:'right', fontFamily:'monospace', color:r.purchased>0?'#16a34a':'#9ca3af', fontWeight:r.purchased>0?600:400 }}>{r.purchased>0?`${fmtNum(r.purchased,2)} ${r.unit}`:'—'}</TD>
-                          <TD style={{ textAlign:'right', fontFamily:'monospace', color:balColor(r.req_qty,r.purchased), fontWeight:700 }}>{r.req_qty?`${fmtNum(bal,2)} ${r.unit}`:'—'}</TD>
+                          <TD><div style={{fontWeight:600,marginBottom:4}}>{r.name}</div>
+                            <span style={{background:cs.bg,color:cs.color,fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:4}}>{r.cat}</span></TD>
+                          <TD>{r.specification || '—'}</TD>
+                          <TD><div>{r.order.style_number || '—'}</div>{r.order.factory_ref && <small>{r.order.factory_ref}</small>}</TD>
+                          <TD><div>{r.order.po_number || '—'}</div>{r.order.store_name && <small>{r.order.store_name}</small>}</TD>
+                          <TD><div>{String(washCount).padStart(2,'0')} {washCount === 1 ? 'Wash' : 'Washes'}</div>
+                            <small>{String(sizeGroupCount).padStart(2,'0')} {sizeGroupCount === 1 ? 'Size Group' : 'Size Groups'}</small></TD>
+                          <TD style={{ textAlign:'right', fontFamily:'monospace', fontWeight:600 }}>{r.req_qty?demandQuantity(r,r.req_qty):'—'}</TD>
+                          <TD style={{ textAlign:'right', fontFamily:'monospace', color:r.purchased>0?'#16a34a':'#9ca3af', fontWeight:r.purchased>0?600:400 }}>{r.purchased>0?demandQuantity(r,r.purchased,false):'—'}</TD>
+                          <TD style={{ textAlign:'right', fontFamily:'monospace', color:balColor(r.req_qty,r.purchased), fontWeight:700 }}>{r.req_qty?demandQuantity(r,bal):'—'}</TD>
                         </tr>
                         {isOpen && (r.queue_breakdown || []).map(q => {
                           const qSelected = selected.has(qKey(r.id, queueRef(q)))
@@ -1347,14 +1441,14 @@ function MaterialDemandTab({ suppliers }) {
                               <input type="checkbox" checked={qSelected} onClick={e=>e.stopPropagation()} onChange={()=>toggleQueueSelection(r, q)} />
                             </td>
                             <td style={{ borderBottom:'1px solid #f3f4f6' }}></td>
-                            <td colSpan={2} style={{ padding:'8px 12px 8px 24px', borderBottom:'1px solid #f3f4f6' }}>
+                            <td colSpan={5} style={{ padding:'8px 12px 8px 24px', borderBottom:'1px solid #f3f4f6' }}>
                               <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                                 <span style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:11, color:'#0d0d0d', background:'#f3f4f6', padding:'2px 7px', borderRadius:5 }}>{q.q_number || 'Queued'}</span>
                                 <span style={{ fontSize:11, fontWeight:600, color:'#374151' }}>{q.label || 'Queue'}</span>
                                 <span style={{ fontSize:10, color:'#9ca3af' }}>{q.split_rule}</span>
                               </div>
                             </td>
-                            <td style={{ textAlign:'right', fontFamily:'monospace', fontSize:11, fontWeight:700, padding:'8px 12px', borderBottom:'1px solid #f3f4f6' }}>{fmtNum(q.req_qty,2)} {q.unit}</td>
+                            <td style={{ textAlign:'right', fontFamily:'monospace', fontSize:11, fontWeight:700, padding:'8px 12px', borderBottom:'1px solid #f3f4f6' }}>{demandQuantity({...r,unit:q.unit || r.unit},q.req_qty)}</td>
                             <td style={{ padding:'8px 12px', borderBottom:'1px solid #f3f4f6', color:'#cbd5e1', textAlign:'right' }}>—</td>
                             <td style={{ padding:'8px 12px', borderBottom:'1px solid #f3f4f6', color:'#cbd5e1', textAlign:'right' }}>—</td>
                           </tr>

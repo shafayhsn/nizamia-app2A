@@ -16,6 +16,21 @@ export function normalizeUsageCell(cell) {
   return { value: cell ?? '', na: false }
 }
 
+export function configuredCell(row, size) {
+  return row?.overrides?.find(entry => entry.size === size) ?? row
+}
+
+export function configuredQuantity(row, qty, sizes = []) {
+  const rate = cell => cell?.na ? 0 : Number(cell?.consumption) || 0
+  const base = rate(row)
+  return sizes.reduce((sum, cell) =>
+    sum + (rate(configuredCell(row, cell.size)) - base) * cell.qty, base * (qty || 0))
+}
+
+export function configuredMapQuantity(row, qty, sizeMap) {
+  return configuredQuantity(row, qty, Object.entries(sizeMap || {}).map(([size, qty]) => ({ size, qty })))
+}
+
 export function calculateBOMFinalQty(item, { totalQty, poData, excessCutPct, cuttingQtyMult, round = true }) {
   const wastage = parseFloat(item.wastage) || 0
   const rule = item.usage_rule || 'Generic'
@@ -63,7 +78,7 @@ export function calculateBOMFinalQty(item, { totalQty, poData, excessCutPct, cut
       const total = ud.__matrix.reduce((s, m) => {
         const sg = (poData.sgMatrix || []).find(x => x.sgName === m.sgName)
         const c  = sg?.colors.find(x => x.colorName === m.colorName)
-        return s + (parseFloat(m.consumption) || 0) * (c?.qty || 0) * multiplier * (1 + wastage / 100)
+        return s + configuredQuantity(m, c?.qty, c?.sizes) * multiplier * (1 + wastage / 100)
       }, 0)
       return total > 0 ? finalQuantity(total) : null
     }
@@ -141,4 +156,55 @@ export function buildBOMMatrix(groups, colors, breakdown) {
     allSizes: [...new Set(groups.flatMap(group => group.sizes || []))].map(size => ({ size, qty: sizeTotals.get(size) || 0 })),
     sgMatrix: [...mergedMatrix.values()],
   }
+}
+
+export function variantProblem(rule, data, group, wash, size) {
+  if (rule === 'By Batch') {
+    const matches = (data.__batches || []).flatMap(batch => (batch.cells || [])
+      .filter(c => c.sgName === group && c.colorName === wash && (!c.size || c.size === size))
+      .map(() => batch))
+    if (matches.length !== 1) return matches.length ? 'Assigned more than once' : 'Choose a batch'
+    return Number(matches[0].consumption) > 0 ? '' : 'Enter batch consumption'
+  }
+  if (rule === 'Configure Own') {
+    const row = data.__matrix?.find(r => r.sgName === group && r.colorName === wash)
+    const cell = configuredCell(row,size)
+    return cell?.na || Number(cell?.consumption) > 0 ? '' : 'Enter consumption or select N/A'
+  }
+  const key = rule === 'By Color' ? wash : rule === 'By Size Group' ? group : rule === 'Generic' ? 'generic' : size
+  const cell = normalizeUsageCell(data[key])
+  return cell.na || Number(cell.value) > 0 ? '' : 'Enter consumption or select N/A'
+}
+
+export function bulkLocalTotal(item, settings, lib, orders) {
+  const rule = settings.usage || item.usage
+  const shared = !settings.usage && item.shared && rule !== 'By Batch'
+  const rate = settings.sharedRate ?? item.rate
+  const data = settings.usageData ?? (rule === 'Generic' ? {generic:settings.rate} : settings.rates || {})
+  if (!lib || !orders?.length) return {issue:'Missing order or material'}
+  let qty = 0
+  for (const order of orders) {
+    const matches = order.lines.filter(b => (b.bulk_instance_id ?? null) === (item.lineId ?? null) && (!settings.targets?.[order.id] || settings.targets[order.id] === b.id) && (b.library_item_id === item.id || (!b.library_item_id && b.category === lib.category &&
+      String(b.name).trim().toLowerCase() === String(lib.name).trim().toLowerCase())))
+    if (matches.length > 1 || matches[0]?.use_cutting_qty) return {issue:'Review existing BOM line'}
+    const wastage = settings.wastage !== '' && settings.wastage != null ? Number(settings.wastage) :
+      Number(matches[0]?.wastage ?? (Number(lib.default_wastage) || 5))
+    if (wastage < 0) return {issue:'Check wastage'}
+    if (lib.category === 'Packing Trim' && (!lib.unit || (['ctn','carton','cartons'].includes(lib.unit.toLowerCase()) && !order.hasPacks))) return {issue:'Check packing setup'}
+    const variants = order.variants
+    const pieces = rule === 'Generic' ? Number(order.total_qty) : variants.reduce((sum,v) => sum+v.qty,0)
+    if (!pieces && !(rule === 'Generic' && !shared && normalizeUsageCell(data.generic).na)) return {issue:'Missing PO quantity'}
+    let quantity
+    if (shared) {
+      if (!(Number(rate)>0)) return {issue:'Enter shared consumption'}
+      quantity = calculateBOMFinalQty({usage_rule:'Generic',base_qty:rate,wastage},{totalQty:pieces,poData:order.matrix})
+    } else {
+      const problem = rule === 'Generic' ? variantProblem(rule,data) :
+        variants.map(v => variantProblem(rule,data,v.group,v.wash,v.size)).find(Boolean)
+      if (problem) return {issue:problem}
+      quantity = calculateBOMFinalQty({usage_rule:rule,usage_data:data,wastage},{totalQty:pieces,poData:order.matrix})
+    }
+    qty += Number(quantity || 0)
+  }
+  return {qty}
 }

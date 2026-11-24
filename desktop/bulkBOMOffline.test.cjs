@@ -32,9 +32,10 @@ test('desktop queues only reviewed BOM edits and retains unrelated lines across 
 
     const after = { library_item_id: libraryId, name: 'New trim', category: 'Stitching Trim',
       unit: 'pcs', usage_rule: 'Generic', base_qty: 1, final_qty: 105, wastage: 5 }
+    const repeated = {...after,bulk_instance_id:randomUUID(),detail:'Distinct trim'}
     const expected = { step_bom: false, total_qty: 100, groups: [], colors: [], breakdown: [], lines: [original, existing] }
     const input = { action: 'queue', buyerId, orders: [{ orderId, expected, lines: [
-      { existingId: existing.id, after }, { existingId: null, after },
+      { existingId: existing.id, after }, { existingId: null, after:repeated },
     ] }] }
     await assert.rejects(call({ ...input, orders: [{ ...input.orders[0], expected: { ...expected, total_qty: 99 } }] }), /changed since review/)
     assert.deepEqual(await call(input), { queued: 1 })
@@ -49,6 +50,7 @@ test('desktop queues only reviewed BOM edits and retains unrelated lines across 
       const [operation] = operations
       const { inserts, updates } = operation.intent.document.bulkBomPatch
       assert.equal(inserts.length, 1)
+      assert.equal(inserts[0].bulk_instance_id,repeated.bulk_instance_id)
       assert.deepEqual(updates.map(row => row.id), [existing.id])
       return [{ operationId: operation.operationId, outcome: 'conflict' }]
     } })

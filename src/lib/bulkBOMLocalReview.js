@@ -1,4 +1,4 @@
-import { buildBOMMatrix, calculateBOMFinalQty, normalizeUsageCell, normalizeUsageData, USAGE_RULES } from './bomUsage.js'
+import { configuredCell, buildBOMMatrix, calculateBOMFinalQty, normalizeUsageCell, normalizeUsageData, USAGE_RULES } from './bomUsage.js'
 
 const simpleRules = {
   'By Color': ['colors', 'name'],
@@ -41,11 +41,13 @@ function matrixUsage(rule, data, poData, sharedRate) {
       ? mappings.map(({ sgName, colorName }) => ({ sgName, colorName, consumption: sharedRate, na: false }))
       : data.__matrix || []
     if (sharedRate !== null) data = { ...data, __matrix: entries }
-    required = mappings.filter(row => row.qty > 0).map(({ sgName, colorName }) => ({
-      label: [sgName, colorName].filter(Boolean).join(' / '), valid: !!sgName && !!colorName,
-      cells: entries.filter(entry => entry.sgName === sgName && entry.colorName === colorName)
-        .map(entry => ({ value: entry.consumption, na: entry.na })),
-    }))
+    required = mappings.flatMap(({sgName,colorName,sizes}) => sizes.filter(size=>size.qty>0).map(({size}) => ({
+      label:[sgName,colorName,size].join(' / '), valid:!!sgName && !!colorName && !!size,
+      cells:entries.filter(entry => entry.sgName===sgName && entry.colorName===colorName).map(entry => {
+        const cell = configuredCell(entry,size)
+        return {value:cell.consumption,na:cell.na}
+      }),
+    })))
   } else {
     required = mappings.flatMap(({ sgName, colorName, sizes }) => sizes.filter(size => size.qty > 0).map(({ size }) => ({
       label: [sgName, colorName, size].filter(Boolean).join(' / '), valid: !!sgName && !!colorName && !!size,
@@ -68,7 +70,7 @@ function matrixUsage(rule, data, poData, sharedRate) {
 }
 
 function reviewLine(order, material, libraryItem, poData, existing, hasPacking) {
-  const rule = material.usage
+  const rule = material.settings?.[order.style_number]?.usage || material.usage
   if (!libraryItem || !['Fabric', 'Stitching Trim', 'Packing Trim'].includes(libraryItem.category)) {
     throw Error('A material is unavailable in the local Library. Sync or remove it before reviewing.')
   }
@@ -80,7 +82,7 @@ function reviewLine(order, material, libraryItem, poData, existing, hasPacking) 
     ? [lib.composition, lib.weight, lib.width_inches != null && lib.width_inches !== '' ? lib.width_inches + '"' : ''].filter(Boolean).join(', ')
     : lib.description || ''
   const requestedWastage = numberOrNull(setup.wastage)
-  const sharedRate = rule !== 'By Batch' && material.shared ? numberOrNull(material.rate) ?? 0 : null
+  const sharedRate = !setup.usage && rule !== 'By Batch' && material.shared ? numberOrNull(setup.sharedRate ?? material.rate) ?? 0 : null
   let data = {
     ...(lib.packing_form ? { _packing_unit: lib.packing_form } : {}),
     ...normalizeUsageData(setup.usageData ?? (rule === 'By Size Group' ? setup.rates : null)),
@@ -105,13 +107,15 @@ function reviewLine(order, material, libraryItem, poData, existing, hasPacking) 
   }
 
   const nameKey = value => String(value ?? '').trim().toLowerCase()
-  const matches = existing.filter(line => line.library_item_id === lib.id ||
-    (!line.library_item_id && line.category === lib.category && nameKey(line.name) === nameKey(lib.name)))
+  const matches = existing.filter(line => (line.bulk_instance_id ?? null) === (material.lineId ?? null) &&
+    (!setup.targets?.[order.id] || setup.targets[order.id]===line.id) && (line.library_item_id === lib.id ||
+    (!line.library_item_id && line.category === lib.category && nameKey(line.name) === nameKey(lib.name))))
+  if (!matches.length && setup.targets?.[order.id]) issue = 'Selected BOM line changed. Select it again'
   if (matches.length > 1) issue = 'Multiple existing matches. Resolve them in the Order Wizard'
   const before = matches.length === 1 ? matches[0] : null
   if (before?.use_cutting_qty) issue = 'Existing line uses cutting quantity. Review it in the Order Wizard'
   const candidate = {
-    library_item_id: lib.id, name: lib.name, category: lib.category,
+    bulk_instance_id: material.lineId || null, library_item_id: lib.id, name: lib.name, category: lib.category,
     detail: (setup.spec ?? defaultDetail) || null, specification, unit: lib.unit ?? null,
     usage_rule: rule, usage_data: Object.keys(data).length ? JSON.stringify(data) : null,
     base_qty: rate, wastage: requestedWastage ?? numberOrNull(before?.wastage) ?? (numberOrNull(lib.default_wastage) || 5),
@@ -134,7 +138,7 @@ function reviewLine(order, material, libraryItem, poData, existing, hasPacking) 
 export function reviewLocalBulkBOM({ buyerId, draft, styles, orders, library, groups, colors, breakdown, lines, finishingPacks }) {
   if (!styles.length || styles.some(style => !draft.styles.includes(style))) throw Error('Select styles from the saved Bulk BOM')
   const materials = draft.materials
-  if (!materials.length || new Set(materials.map(material => material.id)).size !== materials.length) {
+  if (!materials.length || new Set(materials.map(material => material.lineId || material.id)).size !== materials.length) {
     throw Error('Select at least one material and list each material once')
   }
   const selected = orders.filter(order => order.buyer_id === buyerId && styles.includes(order.style_number))
@@ -150,6 +154,13 @@ export function reviewLocalBulkBOM({ buyerId, draft, styles, orders, library, gr
     const poData = buildBOMMatrix(orderGroups, orderColors, orderBreakdown)
     const existing = lines.filter(line => line.order_id === order.id)
     const hasPacking = finishingPacks.some(pack => pack.order_id === order.id)
-    return materials.map(material => reviewLine(order, material, libraryById.get(material.id), poData, existing, hasPacking))
+    const proposed = materials.filter(material => (!material.onlyStyle || material.onlyStyle===order.style_number) &&
+      !material.settings?.[order.style_number]?.excluded)
+      .map(material => reviewLine(order,material,libraryById.get(material.id),poData,existing,hasPacking))
+    const matched = new Set(proposed.map(row=>row.before?.id))
+    return proposed.concat(existing.filter(line=>!matched.has(line.id)).map(line=>({
+      style:order.style_number,order_id:order.id,po:order.po_number,store:order.store_name,
+      action:draft.replaceStyles?.includes(order.style_number) ? 'Remove' : 'Keep', before:line,after:null,issue:null,
+    })))
   })
 }

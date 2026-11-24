@@ -1212,6 +1212,11 @@ async function bulkBomLocal(directory,{input,ownerId,isCurrent}){
     result={id:id||crypto.randomUUID(),buyer_id:buyerId,name:name.trim(),draft,revision:crypto.randomUUID()}
     db.run('INSERT INTO desktop_bulk_bom_drafts VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET draft_json=excluded.draft_json',
      [result.id,ownerId,JSON.stringify(result)])
+   }else if(input.action==='delete'){
+    const previous=load(input.id)
+    if(!previous||JSON.parse(previous).revision!==input.expectedRevision)throw Error('This draft changed. Reopen the list.')
+    db.run('DELETE FROM desktop_bulk_bom_drafts WHERE id=? AND owner_id=?',[input.id,ownerId])
+    result={deleted:true}
    }else if(input.action==='queue'){
     if(!Array.isArray(input.orders)||!input.orders.length)throw Error('Select reviewed orders.')
     const {isDeepStrictEqual}=require('node:util')
@@ -1258,9 +1263,16 @@ async function bulkBomLocal(directory,{input,ownerId,isCurrent}){
      const ids=new Set()
      const inserts=[]
      const updates=new Map()
+     const removals=new Set()
      let sort=original.reduce((max,row)=>Math.max(max,Number(row.sort_order??-1)),-1)
-     const allowed=['library_item_id','name','category','detail','specification','unit','usage_rule','usage_data','base_qty','final_qty','wastage']
-     for(const {existingId,after} of lines){
+     const allowed=['bulk_instance_id','library_item_id','name','category','detail','specification','unit','usage_rule','usage_data','base_qty','final_qty','wastage']
+     for(const {existingId,after,remove} of lines){
+      if(remove){
+       if(!original.some(row=>row.id===existingId)||ids.has(existingId))throw Error('Review the existing BOM line again.')
+       ids.add(existingId)
+       removals.add(existingId)
+       continue
+      }
       if(!after||!cloudId.test(after.library_item_id||'')||!after.name)throw Error('Invalid BOM line.')
       const candidate=Object.fromEntries(allowed.map(key=>[key,after[key]??null]))
       if(existingId){
@@ -1271,15 +1283,16 @@ async function bulkBomLocal(directory,{input,ownerId,isCurrent}){
        updates.set(existingId,{...old,detail,specification,unit,usage_rule,usage_data,base_qty,final_qty,wastage})
       }else inserts.push({...candidate,id:crypto.randomUUID(),order_id:orderId,sort_order:++sort,use_cutting_qty:false})
      }
-     const next=original.map(row=>updates.get(row.id)||row).concat(inserts)
+     const next=original.filter(row=>!removals.has(row.id)).map(row=>updates.get(row.id)||row).concat(inserts)
      const localLines=next.map(row=>({table:'bom_items',id:row.id,parentField:'order_id'}))
      const intent=updateMutationIntent('orders',orderId,{step_bom:true},current,stamp,null,{
       childTable:'bom_items',lines:next,lineIds:next.map(row=>row.id),localLines,independentOrderSection:true,
-      bulkBomPatch:{updates:[...updates.values()],inserts},
+      bulkBomPatch:{updates:[...updates.values()],inserts,...(removals.size ? {removals:[...removals]} : {})},
      })
      if(Buffer.byteLength(JSON.stringify(intent))>116000||!stageMutation(db,ownerId,intent))
       throw Error('The reviewed order could not be queued. Review it again or sync earlier changes.')
      db.run('INSERT INTO offline_order_section_overlays VALUES (?,?,?,?)',[orderId,'bom_items','{"step_bom":true}',stamp])
+     for(const id of removals)db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',['bom_items',id,null,stamp])
      for(const [id,row] of updates)db.run('INSERT INTO snapshot_edits VALUES (?,?,?,?)',['bom_items',id,JSON.stringify(row),stamp])
      for(const row of inserts){
       const {id,...fields}=row

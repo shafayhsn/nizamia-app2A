@@ -86,3 +86,26 @@
 .demand-toolbar-actions .btn { height: 32px; }
 .operations-selection-note { display: flex; align-items: center; gap: 6px; color: #6b7280; font-size: 10px; line-height: 1.2; }
 .operations-selection-note input { flex: 0 0 auto; }
+
+
+.material-demand-toolbar { flex-wrap: nowrap; gap: 6px; overflow-x: auto; }
+.material-demand-toolbar .operations-search { min-width: 115px; max-width: 150px; flex: 0 1 150px; }
+.material-demand-toolbar > label { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+.material-demand-toolbar .btn { flex-shrink: 0; white-space: nowrap; }
+.demand-filter-panel { position: fixed; z-index: 1100; width: 240px; overflow: auto; background: #fff; color: #111827; border: 1px solid #d1d5db; border-radius: 7px; box-shadow: 0 8px 20px #11182724; padding: 4px; }
+.demand-filter-panel label { display: flex; align-items: baseline; gap: 7px; padding: 6px 9px; cursor: pointer; }
+
+.material-demand-toolbar .operations-search,
+.material-demand-toolbar .btn,
+.material-demand-toolbar select {
+  box-sizing: border-box;
+  height: 32px;
+  min-height: 32px;
+  margin-block: 0;
+}
+.demand-quantity-pack {
+  display: block;
+  margin-top: 3px;
+  font: 11px var(--font-sans, system-ui);
+  color: #475569;
+}
