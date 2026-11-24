@@ -54,6 +54,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
   const [search, setSearch] = useState('')
   const [materialId, setMaterialId] = useState('')
   const [packageId, setPackageId] = useState('')
+  const [expandedReview,setExpandedReview] = useState([])
   const [review, setReview] = useState([])
   const [checked, setChecked] = useState([])
   const [replacements, setReplacements] = useState([])
@@ -174,6 +175,7 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
   }
 
   async function beginReview() {
+    setExpandedReview([])
     const record = await save()
     setReview(await read(supabase.rpc('bulk_bom_review_web', { draft_id: record.id, selected_styles: draft.styles })))
     setChecked([])
@@ -486,18 +488,56 @@ export default function BulkBOM({ buyers, packages, libraryItems }) {
             <button className="btn btn-secondary" disabled={busy} onClick={() => run(beginReview)}>Refresh review</button>
             <button className="btn btn-secondary" onClick={printReview}><Printer size={14}/> Print Review</button>
           </div>
-          {draft.styles.map(style => <section key={style} className="bulk-bom-group bulk-bom-review-group">
-            <label className="bulk-bom-inline"><input type="checkbox" checked={checked.includes(style)} disabled={!ready.includes(style) || busy}
-              onChange={() => setChecked(toggle(checked,style))}/> {style}{!ready.includes(style) && ' · Needs attention'}</label>
-            {replaceStyles.includes(style) && <p>Replace entire BOM · {review.filter(row => row.style === style && row.action === 'Remove').length} existing lines to remove</p>}
-            <details><summary>Review POs and stores</summary><div className="table-wrap"><table><thead><tr>
-              {headings.map(label => <th key={label}>{label}</th>)}<th>Overwrite</th></tr></thead><tbody>
-              {review.filter(row => row.style === style).map(row => <tr key={row.order_id + '|' + (row.before?.id || row.after.bulk_instance_id || row.after.library_item_id)}>
-                {cells(row).map((cell,index) => <td key={index}>{cell}</td>)}
-                <td>{row.action === 'Replace' && <label><input type="checkbox" disabled={replaceStyles.includes(style)} checked={replaceStyles.includes(style) || replacements.includes(row.before.id)}
-                  onChange={() => setReplacements(toggle(replacements,row.before.id))}/> Replace</label>}</td>
-              </tr>)}</tbody></table></div></details>
-          </section>)}
+          <div className="table-wrap"><table className="bulk-review-summary">
+            <thead><tr>{['Apply','Style','POs','Changes','Status'].map(label => <th scope="col" key={label}>{label}</th>)}</tr></thead>
+            <tbody>{draft.styles.map((style,index) => {
+              const rows = review.filter(row => row.style === style)
+              const count = action => rows.filter(row => row.action === action).length
+              const overwrite = rows.filter(row => row.action === 'Replace' &&
+                (replaceStyles.includes(style) || replacements.includes(row.before.id))).length
+              const pending = count('Replace') - overwrite
+              const removed = count('Remove')
+              const kept = count('Keep') + count('Unchanged')
+              const expanded = expandedReview.includes(style)
+              const isReady = ready.includes(style)
+              return <React.Fragment key={style}>
+                <tr className="bulk-review-style" data-tone={index % 3}>
+                  <td><input type="checkbox" aria-label={'Apply to '+style} checked={checked.includes(style)}
+                    disabled={!isReady || busy} onChange={() => setChecked(toggle(checked,style))}/></td>
+                  <th scope="row"><button type="button" className="btn btn-ghost" aria-expanded={expanded}
+                    onClick={() => setExpandedReview(toggle(expandedReview,style))}>{expanded ? '▾' : '▸'} {style}</button></th>
+                  <td>{new Set(rows.map(row => row.order_id)).size}</td>
+                  <td>{[count('Add') && count('Add')+' to add', kept && kept+' kept',
+                    pending && pending+' possible overwrites', overwrite && overwrite+' to overwrite',
+                    removed && removed+' to remove'].filter(Boolean).join(' · ') || '—'}</td>
+                  <td>{!isReady ? 'Needs attention' : removed ? 'Review removals' : count('Replace') ? 'Review overwrites' :
+                    count('Add') ? 'Ready' : 'No changes'}</td>
+                </tr>
+                {expanded && <tr><td colSpan={5}>
+                  {replaceStyles.includes(style) && <p className="bulk-bom-error">Replace entire BOM is selected for {style}.</p>}
+                  {rows.every(row => ['Keep','Unchanged'].includes(row.action)) ? <p>No proposed changes.</p> :
+                    <div className="table-wrap"><table><thead><tr>
+                      {['PO / Store','Material','Spec','Required Qty','Action'].map(label => <th scope="col" key={label}>{label}</th>)}
+                    </tr></thead><tbody>
+                      {rows.filter(row => !['Keep','Unchanged'].includes(row.action)).map(row => {
+                        const values = cells(row)
+                        return <tr key={row.order_id+'|'+(row.before?.id || row.after.bulk_instance_id || row.after.library_item_id)}>
+                          <td>{values[0]} / {values[1]}</td><td>{(row.after || row.before).name}</td>
+                          <td>{values[4]}<details><summary>Details</summary>
+                            <div>{values[3]} · Wastage {values[6]}</div><div>{values[5]}</div>
+                            {row.before && row.action === 'Replace' && <div>Existing spec: {specText(row.before) || '—'} · {consumption(row.before)}</div>}
+                          </details></td><td>{values[7]}</td>
+                          <td>{row.issue || (row.action === 'Replace' ?
+                            <label><input type="checkbox" disabled={busy || replaceStyles.includes(style)}
+                              checked={replaceStyles.includes(style) || replacements.includes(row.before.id)}
+                              onChange={() => setReplacements(toggle(replacements,row.before.id))}/> Overwrite</label> : row.action)}</td>
+                        </tr>
+                      })}
+                    </tbody></table></div>}
+                </td></tr>}
+              </React.Fragment>
+            })}</tbody>
+          </table></div>
         </>}
         </div>
         <footer className="bulk-bom-footer">
