@@ -1088,7 +1088,7 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
   const grand = subtotal + tax
   const currency = po.currency || 'PKR'
   const totalQty = items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0)
-  const filledRows = items.map((item) => `<tr><td>${escapeHTML(item.description || '—')}</td><td>${escapeHTML([item.specification, item.breakdown, item.demand_allocation?.info].filter(Boolean).join(' · ') || '—')}</td><td>${escapeHTML(item.unit || '—')}</td><td class="num">${item.qty ? fmtNum(item.qty,Number.isInteger(Number(item.qty)) ? 0 : 3) : '—'}</td><td class="num">${item.unit_rate ? fmtNum(item.unit_rate,2) : '—'}</td><td class="num">${item.amount ? fmtNum(item.amount,2) : '—'}</td></tr>`)
+  const filledRows = items.map((item) => `<tr><td>${escapeHTML(item.description || '—')}</td><td>${escapeHTML([item.specification, item.breakdown].filter(Boolean).join(' · ') || '—')}${item.demand_allocation?.info ? '<br><small style="font-size:9px">' + escapeHTML(item.demand_allocation.info) + '</small>' : ''}</td><td>${escapeHTML(item.unit || '—')}</td><td class="num">${item.qty ? fmtNum(item.qty,Number.isInteger(Number(item.qty)) ? 0 : 3) : '—'}</td><td class="num">${item.unit_rate ? fmtNum(item.unit_rate,2) : '—'}</td><td class="num">${item.amount ? fmtNum(item.amount,2) : '—'}</td></tr>`)
   const emptyRows = Array.from({ length: Math.max(0, 14 - filledRows.length) }, () => `<tr class="blank-row"><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>`)
   const itemRows = [...filledRows, ...emptyRows].join('')
   const html = `

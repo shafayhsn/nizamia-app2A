@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { buildSupplierLines, packFor, purchasedQuantities } from '../lib/supplierLines'
 import { configuredCell, configuredMapQuantity, configuredQuantity } from '../lib/bomUsage.js'
 import StoreReceipts, { PoReceivingDialog, RegisterSearch } from '../components/purchasing/StoreReceiving'
@@ -386,7 +387,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
           </label>}
           <div style={{ fontSize:12, fontWeight:700, marginBottom:8 }}>Line Items</div>
           <table style={{ width:'100%', borderCollapse:'collapse', marginBottom:10 }}>
-            <thead><tr>{['Description','Specification','Break-down','Qty','Unit','Info','Unit Rate','Amount',''].map(h=>(
+            <thead><tr>{['Description','Specification','Break-down','Qty','Unit','Unit Rate','Amount',''].map(h=>(
               <th key={h} style={{ fontSize:10, fontWeight:600, color:'#9ca3af', padding:'0 6px 8px', textAlign:'left', textTransform:'uppercase', letterSpacing:'0.5px', whiteSpace:'nowrap' }}>{h}</th>
             ))}</tr></thead>
             <tbody>{items.map((item,idx)=>(
@@ -396,7 +397,6 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
                 <td style={{ padding:'3px 4px', width:110 }}><input style={{ ...mkInp(locked), height:28 }} value={item.breakdown||''} onChange={e=>updItem(idx,'breakdown',e.target.value)} placeholder="Size 4 / Q1" disabled={locked} /></td>
                 <td style={{ padding:'3px 4px', width:80 }}><input style={{ ...mkInp(locked), height:28, textAlign:'right' }} type="number" value={item.qty} onChange={e=>updItem(idx,'qty',e.target.value)} disabled={locked} /></td>
                 <td style={{ padding:'3px 4px', width:80 }}><select style={{ ...mkSel(locked), height:28 }} value={item.unit||'yards'} onChange={e=>updItem(idx,'unit',e.target.value)} disabled={locked || Number(item.demand_allocation?.packSize) > 1 || !!item.pack}>{[...new Set([item.unit,'yards','meters','cm','inch','ft','pcs','kg','gram','cone','set','sht','ctn','roll','ltr'].filter(Boolean))].map(u=><option key={u}>{u}</option>)}</select></td>
-                <td>{item.demand_allocation?.info}</td>
                 <td style={{ padding:'3px 4px', width:100 }}><input style={{ ...mkInp(locked), height:28, textAlign:'right' }} type="number" value={item.unit_rate} onChange={e=>updItem(idx,'unit_rate',e.target.value)} placeholder="0.00" disabled={locked} /></td>
                 <td style={{ padding:'3px 4px', width:100, textAlign:'right', fontSize:12, fontWeight:700 }}>{item.amount?fmtNum(parseFloat(item.amount),2):'—'}</td>
                 <td style={{ padding:'3px 0 3px 4px', width:30 }}>{!locked&&items.length>1&&<button className="btn btn-ghost btn-sm" onClick={()=>setItems(its=>its.filter((_,i)=>i!==idx))}><Trash2 size={10} /></button>}</td>
@@ -706,6 +706,29 @@ function MaterialDemandTab({ suppliers }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [filterMenu,setFilterMenu] = useState(null)
+  const filterPanel = useRef(null)
+  useEffect(() => {
+    if (!filterMenu) return
+    const close = () => setFilterMenu(null)
+    const onPointer = event => {
+      if (!filterPanel.current?.contains(event.target) && !filterMenu.anchor.contains(event.target)) close()
+    }
+    const onKey = event => {
+      if (event.key === 'Escape') {
+        close()
+        filterMenu.anchor.focus()
+      }
+    }
+    document.addEventListener('pointerdown',onPointer)
+    document.addEventListener('keydown',onKey)
+    window.addEventListener('resize',close)
+    return () => {
+      document.removeEventListener('pointerdown',onPointer)
+      document.removeEventListener('keydown',onKey)
+      window.removeEventListener('resize',close)
+    }
+  },[filterMenu])
   const [filters,setFilters] = useState({})
   const [groupBy,setGroupBy] = useState('style')
   const [batches,setBatches] = useState({})
@@ -1164,6 +1187,8 @@ function MaterialDemandTab({ suppliers }) {
     const label = readGroup ? fieldValue(readGroup,row) : ''
     ;(grouped[label] ||= {label,rows:[]}).rows.push(row)
   }
+  const groupsCollapsed = !!groupBy && Object.keys(grouped).length > 0 &&
+    Object.keys(grouped).every(key => collapsedOrders[key])
   const demandQuantity = (row,qty) => {
     const base = fmtNum(qty,2)+' '+row.unit
     const pack = packFor(row.usage_data)
@@ -1255,24 +1280,37 @@ function MaterialDemandTab({ suppliers }) {
 
   return (
     <>
-      <div className="demand-toolbar material-demand-toolbar">
-        <RegisterSearch value={search} onChange={setSearch} placeholder="Search item, style, buyer..."/>
-        {fields.map(([key,label,read]) => <details key={key} className="demand-filter">
-          <summary>{label}{filters[key]?.length ? ' ('+filters[key].length+')' : ''}</summary>
-          <div>{[...new Set(rows.map(row=>fieldValue(read,row)))].sort().map(option =>
-            <label key={option}><input type="checkbox" checked={filters[key]?.includes(option) || false}
-              onChange={event => {
-                const checked = event.target.checked
-                setFilters(old=>({...old,[key]:checked ? [...(old[key] || []),option] : old[key].filter(value=>value!==option)}))
-              }}/> {option}</label>)}</div>
-        </details>)}
+      <div className="demand-toolbar material-demand-toolbar" onScroll={() => setFilterMenu(null)}>
+        <RegisterSearch value={search} onChange={setSearch} placeholder="Search demand…"/>
+        {fields.map(([key,label,read]) => <React.Fragment key={key}>
+          <button type="button" className="btn btn-secondary btn-sm" aria-expanded={filterMenu?.key === key}
+            aria-controls={filterMenu?.key === key ? 'material-demand-filter' : undefined}
+            onClick={event => {
+              const anchor = event.currentTarget
+              const bounds = anchor.getBoundingClientRect()
+              setFilterMenu(current => current?.key === key ? null : {key,anchor,
+                left:Math.max(8,Math.min(bounds.left,window.innerWidth-248)),top:bounds.bottom+4})
+            }}>{label}{filters[key]?.length ? ' ('+filters[key].length+')' : ''} <span aria-hidden="true">▾</span></button>
+          {filterMenu?.key === key && createPortal(
+            <div ref={filterPanel} id="material-demand-filter" className="demand-filter-panel" role="group" aria-label={label}
+              style={{left:filterMenu.left,top:filterMenu.top,maxHeight:Math.max(70,Math.min(280,window.innerHeight-filterMenu.top-8))}}>
+              {[...new Set(rows.map(row=>fieldValue(read,row)))].sort().map(option =>
+                <label key={option}><input type="checkbox" checked={filters[key]?.includes(option) || false}
+                  onChange={event => {
+                    const checked = event.target.checked
+                    setFilters(old=>({...old,[key]:checked ? [...(old[key] || []),option] : old[key].filter(value=>value!==option)}))
+                  }}/> {option}</label>)}
+            </div>,document.body)}
+        </React.Fragment>)}
         <label>Group by <select style={selStyle} value={groupBy} onChange={event=>{
           setGroupBy(event.target.value)
           setCollapsedOrders({})
         }}><option value="">No grouping</option>{fields.map(([key,label])=><option value={key} key={key}>{label}</option>)}</select></label>
         <div className="demand-toolbar-actions">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setCollapsedOrders(Object.fromEntries(Object.keys(grouped).map(id=>[id,true])))}>Collapse All</button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setCollapsedOrders({})}>Expand All</button>
+          <button type="button" className="btn btn-secondary btn-sm" disabled={!groupBy || !filtered.length}
+            onClick={() => setCollapsedOrders(groupsCollapsed ? {} : Object.fromEntries(Object.keys(grouped).map(key=>[key,true])))}>
+            {groupsCollapsed ? 'Expand All' : 'Collapse All'}
+          </button>
           <button className="btn btn-primary btn-sm" style={{height:32}} onClick={()=>setShowPOModal(true)} disabled={!access.canCreatePO(userRole)}>{selectionCount ? `+ Generate PO (${selectionCount})` : '+ New custom PO'}</button>
         </div>
       </div>
