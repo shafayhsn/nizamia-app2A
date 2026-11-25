@@ -1098,7 +1098,8 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
   const jobs = uniqueReferences('jobs', order?.job_number)
   const styles = uniqueReferences('styles', order?.style_number)
   const factoryRefs = uniqueReferences('factoryRefs', order?.factory_ref)
-  const countLabel = (values, label) => values.length ? `${String(values.length).padStart(2, '0')} ${label}` : '—'
+  const referenceLabel = (values, pluralLabel) => values.length > 1
+    ? `${String(values.length).padStart(2, '0')} ${pluralLabel}` : values[0] || '—'
   const renderPage = (itemRows, pageNumber, pageCount) => `
   <section class="po-a4-page">
     <style>
@@ -1163,8 +1164,8 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
     </header>
     <table class="meta-table"><colgroup><col style="width:35%"><col style="width:36%"><col style="width:29%"></colgroup><tbody><tr>
       <td><b>SUPPLIER INFORMATION</b>${escapeHTML(printableSupplierName)}</td>
-      <td><b>JOB # / STYLE # / FACTORY REF #</b>${escapeHTML(jobs.length > 1 ? countLabel(jobs, 'Jobs') : jobs[0] || '—')}
-        <br>${countLabel(styles, styles.length === 1 ? 'Style' : 'Styles')}<br>${countLabel(factoryRefs, factoryRefs.length === 1 ? 'Factory Ref' : 'Factory Refs')}</td>
+      <td><b>JOB # / STYLE # / FACTORY REF #</b>${escapeHTML(referenceLabel(jobs, 'Jobs'))}
+        <br>${escapeHTML(referenceLabel(styles, 'Styles'))}<br>${escapeHTML(referenceLabel(factoryRefs, 'Factory Refs'))}</td>
       <td class="po-dates"><div><span>ISSUE DATE</span><span>${fmtDate(po.po_date)}</span></div>
         <div><span>DELIVERY DATE</span><span>${fmtDate(po.delivery_date)}</span></div>
         <div><span>PAYMENT TERMS</span><span>${escapeHTML(po.payment_terms || '—')}</span></div></td>
