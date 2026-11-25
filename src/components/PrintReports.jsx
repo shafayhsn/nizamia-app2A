@@ -1,3 +1,4 @@
+import { purchaseOrderComments } from '../lib/poDetails'
 import { loadPOTerms } from '../lib/poTerms'
 import {reviewRequest,relatedPurchaseOrders} from '../lib/poReview'
 import { formatDate as appFormatDate } from '../lib/utils'
@@ -1060,6 +1061,7 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
     }catch{ /* A printed draft carries no supplier or job reference. */ }
   }
   if(!verified){supplier=null;order=null}
+  const comments = checkingCopyFilename ? String(po.notes ?? '') : purchaseOrderComments(po.notes)
   const storedTax = decodePrintTax(po.notes)
   const effectiveTaxRate = taxRate ?? (storedTax?.enabled ? storedTax.rate : 18)
   const version = getPOVersion(po.notes)
@@ -1138,6 +1140,8 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
       .words-tax-table .tax-box { padding:0 }
       .tax-row { display:flex; justify-content:space-between; gap:2mm; padding:2mm; font-weight:bold }
       .tax-row + .tax-row { border-top:1px solid #000 }
+      .po-comments { margin-top:2mm }
+      .po-comment-text { white-space:pre-wrap; margin-top:1mm }
       .po-footer { margin-top:auto; padding-top:3mm }
       .terms-title { font-weight:bold; text-transform:uppercase; margin-bottom:1mm }
       .terms-text { white-space:pre-wrap; font-size:10px; line-height:1.2 }
@@ -1167,6 +1171,8 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
     </tr></tbody></table>
     <table class="items-table"><thead><tr><th>ITEMS</th><th>DESCRIPTION</th><th>UOM</th><th>QTY</th><th>RATE</th><th>AMOUNT</th></tr></thead><tbody>${itemRows}${pageNumber === pageCount ? `<tr class="total-strip"><td colspan="3" class="total-title">TOTAL</td><td class="num">${fmtNum(totalQty,0)}</td><td></td><td class="num">${fmtNum(subtotal,amountDecimals)}</td></tr>` : ''}</tbody></table>
     ${pageNumber === pageCount ? `<table class="words-tax-table"><tr><td class="words-box"><b>AMOUNT IN WORDS:</b><br/>${escapeHTML(amountInWords(grand, currency))}</td><td class="tax-box"><div class="tax-row"><div>ADD SALES TAX (${fmtNum(effectiveTaxRate,0)}%)</div><div>${fmtNum(tax,amountDecimals)}</div></div><div class="tax-row"><div>TOTAL AMOUNT (${escapeHTML(currency)})</div><div>${fmtNum(grand,amountDecimals)}</div></div></td></tr></table>
+    ${comments.trim() ? `<section class="po-comments"><b>MERCHANDISER’S COMMENTS</b>
+      <div class="po-comment-text">${escapeHTML(comments)}</div></section>` : ''}
     <footer class="po-footer"><div class="terms-block"><div class="terms-title">Terms &amp; Conditions</div><div class="terms-text">${escapeHTML(terms)}</div></div>
     <table class="sig-table"><tr><td class="signature-box"><div class="sig-label">Supplier Receiving</div></td><td class="signature-box"><div class="sig-label">Merchandiser</div></td><td class="signature-box"><div class="sig-label">Store Incharge</div></td><td class="signature-box"><div class="sig-label">CEO / Director</div></td></tr></table></footer>` : ''}
   </section>`
