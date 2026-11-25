@@ -1,4 +1,4 @@
-import { lsGet, lsSet, saveSetting } from './settingsStore'
+import { loadSetting, lsGet, lsSet, saveSetting } from './settingsStore'
 import { supabase } from './supabase'
 
 const KEY = 'nizamia_po_terms_conditions'
@@ -11,6 +11,10 @@ const DEFAULT_TERMS = [
 export async function loadPOTerms() {
   const legacy = localStorage.getItem(KEY)
   const fallback = { text: legacy && !legacy.startsWith('Lorem ipsum') ? legacy : DEFAULT_TERMS }
+  if (typeof location !== 'undefined' && location.protocol === 'app2a:') {
+    const saved = await loadSetting(KEY, fallback)
+    return typeof saved?.text === 'string' ? saved.text : fallback.text
+  }
   try {
     const { data, error } = await supabase.rpc('read_po_terms')
     if (!error && typeof data?.text === 'string') {
