@@ -1,3 +1,4 @@
+import { loadPOTerms, savePOTerms } from '../lib/poTerms'
 import { useNavigate } from 'react-router-dom'
 import { can } from '../lib/permissions'
 import React, { useEffect, useMemo, useState } from 'react'
@@ -13,7 +14,6 @@ import { statusBadgeStyle, PALETTE } from '../lib/statusColors'
 import { DEFAULT_NUMBERING, DEFAULT_SETTINGS, DEFAULT_STATUS_COLORS, mergeStatusDefinitions, DEFAULT_UOMS, loadList, loadSetting, renderNumberFromConfig, saveList, saveSetting } from '../lib/settingsStore'
 
 const PO_TAX_RATE_KEY = 'nizamia_po_sales_tax_rate'
-const PO_TERMS_KEY = 'nizamia_po_terms_conditions'
 const COMPANY_INFO_KEY = 'nizamia_company_info'
 const DEFAULT_COMPANY_INFO = {
   name: 'NIZAMIA APPARELS',
@@ -23,7 +23,6 @@ const DEFAULT_COMPANY_INFO = {
   phone: '',
   email: ''
 }
-const DEFAULT_PO_TERMS = 'Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat. Ut wisi enim ad minim veniam, quis nostrud exerci tation ullamcorper suscipit lobortis nisl ut aliquip ex ea commodo consequat.'
 const ADMIN_PASS = 'admin'
 const COLOR_OPTIONS = ['green','red','yellow','blue','purple','gray']
 const DEFAULT_GROUP_ROW = { background: '#fdf6e3', text: '#111827' }
@@ -60,7 +59,9 @@ export default function Settings() {
   const [uoms, setUoms] = useState(DEFAULT_UOMS)
   const [uiStatusColors, setUiStatusColors] = useState(DEFAULT_STATUS_COLORS)
   const [groupRow, setGroupRow] = useState(DEFAULT_GROUP_ROW)
-  const [poTerms, setPOTerms] = useState(() => localStorage.getItem(PO_TERMS_KEY) || DEFAULT_PO_TERMS)
+  const [poTerms, setPOTerms] = useState('')
+  const [savedTerms, setSavedTerms] = useState(null)
+  const [savingTerms, setSavingTerms] = useState(false)
   const [companyInfo, setCompanyInfo] = useState(() => {
     try { return { ...DEFAULT_COMPANY_INFO, ...JSON.parse(localStorage.getItem(COMPANY_INFO_KEY) || '{}') } }
     catch { return DEFAULT_COMPANY_INFO }
@@ -81,6 +82,20 @@ export default function Settings() {
     loadSetting('ui_group_row', DEFAULT_GROUP_ROW).then(v => { const merged = { ...DEFAULT_GROUP_ROW, ...(v || {}) }; setGroupRow(merged); applyGroupRowVars(merged) })
   }, [])
 
+  useEffect(() => {
+    if (active !== 'terms') return
+    let current = true
+    setSavedTerms(null)
+    setTermsUnlocked(false)
+    setTermsError('')
+    loadPOTerms().then(text => {
+      if (!current) return
+      setPOTerms(text)
+      setSavedTerms(text)
+    }).catch(error => { if (current) setTermsError(error.message) })
+    return () => { current = false }
+  }, [active])
+
   const flashSaved = () => { setSaved(true); setTimeout(() => setSaved(false), 1600) }
   const unlock = (label, onSuccess, onError) => {
     const pw = window.prompt(`Admin password required to edit ${label}:`)
@@ -98,7 +113,21 @@ export default function Settings() {
   const saveTaxFull = async (next) => {
     setTaxSettings(next); setPoTaxRate(String(next.sales_tax_rate ?? 18)); localStorage.setItem(PO_TAX_RATE_KEY, String(next.sales_tax_rate ?? 18)); await saveSetting('tax', next); flashSaved()
   }
-  const saveTerms = () => { localStorage.setItem(PO_TERMS_KEY, poTerms); setTermsUnlocked(false); flashSaved() }
+  const saveTerms = async () => {
+    if (!isAdmin || !termsUnlocked || savingTerms) return
+    setSavingTerms(true)
+    setTermsError('')
+    try {
+      await savePOTerms(poTerms)
+      setSavedTerms(poTerms)
+      setTermsUnlocked(false)
+      flashSaved()
+    } catch (error) {
+      setTermsError(error.message)
+    } finally {
+      setSavingTerms(false)
+    }
+  }
   const saveCompany = async () => { try { await saveSetting(COMPANY_INFO_KEY,companyInfo);localStorage.setItem(COMPANY_INFO_KEY, JSON.stringify(companyInfo));setCompanyUnlocked(false);setCompanyError('');flashSaved() } catch(e) { setCompanyError('Could not save company details: '+e.message) } }
   const setCompanyField = field => e => setCompanyInfo(prev => ({ ...prev, [field]: e.target.value }))
 
@@ -121,7 +150,10 @@ export default function Settings() {
   const renderContent = () => {
     if (active === 'company') return <CompanyInfo companyInfo={companyInfo} setCompanyField={setCompanyField} companyUnlocked={companyUnlocked} companyError={companyError} onUnlock={() => unlock('Company Information', () => setCompanyUnlocked(true), setCompanyError)} onSave={saveCompany} onCancel={() => { try { setCompanyInfo({ ...DEFAULT_COMPANY_INFO, ...JSON.parse(localStorage.getItem(COMPANY_INFO_KEY) || '{}') }) } catch { setCompanyInfo(DEFAULT_COMPANY_INFO) } setCompanyUnlocked(false) }} />
     if (active === 'tax') return <Tax tax={taxSettings} poTaxRate={poTaxRate} setPoTaxRate={setPoTaxRate} setTax={setTaxSettings} onSave={saveTaxRate} onSaveAll={saveTaxFull} />
-    if (active === 'terms') return <Terms poTerms={poTerms} setPOTerms={setPOTerms} termsUnlocked={termsUnlocked} termsError={termsError} onUnlock={() => unlock('PO Terms & Conditions', () => setTermsUnlocked(true), setTermsError)} onSave={saveTerms} onCancel={() => { setPOTerms(localStorage.getItem(PO_TERMS_KEY) || DEFAULT_PO_TERMS); setTermsUnlocked(false) }} />
+    if (active === 'terms') return <Terms poTerms={poTerms} setPOTerms={setPOTerms} termsUnlocked={termsUnlocked}
+      termsError={termsError} saving={savingTerms} canEdit={isAdmin && savedTerms !== null}
+      onUnlock={() => unlock('PO Terms & Conditions', () => setTermsUnlocked(true), setTermsError)}
+      onSave={saveTerms} onCancel={() => { setPOTerms(savedTerms); setTermsUnlocked(false); setTermsError('') }} />
     if (active === 'history') return <EditHistory />
     if (active === 'users') return <div><div style={{display:'flex',gap:8,marginBottom:12}}><button className={'btn btn-sm '+(usersTab==='users'?'btn-primary':'btn-secondary')} onClick={()=>setUsersTab('users')}>Users & Rights</button><button className={'btn btn-sm '+(usersTab==='roles'?'btn-primary':'btn-secondary')} onClick={()=>setUsersTab('roles')}>Roles & Permissions</button></div>{usersTab==='users'?<div style={{margin:'-8px'}}><UsersAndRights /></div>:<RolesPermissions />}</div>
     if (active === 'roles') return <RolesPermissions />
@@ -149,7 +181,22 @@ export default function Settings() {
 function SettingsCard({ card, onClick }) { const Icon = card.icon; return <button onClick={onClick} style={{ textAlign:'left', minHeight:145, border:'1px solid #e5e7eb', background:'#fff', borderRadius:16, padding:18, cursor:'pointer', boxShadow:'0 8px 24px rgba(15,23,42,0.05)' }}><div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20 }}><div style={{ width:44, height:44, borderRadius:14, background:'#f3f4f6', display:'grid', placeItems:'center', color:'#111827' }}><Icon size={21} strokeWidth={1.9} /></div><span style={statusBadgeStyle(card.status)}>{card.status}</span></div><div style={{ fontSize:15, fontWeight:700, color:'#111827', marginBottom:5 }}>{card.title}</div><div style={{ fontSize:12, color:'#6b7280', lineHeight:1.45 }}>{card.desc}</div></button> }
 function CompanyInfo({ companyInfo, setCompanyField, companyUnlocked, companyError, onUnlock, onSave, onCancel }) { return <div><Help text="Printed in the PO header. Layout stays fixed; only text changes." /><div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}><Field label="Company Name"><input value={companyInfo.name} onChange={setCompanyField('name')} disabled={!companyUnlocked} style={inputStyle(companyUnlocked)} /></Field><Field label="Website"><input value={companyInfo.website} onChange={setCompanyField('website')} disabled={!companyUnlocked} style={inputStyle(companyUnlocked)} /></Field></div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Field label="Company Phone"><input value={companyInfo.phone||''} onChange={setCompanyField('phone')} disabled={!companyUnlocked} style={inputStyle(companyUnlocked)}/></Field><Field label="Company Email"><input type="email" value={companyInfo.email||''} onChange={setCompanyField('email')} disabled={!companyUnlocked} style={inputStyle(companyUnlocked)}/></Field></div><Field label="Tagline"><input value={companyInfo.tagline} onChange={setCompanyField('tagline')} disabled={!companyUnlocked} style={inputStyle(companyUnlocked)} /></Field><Field label="Address"><textarea value={companyInfo.address} onChange={setCompanyField('address')} disabled={!companyUnlocked} style={{ ...inputStyle(companyUnlocked), height:86, padding:10, lineHeight:1.45, resize:'vertical' }} /></Field><Actions unlocked={companyUnlocked} unlockText="Unlock Company Info" saveText="Save Company Info" onUnlock={onUnlock} onSave={onSave} onCancel={onCancel} error={companyError} /></div> }
 function Tax({ tax, poTaxRate, setPoTaxRate, setTax, onSave, onSaveAll }) { const merged={...tax, sales_tax_rate:numVal(poTaxRate,18)}; const set=k=>e=>setTax(prev=>({...prev,[k]:numVal(e.target.value,0)})); return <div><Help text="Controls default PO sales tax, STR refund and export rebate. Values remain overrideable inside shipment/payment flows." /><div style={grid3}><Field label="PO Sales Tax %"><input type="number" min="0" step="0.01" value={poTaxRate} onChange={e=>setPoTaxRate(e.target.value)} style={inputStyle(true)} /></Field><Field label="Sales Tax Refund %"><input type="number" min="0" step="0.01" value={tax.sales_tax_refund_percent ?? 100} onChange={set('sales_tax_refund_percent')} style={inputStyle(true)} /></Field><Field label="Rebate %"><input type="number" min="0" step="0.01" value={tax.rebate_percent ?? 1} onChange={set('rebate_percent')} style={inputStyle(true)} /></Field></div><div style={rowActions}><SaveButton onClick={()=>onSaveAll(merged)}>Save Tax Settings</SaveButton><SaveButton className="btn btn-secondary btn-sm" onClick={onSave}>Save PO Tax Only</SaveButton></div></div> }
-function Terms({ poTerms, setPOTerms, termsUnlocked, termsError, onUnlock, onSave, onCancel }) { return <div><Help text="Protected PO terms text used on purchase order printouts." /><Field label="PO Terms & Conditions"><textarea value={poTerms} onChange={e => setPOTerms(e.target.value)} disabled={!termsUnlocked} style={{ ...inputStyle(termsUnlocked), minHeight:180, padding:10, lineHeight:1.45, resize:'vertical' }} /></Field><Actions unlocked={termsUnlocked} unlockText="Unlock Terms" saveText="Save Terms" onUnlock={onUnlock} onSave={onSave} onCancel={onCancel} error={termsError} /><div style={{ fontSize:11, color:'#9ca3af', marginTop:8 }}>Protected by admin password. Current password: admin.</div></div> }
+function Terms({ poTerms, setPOTerms, termsUnlocked, termsError, saving, canEdit, onUnlock, onSave, onCancel }) {
+  return <div>
+    <Help text="Shared PO terms used on purchase order printouts." />
+    <Field label="PO Terms & Conditions">
+      <textarea value={poTerms} onChange={event=>setPOTerms(event.target.value)} disabled={!termsUnlocked || saving}
+        style={{ ...inputStyle(termsUnlocked && !saving), minHeight:180, padding:10, lineHeight:1.45, resize:'vertical' }} />
+    </Field>
+    {canEdit && <div style={rowActions}>
+      {termsUnlocked ? <>
+        <button className="btn btn-primary btn-sm" disabled={saving} onClick={onSave}>{saving ? 'Saving…' : 'Save Terms'}</button>
+        <button className="btn btn-secondary btn-sm" disabled={saving} onClick={onCancel}>Cancel</button>
+      </> : <button className="btn btn-secondary btn-sm" onClick={onUnlock}>Unlock Terms</button>}
+    </div>}
+    {termsError && <div role="alert" style={{color:'#dc2626', marginTop:8}}>{termsError}</div>}
+  </div>
+}
 function DocumentNumbering({ rows, setRows, onSave }) { const update=(i,k,v)=>setRows(rows.map((r,idx)=>idx===i?{...r,[k]:v}:r)); const add=()=>setRows([...rows,{ doc_type:'custom', label:'Custom', prefix:'DOC', pattern:'{PREFIX}-{YY}{SEASON}-{SEQ}', seq_pad:3, next_number:1, enabled:true }]); return <div><Help text="Controls how the system generates document numbers. Job number generation now reads this config." /><Table headers={['Type','Label','Prefix','Pattern','Pad','Next','Preview','Active','']} rows={rows.map((r,i)=><tr key={i}><Td><input value={r.doc_type} onChange={e=>update(i,'doc_type',e.target.value)} style={cellInput}/></Td><Td><input value={r.label} onChange={e=>update(i,'label',e.target.value)} style={cellInput}/></Td><Td><input value={r.prefix} onChange={e=>update(i,'prefix',e.target.value)} style={cellInput}/></Td><Td><input value={r.pattern} onChange={e=>update(i,'pattern',e.target.value)} style={{...cellInput,minWidth:230}}/></Td><Td><input type="number" value={r.seq_pad} onChange={e=>update(i,'seq_pad',numVal(e.target.value,3))} style={cellInput}/></Td><Td><input type="number" value={r.next_number} onChange={e=>update(i,'next_number',numVal(e.target.value,1))} style={cellInput}/></Td><Td><span style={{ fontFamily:'monospace', fontWeight:700 }}>{renderNumberFromConfig(r)}</span></Td><Td><input type="checkbox" checked={r.enabled!==false} onChange={e=>update(i,'enabled',e.target.checked)}/></Td><Td><button className="btn btn-secondary btn-sm" onClick={()=>setRows(rows.filter((_,idx)=>idx!==i))}>Delete</button></Td></tr>)} /><div style={rowActions}><button className="btn btn-secondary btn-sm" onClick={add}>Add Series</button><SaveButton onClick={()=>onSave(rows)}>Save Numbering</SaveButton></div></div> }
 function UOM({ rows, setRows, onSave }) { const update=(i,k,v)=>setRows(rows.map((r,idx)=>idx===i?{...r,[k]:v}:r)); const add=()=>setRows([...rows,{ code:'NEW', name:'New Unit', type:'General', is_active:true }]); return <div><Help text="Manage units used in BOM, purchasing and order workflows." /><Table headers={['Code','Name','Type','Active','']} rows={rows.map((r,i)=><tr key={i}><Td><input value={r.code} onChange={e=>update(i,'code',e.target.value.toUpperCase())} style={cellInput}/></Td><Td><input value={r.name} onChange={e=>update(i,'name',e.target.value)} style={cellInput}/></Td><Td><input value={r.type} onChange={e=>update(i,'type',e.target.value)} style={cellInput}/></Td><Td><input type="checkbox" checked={r.is_active!==false} onChange={e=>update(i,'is_active',e.target.checked)}/></Td><Td><button className="btn btn-secondary btn-sm" onClick={()=>setRows(rows.filter((_,idx)=>idx!==i))}>Delete</button></Td></tr>)} /><div style={rowActions}><button className="btn btn-secondary btn-sm" onClick={add}>Add UOM</button><SaveButton onClick={()=>onSave(rows)}>Save UOMs</SaveButton></div></div> }
 function Defaults({ settings, setSettings, onSave }) { const set=k=>e=>setSettings(prev=>({...prev,[k]:e.target.value})); return <div><Help text="Factory defaults apply only to new records/workflows. Existing data is never changed." /><div style={grid3}><Field label="Default Currency"><select value={settings.currency || 'USD'} onChange={set('currency')} style={inputStyle(true)}><option>USD</option><option>EUR</option><option>GBP</option></select></Field><Field label="Fallback Payment Terms Days"><input type="number" value={settings.payment_terms_days ?? 50} onChange={e=>setSettings(prev=>({...prev,payment_terms_days:numVal(e.target.value,50)}))} style={inputStyle(true)}/></Field><Field label="Default PKR Rate"><input type="number" value={settings.pkr_rate ?? 278.5} onChange={e=>setSettings(prev=>({...prev,pkr_rate:numVal(e.target.value,278.5)}))} style={inputStyle(true)}/></Field><Field label="Default Shipment Status"><input value={settings.shipment_status || 'Open'} onChange={set('shipment_status')} style={inputStyle(true)}/></Field></div><SaveButton onClick={()=>onSave(settings)}>Save Defaults</SaveButton></div> }

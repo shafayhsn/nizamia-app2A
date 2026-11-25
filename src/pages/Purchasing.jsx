@@ -1,5 +1,6 @@
+import { estimatedPaymentDate, purchaseOrderComments } from '../lib/poDetails'
 import { createPortal } from 'react-dom'
-import { buildSupplierLines, packFor, purchasedQuantities } from '../lib/supplierLines'
+import { buildSupplierLines, checkingCopyLines, packFor, purchasedQuantities } from '../lib/supplierLines'
 import { configuredCell, configuredMapQuantity, configuredQuantity } from '../lib/bomUsage.js'
 import StoreReceipts, { PoReceivingDialog, RegisterSearch } from '../components/purchasing/StoreReceiving'
 import {reviewRequest,readPurchasingRegister,purchasingLookup} from '../lib/poReview'
@@ -83,10 +84,10 @@ function decodeSpec(spec) {
   return { specification: raw.replace(SPEC_BREAKDOWN_RE, '').trim(), breakdown: m ? m[1].trim() : '' }
 }
 function stripPOMeta(raw = '') {
-  return String(raw || '').replace(NOTES_META_RE, '').replace(NOTES_TAX_RE, '').trim()
+  return purchaseOrderComments(raw)
 }
 function encodeNotes(notes, taxEnabled, taxRate, version = 1) {
-  const clean = stripPOMeta(notes)
+  const clean = String(notes ?? '')
   const taxMeta = `[PO_TAX:${JSON.stringify({ enabled: !!taxEnabled, rate: parseFloat(taxRate) || 0 })}]`
   const poMeta = `[PO_META:${JSON.stringify({ version: Math.max(1, parseInt(version, 10) || 1) })}]`
   return `${clean}${clean ? '\n' : ''}${taxMeta}\n${poMeta}`
@@ -185,7 +186,7 @@ function PasskeyModal({ onUnlock, onClose }) {
   )
 }
 
-function QuantityAndMoneySummary({ items, currency, rateKey, taxEnabled, taxRate }) {
+function QuantityAndMoneySummary({ items, currency, rateKey, taxEnabled, taxRate, paymentDate }) {
   const qtyByUnit = {}
   let subtotal = 0
   items.filter(i => String(i.description || i.process_name || '').trim()).forEach(i => {
@@ -196,12 +197,14 @@ function QuantityAndMoneySummary({ items, currency, rateKey, taxEnabled, taxRate
   })
   const tax = taxEnabled ? subtotal * (Number(taxRate) || 0) / 100 : 0
   return <div style={{flex:1, minWidth:0, fontSize:11, color:'#374151'}}>
-    <div style={{display:'flex', gap:14, flexWrap:'wrap', alignItems:'center', marginBottom:5}}>
+    <div style={{display:'flex', gap:14, flexWrap:'wrap', alignItems:'center', justifyContent:paymentDate ? 'space-between' : undefined, marginBottom:paymentDate ? 0 : 5}}>
+      {paymentDate && <span><b>Estimated Payment Date:</b> {paymentDate}</span>}
       <span><b>Qty:</b> {Object.entries(qtyByUnit).map(([u,q])=>`${fmtNum(q,2)} ${u}`).join(' · ') || '—'}</span>
       <span><b>Subtotal:</b> {currency} {fmtNum(subtotal,2)}</span>
       <span><b>GST ({taxEnabled ? `${taxRate}%` : 'off'}):</b> {currency} {fmtNum(tax,2)}</span>
+      {paymentDate && <strong style={{fontSize:14,color:'#111827'}}>Grand Total: {currency} {fmtNum(subtotal+tax,2)}</strong>}
     </div>
-    <div style={{fontSize:14,fontWeight:800,color:'#111827'}}>Grand Total: {currency} {fmtNum(subtotal+tax,2)}</div>
+    {!paymentDate && <div style={{fontSize:14,fontWeight:800,color:'#111827'}}>Grand Total: {currency} {fmtNum(subtotal+tax,2)}</div>}
   </div>
 }
 
@@ -243,7 +246,7 @@ async function removePurchasingDocument(table,lineTable,parentField,id){
 }
 
 function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
-  const { userRole } = useAuth()
+  const { user, userRole } = useAuth()
   const lastSave=useRef(null)
   const isNew = !po
   const awaitingApproval = isNew || String(po.status || 'draft').toLowerCase() === 'draft'
@@ -272,6 +275,10 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
   const [newSupplier, setNewSupplier] = useState({category:'Fabric',lead_time_days:''})
   const [quickSupplierSaving, setQuickSupplierSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [hiddenColumns, setHiddenColumns] = useState({})
+  const [exporting, setExporting] = useState(false)
+  const [showFactoryRefs, setShowFactoryRefs] = useState(false)
+  const optionalColumns = ['Description', 'Specification', 'Break-down', 'Unit']
   const [admins,setAdmins]=useState([])
   const [reviewer,setReviewer]=useState('')
   const needsReviewer=isNew && userRole?.role!=='admin'
@@ -304,9 +311,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
     }
     return n
   })
-  const total = items.reduce((s,i)=>s+(parseFloat(i.amount)||0),0)
-  const taxAmount = taxEnabled ? total * ((parseFloat(taxRate)||0)/100) : 0
-  const grandTotal = total + taxAmount
+  const paymentDate = estimatedPaymentDate(form.delivery_date, form.payment_terms)
   const selectedOrder = orders.find(o => o.id === form.order_id)
   const qReference = extractModalQReference(items, selectedOrder)
 
@@ -360,11 +365,49 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
     setSaving(false)
   }
 
+  const downloadCheckingCopy = async (format) => {
+    setError(null)
+    setExporting(true)
+    const lines = checkingCopyLines(items, showFactoryRefs)
+    const exportTaxRate = taxEnabled ? Number(taxRate) || 0 : 0
+    const subtotal = lines.reduce((sum, line) => sum + (line.amount ?? 0), 0)
+    const exportTax = Math.round(subtotal * exportTaxRate / 100)
+    const filename = `PO-Checking-Copy-${form.po_date}`
+    try {
+      if (format === 'pdf') {
+        await printPurchaseOrder({ ...form, po_number: '', printed_by:user?.username || user?.displayName, items: lines }, null, null,
+          exportTaxRate, null, filename)
+      } else {
+        const xlsx = await import('xlsx')
+        const rows = [
+          ['DRAFT — FOR CHECKING'],
+          ['PO Date', form.po_date], ['Delivery Date', form.delivery_date],
+          ['Currency', form.currency], ['Payment Terms', form.payment_terms], ['Notes', form.notes],
+          [],
+          ['Description', 'Specification', 'Breakdown', 'Qty', 'Unit', 'Unit Rate', 'Amount', 'Pack Info', ...(showFactoryRefs ? ['Factory Ref Breakdown'] : [])],
+          ...lines.map(item => [item.description, item.specification, item.breakdown, item.qty,
+            item.unit, item.unit_rate, item.amount, item.checkingCopyPackInfo, ...(showFactoryRefs ? [item.factoryRefs] : [])]),
+          [], ['Subtotal', subtotal], [taxEnabled ? `GST (${taxRate}%)` : 'GST (off)', exportTax],
+          ['Grand Total', subtotal + exportTax],
+        ]
+        const sheet = xlsx.utils.aoa_to_sheet(rows)
+        sheet['!cols'] = [26, 30, 25, 12, 12, 14, 14, 22, ...(showFactoryRefs ? [48] : [])].map(wch => ({ wch }))
+        const workbook = xlsx.utils.book_new()
+        xlsx.utils.book_append_sheet(workbook, sheet, 'PO Checking Copy')
+        xlsx.writeFile(workbook, `${filename}.xlsx`)
+      }
+    } catch (err) {
+      setError(`Could not download ${format.toUpperCase()} draft: ${err.message}`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const handlePrint = async () => {
     if (!po) return
     const supplier=localSuppliers.find(s=>s.id===po.supplier_id)
     const order=orders.find(o=>o.id===po.order_id)
-    await printPurchaseOrder({ ...po, notes: encodeNotes(form.notes, taxEnabled, taxRate, poVersion), items }, supplier, order, taxEnabled ? taxRate : null)
+    await printPurchaseOrder({ ...po, printed_by:user?.username || user?.displayName, notes: encodeNotes(form.notes, taxEnabled, taxRate, poVersion), items }, supplier, order, taxEnabled ? taxRate : null)
   }
 
   const handleDelete = async () => {
@@ -382,7 +425,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
   const popup = useManagedPopup(isNew ? 'New Purchase Order' : `PO — ${po.po_number}`, onClose)
   return (
     <div style={{ position:'fixed', display:popup.minimized?'none':'flex', inset:0, background:'rgba(0,0,0,0.45)', zIndex:300, alignItems:'center', justifyContent:'center', padding:24 }}>
-      <div style={{ background:'#fff', borderRadius:12, width:'100%', maxWidth:860, maxHeight:'calc(100vh - 48px)', display:'flex', flexDirection:'column', boxShadow:'0 24px 80px rgba(0,0,0,0.22)', overflow:'hidden' }}>
+      <div style={{ background:'#fff', borderRadius:12, width:'100%', maxWidth:1080, maxHeight:'calc(100vh - 48px)', display:'flex', flexDirection:'column', boxShadow:'0 24px 80px rgba(0,0,0,0.22)', overflow:'hidden' }}>
         <div style={{ padding:'14px 24px', borderBottom:'1px solid #f0f0ee', display:'flex', alignItems:'center', gap:10 }}>
           <span style={{ fontSize:14, fontWeight:700 }}>{isNew?'New Purchase Order':`PO — ${po.po_number}`}</span>
           <div style={{ flex:1 }} />
@@ -415,8 +458,9 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
               <select style={mkSel(locked)} value={form.status} onChange={set('status')} disabled={locked || awaitingApproval}>
                 {Array.from(new Set([form.status,...configuredStatusOptions('purchasing',['Draft','Issued','Acknowledged','Delivered','Cancelled'])].filter(Boolean))).map(v=><option key={v} value={v}>{statusDisplay(v,'purchasing')}</option>)}
               </select></div>
-            <div style={{ gridColumn:'2 / 4' }}><label style={lbl}>Notes</label><input style={mkInp(locked)} value={form.notes} onChange={set('notes')} placeholder="Any notes..." disabled={locked} /></div>
+            <div style={{ gridColumn:'2 / 4' }}><label style={lbl} htmlFor="po-notes">Notes</label><textarea id="po-notes" rows={1} style={{...mkInp(locked),padding:'6px 10px',resize:'vertical'}} value={form.notes} onChange={set('notes')} placeholder="Any notes..." disabled={locked} /></div>
           </div>
+          <div style={{display:'flex',gap:14,alignItems:'center',flexWrap:'wrap',marginBottom:8}}>
           {isNew && prefillItems?.length > 0 && <label>
             <input type="checkbox" checked={mergeLines} onChange={event => {
               const original = hydratePOItems(buildSupplierLines(prefillItems,mergeLines))
@@ -426,18 +470,33 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
               setItems(hydratePOItems(buildSupplierLines(prefillItems,event.target.checked)))
             }}/> Merge similar PO lines
           </label>}
-          <div style={{ fontSize:12, fontWeight:700, marginBottom:8 }}>Line Items</div>
+            {isNew && <label>
+              <input type="checkbox" checked={showFactoryRefs} onChange={event=>setShowFactoryRefs(event.target.checked)} /> Show factory ref breakdown
+            </label>}
+          </div>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+            <strong style={{ fontSize:12 }}>Line Items</strong>
+            <details style={{ textAlign:'right' }}>
+              <summary className="btn btn-secondary btn-sm" style={{ cursor:'pointer' }}>Configure Table Columns</summary>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:10, padding:'8px 0', fontSize:12 }}>
+                {optionalColumns.map(column => <label key={column}>
+                  <input type="checkbox" checked={!hiddenColumns[column]}
+                    onChange={event => setHiddenColumns({ ...hiddenColumns, [column]: !event.target.checked })} /> {column}
+                </label>)}
+              </div>
+            </details>
+          </div>
           <table style={{ width:'100%', borderCollapse:'collapse', marginBottom:10 }}>
-            <thead><tr>{['Description','Specification','Break-down','Qty','Unit','Unit Rate','Amount',''].map(h=>(
+            <thead><tr>{['Description','Specification','Break-down','Qty','Unit','Unit Rate','Amount',''].filter(h=>!hiddenColumns[h]).map(h=>(
               <th key={h} style={{ fontSize:10, fontWeight:600, color:'#9ca3af', padding:'0 6px 8px', textAlign:'left', textTransform:'uppercase', letterSpacing:'0.5px', whiteSpace:'nowrap' }}>{h}</th>
             ))}</tr></thead>
             <tbody>{items.map((item,idx)=>(
               <tr key={item._id||idx}>
-                <td style={{ padding:'3px 4px', minWidth:160 }}><input style={{ ...mkInp(locked), height:28 }} value={item.description} onChange={e=>updItem(idx,'description',e.target.value)} placeholder="Item description" disabled={locked} /></td>
-                <td style={{ padding:'3px 4px', minWidth:130 }}><input style={{ ...mkInp(locked), height:28 }} value={item.specification||''} onChange={e=>updItem(idx,'specification',e.target.value)} placeholder="Spec" disabled={locked} /></td>
-                <td style={{ padding:'3px 4px', width:110 }}><input style={{ ...mkInp(locked), height:28 }} value={item.breakdown||''} onChange={e=>updItem(idx,'breakdown',e.target.value)} placeholder="Size 4 / Q1" disabled={locked} /></td>
+                {!hiddenColumns['Description'] && <td style={{ padding:'3px 4px', minWidth:160 }}><input style={{ ...mkInp(locked), height:28 }} value={item.description} onChange={e=>updItem(idx,'description',e.target.value)} placeholder="Item description" disabled={locked} /></td>}
+                {!hiddenColumns['Specification'] && <td style={{ padding:'3px 4px', minWidth:130 }}><input style={{ ...mkInp(locked), height:28 }} value={item.specification||''} onChange={e=>updItem(idx,'specification',e.target.value)} placeholder="Spec" disabled={locked} /></td>}
+                {!hiddenColumns['Break-down'] && <td style={{ padding:'3px 4px', width:110 }}><input style={{ ...mkInp(locked), height:28 }} value={item.breakdown||''} onChange={e=>updItem(idx,'breakdown',e.target.value)} placeholder="Size 4 / Q1" disabled={locked} /></td>}
                 <td style={{ padding:'3px 4px', width:80 }}><input style={{ ...mkInp(locked), height:28, textAlign:'right' }} type="number" value={item.qty} onChange={e=>updItem(idx,'qty',e.target.value)} disabled={locked} /></td>
-                <td style={{ padding:'3px 4px', width:80 }}><select style={{ ...mkSel(locked), height:28 }} value={item.unit||'yards'} onChange={e=>updItem(idx,'unit',e.target.value)} disabled={locked || Number(item.demand_allocation?.packSize) > 1 || !!item.pack}>{[...new Set([item.unit,'yards','meters','cm','inch','ft','pcs','kg','gram','cone','set','sht','ctn','roll','ltr'].filter(Boolean))].map(u=><option key={u}>{u}</option>)}</select></td>
+                {!hiddenColumns['Unit'] && <td style={{ padding:'3px 4px', width:80 }}><select style={{ ...mkSel(locked), height:28 }} value={item.unit||'yards'} onChange={e=>updItem(idx,'unit',e.target.value)} disabled={locked || Number(item.demand_allocation?.packSize) > 1 || !!item.pack}>{[...new Set([item.unit,'yards','meters','cm','inch','ft','pcs','kg','gram','cone','set','sht','ctn','roll','ltr'].filter(Boolean))].map(u=><option key={u}>{u}</option>)}</select></td>}
                 <td style={{ padding:'3px 4px', width:100 }}><input style={{ ...mkInp(locked), height:28, textAlign:'right' }} type="number" value={item.unit_rate} onChange={e=>updItem(idx,'unit_rate',e.target.value)} placeholder="0.00" disabled={locked} /></td>
                 <td style={{ padding:'3px 4px', width:100, textAlign:'right', fontSize:12, fontWeight:700 }}>{item.amount?fmtNum(parseFloat(item.amount),2):'—'}</td>
                 <td style={{ padding:'3px 0 3px 4px', width:30 }}>{!locked&&items.length>1&&<button className="btn btn-ghost btn-sm" onClick={()=>setItems(its=>its.filter((_,i)=>i!==idx))}><Trash2 size={10} /></button>}</td>
@@ -445,13 +504,19 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
             ))}</tbody>
           </table>
           {!locked&&<button className="btn btn-secondary btn-sm" onClick={()=>setItems(its=>[...its,{_id:String(Date.now()),description:'',specification:'',breakdown:'',qty:'',unit:'yards',unit_rate:'',amount:'',source_type:null,source_id:null}])} style={{marginBottom:12}}><Plus size={12}/> Add custom item</button>}
-          {total>0&&<div style={{display:'flex',justifyContent:'flex-end',paddingRight:34}}><div style={{background:'#0d0d0d',color:'#fff',padding:'8px 16px',borderRadius:6,fontSize:13,fontWeight:700}}>Subtotal: {form.currency} {fmtNum(total,2)}{taxEnabled ? ` · GST ${taxRate}%: ${form.currency} ${fmtNum(taxAmount,2)} · Grand: ${form.currency} ${fmtNum(grandTotal,2)}` : ''}</div></div>}
           {error&&<div style={{marginTop:10,fontSize:12,color:'#dc2626'}}>{error}</div>}
         </div>
-        <div style={{padding:'12px 24px',borderTop:'1px solid #f0f0ee',display:'flex',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end',gap:12}}>
-          <QuantityAndMoneySummary items={items} currency={form.currency} rateKey="unit_rate" taxEnabled={taxEnabled} taxRate={taxRate}/>
-          <button className="btn btn-secondary" onClick={onClose}>Close</button>
-          {!locked&&<button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving?'Saving...':isNew?'Create PO':'Save Changes'}</button>}
+        <div style={{padding:'14px 24px',borderTop:'1px solid #f0f0ee'}}>
+          <QuantityAndMoneySummary items={items} currency={form.currency} rateKey="unit_rate" taxEnabled={taxEnabled} taxRate={taxRate} paymentDate={paymentDate}/>
+          <div style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:10,marginTop:14}}>
+            {isNew && <>
+              <button type="button" className="btn btn-secondary" disabled={exporting} onClick={()=>downloadCheckingCopy('excel')}>Download Excel Draft</button>
+              <button type="button" className="btn btn-secondary" disabled={exporting} onClick={()=>downloadCheckingCopy('pdf')}>Download PDF Draft</button>
+            </>}
+            <div style={{flex:1}} />
+            <button className="btn btn-secondary" onClick={onClose}>Close</button>
+            {!locked&&<button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving?'Saving...':isNew?'Create PO':'Save Changes'}</button>}
+          </div>
         </div>
       </div>
       {quickSupplier && <div style={{position:'fixed',inset:0,zIndex:650,background:'rgba(0,0,0,.38)',display:'flex',alignItems:'center',justifyContent:'center'}}><div style={{width:500,maxWidth:'92vw',background:'#fff',borderRadius:12,boxShadow:'0 24px 70px rgba(0,0,0,.28)'}}><div style={{padding:'16px 20px',borderBottom:'1px solid #eee',display:'flex',alignItems:'center'}}><b>New Supplier</b><div style={{flex:1}}/><button className="btn btn-ghost" onClick={()=>setQuickSupplier(false)}><X size={15}/></button></div><div style={{padding:20,display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><div style={{gridColumn:'1/-1'}}><label style={lbl}>Supplier Name *</label><input style={mkInp(false)} autoFocus value={newSupplier.name||''} onChange={e=>setNewSupplier(f=>({...f,name:e.target.value}))}/></div><div><label style={lbl}>Category</label><select style={mkSel(false)} value={newSupplier.category||'Fabric'} onChange={e=>setNewSupplier(f=>({...f,category:e.target.value}))}>{['Fabric','Trims','Washing','Embellishment','CMT','Contractors','Testing'].map(x=><option key={x}>{x}</option>)}</select></div><div><label style={lbl}>Contact Person</label><input style={mkInp(false)} value={newSupplier.contact_person||''} onChange={e=>setNewSupplier(f=>({...f,contact_person:e.target.value}))}/></div><div><label style={lbl}>Phone</label><input style={mkInp(false)} value={newSupplier.phone||''} onChange={e=>setNewSupplier(f=>({...f,phone:e.target.value}))}/></div><div><label style={lbl}>Email</label><input style={mkInp(false)} value={newSupplier.email||''} onChange={e=>setNewSupplier(f=>({...f,email:e.target.value}))}/></div><div><label style={lbl}>Lead Time (days)</label><input style={mkInp(false)} type="number" value={newSupplier.lead_time_days||''} onChange={e=>setNewSupplier(f=>({...f,lead_time_days:e.target.value}))}/></div></div><div style={{padding:'12px 20px',borderTop:'1px solid #eee',display:'flex',justifyContent:'flex-end',gap:8}}><button className="btn btn-secondary" onClick={()=>setQuickSupplier(false)}>Cancel</button><button className="btn btn-primary" disabled={quickSupplierSaving||!newSupplier.name?.trim()} onClick={saveQuickSupplier}>{quickSupplierSaving?'Saving…':'Save & Select'}</button></div></div></div>}
@@ -1194,8 +1259,9 @@ function MaterialDemandTab({ suppliers }) {
             return sq + (pd.sgColorTotals?.[sg]?.[color] || 0)
           }, 0)
           const req = usageNumeric(b.consumption) * qty * factor
+          const batchName = b.name || `Batch ${ix+1}`
           const details = (b.cells || []).map(cell => [cell.sgName, cell.colorName, cell.size ? `Size ${cell.size}` : ''].filter(Boolean).join(' / ')).join(', ')
-          return req > 0 ? { breakdown: `${b.name || `Batch ${ix+1}`}${details ? ` — ${details}` : ''}`, req_qty: req, unit } : null
+          return req > 0 ? { breakdown: `${batchName}${details ? ` — ${details}` : ''}`, batchName, req_qty: req, unit } : null
         }).filter(Boolean)
       }
       if (rule === 'Configure Own' && Array.isArray(ud.__matrix)) {
@@ -1317,7 +1383,7 @@ function MaterialDemandTab({ suppliers }) {
         ;(r.queue_breakdown || []).forEach(q => {
           if (selected.has(qKey(r.id, queueRef(q)))) {
             const usageLines = r.usage_breakdown || []
-            if (usageLines.length) usageLines.forEach((u, ix) => lines.push({ _id:`${r.id}_${queueRef(q)}_${ix}`, description:r.name, specification:r.specification, breakdown:`${u.breakdown}${q.q_number ? ' [' + q.q_number + ']' : ''}`, qty:u.req_qty||'', unit:u.unit||r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:q.q_number || q.label || '' }))
+            if (usageLines.length) usageLines.forEach((u, ix) => lines.push({ _id:`${r.id}_${queueRef(q)}_${ix}`, description:r.name, specification:r.specification, breakdown:`${u.breakdown}${q.q_number ? ' [' + q.q_number + ']' : ''}`, checkingCopyBatchName:u.batchName, qty:u.req_qty||'', unit:u.unit||r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:q.q_number || q.label || '' }))
             else lines.push(buildQueueLine(r, q))
           }
         })
@@ -1326,15 +1392,15 @@ function MaterialDemandTab({ suppliers }) {
       if (selected.has(rowKey(r.id))) {
         
         const usageLines = r.usage_breakdown || []
-        if (usageLines.length) usageLines.forEach((u, ix) => lines.push({ _id:`${r.id}_${ix}`, description:r.name, specification:r.specification, breakdown:u.breakdown, qty:u.req_qty||'', unit:u.unit||r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:'' }))
+        if (usageLines.length) usageLines.forEach((u, ix) => lines.push({ _id:`${r.id}_${ix}`, description:r.name, specification:r.specification, breakdown:u.breakdown, checkingCopyBatchName:u.batchName, qty:u.req_qty||'', unit:u.unit||r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:'' }))
         else lines.push({ _id:r.id, description:r.name, specification:r.specification, breakdown:'', qty:r.req_qty||'', unit:r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:'' })
       }
     }
     const sources = new Map(filtered.map(row=>[row.source_id,row]))
     return lines.map(line => {
       const row = sources.get(line.source_id)
-      return {...line,buyer:row?.order.buyer_id || row?.order.buyer_name,material:row?.material || row?.cat,
-        ref:row?.order.factory_ref || row?.order.style_number,pack:packFor(row?.usage_data)}
+      return {...line,checkingCopyOriginalBreakdown:line.checkingCopyBatchName ? line.breakdown : undefined,buyer:row?.order.buyer_id || row?.order.buyer_name,material:row?.material || row?.cat,
+        ref:row?.order.factory_ref || row?.order.style_number,factoryRef:row?.order.factory_ref,styleNumber:row?.order.style_number,jobNumber:row?.order.job_number,pack:packFor(row?.usage_data)}
     })
   }
   const balColor = (req,purch) => { const bal=req-purch; if (bal<=0) return '#16a34a'; if (purch>0) return '#d97706'; return '#374151' }
@@ -1784,7 +1850,7 @@ function PurchaseOrdersTab({ orders, suppliers }) {
     setSearch(match.po_number||'')
     if(target.documentType==='purchase-order'){
       if(!access.canPrintPO(user)){alert('Access Denied');return}
-      printPurchaseOrder({...match,items:match.purchase_order_items||[]},suppliers.find(x=>x.id===match.supplier_id),orders.find(x=>x.id===match.order_id),null).catch(e=>alert('Could not open PO PDF: '+e.message))
+      printPurchaseOrder({...match,printed_by:user?.username || user?.displayName,items:match.purchase_order_items||[]},suppliers.find(x=>x.id===match.supplier_id),orders.find(x=>x.id===match.order_id),null).catch(e=>alert('Could not open PO PDF: '+e.message))
     }else if(!match.details_hidden){setEditPO({...match,items:match.purchase_order_items||[]});setShowModal(true)}
   },[globalSearchLocation.key,pos,orders,suppliers,user])
   const filtered = pos.filter(p=>{ const q=search.toLowerCase(); return !q||[p.po_number,suppliers.find(s=>s.id===p.supplier_id)?.name,p.notes].some(f=>f?.toLowerCase().includes(q)) })
@@ -1793,7 +1859,7 @@ function PurchaseOrdersTab({ orders, suppliers }) {
   const handlePrint = async (p,e) => {
     e.stopPropagation()
     if (!access.canPrintPO(user)) { alert('Access Denied'); return }
-    await printPurchaseOrder({ ...p, items:p.purchase_order_items||[] }, suppliers.find(s=>s.id===p.supplier_id), orders.find(o=>o.id===p.order_id), null)
+    await printPurchaseOrder({ ...p, printed_by:user?.username || user?.displayName, items:p.purchase_order_items||[] }, suppliers.find(s=>s.id===p.supplier_id), orders.find(o=>o.id===p.order_id), null)
   }
   const handleDeletePO = async (p,e) => {
     e.stopPropagation()

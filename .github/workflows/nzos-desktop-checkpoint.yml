@@ -1,8 +1,8 @@
-name: Package NZOS 1.1.14 desktop checkpoint
+name: Package NZOS 1.1.15 desktop checkpoint
 
 on:
   push:
-    branches: ['release/desktop-1.1.14']
+    branches: ['release/desktop-1.1.15']
   workflow_dispatch:
 
 permissions:
@@ -16,7 +16,7 @@ env:
   # The live desktop window follows the hosted app. Keep the local React
   # fallback and SQLite bridge together at the verified desktop source revision.
   DESKTOP_SOURCE: ${{ github.sha }}
-  NZOS_VERSION: '1.1.14'
+  NZOS_VERSION: '1.1.15'
 
 jobs:
   web:
@@ -93,7 +93,7 @@ jobs:
 
   publish:
     needs: desktop
-    if: github.ref == 'refs/heads/release/desktop-1.1.14'
+    if: github.ref == 'refs/heads/release/desktop-1.1.15'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -123,7 +123,7 @@ jobs:
             exit 0
           else
             gh release create "$tag" --target "$GITHUB_SHA" --draft --title "NZOS $NZOS_VERSION" \
-              --notes "Intel Mac and Windows x64 packages for web checkpoint 3917443c. The packaged offline workspace uses desktop source $DESKTOP_SOURCE. Store Receipts, Work Order Tracking and HR & Attendance require an online connection." \
+              --notes "Intel Mac and Windows x64 packages for web checkpoint d5372556. The packaged offline workspace uses desktop source $DESKTOP_SOURCE. Store Receipts, Work Order Tracking and HR & Attendance require an online connection." \
               "$mac" "$mac.sha256" "$windows" "$windows.sha256"
           fi
           gh release edit "$tag" --draft=false --latest
