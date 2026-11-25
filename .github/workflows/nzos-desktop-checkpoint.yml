@@ -1,8 +1,8 @@
-name: Package NZOS 1.1.15 desktop checkpoint
+name: Package NZOS 1.1.16 desktop checkpoint
 
 on:
   push:
-    branches: ['release/desktop-1.1.15']
+    branches: ['release/desktop-1.1.16']
   workflow_dispatch:
 
 permissions:
@@ -16,7 +16,7 @@ env:
   # The live desktop window follows the hosted app. Keep the local React
   # fallback and SQLite bridge together at the verified desktop source revision.
   DESKTOP_SOURCE: ${{ github.sha }}
-  NZOS_VERSION: '1.1.15'
+  NZOS_VERSION: '1.1.16'
 
 jobs:
   web:
@@ -93,7 +93,7 @@ jobs:
 
   publish:
     needs: desktop
-    if: github.ref == 'refs/heads/release/desktop-1.1.15'
+    if: github.ref == 'refs/heads/release/desktop-1.1.16'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
