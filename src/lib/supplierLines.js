@@ -11,10 +11,15 @@ export function packFor(raw) {
 export function buildSupplierLines(lines, merge) {
   const groups = new Map()
   for (const [index,item] of lines.entries()) {
+    // By Batch appends internal wash and size assignments to its display text.
+    // The batch name identifies the supplier variant, while sources track allocation.
+    const batchName = item.checkingCopyBatchName
     const key = merge && item.buyer ? JSON.stringify([item.buyer,item.material,item.description,item.specification,
-      item.breakdown,item.unit,item.pack,item.source_type,item.q_number,item.unit_rate]) : index
-    if (!groups.has(key)) groups.set(key, { item, sources:[], refs:new Set(), styles:new Set(), jobs:new Set(), factoryRefs:new Map(), qty:0 })
+      batchName ? ['batch', batchName.trim()] : ['breakdown', item.breakdown, item.q_number],
+      item.unit,item.pack,item.source_type,item.unit_rate]) : index
+    if (!groups.has(key)) groups.set(key, { item, sources:[], refs:new Set(), styles:new Set(), jobs:new Set(), factoryRefs:new Map(), qty:0, count:0 })
     const group = groups.get(key)
+    group.count++
     group.qty += Number(item.qty) || 0
     if (item.source_id) group.sources.push({id:item.source_id, qty:Number(item.qty) || 0})
     if (item.ref) group.refs.add(item.ref)
@@ -23,12 +28,14 @@ export function buildSupplierLines(lines, merge) {
     const factoryRef = item.factoryRef || ''
     group.factoryRefs.set(factoryRef, (group.factoryRefs.get(factoryRef) || 0) + (Number(item.qty) || 0))
   }
-  return [...groups.values()].map(({item,sources,refs,styles,jobs,factoryRefs,qty}) => {
+  return [...groups.values()].map(({item,sources,refs,styles,jobs,factoryRefs,qty,count}) => {
     const pack = item.pack
     const packInfo = pack ? `${pack.size.toLocaleString('en-US')} ${item.unit}/${pack.unit}` : ''
     const info = [packInfo, [...refs].join(', ')]
       .filter(Boolean).join(' · ')
-    return {...item, checkingCopyRefs:[...factoryRefs], checkingCopyPackInfo:packInfo, qty:pack ? Math.ceil(qty / pack.size) : qty,unit:pack?.unit || item.unit,
+    const combinedBatch = count > 1 && item.checkingCopyBatchName?.trim()
+    const variant = combinedBatch ? {breakdown:combinedBatch, checkingCopyOriginalBreakdown:combinedBatch} : {}
+    return {...item, ...variant, checkingCopyRefs:[...factoryRefs], checkingCopyPackInfo:packInfo, qty:pack ? Math.ceil(qty / pack.size) : qty,unit:pack?.unit || item.unit,
       demand_allocation: sources.length ? {sources,info,packSize:pack?.size || 1,
         styles:[...styles], jobs:[...jobs], factoryRefs:[...factoryRefs.keys()].filter(Boolean)} : null}
   })
