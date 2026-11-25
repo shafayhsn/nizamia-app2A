@@ -216,7 +216,7 @@ function writeWOTax(notes,enabled,rate,deliveryDate) {
 }
 
 function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
-  const { userRole } = useAuth()
+  const { user, userRole } = useAuth()
   const lastSave=useRef(null)
   const isNew = !po
   const awaitingApproval = isNew || String(po.status || 'draft').toLowerCase() === 'draft'
@@ -334,7 +334,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
     const filename = `PO-Checking-Copy-${form.po_date}`
     try {
       if (format === 'pdf') {
-        await printPurchaseOrder({ ...form, po_number: '', items: lines }, null, null,
+        await printPurchaseOrder({ ...form, po_number: '', printed_by:user?.username || user?.displayName, items: lines }, null, null,
           exportTaxRate, null, filename)
       } else {
         const xlsx = await import('xlsx')
@@ -366,7 +366,7 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
     if (!po) return
     const supplier=localSuppliers.find(s=>s.id===po.supplier_id)
     const order=orders.find(o=>o.id===po.order_id)
-    await printPurchaseOrder({ ...po, notes: encodeNotes(form.notes, taxEnabled, taxRate, poVersion), items }, supplier, order, taxEnabled ? taxRate : null)
+    await printPurchaseOrder({ ...po, printed_by:user?.username || user?.displayName, notes: encodeNotes(form.notes, taxEnabled, taxRate, poVersion), items }, supplier, order, taxEnabled ? taxRate : null)
   }
 
   const handleDelete = async () => {
@@ -1340,7 +1340,7 @@ function MaterialDemandTab({ suppliers }) {
     return lines.map(line => {
       const row = sources.get(line.source_id)
       return {...line,checkingCopyOriginalBreakdown:line.checkingCopyBatchName ? line.breakdown : undefined,buyer:row?.order.buyer_id || row?.order.buyer_name,material:row?.material || row?.cat,
-        ref:row?.order.factory_ref || row?.order.style_number,factoryRef:row?.order.factory_ref,pack:packFor(row?.usage_data)}
+        ref:row?.order.factory_ref || row?.order.style_number,factoryRef:row?.order.factory_ref,styleNumber:row?.order.style_number,jobNumber:row?.order.job_number,pack:packFor(row?.usage_data)}
     })
   }
   const balColor = (req,purch) => { const bal=req-purch; if (bal<=0) return '#16a34a'; if (purch>0) return '#d97706'; return '#374151' }
@@ -1786,7 +1786,7 @@ function PurchaseOrdersTab({ orders, suppliers }) {
     setSearch(match.po_number||'')
     if(target.documentType==='purchase-order'){
       if(!access.canPrintPO(user)){alert('Access Denied');return}
-      printPurchaseOrder({...match,items:match.purchase_order_items||[]},suppliers.find(x=>x.id===match.supplier_id),orders.find(x=>x.id===match.order_id),null).catch(e=>alert('Could not open PO PDF: '+e.message))
+      printPurchaseOrder({...match,printed_by:user?.username || user?.displayName,items:match.purchase_order_items||[]},suppliers.find(x=>x.id===match.supplier_id),orders.find(x=>x.id===match.order_id),null).catch(e=>alert('Could not open PO PDF: '+e.message))
     }else if(!match.details_hidden){setEditPO({...match,items:match.purchase_order_items||[]});setShowModal(true)}
   },[globalSearchLocation.key,pos,orders,suppliers,user])
   const filtered = pos.filter(p=>{ const q=search.toLowerCase(); return !q||[p.po_number,suppliers.find(s=>s.id===p.supplier_id)?.name,p.notes].some(f=>f?.toLowerCase().includes(q)) })
@@ -1795,7 +1795,7 @@ function PurchaseOrdersTab({ orders, suppliers }) {
   const handlePrint = async (p,e) => {
     e.stopPropagation()
     if (!access.canPrintPO(user)) { alert('Access Denied'); return }
-    await printPurchaseOrder({ ...p, items:p.purchase_order_items||[] }, suppliers.find(s=>s.id===p.supplier_id), orders.find(o=>o.id===p.order_id), null)
+    await printPurchaseOrder({ ...p, printed_by:user?.username || user?.displayName, items:p.purchase_order_items||[] }, suppliers.find(s=>s.id===p.supplier_id), orders.find(o=>o.id===p.order_id), null)
   }
   const handleDeletePO = async (p,e) => {
     e.stopPropagation()

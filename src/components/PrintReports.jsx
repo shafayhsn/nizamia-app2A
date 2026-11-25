@@ -1,3 +1,4 @@
+import { loadPOTerms } from '../lib/poTerms'
 import {reviewRequest,relatedPurchaseOrders} from '../lib/poReview'
 import { formatDate as appFormatDate } from '../lib/utils'
 import { usageObject, usageNumber, usageEntries, grossUsage } from '../lib/usageMath'
@@ -23,7 +24,6 @@ function fmtUSD(v) {
 }
 const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 
-const PO_TERMS_KEY = 'nizamia_po_terms_conditions'
 
 const COMPANY_INFO_KEY = 'nizamia_company_info'
 const DEFAULT_COMPANY_INFO = {
@@ -32,14 +32,10 @@ const DEFAULT_COMPANY_INFO = {
   address: 'RCC14, SHED NR 2, ESTATE AVENUE ROAD, SITE INDUSTRIAL AREA,\nKARACHI 75700, PAKISTAN',
   website: 'www.nizamia.com'
 }
-const DEFAULT_PO_TERMS = 'Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat. Ut wisi enim ad minim veniam, quis nostrud exerci tation ullamcorper suscipit lobortis nisl ut aliquip ex ea commodo consequat. Duis autem vel eum iriure dolor in hendrerit in vulputate velit esse molestie consequat, vel illum dolore eu feugiat nulla facilisis at vero eros et accumsan et iusto odio dignissim qui tem vel eum iriure dolor in hendrerit.'
 const NOTES_META_RE = /\n?\[PO_META:(\{.*?\})\]\s*$/i
 
 function escapeHTML(v) {
   return String(v ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]))
-}
-function getPOTerms() {
-  return localStorage.getItem(PO_TERMS_KEY) || DEFAULT_PO_TERMS
 }
 
 function getCompanyInfo() {
@@ -268,17 +264,6 @@ function decodePrintTax(notes) {
   if (!m) return null
   try { return JSON.parse(m[1]) } catch { return null }
 }
-function extractQReference(po, order) {
-  const items = po.items || po.purchase_order_items || []
-  const refs = new Set()
-  items.forEach(it => {
-    const dec = decodePrintSpec(it.specification)
-    const txt = `${it.breakdown || dec.breakdown || ''} ${it.specification || ''}`
-    ;(txt.match(/Q\d+/gi) || []).forEach(q => refs.add(q.toUpperCase()))
-  })
-  return Array.from(refs).join(', ') || order?.q_number || po.q_number || '—'
-}
-
 // ── Print helper: open new window, write HTML, trigger print ─────────────────
 
 function createPrintFrame(message = 'Preparing document…') {
@@ -1058,6 +1043,8 @@ export async function buildSampleCards(orders) {
 export async function printPurchaseOrder(po, supplier, order, taxRate, targetWindow = null, checkingCopyFilename = null) {
   // Issuance needs confirmation for the exact cloud version, including its lines.
   // A modified offline copy can still be printed as a masked draft.
+  const printedBy = po.printed_by
+  const terms = await loadPOTerms()
   let verified=false
   if(!checkingCopyFilename && po?.id && !String(po.id).startsWith('local-')){
     try{
@@ -1075,7 +1062,6 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
   if(!verified){supplier=null;order=null}
   const storedTax = decodePrintTax(po.notes)
   const effectiveTaxRate = taxRate ?? (storedTax?.enabled ? storedTax.rate : 18)
-  const qReference = verified ? extractQReference(po, order) : null
   const version = getPOVersion(po.notes)
   const company = getCompanyInfo()
   const printCount = checkingCopyFilename ? null : bumpPrintCount(po.po_number)
@@ -1103,54 +1089,133 @@ export async function printPurchaseOrder(po, supplier, order, taxRate, targetWin
       : item.unit_rate ? fmtNum(item.unit_rate,2) : '—'
     return `<tr><td>${escapeHTML(item.description || '—')}</td><td>${escapeHTML(description || '—')}${details}</td><td>${escapeHTML(item.unit || '—')}</td><td class="num">${checkingCopyFilename || item.qty ? fmtNum(item.qty,quantityDecimals) : '—'}</td><td class="num">${rate}</td><td class="num">${checkingCopyFilename || item.amount ? fmtNum(item.amount,amountDecimals) : '—'}</td></tr>`
   })
-  const emptyRows = Array.from({ length: Math.max(0, 14 - filledRows.length) }, () => `<tr class="blank-row"><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>`)
-  const pageSize = 12
+  const summaryLines = verified || checkingCopyFilename ? items : []
+  const uniqueReferences = (field, fallback) => [...new Set([
+    ...summaryLines.flatMap(item => item.demand_allocation?.[field] || []), fallback,
+  ].filter(Boolean))]
+  const jobs = uniqueReferences('jobs', order?.job_number)
+  const styles = uniqueReferences('styles', order?.style_number)
+  const factoryRefs = uniqueReferences('factoryRefs', order?.factory_ref)
+  const countLabel = (values, label) => values.length ? `${String(values.length).padStart(2, '0')} ${label}` : '—'
   const renderPage = (itemRows, pageNumber, pageCount) => `
-  <div class="po-a4-page">
+  <section class="po-a4-page">
     <style>
-      @page { size: A4; margin: 0; }
-      html,body{width:210mm;height:297mm;margin:0;padding:0;overflow:hidden;background:#fff}
-      .po-a4-page{width:210mm;height:297mm;box-sizing:border-box;padding:8mm 6mm 5mm;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;position:relative;page-break-after:avoid;overflow:hidden;display:flex;flex-direction:column}
-      .po-a4-page *{box-sizing:border-box} table{border-collapse:collapse;width:100%;table-layout:fixed} table,tr,td,th{page-break-inside:avoid;break-inside:avoid}
-      .po-head{display:grid;grid-template-columns:1fr 42mm;align-items:start;margin-bottom:2mm;flex:0 0 auto}.po-small-title{font-size:16px;font-weight:700;line-height:1;margin:0 0 2mm}.po-company{font-family:Georgia,'Times New Roman',serif;font-size:44px;font-weight:700;letter-spacing:-1.4px;line-height:.82;white-space:nowrap}.po-tagline{font-size:11.5px;font-style:italic;font-weight:700;line-height:1.15;margin-top:1mm}.po-address{font-size:9.5px;line-height:1.22;margin-top:1mm;max-width:130mm}.po-status{text-align:right;padding-top:0;display:flex;flex-direction:column;align-items:flex-end}.po-status-meta{font-size:10px;font-weight:700;line-height:1.15;text-align:right;margin-bottom:1.5mm}.po-status-version{font-size:18px;font-weight:700;line-height:1}.po-status-box{display:inline-block;background:#000;color:#fff;font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;letter-spacing:.5px;padding:2mm 3mm;min-width:35mm;text-align:center}
-      .meta-table{border:1.4px solid #000;margin-top:1mm}.meta-table td{border:1.4px solid #000;vertical-align:top;padding:3mm 3.5mm}.meta-label{font-size:12px;font-weight:700;text-transform:uppercase;line-height:1.1}.meta-value{font-size:13px;font-weight:700;margin-top:2.5mm;line-height:1.15}.supplier-cell{width:35%;height:31mm}.middle-cell{width:26%;padding:0!important}.right-cell{width:39%;padding:0!important}.mini-stack{height:31mm;display:grid;grid-template-rows:1fr 1fr}.mini-stack>div{padding:3mm 3.5mm}.mini-stack>div:first-child{border-bottom:1.4px solid #000}.right-stack{height:31mm;display:grid;grid-template-rows:repeat(4,1fr)}.right-stack>div{padding:2.2mm 3.5mm;border-bottom:1.4px solid #000;display:grid;grid-template-columns:33mm 1fr;align-items:center;column-gap:3mm}.right-stack>div:last-child{border-bottom:0}.right-stack .meta-value{margin-top:0;font-size:12px}
-      .items-table{margin-top:2.5mm;border:1.4px solid #000;flex:0 0 auto}.items-table th{background:#000;color:#fff;border:1.4px solid #000;padding:2.2mm 2.4mm;font-size:12.5px;font-weight:700;text-align:left}.items-table td{border-left:1.4px solid #000;border-right:1.4px solid #000;border-bottom:1.1px solid #000;padding:1.6mm 2.4mm;font-size:10.8px;height:8.1mm;vertical-align:middle}.items-table .blank-row td{height:8.1mm}.items-table .num{text-align:right;font-variant-numeric:tabular-nums}.items-table th:nth-child(1){width:11%}.items-table th:nth-child(2){width:47%}.items-table th:nth-child(3){width:10%}.items-table th:nth-child(4){width:9%}.items-table th:nth-child(5){width:11%}.items-table th:nth-child(6){width:12%}.total-strip td{background:#e8e8e8;font-size:13px;font-weight:700;height:8.1mm;border-top:1.4px solid #000;border-bottom:1.4px solid #000}.total-strip .total-title{text-align:left}
-      .words-tax-table{border-left:1.4px solid #000;border-right:1.4px solid #000;border-bottom:1.4px solid #000}.words-tax-table td{border:1.4px solid #000;padding:3mm 2.5mm;vertical-align:top;font-size:11px}.words-box{width:63%;height:18mm}.tax-box{width:37%;padding:0!important}.tax-row{display:grid;grid-template-columns:1fr 28mm;border-bottom:1.4px solid #000;min-height:9mm;align-items:center}.tax-row:last-child{border-bottom:0}.tax-row div{padding:2mm 2.5mm;font-size:13px;font-weight:700}.tax-row div:last-child{text-align:right;font-variant-numeric:tabular-nums}.terms-block{margin-top:3mm;min-height:24mm;flex:0 0 auto}.terms-title{font-size:13px;font-weight:700;margin-bottom:1.5mm;text-transform:uppercase}.terms-text{font-size:10.8px;line-height:1.2;text-align:justify}.sig-table{margin-top:auto;border:1.4px solid #000;height:24mm;flex:0 0 auto}.sig-table td{border:1.4px solid #000;width:25%;padding:0;position:relative;vertical-align:top}.signature-box{height:24mm;position:relative;vertical-align:top;text-align:center}.sig-label{position:absolute;bottom:2mm;left:0;right:0;text-align:center;font-size:11px;font-weight:700;color:#000;letter-spacing:0;text-transform:uppercase}.footer-lock{display:none}
+      @page { size:A4; margin:0 }
+      html,body { width:210mm; margin:0; padding:0; background:#fff; line-height:normal }
+      .po-a4-page { width:210mm; height:297mm; box-sizing:border-box; padding:8mm 6mm;
+        color:#000; background:#fff; font:11px Arial,Helvetica,sans-serif; display:flex; flex-direction:column;
+        break-after:page; print-color-adjust:exact; -webkit-print-color-adjust:exact }
+      .po-a4-page:last-child { break-after:auto }
+      .po-a4-page * { margin:0; box-sizing:border-box; overflow-wrap:anywhere }
+      .po-a4-page > * { flex-shrink:0 }
+      .po-a4-page table { width:100%; border-collapse:collapse; table-layout:fixed }
+      .po-head { display:grid; grid-template-columns:minmax(0,1fr) 54mm; gap:3mm; margin-bottom:2mm }
+      .po-small-title { font-size:16px; font-weight:bold }
+      .po-company { font:bold 37px/1 Georgia,serif; letter-spacing:-1px }
+      .po-tagline { font-style:italic; font-weight:bold }
+      .po-address { font-size:9px; line-height:1.2; margin-top:1mm }
+      .po-status { text-align:right; font-weight:bold }
+      .po-status-box { display:inline-block; margin:1mm 0 3mm; background:#000; color:#fff; padding:1mm 4mm; font-size:17px }
+      .po-number { font-size:25px; line-height:1 }
+      .meta-table td { border:1px solid #000; padding:2mm 3mm; vertical-align:top }
+      .meta-table b { display:block; margin-bottom:1mm }
+      .meta-table .po-dates { padding:0 }
+      .po-dates div { display:grid; grid-template-columns:1.3fr 1fr; gap:1mm; padding:1.5mm 2mm; font-weight:bold }
+      .po-dates div + div { border-top:1px solid #000 }
+      .items-table { margin-top:2.5mm; border:1px solid #000 }
+      .items-table th { background:#000; color:#fff; text-align:left; padding:2mm; letter-spacing:.5px }
+      .items-table td { border-left:1px solid #777; border-bottom:.5px solid #aaa; padding:1mm 2mm; line-height:1.2 }
+      .items-table .num { text-align:right; font-variant-numeric:tabular-nums }
+      .items-table th:nth-child(1) { width:11% }
+      .items-table th:nth-child(2) { width:48% }
+      .items-table th:nth-child(3), .items-table th:nth-child(4) { width:9% }
+      .items-table th:nth-child(5) { width:11% }
+      .items-table th:nth-child(6) { width:12% }
+      .total-strip td { background:#e8e8e8; font-weight:bold; border-top:1px solid #000; padding:1.8mm 2mm }
+      .words-tax-table { margin-top:2mm }
+      .words-tax-table td { border:1px solid #000; padding:2mm; vertical-align:top }
+      .words-box { width:63% }
+      .words-tax-table .tax-box { padding:0 }
+      .tax-row { display:flex; justify-content:space-between; gap:2mm; padding:2mm; font-weight:bold }
+      .tax-row + .tax-row { border-top:1px solid #000 }
+      .po-footer { margin-top:auto; padding-top:3mm }
+      .terms-title { font-weight:bold; text-transform:uppercase; margin-bottom:1mm }
+      .terms-text { white-space:pre-wrap; font-size:10px; line-height:1.2 }
+      .sig-table { margin-top:2mm }
+      .sig-table td { border:1px solid #000; height:20mm; padding:2mm 1mm; vertical-align:bottom;
+        text-align:center; font-size:10px; font-weight:bold; text-transform:uppercase }
     </style>
-    <div class="po-head"><div><div class="po-small-title">PURCHASE ORDER</div><div class="po-company">${escapeHTML(company.name)}</div><div class="po-tagline">${escapeHTML(company.tagline)}</div><div class="po-address">${companyAddressLine(company)}</div></div><div class="po-status">${checkingCopyFilename
-      ? `<div class="po-status-meta">FOR CHECKING · ${pageNumber} / ${pageCount}</div>`
-      : `<div class="po-status-meta"><div class="po-status-version">V${version}</div><div>Print Count: ${String(printCount).padStart(2,'0')}</div></div>`}<div class="po-status-box">${escapeHTML(statusText)}</div></div></div>
-    <table class="meta-table"><tr><td class="supplier-cell"><div class="meta-label">Supplier Information</div><div class="meta-value">${escapeHTML(printableSupplierName)}</div></td><td class="middle-cell"><div class="mini-stack"><div><div class="meta-label">Job Number</div><div class="meta-value">${escapeHTML(order?.job_number || '—')}</div></div><div><div class="meta-label">Style &amp; Queue Number</div><div class="meta-value">${escapeHTML([order?.style_number, qReference].filter(Boolean).join(' / ') || '—')}</div></div></div></td><td class="right-cell"><div class="right-stack"><div><div class="meta-label">PO Number</div><div class="meta-value">${escapeHTML(po.po_number || '—')}</div></div><div><div class="meta-label">Issue Date</div><div class="meta-value">${fmtDate(po.po_date)}</div></div><div><div class="meta-label">Delivery Date</div><div class="meta-value">${fmtDate(po.delivery_date)}</div></div><div><div class="meta-label">Payment Terms</div><div class="meta-value">${escapeHTML(po.payment_terms || '—')}</div></div></div></td></tr></table>
+    <header class="po-head">
+      <div><div class="po-small-title">PURCHASE ORDER</div><div class="po-company">${escapeHTML(company.name)}</div>
+        <div class="po-tagline">${escapeHTML(company.tagline)}</div>
+        <div class="po-address">${companyAddressLine(company)}${printedBy ? ` | User: ${escapeHTML(printedBy)}` : ''}</div>
+      </div>
+      <div class="po-status">
+        <div>${checkingCopyFilename ? 'FOR CHECKING' : `Print Count: ${String(printCount).padStart(2,'0')}`}
+          ${checkingCopyFilename || pageCount > 1 ? ` · ${pageNumber} / ${pageCount}` : ''}</div>
+        <div class="po-status-box">V${version} - ${escapeHTML(statusText)}</div>
+        <div>PO NUMBER</div><div class="po-number">${escapeHTML(po.po_number || '—')}</div>
+      </div>
+    </header>
+    <table class="meta-table"><colgroup><col style="width:35%"><col style="width:36%"><col style="width:29%"></colgroup><tbody><tr>
+      <td><b>SUPPLIER INFORMATION</b>${escapeHTML(printableSupplierName)}</td>
+      <td><b>JOB # / STYLE # / FACTORY REF #</b>${escapeHTML(jobs.length > 1 ? countLabel(jobs, 'Jobs') : jobs[0] || '—')}
+        <br>${countLabel(styles, styles.length === 1 ? 'Style' : 'Styles')}<br>${countLabel(factoryRefs, factoryRefs.length === 1 ? 'Factory Ref' : 'Factory Refs')}</td>
+      <td class="po-dates"><div><span>ISSUE DATE</span><span>${fmtDate(po.po_date)}</span></div>
+        <div><span>DELIVERY DATE</span><span>${fmtDate(po.delivery_date)}</span></div>
+        <div><span>PAYMENT TERMS</span><span>${escapeHTML(po.payment_terms || '—')}</span></div></td>
+    </tr></tbody></table>
     <table class="items-table"><thead><tr><th>ITEMS</th><th>DESCRIPTION</th><th>UOM</th><th>QTY</th><th>RATE</th><th>AMOUNT</th></tr></thead><tbody>${itemRows}${pageNumber === pageCount ? `<tr class="total-strip"><td colspan="3" class="total-title">TOTAL</td><td class="num">${fmtNum(totalQty,0)}</td><td></td><td class="num">${fmtNum(subtotal,amountDecimals)}</td></tr>` : ''}</tbody></table>
     ${pageNumber === pageCount ? `<table class="words-tax-table"><tr><td class="words-box"><b>AMOUNT IN WORDS:</b><br/>${escapeHTML(amountInWords(grand, currency))}</td><td class="tax-box"><div class="tax-row"><div>ADD SALES TAX (${fmtNum(effectiveTaxRate,0)}%)</div><div>${fmtNum(tax,amountDecimals)}</div></div><div class="tax-row"><div>TOTAL AMOUNT (${escapeHTML(currency)})</div><div>${fmtNum(grand,amountDecimals)}</div></div></td></tr></table>
-    <div class="terms-block"><div class="terms-title">Terms &amp; Conditions</div><div class="terms-text">${escapeHTML(getPOTerms())}</div></div>
-    <table class="sig-table"><tr><td class="signature-box"><div class="sig-label">Supplier Receiving</div></td><td class="signature-box"><div class="sig-label">Merchandiser</div></td><td class="signature-box"><div class="sig-label">Store Incharge</div></td><td class="signature-box"><div class="sig-label">CEO / Director</div></td></tr></table>` : ''}
-  </div>`
-  if (!checkingCopyFilename) {
-    printHTML(renderPage([...filledRows, ...emptyRows].join(''), 1, 1), targetWindow, po.po_number || 'Purchase Order')
-    return
-  }
-
-  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
+    <footer class="po-footer"><div class="terms-block"><div class="terms-title">Terms &amp; Conditions</div><div class="terms-text">${escapeHTML(terms)}</div></div>
+    <table class="sig-table"><tr><td class="signature-box"><div class="sig-label">Supplier Receiving</div></td><td class="signature-box"><div class="sig-label">Merchandiser</div></td><td class="signature-box"><div class="sig-label">Store Incharge</div></td><td class="signature-box"><div class="sig-label">CEO / Director</div></td></tr></table></footer>` : ''}
+  </section>`
   const frame = createPrintFrame()
   if (!frame) throw new Error('Could not prepare the PO layout')
+  let handedToPrint = false
   try {
     Object.assign(frame.__printFrame.style, { left:'-10000px', width:'210mm', height:'297mm' })
+    const body = frame.document.body
+    body.removeAttribute('style')
+    const render = (rows, page, count) => renderPage(rows.join(''), page, count)
+    const fits = (rows, finalPage) => {
+      body.innerHTML = render(rows, 1, finalPage ? 1 : 2)
+      const page = body.firstElementChild
+      return page.scrollHeight <= page.clientHeight
+    }
+    const pages = []
+    let start = 0
+    while (!fits(filledRows.slice(start), true)) {
+      let low = 0
+      let high = filledRows.length - start
+      while (low < high) {
+        const mid = Math.ceil((low + high) / 2)
+        if (fits(filledRows.slice(start, start + mid), false)) low = mid
+        else high = mid - 1
+      }
+      if (!low) throw new Error('The PO terms or a line item exceeds the printable page height.')
+      pages.push(filledRows.slice(start, start + low))
+      start += low
+    }
+    pages.push(filledRows.slice(start))
+    if (!checkingCopyFilename) {
+      printHTML(pages.map((rows, index) => render(rows, index + 1, pages.length)).join(''),
+        targetWindow || frame, po.po_number || 'Purchase Order')
+      handedToPrint = !targetWindow
+      return
+    }
+
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
     const pdf = new jsPDF({ unit:'mm', format:'a4', compress:true })
-    const pageCount = Math.max(1, Math.ceil(filledRows.length / pageSize))
-    for (let index = 0; index < pageCount; index++) {
-      const rows = filledRows.slice(index * pageSize, (index + 1) * pageSize)
-      frame.document.body.innerHTML = renderPage([...rows, ...emptyRows.slice(0, pageSize - rows.length)].join(''), index + 1, pageCount)
-      const page = frame.document.querySelector('.po-a4-page')
-      Object.assign(page.style, { height:'auto', minHeight:'297mm', overflow:'visible' })
-      const canvas = await html2canvas(page, { scale:2, backgroundColor:'#fff' })
-      const scale = Math.min(210 / canvas.width, 297 / canvas.height)
+    for (const [index, rows] of pages.entries()) {
+      body.innerHTML = render(rows, index + 1, pages.length)
+      const canvas = await html2canvas(body.firstElementChild, { scale:2, backgroundColor:'#fff' })
       if (index > 0) pdf.addPage()
-      pdf.addImage(canvas, 'PNG', 0, 0, canvas.width * scale, canvas.height * scale)
+      pdf.addImage(canvas, 'PNG', 0, 0, 210, 297)
     }
     pdf.save(`${checkingCopyFilename}.pdf`)
   } finally {
-    cleanupPrintTarget(frame)
+    if (!handedToPrint) cleanupPrintTarget(frame)
   }
 }
 
