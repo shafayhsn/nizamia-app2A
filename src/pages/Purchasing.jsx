@@ -1,6 +1,6 @@
 import { estimatedPaymentDate, purchaseOrderComments } from '../lib/poDetails'
 import { createPortal } from 'react-dom'
-import { buildSupplierLines, checkingCopyLines, packFor, purchasedQuantities } from '../lib/supplierLines'
+import { buildSupplierLines, checkingCopyLines, hardMergeSupplierLines, packFor, purchasedQuantities } from '../lib/supplierLines'
 import { configuredCell, configuredMapQuantity, configuredQuantity } from '../lib/bomUsage.js'
 import StoreReceipts, { PoReceivingDialog, RegisterSearch } from '../components/purchasing/StoreReceiving'
 import {reviewRequest,readPurchasingRegister,purchasingLookup} from '../lib/poReview'
@@ -241,6 +241,9 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
     : [{ _id:'1', description:'', specification:'', breakdown:'', qty:'', unit:'yards', unit_rate:'', amount:'', source_type:null, source_id:null }]
   )
   const [mergeLines,setMergeLines] = useState(false)
+  const [selectedLines, setSelectedLines] = useState(new Set())
+  const [mergePreview, setMergePreview] = useState(null)
+  const [mergeHistory, setMergeHistory] = useState([])
   const [saving, setSaving] = useState(false)
   const [localSuppliers, setLocalSuppliers] = useState(suppliers || [])
   useEffect(()=>{if(suppliers?.length)setLocalSuppliers(previous=>[...new Map([...previous,...suppliers].map(row=>[row.id,row])).values()])},[suppliers])
@@ -284,6 +287,46 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
     }
     return n
   })
+  const selectedItems = items.filter(item => selectedLines.has(item._id))
+  const lastMerge = mergeHistory.at(-1)
+  const openMergePreview = () => {
+    setError(null)
+    const first = selectedItems[0]
+    const rates = new Set(selectedItems.map(item => item.unit_rate === '' || item.unit_rate == null ? '' : String(Number(item.unit_rate))))
+    const fields = {
+      description:first.description, specification:first.specification || '',
+      breakdown:[...new Set(selectedItems.map(item => item.checkingCopyBatchName && item.breakdown === item.checkingCopyOriginalBreakdown
+        ? item.checkingCopyBatchName : item.breakdown).filter(Boolean))].join(' / '),
+      unit_rate:rates.size === 1 ? [...rates][0] : '',
+    }
+    try {
+      const merged = hardMergeSupplierLines(selectedItems, fields)
+      setMergePreview({fields, qty:merged.qty, unit:merged.unit, requiresRate:rates.size > 1})
+    } catch (error) {
+      setError(error.message)
+    }
+  }
+  const confirmMerge = () => {
+    const merged = {...hardMergeSupplierLines(selectedItems, mergePreview.fields), _id:crypto.randomUUID()}
+    const originals = items.flatMap((row,index) => selectedLines.has(row._id) ? [{row,index}] : [])
+    const remaining = items.filter(row => !selectedLines.has(row._id))
+    remaining.splice(originals[0].index, 0, merged)
+    setItems(remaining)
+    setMergeHistory(history => [...history, {id:merged._id, originals}])
+    setSelectedLines(new Set())
+    setMergePreview(null)
+  }
+  const undoMerge = () => {
+    const restored = items.filter(row => row._id !== lastMerge.id)
+    for (const {row,index} of lastMerge.originals) restored.splice(index, 0, row)
+    setItems(restored)
+    setMergeHistory(history => history.slice(0,-1))
+    setSelectedLines(new Set())
+    setError(null)
+  }
+  const changeMergeField = key => event => {
+    setMergePreview(previous => ({...previous, fields:{...previous.fields, [key]:event.target.value}}))
+  }
   const paymentDate = estimatedPaymentDate(form.delivery_date, form.payment_terms)
   const selectedOrder = orders.find(o => o.id === form.order_id)
   const qReference = extractModalQReference(items, selectedOrder)
@@ -425,6 +468,8 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
               const original = hydratePOItems(buildSupplierLines(prefillItems,mergeLines))
               if (JSON.stringify(items) !== JSON.stringify(original) &&
                   !window.confirm('Changing the merge setting resets line edits. Continue?')) return
+              setSelectedLines(new Set())
+              setMergeHistory([])
               setMergeLines(event.target.checked)
               setItems(hydratePOItems(buildSupplierLines(prefillItems,event.target.checked)))
             }}/> Merge similar PO lines
@@ -435,6 +480,13 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
           </div>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
             <strong style={{ fontSize:12 }}>Line Items</strong>
+            <div style={{display:'flex',alignItems:'flex-start',justifyContent:'flex-end',flexWrap:'wrap',gap:8}}>
+              {!locked && <>
+                <button type="button" className="btn btn-secondary btn-sm" disabled={selectedItems.length < 2}
+                  onClick={openMergePreview}>Hard Merge</button>
+                <button type="button" className="btn btn-secondary btn-sm" disabled={!lastMerge || !items.some(row=>row._id===lastMerge.id)}
+                  onClick={undoMerge}>Undo Merge</button>
+              </>}
             <details style={{ textAlign:'right' }}>
               <summary className="btn btn-secondary btn-sm" style={{ cursor:'pointer' }}>Configure Table Columns</summary>
               <div style={{ display:'flex', flexWrap:'wrap', gap:10, padding:'8px 0', fontSize:12 }}>
@@ -444,13 +496,22 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
                 </label>)}
               </div>
             </details>
+            </div>
           </div>
           <table style={{ width:'100%', borderCollapse:'collapse', marginBottom:10 }}>
-            <thead><tr>{['Description','Specification','Break-down','Qty','Unit','Unit Rate','Amount',''].filter(h=>!hiddenColumns[h]).map(h=>(
+            <thead><tr>{!locked && <th aria-label="Select lines" style={{width:28}} />}{['Description','Specification','Break-down','Qty','Unit','Unit Rate','Amount',''].filter(h=>!hiddenColumns[h]).map(h=>(
               <th key={h} style={{ fontSize:10, fontWeight:600, color:'#9ca3af', padding:'0 6px 8px', textAlign:'left', textTransform:'uppercase', letterSpacing:'0.5px', whiteSpace:'nowrap' }}>{h}</th>
             ))}</tr></thead>
             <tbody>{items.map((item,idx)=>(
               <tr key={item._id||idx}>
+                {!locked && <td style={{width:28,textAlign:'center'}}><input type="checkbox"
+                  aria-label={`Select PO line ${idx+1}`} checked={selectedLines.has(item._id)}
+                  onChange={event=>setSelectedLines(previous=>{
+                    const next = new Set(previous)
+                    if (event.target.checked) next.add(item._id)
+                    else next.delete(item._id)
+                    return next
+                  })} /></td>}
                 {!hiddenColumns['Description'] && <td style={{ padding:'3px 4px', minWidth:160 }}><input style={{ ...mkInp(locked), height:28 }} value={item.description} onChange={e=>updItem(idx,'description',e.target.value)} placeholder="Item description" disabled={locked} /></td>}
                 {!hiddenColumns['Specification'] && <td style={{ padding:'3px 4px', minWidth:130 }}><input style={{ ...mkInp(locked), height:28 }} value={item.specification||''} onChange={e=>updItem(idx,'specification',e.target.value)} placeholder="Spec" disabled={locked} /></td>}
                 {!hiddenColumns['Break-down'] && <td style={{ padding:'3px 4px', width:110 }}><input style={{ ...mkInp(locked), height:28 }} value={item.breakdown||''} onChange={e=>updItem(idx,'breakdown',e.target.value)} placeholder="Size 4 / Q1" disabled={locked} /></td>}
@@ -478,6 +539,25 @@ function POModal({ po, orders, suppliers, prefillItems, onClose, onSaved }) {
           </div>
         </div>
       </div>
+      {mergePreview && <div role="dialog" aria-modal="true" aria-labelledby="po-hard-merge-title"
+        style={{position:'fixed',inset:0,zIndex:650,background:'rgba(0,0,0,.38)',display:'grid',placeItems:'center'}}>
+        <div style={{width:480,maxWidth:'92vw',padding:20,background:'#fff',borderRadius:12,display:'grid',gap:12}}>
+          <strong id="po-hard-merge-title">Merge {selectedItems.length} selected lines</strong>
+          <label style={lbl}>Description<input style={mkInp(false)} value={mergePreview.fields.description} onChange={changeMergeField('description')} /></label>
+          <label style={lbl}>Specification<input style={mkInp(false)} value={mergePreview.fields.specification} onChange={changeMergeField('specification')} /></label>
+          <label style={lbl}>Breakdown<input style={mkInp(false)} value={mergePreview.fields.breakdown} onChange={changeMergeField('breakdown')} /></label>
+          <label style={lbl}>{mergePreview.requiresRate ? 'Unit rate (required because the rates differ)' : 'Unit rate'}
+            <input type="number" min="0" step="any" style={mkInp(false)} value={mergePreview.fields.unit_rate} onChange={changeMergeField('unit_rate')} />
+          </label>
+          <div>Qty {mergePreview.qty} {mergePreview.unit} · Amount {mergePreview.fields.unit_rate === '' ? '—' : `${form.currency} ${fmtNum(mergePreview.qty * Number(mergePreview.fields.unit_rate),2)}`}</div>
+          <div style={{display:'flex',justifyContent:'flex-end',gap:8}}>
+            <button type="button" className="btn btn-secondary" onClick={()=>setMergePreview(null)}>Cancel</button>
+            <button type="button" className="btn btn-primary" onClick={confirmMerge}
+              disabled={!mergePreview.fields.description.trim() || (mergePreview.requiresRate && mergePreview.fields.unit_rate === '') ||
+                !Number.isFinite(Number(mergePreview.fields.unit_rate)) || Number(mergePreview.fields.unit_rate) < 0}>Confirm merge</button>
+          </div>
+        </div>
+      </div>}
       {quickSupplier && <div style={{position:'fixed',inset:0,zIndex:650,background:'rgba(0,0,0,.38)',display:'flex',alignItems:'center',justifyContent:'center'}}><div style={{width:500,maxWidth:'92vw',background:'#fff',borderRadius:12,boxShadow:'0 24px 70px rgba(0,0,0,.28)'}}><div style={{padding:'16px 20px',borderBottom:'1px solid #eee',display:'flex',alignItems:'center'}}><b>New Supplier</b><div style={{flex:1}}/><button className="btn btn-ghost" onClick={()=>setQuickSupplier(false)}><X size={15}/></button></div><div style={{padding:20,display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><div style={{gridColumn:'1/-1'}}><label style={lbl}>Supplier Name *</label><input style={mkInp(false)} autoFocus value={newSupplier.name||''} onChange={e=>setNewSupplier(f=>({...f,name:e.target.value}))}/></div><div><label style={lbl}>Category</label><select style={mkSel(false)} value={newSupplier.category||'Fabric'} onChange={e=>setNewSupplier(f=>({...f,category:e.target.value}))}>{['Fabric','Trims','Washing','Embellishment','CMT','Contractors','Testing'].map(x=><option key={x}>{x}</option>)}</select></div><div><label style={lbl}>Contact Person</label><input style={mkInp(false)} value={newSupplier.contact_person||''} onChange={e=>setNewSupplier(f=>({...f,contact_person:e.target.value}))}/></div><div><label style={lbl}>Phone</label><input style={mkInp(false)} value={newSupplier.phone||''} onChange={e=>setNewSupplier(f=>({...f,phone:e.target.value}))}/></div><div><label style={lbl}>Email</label><input style={mkInp(false)} value={newSupplier.email||''} onChange={e=>setNewSupplier(f=>({...f,email:e.target.value}))}/></div><div><label style={lbl}>Lead Time (days)</label><input style={mkInp(false)} type="number" value={newSupplier.lead_time_days||''} onChange={e=>setNewSupplier(f=>({...f,lead_time_days:e.target.value}))}/></div></div><div style={{padding:'12px 20px',borderTop:'1px solid #eee',display:'flex',justifyContent:'flex-end',gap:8}}><button className="btn btn-secondary" onClick={()=>setQuickSupplier(false)}>Cancel</button><button className="btn btn-primary" disabled={quickSupplierSaving||!newSupplier.name?.trim()} onClick={saveQuickSupplier}>{quickSupplierSaving?'Saving…':'Save & Select'}</button></div></div></div>}
       {showPasskey&&<PasskeyModal onUnlock={()=>{setLocked(false);setShowPasskey(false)}} onClose={()=>setShowPasskey(false)}/>}
     </div>
@@ -1192,7 +1272,7 @@ function MaterialDemandTab({ suppliers }) {
         return Object.entries(ud).map(([group, cons]) => {
           const g = (pd.sizeGroups || []).find(x => normText(x.name) === normText(group))
           const req = usageNumeric(cons) * (parseFloat(g?.qty) || 0) * factor
-          return req > 0 ? { breakdown: group, req_qty: req, unit } : null
+          return req > 0 ? { breakdown: group, fabricSizeGroup: r.cat === 'Fabric' ? group : undefined, req_qty: req, unit } : null
         }).filter(Boolean)
       }
       if (rule === 'By Batch' && Array.isArray(ud.__batches)) {
@@ -1328,7 +1408,7 @@ function MaterialDemandTab({ suppliers }) {
         ;(r.queue_breakdown || []).forEach(q => {
           if (selected.has(qKey(r.id, queueRef(q)))) {
             const usageLines = r.usage_breakdown || []
-            if (usageLines.length) usageLines.forEach((u, ix) => lines.push({ _id:`${r.id}_${queueRef(q)}_${ix}`, description:r.name, specification:r.specification, breakdown:`${u.breakdown}${q.q_number ? ' [' + q.q_number + ']' : ''}`, checkingCopyBatchName:u.batchName, qty:u.req_qty||'', unit:u.unit||r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:q.q_number || q.label || '' }))
+            if (usageLines.length) usageLines.forEach((u, ix) => lines.push({ _id:`${r.id}_${queueRef(q)}_${ix}`, description:r.name, specification:r.specification, breakdown:`${u.breakdown}${q.q_number ? ' [' + q.q_number + ']' : ''}`, checkingCopyBatchName:u.batchName, fabricSizeGroup:u.fabricSizeGroup, qty:u.req_qty||'', unit:u.unit||r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:q.q_number || q.label || '' }))
             else lines.push(buildQueueLine(r, q))
           }
         })
@@ -1337,7 +1417,7 @@ function MaterialDemandTab({ suppliers }) {
       if (selected.has(rowKey(r.id))) {
         
         const usageLines = r.usage_breakdown || []
-        if (usageLines.length) usageLines.forEach((u, ix) => lines.push({ _id:`${r.id}_${ix}`, description:r.name, specification:r.specification, breakdown:u.breakdown, checkingCopyBatchName:u.batchName, qty:u.req_qty||'', unit:u.unit||r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:'' }))
+        if (usageLines.length) usageLines.forEach((u, ix) => lines.push({ _id:`${r.id}_${ix}`, description:r.name, specification:r.specification, breakdown:u.breakdown, checkingCopyBatchName:u.batchName, fabricSizeGroup:u.fabricSizeGroup, qty:u.req_qty||'', unit:u.unit||r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:'' }))
         else lines.push({ _id:r.id, description:r.name, specification:r.specification, breakdown:'', qty:r.req_qty||'', unit:r.unit||'pcs', unit_rate:'', amount:'', source_type:r.source_type, source_id:r.source_id, order_id:r.order_id, q_number:'' })
       }
     }
