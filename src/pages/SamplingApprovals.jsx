@@ -1,3 +1,4 @@
+import { parseCommentPages, readCommentPages, withCommentPdf } from '../lib/commentPdf'
 import { useLocation } from 'react-router-dom'
 import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
@@ -225,6 +226,23 @@ const latestEditableComment = (sample, records) => {
   return local.at(-1) || legacySampleComments(sample).at(-1) || null
 }
 
+async function readCommentWorkbook(file) {
+  const xlsx = await import('xlsx')
+  const workbook = xlsx.read(await file.arrayBuffer(), { type:'array', cellHTML:false })
+  return workbook.SheetNames.map(name=>{
+    const rows = new Map()
+    for (const [address, cell] of Object.entries(workbook.Sheets[name] || {})) {
+      if (address.startsWith('!') || typeof cell.v !== 'string' || !['s','str'].includes(cell.t) || !cell.v.trim()) continue
+      const {r, c} = xlsx.utils.decode_cell(address)
+      if (!rows.has(r)) rows.set(r, [])
+      rows.get(r).push([c, cell.v])
+    }
+    const text = [...rows].sort(([a],[b])=>a-b)
+      .map(([, cells])=>cells.sort(([a],[b])=>a-b).map(([, value])=>value).join('\t')).join('\n')
+    return {name, text}
+  })
+}
+
 function CommentModal({ sample, existingComment, onClose, onSaved }) {
   const { Dialogs } = useAppDialogs()
   const [type, setType] = useState(existingComment?.comment_type || 'Revision')
@@ -233,13 +251,80 @@ function CommentModal({ sample, existingComment, onClose, onSaved }) {
   const [text, setText] = useState(existingComment?.comment_text || '')
   const [reasons, setReasons] = useState(existingComment?.meta?.revision_reasons || [])
   const [reasonsOpen, setReasonsOpen] = useState(false)
+  const fileInput = useRef(null)
+  const [importSheets, setImportSheets] = useState([])
+  const [selectedSheet, setSelectedSheet] = useState('')
+  const [pdfImport, setPdfImport] = useState(null)
+  const [pageSelection, setPageSelection] = useState('')
+  const [readingFile, setReadingFile] = useState(false)
+  const [importError, setImportError] = useState('')
+  const importedText = importSheets.find(sheet=>sheet.name === selectedSheet)?.text || ''
+
+  const applyImportedText = (value, append) => {
+    setText(current=>append && current.trim() ? `${current}\n\n${value}` : value)
+    setImportSheets([])
+    setSelectedSheet('')
+    setPdfImport(null)
+    setPageSelection('')
+  }
+
+  const loadComments = async event => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setReadingFile(true)
+    setImportSheets([])
+    setSelectedSheet('')
+    setImportError('')
+    setPdfImport(null)
+    setPageSelection('')
+    try {
+      if (/\.pdf$/i.test(file.name)) {
+        const result = await withCommentPdf(file, async pdf => pdf.numPages === 1 && !text.trim()
+          ? await readCommentPages(pdf, [1]) : {pageCount:pdf.numPages})
+        if (result.text) applyImportedText(result.text, false)
+        else {
+          setPdfImport({file, pageCount:result.pageCount})
+          if (result.pageCount === 1) setPageSelection('1')
+        }
+        return
+      }
+      if (!/\.xlsx?$/i.test(file.name)) throw new Error('Choose a PDF or Excel .xlsx or .xls file.')
+      const sheets = await readCommentWorkbook(file)
+      if (!sheets.some(sheet=>sheet.text)) throw new Error('No text was found in this workbook.')
+      if (sheets.length === 1 && !text.trim()) {
+        applyImportedText(sheets[0].text, false)
+      } else {
+        setImportSheets(sheets)
+        setSelectedSheet(sheets.length === 1 ? sheets[0].name : '')
+      }
+    } catch (error) {
+      setImportError(error.message || 'Could not read the file.')
+    } finally {
+      setReadingFile(false)
+    }
+  }
+  const importSelectedPages = async append => {
+    setImportError('')
+    setReadingFile(true)
+    try {
+      const pages = parseCommentPages(pageSelection, pdfImport.pageCount)
+      const result = await withCommentPdf(pdfImport.file, pdf=>readCommentPages(pdf, pages))
+      applyImportedText(result.text, append)
+      if (result.emptyPages.length) setImportError(`No selectable text on page(s) ${result.emptyPages.join(', ')}. Those pages were skipped.`)
+    } catch (error) {
+      setImportError(error.message || 'Could not read the PDF pages.')
+    } finally {
+      setReadingFile(false)
+    }
+  }
   const { minimized, setMinimized } = useSamplingWindow(`sampling:comment:${sample.id}`, `Sample Comment · ${sample.sample_number}`, () => { if (!text.trim() || window.confirm('Discard unsaved comment?')) onClose() })
-  const valid = type && date && by.trim() && text.trim()
+  const valid = type && date && by.trim() && text.trim() && !readingFile && !importSheets.length && !pdfImport
   return (
     <div style={{ position:'fixed', inset:0, background:minimized?'transparent':'rgba(0,0,0,.35)', display:minimized?'none':'flex', alignItems:'center', justifyContent:'center', zIndex:400 }}>
-      <div style={{ ...card, width:560, padding:18 }}>
+      <div style={{ ...card, width:560, maxWidth:'calc(100vw - 24px)', maxHeight:'calc(100dvh - 32px)', overflowY:'auto', padding:18 }}>
         <div style={{display:'flex',alignItems:'center',marginBottom:4}}><div style={{ fontSize:16, fontWeight:700 }}>{existingComment?'Edit Comment':'Record Comment'}</div><SamplingWindowControls onMinimize={()=>setMinimized(true)} onClose={()=>{if (!text.trim() || window.confirm('Discard unsaved comment?')) onClose()}}/></div>
-        <div style={{ fontSize:12, color:'#6b7280', marginBottom:14 }}>{sample.sample_number} · Copy-paste buyer comments here</div>
+        <div style={{ fontSize:12, color:'#6b7280', marginBottom:14 }}>{sample.sample_number} · Paste comments or import from PDF or Excel</div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:10 }}>
           <select style={inp} value={type} onChange={e=>setType(e.target.value)}>{COMMENT_TYPES.map(x => <option key={x}>{x}</option>)}</select>
           <input style={inp} type="date" value={date} onChange={e=>setDate(e.target.value)} />
@@ -258,7 +343,37 @@ function CommentModal({ sample, existingComment, onClose, onSaved }) {
           </div>}
         </div>
         <textarea style={{ ...inp, height:140, padding:'10px' }} placeholder="Paste comments here..." value={text} onChange={e=>setText(e.target.value)} />
-        <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:12 }}>
+        {importSheets.length > 0 && <div style={{marginTop:8,display:'grid',gap:8}}>
+          {importSheets.length > 1 && <label style={{fontSize:12}}>Excel sheet
+            <select style={{...inp,width:'100%'}} value={selectedSheet} onChange={event=>setSelectedSheet(event.target.value)}>
+              <option value="">Choose a sheet</option>
+              {importSheets.map(sheet=><option key={sheet.name} value={sheet.name}>{sheet.name}</option>)}
+            </select>
+          </label>}
+          {selectedSheet && !importedText && <div role="status" style={{fontSize:12}}>This sheet has no text to import.</div>}
+          <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+            <button type="button" style={btn} disabled={!importedText} onClick={()=>applyImportedText(importedText, true)}>Insert text</button>
+            {text.trim() && <button type="button" style={btn} disabled={!importedText} onClick={()=>applyImportedText(importedText, false)}>Replace comment text</button>}
+            <button type="button" style={btn} onClick={()=>{setImportSheets([]);setSelectedSheet('')}}>Cancel import</button>
+          </div>
+        </div>}
+        {pdfImport && <div style={{marginTop:8,display:'grid',gap:8}}>
+          <label style={{fontSize:12}}>PDF pages (1–{pdfImport.pageCount})
+            <input style={{...inp,width:'100%'}} value={pageSelection} disabled={readingFile}
+              placeholder="e.g. 1, 3–4" onChange={event=>setPageSelection(event.target.value)} />
+          </label>
+          <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+            <button type="button" style={btn} disabled={readingFile || !pageSelection.trim()} onClick={()=>importSelectedPages(true)}>Insert text</button>
+            {text.trim() && <button type="button" style={btn} disabled={readingFile || !pageSelection.trim()} onClick={()=>importSelectedPages(false)}>Replace comment text</button>}
+            <button type="button" style={btn} disabled={readingFile} onClick={()=>{setPdfImport(null);setImportError('')}}>Cancel import</button>
+          </div>
+        </div>}
+        {importError && <div role="alert" style={{color:'#b91c1c',fontSize:12,marginTop:8}}>{importError}</div>}
+        <input ref={fileInput} type="file" accept=".xlsx,.xls,.pdf" hidden onChange={loadComments} />
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:12 }}>
+          <button type="button" style={{...btn,marginRight:'auto'}} disabled={readingFile} onClick={()=>fileInput.current?.click()}>
+            {readingFile ? 'Reading file…' : 'Upload Comment'}
+          </button>
           <button style={btn} onClick={onClose}>Cancel</button>
           <button style={{ ...btn, background:valid?'#111827':'#e5e7eb', color:valid?'#fff':'#9ca3af', borderColor:valid?'#111827':'#e5e7eb' }} disabled={!valid} onClick={() => onSaved({ type, date, by, text, reasons })}>{existingComment?'Update Comment':'Save Comment'}</button>
         </div>
