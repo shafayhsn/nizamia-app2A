@@ -343,13 +343,12 @@ function ShipmentModal({ selectedQueues, shipments, onClose, onDone, draft }) {
   }
 
   async function save(status) {
-    if (!header.shipment_no || !header.shipment_date) { alert('Shipment No and Shipment Date are required.'); return }
-    if (!isEdit && shipments.some(s=>String(s.shipment_no||'').trim().toLowerCase()===header.shipment_no.trim().toLowerCase())) { alert('This shipment number already exists.'); return }
+    if (!header.shipment_date) { alert('Shipment Date is required.'); return }
     if (invalidClose) { alert('Reason is required only when Close Q is ticked and ship quantity is over/short.'); return }
     setSaving(true)
     const meta = { container_no: header.container_no || '', cro_lp_no: header.cro_lp_no || '', gate_pass_no: header.gate_pass_no || '', delivery_challan_no: header.delivery_challan_no || '', gd_no: header.gd_no || '', hbl_hawb_no: header.hbl_hawb_no || '', fi_no: header.fi_no || '', lc_no: header.lc_no || '', tracking_url: header.tracking_url || '', currency: selectedQueues[0]?.currency || 'USD', lines: Object.fromEntries(selectedQueues.map(q => [q.id, { qty:num(lines[q.id]?.qty), cartons:num(lines[q.id]?.cartons), cbm:num(lines[q.id]?.cbm), value:num(lines[q.id]?.value), close_queue:!!lines[q.id]?.close_queue, close_reason:lines[q.id]?.close_reason || '' }])) }
     const packedNotes = packShippingNotes(header.notes, meta)
-    const headerPayload = { shipment_no:header.shipment_no, shipment_date:header.shipment_date, container_no:header.container_no || null, container_number:header.container_no || null, cro_lp_no:header.cro_lp_no || null, booking_ref:header.cro_lp_no || null, gate_pass_no:header.gate_pass_no || null, delivery_challan_no:header.delivery_challan_no || null, gd_no:header.gd_no || null, hbl_hawb_no:header.hbl_hawb_no || null, fi_no:header.fi_no || null, lc_no:header.lc_no || null, tracking_url:header.tracking_url || null, etd:header.etd || null, eta:header.eta || null, notes:packedNotes || null, status }
+    const headerPayload = { shipment_no:isEdit ? header.shipment_no : null, shipment_date:header.shipment_date, container_no:header.container_no || null, container_number:header.container_no || null, cro_lp_no:header.cro_lp_no || null, booking_ref:header.cro_lp_no || null, gate_pass_no:header.gate_pass_no || null, delivery_challan_no:header.delivery_challan_no || null, gd_no:header.gd_no || null, hbl_hawb_no:header.hbl_hawb_no || null, fi_no:header.fi_no || null, lc_no:header.lc_no || null, tracking_url:header.tracking_url || null, etd:header.etd || null, eta:header.eta || null, notes:packedNotes || null, status }
     let sh = draft?.shipment || null
     let error = null
     {
@@ -357,7 +356,7 @@ function ShipmentModal({ selectedQueues, shipments, onClose, onDone, draft }) {
       sh = res.data; error = res.error
     }
     if (error && /container_no|container_number|cro_lp_no|booking_ref|gate_pass_no|delivery_challan_no|gd_no|hbl_hawb_no|fi_no|lc_no|tracking_url|schema cache/i.test(error.message || '')) {
-      const fallback = { shipment_no:header.shipment_no, shipment_date:header.shipment_date, etd:header.etd || null, eta:header.eta || null, notes:packedNotes || null, status }
+      const fallback = { shipment_no:isEdit ? header.shipment_no : null, shipment_date:header.shipment_date, etd:header.etd || null, eta:header.eta || null, notes:packedNotes || null, status }
       const res = await saveShipmentHeader(fallback, isEdit, draft?.shipment?.id)
       sh = res.data; error = res.error
     }
@@ -390,7 +389,7 @@ function ShipmentModal({ selectedQueues, shipments, onClose, onDone, draft }) {
           <div style={{ padding:14, borderRight:'1px solid #eef2f7', background:'#fafafa', overflow:'hidden' }}>
             <div style={{ fontSize:10, fontWeight:700, color:'#9ca3af', letterSpacing:'.5px', textTransform:'uppercase', marginBottom:8 }}>Shipment Info</div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-              {[['Shipment No','shipment_no','text'],['Shipment Date','shipment_date','date'],['Container No','container_no','text'],['Booking Ref / CRO No / LP Ref','cro_lp_no','text'],['ETD','etd','date'],['ETA','eta','date'],['Gate Pass #','gate_pass_no','text'],['Delivery Challan #','delivery_challan_no','text'],['GD #','gd_no','text'],['HBL # / HAWB #','hbl_hawb_no','text'],['F.I #','fi_no','text'],['LC #','lc_no','text']].map(([label,key,type]) => <div key={key}><label style={labelStyle}>{label}</label><input style={inputStyle} type={type} value={header[key] || ''} onChange={e=>setHeader(h=>({...h,[key]:e.target.value}))}/></div>)}
+              {[['Shipment No','shipment_no','text'],['Shipment Date','shipment_date','date'],['Container No','container_no','text'],['Booking Ref / CRO No / LP Ref','cro_lp_no','text'],['ETD','etd','date'],['ETA','eta','date'],['Gate Pass #','gate_pass_no','text'],['Delivery Challan #','delivery_challan_no','text'],['GD #','gd_no','text'],['HBL # / HAWB #','hbl_hawb_no','text'],['F.I #','fi_no','text'],['LC #','lc_no','text']].map(([label,key,type]) => <div key={key}><label style={labelStyle}>{label}</label><input style={inputStyle} type={type} value={header[key] || ''} readOnly={key==='shipment_no'} placeholder={key==='shipment_no'?'Assigned on save':undefined} onChange={e=>setHeader(h=>({...h,[key]:e.target.value}))}/></div>)}
               <div style={{ gridColumn:'1 / -1' }}><label style={labelStyle}>Tracking URL</label><input style={inputStyle} type="url" placeholder="https://..." value={header.tracking_url || ''} onChange={e=>setHeader(h=>({...h,tracking_url:e.target.value}))}/></div>
               <div style={{ gridColumn:'1 / -1' }}><label style={labelStyle}>Notes</label><textarea style={{ ...inputStyle, height:62, padding:8, resize:'none' }} value={header.notes} onChange={e=>setHeader(h=>({...h,notes:e.target.value}))}/></div>
             </div>
