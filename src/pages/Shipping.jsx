@@ -1,3 +1,4 @@
+import { packShippingNotes, splitShippingNotes } from '../lib/shippingNotes'
 import {purchasingLookup} from '../lib/poReview'
 import { can } from '../lib/permissions'
 import {useLocation} from 'react-router-dom'
@@ -160,22 +161,6 @@ function purchaseTaxByOrder(purchaseOrders) {
     out[po.order_id] = (out[po.order_id] || 0) + taxAmount
   })
   return out
-}
-const SHIPPING_META_START = '\n\n[[APP2A_SHIPPING_META:'
-const SHIPPING_META_END = ']]'
-function splitShippingNotes(notes) {
-  const raw = String(notes || '')
-  const i = raw.indexOf(SHIPPING_META_START)
-  if (i < 0) return { clean: raw, meta: {} }
-  const clean = raw.slice(0, i).trim()
-  const rest = raw.slice(i + SHIPPING_META_START.length)
-  const j = rest.indexOf(SHIPPING_META_END)
-  if (j < 0) return { clean, meta: {} }
-  try { return { clean, meta: JSON.parse(atob(rest.slice(0, j))) || {} } } catch { return { clean, meta: {} } }
-}
-function packShippingNotes(clean, meta) {
-  const encoded = btoa(JSON.stringify(meta || {}))
-  return String(clean || '').trim() + SHIPPING_META_START + encoded + SHIPPING_META_END
 }
 function shipmentMeta(shipment) { return splitShippingNotes(shipment?.notes).meta || {} }
 function shipmentCleanNotes(shipment) { return splitShippingNotes(shipment?.notes).clean || '' }
