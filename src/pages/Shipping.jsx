@@ -165,7 +165,13 @@ function purchaseTaxByOrder(purchaseOrders) {
 function shipmentMeta(shipment) { return splitShippingNotes(shipment?.notes).meta || {} }
 function shipmentCleanNotes(shipment) { return splitShippingNotes(shipment?.notes).clean || '' }
 function firstNonEmpty(...vals) { return vals.find(v => v !== undefined && v !== null && String(v).trim() !== '') || '' }
-function lineMeta(meta, queueId) { return meta?.lines?.[queueId] || {} }
+function lineMeta(meta, key) { return meta?.lines?.[key] || {} }
+function savedLineMeta(meta, line) { return meta?.lines?.[line.id] || lineMeta(meta, line.queue_id) }
+function shipmentLineValue(line, meta, source) {
+  const qty = num(firstNonEmpty(line.shipped_qty, line.ship_qty, meta.qty))
+  const estimated = num(source?.qty) ? num(source.value) * qty / num(source.qty) : 0
+  return num(firstNonEmpty(line.value, meta.value, Math.round(estimated * 100) / 100))
+}
 function displayQueueLabel(label) { return String(label || '').split('__APP2A_QC__')[0] }
 function nextShipmentNo(shipments) {
   const nums = (shipments || []).map(s => parseInt(String(s.shipment_no || '').replace(/\D/g,''))).filter(Number.isFinite)
@@ -284,12 +290,12 @@ function ShipmentModal({ selectedQueues, shipments, onClose, onDone, draft }) {
     }
   })
   const [lines, setLines] = useState(() => {
-    const existing = Object.fromEntries((draft?.lines || []).map(l => [l.queue_id, l]))
+    const existing = Object.fromEntries((draft?.lines || []).map(l => [draft.preserveLines ? l.id : l.queue_id, l]))
     const meta = shipmentMeta(draft?.shipment)
     return Object.fromEntries(selectedQueues.map(q => {
       const l = existing[q.id] || {}
-      const lm = lineMeta(meta, q.id)
-      const value = firstNonEmpty(l.value, lm.value, q.value ? Number(q.value).toFixed(2) : '')
+      const lm = l.id ? savedLineMeta(meta, l) : lineMeta(meta, q.id)
+      const value = l.id ? shipmentLineValue(l, lm, q) : firstNonEmpty(l.value, lm.value, q.value ? Number(q.value).toFixed(2) : '')
       return [q.id, {
         qty: firstNonEmpty(l.ship_qty, l.shipped_qty, lm.qty, q.balance_qty, q.qty),
         cartons: firstNonEmpty(l.cartons, lm.cartons),
@@ -303,7 +309,7 @@ function ShipmentModal({ selectedQueues, shipments, onClose, onDone, draft }) {
   })
 
   const totals = useMemo(() => Object.values(lines).reduce((a, l) => ({ qty:a.qty+num(l.qty), cartons:a.cartons+num(l.cartons), cbm:a.cbm+num(l.cbm), value:a.value+num(l.value) }), { qty:0, cartons:0, cbm:0, value:0 }), [lines])
-  const invalidClose = selectedQueues.some(q => {
+  const invalidClose = !draft?.preserveLines && selectedQueues.some(q => {
     const l = lines[q.id] || {}
     const shippedQty = num(l.qty)
     const expectedQty = num(q.balance_qty || q.qty)
@@ -331,9 +337,11 @@ function ShipmentModal({ selectedQueues, shipments, onClose, onDone, draft }) {
     if (!header.shipment_date) { alert('Shipment Date is required.'); return }
     if (invalidClose) { alert('Reason is required only when Close Q is ticked and ship quantity is over/short.'); return }
     setSaving(true)
-    const meta = { container_no: header.container_no || '', cro_lp_no: header.cro_lp_no || '', gate_pass_no: header.gate_pass_no || '', delivery_challan_no: header.delivery_challan_no || '', gd_no: header.gd_no || '', hbl_hawb_no: header.hbl_hawb_no || '', fi_no: header.fi_no || '', lc_no: header.lc_no || '', tracking_url: header.tracking_url || '', currency: selectedQueues[0]?.currency || 'USD', lines: Object.fromEntries(selectedQueues.map(q => [q.id, { qty:num(lines[q.id]?.qty), cartons:num(lines[q.id]?.cartons), cbm:num(lines[q.id]?.cbm), value:num(lines[q.id]?.value), close_queue:!!lines[q.id]?.close_queue, close_reason:lines[q.id]?.close_reason || '' }])) }
+    const meta = { ...shipmentMeta(draft?.shipment), container_no: header.container_no || '', cro_lp_no: header.cro_lp_no || '', gate_pass_no: header.gate_pass_no || '', delivery_challan_no: header.delivery_challan_no || '', gd_no: header.gd_no || '', hbl_hawb_no: header.hbl_hawb_no || '', fi_no: header.fi_no || '', lc_no: header.lc_no || '', tracking_url: header.tracking_url || '', currency: selectedQueues[0]?.currency || 'USD', lines: Object.fromEntries(selectedQueues.map(q => [q.id, { qty:num(lines[q.id]?.qty), cartons:num(lines[q.id]?.cartons), cbm:num(lines[q.id]?.cbm), value:num(lines[q.id]?.value), close_queue:!!lines[q.id]?.close_queue, close_reason:lines[q.id]?.close_reason || '' }])) }
+    if (!isEdit) meta.display_status = status
+    const storedStatus = isEdit ? undefined : 'Open'
     const packedNotes = packShippingNotes(header.notes, meta)
-    const headerPayload = { shipment_no:isEdit ? header.shipment_no : null, shipment_date:header.shipment_date, container_no:header.container_no || null, container_number:header.container_no || null, cro_lp_no:header.cro_lp_no || null, booking_ref:header.cro_lp_no || null, gate_pass_no:header.gate_pass_no || null, delivery_challan_no:header.delivery_challan_no || null, gd_no:header.gd_no || null, hbl_hawb_no:header.hbl_hawb_no || null, fi_no:header.fi_no || null, lc_no:header.lc_no || null, tracking_url:header.tracking_url || null, etd:header.etd || null, eta:header.eta || null, notes:packedNotes || null, status }
+    const headerPayload = { shipment_no:isEdit ? header.shipment_no : null, shipment_date:header.shipment_date, container_no:header.container_no || null, container_number:header.container_no || null, cro_lp_no:header.cro_lp_no || null, booking_ref:header.cro_lp_no || null, gate_pass_no:header.gate_pass_no || null, delivery_challan_no:header.delivery_challan_no || null, gd_no:header.gd_no || null, hbl_hawb_no:header.hbl_hawb_no || null, fi_no:header.fi_no || null, lc_no:header.lc_no || null, tracking_url:header.tracking_url || null, etd:header.etd || null, eta:header.eta || null, notes:packedNotes || null, status:storedStatus }
     let sh = draft?.shipment || null
     let error = null
     {
@@ -341,12 +349,13 @@ function ShipmentModal({ selectedQueues, shipments, onClose, onDone, draft }) {
       sh = res.data; error = res.error
     }
     if (error && /container_no|container_number|cro_lp_no|booking_ref|gate_pass_no|delivery_challan_no|gd_no|hbl_hawb_no|fi_no|lc_no|tracking_url|schema cache/i.test(error.message || '')) {
-      const fallback = { shipment_no:isEdit ? header.shipment_no : null, shipment_date:header.shipment_date, etd:header.etd || null, eta:header.eta || null, notes:packedNotes || null, status }
+      const fallback = { shipment_no:isEdit ? header.shipment_no : null, shipment_date:header.shipment_date, etd:header.etd || null, eta:header.eta || null, notes:packedNotes || null, status:storedStatus }
       const res = await saveShipmentHeader(fallback, isEdit, draft?.shipment?.id)
       sh = res.data; error = res.error
     }
     if (error || !sh) { alert(error?.message || 'Could not save shipment.'); setSaving(false); return }
 
+    if (draft?.preserveLines) { setSaving(false); onDone(); return }
     if (isEdit) await supabase.from('shipment_lines').delete().eq('shipment_id', sh.id)
     const fullLines = selectedQueues.map(q => ({ shipment_id:sh.id, queue_id:q.id, order_id:q.order_id, shipped_qty:num(lines[q.id]?.qty), ship_qty:num(lines[q.id]?.qty), cartons:num(lines[q.id]?.cartons) || null, cbm:num(lines[q.id]?.cbm) || null, value:num(lines[q.id]?.value) || null, close_queue:!!lines[q.id]?.close_queue, close_reason:lines[q.id]?.close_reason || null }))
     let res = await supabase.from('shipment_lines').insert(fullLines)
@@ -382,7 +391,7 @@ function ShipmentModal({ selectedQueues, shipments, onClose, onDone, draft }) {
           <div style={{ padding:10, overflow:'auto', minWidth:0 }}>
             <table style={{ width:'100%', borderCollapse:'collapse', tableLayout:'fixed' }}>
               <thead><tr style={{ background:'#fafafa', position:'sticky', top:0, zIndex:2 }}>{['Q #','Style','Buyer','Balance','Ship Qty','Cartons','CBM','Value','Close Q','Reason'].map(h=><th key={h} style={{ ...thStyle, padding:'8px 6px', textAlign:['Balance','Ship Qty','Cartons','CBM','Value'].includes(h)?'right':'left' }}>{h}</th>)}</tr></thead>
-              <tbody>{selectedQueues.map(q => <tr key={q.id}><td style={{...tdStyle,padding:'8px 6px'}}><b>{q.q_number || '—'}</b><div style={{ fontSize:9.5, color:'#9ca3af', overflow:'hidden', textOverflow:'ellipsis' }}>{displayQueueLabel(q.label)}</div></td><td style={{...tdStyle,padding:'8px 6px'}}>{q.style_number || '—'}</td><td style={{...tdStyle,padding:'8px 6px'}}>{q.buyer_name || '—'}</td><td style={{ ...tdStyle, padding:'8px 6px', textAlign:'right' }}>{num(q.balance_qty || q.qty).toLocaleString()}</td><td style={{...tdStyle,padding:'8px 6px'}}><input style={{ ...inputStyle, textAlign:'right', width:'100%' }} type="number" value={lines[q.id]?.qty || ''} onChange={e=>setShipQty(q,e.target.value)}/></td><td style={{...tdStyle,padding:'8px 6px'}}><input style={{ ...inputStyle, textAlign:'right', width:'100%' }} type="number" value={lines[q.id]?.cartons || ''} onChange={e=>setLine(q.id,{cartons:e.target.value})}/></td><td style={{...tdStyle,padding:'8px 6px'}}><input style={{ ...inputStyle, textAlign:'right', width:'100%' }} type="number" step="0.01" value={lines[q.id]?.cbm || ''} onChange={e=>setLine(q.id,{cbm:e.target.value})}/></td><td style={{...tdStyle,padding:'8px 6px'}}><input style={{ ...inputStyle, textAlign:'right', width:'100%' }} type="number" step="0.01" value={lines[q.id]?.value || ''} onChange={e=>setLine(q.id,{value:e.target.value,valueManual:true})}/><OverrideReset show={!!lines[q.id]?.valueManual} onReset={()=>setLine(q.id,{value:q.value || '',valueManual:false})}/></td><td style={{ ...tdStyle, padding:'8px 6px', textAlign:'center' }}><input type="checkbox" checked={!!lines[q.id]?.close_queue} onChange={e=>setLine(q.id,{close_queue:e.target.checked})}/></td><td style={{...tdStyle,padding:'8px 6px'}}><input style={{ ...inputStyle, width:'100%', borderColor:lines[q.id]?.close_queue && Math.abs(num(lines[q.id]?.qty) - num(q.balance_qty || q.qty)) > 0.0001 && !lines[q.id]?.close_reason ? '#f59e0b' : '#e5e7eb' }} placeholder={lines[q.id]?.close_queue && Math.abs(num(lines[q.id]?.qty) - num(q.balance_qty || q.qty)) > 0.0001 ? 'Required for over/short' : 'Optional'} value={lines[q.id]?.close_reason || ''} onChange={e=>setLine(q.id,{close_reason:e.target.value})}/></td></tr>)}</tbody>
+              <tbody>{selectedQueues.map(q => <tr key={q.id}><td style={{...tdStyle,padding:'8px 6px'}}><b>{q.q_number || '—'}</b><div style={{ fontSize:9.5, color:'#9ca3af', overflow:'hidden', textOverflow:'ellipsis' }}>{displayQueueLabel(q.label)}</div></td><td style={{...tdStyle,padding:'8px 6px'}}>{q.style_number || '—'}</td><td style={{...tdStyle,padding:'8px 6px'}}>{q.buyer_name || '—'}</td><td style={{ ...tdStyle, padding:'8px 6px', textAlign:'right' }}>{num(q.balance_qty || q.qty).toLocaleString()}</td><td style={{...tdStyle,padding:'8px 6px'}}><input style={{ ...inputStyle, textAlign:'right', width:'100%' }} type="number" disabled={draft?.preserveLines} value={lines[q.id]?.qty || ''} onChange={e=>setShipQty(q,e.target.value)}/></td><td style={{...tdStyle,padding:'8px 6px'}}><input style={{ ...inputStyle, textAlign:'right', width:'100%' }} type="number" value={lines[q.id]?.cartons || ''} onChange={e=>setLine(q.id,{cartons:e.target.value})}/></td><td style={{...tdStyle,padding:'8px 6px'}}><input style={{ ...inputStyle, textAlign:'right', width:'100%' }} type="number" step="0.01" value={lines[q.id]?.cbm || ''} onChange={e=>setLine(q.id,{cbm:e.target.value})}/></td><td style={{...tdStyle,padding:'8px 6px'}}><input style={{ ...inputStyle, textAlign:'right', width:'100%' }} type="number" step="0.01" value={lines[q.id]?.value || ''} onChange={e=>setLine(q.id,{value:e.target.value,valueManual:true})}/><OverrideReset show={!!lines[q.id]?.valueManual} onReset={()=>setLine(q.id,{value:num(q.qty) && num(q.value) ? (num(lines[q.id]?.qty)*num(q.value)/num(q.qty)).toFixed(2) : '',valueManual:false})}/></td><td style={{ ...tdStyle, padding:'8px 6px', textAlign:'center' }}><input type="checkbox" disabled={draft?.preserveLines} checked={!!lines[q.id]?.close_queue} onChange={e=>setLine(q.id,{close_queue:e.target.checked})}/></td><td style={{...tdStyle,padding:'8px 6px'}}><input style={{ ...inputStyle, width:'100%', borderColor:lines[q.id]?.close_queue && Math.abs(num(lines[q.id]?.qty) - num(q.balance_qty || q.qty)) > 0.0001 && !lines[q.id]?.close_reason ? '#f59e0b' : '#e5e7eb' }} placeholder={lines[q.id]?.close_queue && Math.abs(num(lines[q.id]?.qty) - num(q.balance_qty || q.qty)) > 0.0001 ? 'Required for over/short' : 'Optional'} value={lines[q.id]?.close_reason || ''} onChange={e=>setLine(q.id,{close_reason:e.target.value})}/></td></tr>)}</tbody>
             </table>
           </div>
         </div>
@@ -549,7 +558,7 @@ function HistoricalShipmentModal({ shipments, draft, onClose, onDone }) {
   </div>
 }
 
-function ShipmentsTab({ shipments, shipmentLines, rows, onRefresh, onEdit, onPastShipment, onNewDirect }) {
+function ShipmentsTab({ shipments, shipmentLines, rows, orderRows, onRefresh, onEdit, onPastShipment, onNewDirect }) {
   const [search, setSearch] = useShippingFilterMemory('shipments.search','')
   const [groupBy, setGroupBy] = useShippingFilterMemory('shipments.group','none')
   const [sort, setSort] = useShippingFilterMemory('shipments.sort',{ col:'shipment_date', dir:'desc' })
@@ -572,17 +581,18 @@ function ShipmentsTab({ shipments, shipmentLines, rows, onRefresh, onEdit, onPas
   const [colOrder, setColOrder] = useState(savedShipView.order.includes('buyer')?savedShipView.order:[...savedShipView.order.slice(0,2),'buyer',...savedShipView.order.slice(2)])
   useEffect(() => saveTableView('shipping.shipments', visibleCols, colOrder), [visibleCols, colOrder])
   const rowMap = Object.fromEntries(rows.map(q => [q.id, q]))
+  const sourceFor = line => rowMap[line.queue_id] || orderRows[line.order_id]
   const data = shipments.map(s => {
     const meta = shipmentMeta(s)
     const lines = shipmentLines.filter(l=>l.shipment_id===s.id)
-    const lm = (l) => lineMeta(meta, l.queue_id)
+    const lm = (l) => savedLineMeta(meta, l)
     const qty=lines.length?lines.reduce((a,l)=>a+num(firstNonEmpty(l.shipped_qty, l.ship_qty, lm(l).qty)),0):num(meta.historical?.qty)
     const cartons=lines.reduce((a,l)=>a+num(firstNonEmpty(l.cartons, lm(l).cartons)),0)
     const cbm=lines.reduce((a,l)=>a+num(firstNonEmpty(l.cbm, lm(l).cbm)),0)
-    const value=lines.length?lines.reduce((a,l)=>a+num(firstNonEmpty(l.value, lm(l).value)),0):num(meta.historical?.value)
+    const value=lines.length?lines.reduce((a,l)=>a+shipmentLineValue(l, lm(l), sourceFor(l)),0):num(meta.historical?.value)
     const qLabels=lines.map(l=>String(rowMap[l.queue_id]?.q_number || '').trim() || 'Nil')
     const qs=qLabels.length ? qLabels.join(', ') : (meta.historical?'Past shipment':'Nil')
-    return { ...s, status:meta.display_status || s.status, buyer:[...new Set(lines.map(l=>rowMap[l.queue_id]?.buyer_name).filter(Boolean))].join(', ') || meta.historical?.buyer || '—', qty, cartons, cbm, value, qs, lineCount:lines.length, currency:meta.currency || lines.map(l=>rowMap[l.queue_id]?.currency).find(Boolean) || 'USD', container_no:firstNonEmpty(s.container_no, s.container_number, meta.container_no), booking_ref:firstNonEmpty(s.cro_lp_no, s.booking_ref, s.booking_no, meta.cro_lp_no), tracking_url:firstNonEmpty(s.tracking_url, meta.tracking_url), tracking:trackingDays(meta.historical?.revised_eta || s.eta, meta.display_status || s.status) }
+    return { ...s, status:meta.display_status || s.status, buyer:[...new Set(lines.map(l=>sourceFor(l)?.buyer_name).filter(Boolean))].join(', ') || meta.historical?.buyer || '—', qty, cartons, cbm, value, qs, lineCount:lines.length, currency:meta.currency || lines.map(l=>sourceFor(l)?.currency).find(Boolean) || 'USD', container_no:firstNonEmpty(s.container_no, s.container_number, meta.container_no), booking_ref:firstNonEmpty(s.cro_lp_no, s.booking_ref, s.booking_no, meta.cro_lp_no), tracking_url:firstNonEmpty(s.tracking_url, meta.tracking_url), tracking:trackingDays(meta.historical?.revised_eta || s.eta, meta.display_status || s.status) }
   })
   const statuses = [...new Set([...SHIPMENT_STATUSES,...data.map(s=>s.status).filter(Boolean)])]
   const visibleKeys = colOrder.filter(k => visibleCols[k] && k!=='status')
@@ -613,7 +623,7 @@ function ShipmentsTab({ shipments, shipmentLines, rows, onRefresh, onEdit, onPas
   function toggleShipment(id) { setSelectedShipmentIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }) }
   function toggleAllShipments() { setSelectedShipmentIds(prev => filtered.length && filtered.every(s=>prev.has(s.id)) ? new Set() : new Set([...prev, ...filtered.map(s=>s.id)])) }
   function assertOne(action) { if (selectedShipments.length !== 1) { alert(`Select exactly one shipment to ${action}.`); return null } return selectedShipments[0] }
-  function printShipment(s) { const lines = shipmentLines.filter(l=>l.shipment_id===s.id); const meta=shipmentMeta(s); const body = lines.map(l=>{ const q=rowMap[l.queue_id]||{}; const lm=lineMeta(meta,l.queue_id); return `<tr><td>${q.q_number||'Nil'}</td><td>${q.style_number||'—'}</td><td>${q.buyer_name||'—'}</td><td style="text-align:right">${num(firstNonEmpty(l.shipped_qty,l.ship_qty,lm.qty)).toLocaleString()}</td><td style="text-align:right">${num(firstNonEmpty(l.cartons,lm.cartons)).toLocaleString()}</td><td style="text-align:right">${money(firstNonEmpty(l.cbm,lm.cbm))}</td><td style="text-align:right">${moneyCurrency(firstNonEmpty(l.value,lm.value), s.currency)}</td></tr>` }).join(''); printHTML(`<div style="font-family:Arial;padding:24px"><h2>Shipment ${s.shipment_no||''}</h2><p>Date: ${fmtDate(s.shipment_date)} · Container: ${s.container_no || '—'} · Booking: ${s.booking_ref || '—'} · ETD: ${fmtDate(s.etd)} · ETA: ${fmtDate(s.eta)}</p><table style="width:100%;border-collapse:collapse"><thead><tr><th>Q #</th><th>Style</th><th>Buyer</th><th>Qty</th><th>Cartons</th><th>CBM</th><th>Value</th></tr></thead><tbody>${body}</tbody></table></div>`) }
+  function printShipment(s) { const lines = shipmentLines.filter(l=>l.shipment_id===s.id); const meta=shipmentMeta(s); const body = lines.map(l=>{ const q=sourceFor(l)||{}; const lm=savedLineMeta(meta,l); return `<tr><td>${q.q_number||'Nil'}</td><td>${q.style_number||'—'}</td><td>${q.buyer_name||'—'}</td><td style="text-align:right">${num(firstNonEmpty(l.shipped_qty,l.ship_qty,lm.qty)).toLocaleString()}</td><td style="text-align:right">${num(firstNonEmpty(l.cartons,lm.cartons)).toLocaleString()}</td><td style="text-align:right">${money(firstNonEmpty(l.cbm,lm.cbm))}</td><td style="text-align:right">${moneyCurrency(shipmentLineValue(l,lm,q), q.currency || s.currency)}</td></tr>` }).join(''); printHTML(`<div style="font-family:Arial;padding:24px"><h2>Shipment ${s.shipment_no||''}</h2><p>Date: ${fmtDate(s.shipment_date)} · Container: ${s.container_no || '—'} · Booking: ${s.booking_ref || '—'} · ETD: ${fmtDate(s.etd)} · ETA: ${fmtDate(s.eta)}</p><table style="width:100%;border-collapse:collapse"><thead><tr><th>Q #</th><th>Style</th><th>Buyer</th><th>Qty</th><th>Cartons</th><th>CBM</th><th>Value</th></tr></thead><tbody>${body}</tbody></table></div>`) }
   async function changeShipmentStatus(s, status) {
     if(s.status===status)return
     setSavingStatus(s.id);setStatusError('')
@@ -1140,20 +1150,31 @@ export default function Shipping() {
     }
   },[globalLocation.key,loading,shipments,bookings])
   const rows = useMemo(() => buildQueueRows(queues, orders, shipmentLines, sizeGroups, sizeBreakdown), [queues, orders, shipmentLines, sizeGroups, sizeBreakdown])
+  const orderRows = useMemo(() => Object.fromEntries(buildQueueRows(
+    orders.map(order=>({id:order.id, order_id:order.id, label:'Full PO', qty:order.total_qty})),
+    orders, [], sizeGroups, sizeBreakdown,
+  ).map(row=>[row.order_id, {...row, label:row.order.factory_ref || row.order.po_number, buyer_name:row.buyer_name || row.order.buyer?.name}])),
+  [orders, sizeGroups, sizeBreakdown])
   const selectedQueues = [...selectedIds].map(id => rows.find(q => q.id === id)).filter(Boolean)
   function openNewShipment() { if (!selectedQueues.length) { alert('Select at least one queue to create shipment.'); return } if (!isAdmin && selectedQueues.some(isQueueRestricted)) { alert('Only admins can book/ship inactive or unassigned Qs.'); return } setEditDraft(null); setShowModal(true) }
   function openEditShipment(shipment) {
     const lines = shipmentLines.filter(l => l.shipment_id === shipment.id)
-    const qRows = lines.map(l => rows.find(q => q.id === l.queue_id)).filter(Boolean)
-    if (!qRows.length) { alert('Could not find queues linked to this shipment.'); return }
-    setEditDraft({ shipment, lines })
+    const preserveLines = lines.some(l => !l.queue_id) || bookingAllocations.some(l => l.shipment_id === shipment.id)
+    const qRows = lines.map(l => {
+      const queue = rows.find(q => q.id === l.queue_id)
+      if (!preserveLines) return queue
+      const source = queue || orderRows[l.order_id]
+      return source && {...source, id:l.id}
+    }).filter(Boolean)
+    if (!qRows.length || qRows.length !== lines.length) { alert('Could not find all orders or queues linked to this shipment.'); return }
+    setEditDraft({ shipment, lines, qRows, preserveLines })
     setShowModal(true)
   }
   return <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'#fff', overflow:'hidden' }}>
     <div style={{ padding:'0 24px', borderBottom:'1px solid #eef0f4', flexShrink:0 }}><div style={{ display:'flex', gap:4 }}><button style={{ padding:'12px 16px 10px', border:'none', borderBottom:activeTab==='create'?'3px solid #111827':'3px solid transparent', background:'transparent', fontSize:13, fontWeight:700, cursor:'pointer', color:activeTab==='create'?'#111827':'#6b7280' }} onClick={()=>setActiveTab('create')}>Bookings</button><button style={{ padding:'12px 16px 10px', border:'none', borderBottom:activeTab==='shipments'?'3px solid #111827':'3px solid transparent', background:'transparent', fontSize:13, fontWeight:700, cursor:'pointer', color:activeTab==='shipments'?'#111827':'#6b7280' }} onClick={()=>setActiveTab('shipments')}>Shipments</button>{isAdmin && <button style={{ padding:'12px 16px 10px', border:'none', borderBottom:activeTab==='payments'?'3px solid #111827':'3px solid transparent', background:'transparent', fontSize:13, fontWeight:700, cursor:'pointer', color:activeTab==='payments'?'#111827':'#6b7280' }} onClick={()=>setActiveTab('payments')}>Payments</button>}</div></div>
-    {activeTab === 'create' ? <BookingRecords bookings={bookings} bookingLines={bookingLines} allocations={bookingAllocations} queues={queues} orders={orders} shipmentLines={shipmentLines} onRefresh={load} onCreateShipment={()=>{setActiveTab('shipments');setDirectMode('booking')}} /> : activeTab === 'shipments' ? <ShipmentsTab shipments={shipments} shipmentLines={shipmentLines} rows={rows} onRefresh={load} onEdit={openEditShipment} onPastShipment={setPastDraft} onNewDirect={setDirectMode} /> : isAdmin ? <PaymentsTab shipments={shipments} shipmentLines={shipmentLines} rows={rows} isAdmin={isAdmin} /> : <BookingRecords bookings={bookings} bookingLines={bookingLines} allocations={bookingAllocations} queues={queues} orders={orders} shipmentLines={shipmentLines} onRefresh={load} onCreateShipment={()=>{setActiveTab('shipments');setDirectMode('booking')}} />}
+    {activeTab === 'create' ? <BookingRecords bookings={bookings} bookingLines={bookingLines} allocations={bookingAllocations} queues={queues} orders={orders} shipmentLines={shipmentLines} onRefresh={load} onCreateShipment={()=>{setActiveTab('shipments');setDirectMode('booking')}} /> : activeTab === 'shipments' ? <ShipmentsTab shipments={shipments} shipmentLines={shipmentLines} rows={rows} orderRows={orderRows} onRefresh={load} onEdit={openEditShipment} onPastShipment={setPastDraft} onNewDirect={setDirectMode} /> : isAdmin ? <PaymentsTab shipments={shipments} shipmentLines={shipmentLines} rows={rows} isAdmin={isAdmin} /> : <BookingRecords bookings={bookings} bookingLines={bookingLines} allocations={bookingAllocations} queues={queues} orders={orders} shipmentLines={shipmentLines} onRefresh={load} onCreateShipment={()=>{setActiveTab('shipments');setDirectMode('booking')}} />}
     {directMode && <DirectShipment mode={directMode} bookings={bookings} bookingLines={bookingLines} allocations={bookingAllocations} orders={orders} queues={queues} shipmentLines={shipmentLines} onClose={()=>setDirectMode(null)} onDone={load}/> }
     {pastDraft !== undefined && <HistoricalShipmentModal shipments={shipments} draft={pastDraft} onClose={()=>setPastDraft(undefined)} onDone={()=>{setPastDraft(undefined);load();setActiveTab('shipments')}} />}
-    {showModal && <ShipmentModal selectedQueues={editDraft ? editDraft.lines.map(l => rows.find(q => q.id === l.queue_id)).filter(Boolean) : selectedQueues} shipments={shipments} draft={editDraft} onClose={()=>{setShowModal(false); setEditDraft(null)}} onDone={()=>{ setShowModal(false); setEditDraft(null); setSelectedIds(new Set()); load(); setActiveTab('shipments') }} />}
+    {showModal && <ShipmentModal selectedQueues={editDraft ? editDraft.qRows : selectedQueues} shipments={shipments} draft={editDraft} onClose={()=>{setShowModal(false); setEditDraft(null)}} onDone={()=>{ setShowModal(false); setEditDraft(null); setSelectedIds(new Set()); load(); setActiveTab('shipments') }} />}
   </div>
 }
